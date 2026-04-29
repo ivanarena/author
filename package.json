@@ -1,0 +1,18 @@
+{
+  "name": "author-notes",
+  "private": true,
+  "type": "module",
+  "packageManager": "aube@1.4.0",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev": "aube -F @author/web run dev",
+    "build": "aube -F @author/web run build",
+    "check": "aube -F @author/web run check",
+    "test": "aube -F @author/sync-spec run test && aube -F @author/web run test",
+    "test:e2e": "aube -F @author/web run test:e2e",
+    "seed": "aube -F @author/web run seed",
+    "mock:browser": "aube -F @author/web run mock:browser"
+  }
+}

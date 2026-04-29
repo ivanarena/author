@@ -1,0 +1,15 @@
+{
+  "name": "@author/api-types",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@author/schema": "workspace:*"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  }
+}

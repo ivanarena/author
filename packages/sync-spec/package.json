@@ -1,0 +1,22 @@
+{
+  "name": "@author/sync-spec",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@author/api-types": "workspace:*",
+    "@author/schema": "workspace:*"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "latest"
+  }
+}

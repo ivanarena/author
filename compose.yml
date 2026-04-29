@@ -1,0 +1,14 @@
+services:
+  notes:
+    build: .
+    image: author-notes:local
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - author-notes-data:/data
+
+volumes:
+  author-notes-data:

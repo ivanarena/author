@@ -1,0 +1,43 @@
+{
+  "name": "@author/web",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:watch": "vitest",
+    "seed": "tsx scripts/seed.ts",
+    "mock:browser": "tsx scripts/prefill-browser.ts",
+    "cleanup": "tsx scripts/cleanup-trash.ts",
+    "prepare": "svelte-kit sync || true"
+  },
+  "dependencies": {
+    "@author/api-types": "workspace:*",
+    "@author/schema": "workspace:*",
+    "@author/sync-spec": "workspace:*",
+    "@fontsource/source-serif-4": "latest",
+    "@libsql/client": "latest",
+    "dexie": "latest",
+    "hono": "latest",
+    "lucide-svelte": "latest"
+  },
+  "devDependencies": {
+    "@author/test-fixtures": "workspace:*",
+    "@playwright/test": "latest",
+    "@sveltejs/adapter-node": "latest",
+    "@sveltejs/kit": "latest",
+    "@sveltejs/vite-plugin-svelte": "latest",
+    "@types/node": "latest",
+    "svelte": "latest",
+    "svelte-check": "latest",
+    "tsx": "latest",
+    "typescript": "latest",
+    "vite": "latest",
+    "vitest": "latest"
+  }
+}

@@ -29,7 +29,7 @@ Open the URL printed by Vite. The default local login password is `local-dev-pas
 
 ```sh
 aube -F @author/web run dev    # SvelteKit web app and API
-aube -F @author/web run seed   # Seed the SQLite database
+aube -F @author/web run seed   # Reset and seed the SQLite database
 aube run mock:browser          # Open a persistent browser profile filled with mock notes
 aube run test                  # Backend, sync, and conflict tests
 aube run test:e2e              # Browser IndexedDB sync tests
@@ -64,6 +64,10 @@ See `docs/package-manager.md` for the Aube workflow.
 ## Design Intent
 
 No blocks, toolbars, slash commands, public sharing, collaboration, Markdown rendering, or rich text. Notes have a title plus a plain text body. Network activity never blocks writing.
+
+## Import and Export
+
+The note toolbar can export a local JSON archive and import one back into IndexedDB. The JSON archive includes notebooks, active notes, and trashed notes; imported records are added as pending local changes so the normal sync flow can publish them.
 
 ## Visual Mock Data
 

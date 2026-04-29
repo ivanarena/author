@@ -3,6 +3,8 @@
   import {
     ArchiveRestore,
     Check,
+    CircleUserRound,
+    Download,
     FilePlus,
     Files,
     FolderPlus,
@@ -13,10 +15,18 @@
     Moon,
     Notebook,
     Pencil,
+    Redo2,
     RefreshCw,
+    Rows3,
+    Search,
+    Settings,
     Sun,
     Trash2,
-    X
+    Undo2,
+    Upload,
+    X,
+    ZoomIn,
+    ZoomOut
   } from 'lucide-svelte';
   import type { Device } from '@author/schema';
   import type { LocalConflict, LocalNote, LocalNotebook } from '$lib/client/db';
@@ -25,8 +35,10 @@
     createBlankNote,
     createNotebook,
     deleteNotebook,
+    exportNotesJson,
     getTheme,
     getToken,
+    importNotesJson,
     loadDevices,
     loadNotes,
     loadNotebooks,
@@ -34,6 +46,7 @@
     loadTrash,
     moveNoteToTrash,
     noteDisplayTitle,
+    noteNotebookIds,
     normalizeNotebookName,
     notebookNameExists,
     renameNotebook,
@@ -47,9 +60,21 @@
 
   type NoteSort = 'date-desc' | 'az' | 'za';
   type NoteGroup = { label: string; notes: LocalNote[] };
+  type EditorSnapshot = { title: string; body: string };
+  type SyncIndicatorKind = 'synced' | 'pending' | 'conflict' | 'deleted' | 'offline' | 'syncing';
+  type ContextMenuState =
+    | { type: 'note'; noteId: string; x: number; y: number }
+    | { type: 'notebook'; notebookId: string; x: number; y: number }
+    | null;
 
   const SORT_KEY = 'author-notes-sort';
+  const COMPACT_VIEW_KEY = 'author-notes-compact-view';
+  const EDITOR_ZOOM_KEY = 'author-notes-editor-zoom';
   const EMPTY_NOTEBOOK_FILTERS = new Set(['all', 'unfiled', 'trash']);
+  const MIN_EDITOR_ZOOM = 0.8;
+  const MAX_EDITOR_ZOOM = 1.4;
+  const EDITOR_ZOOM_STEP = 0.1;
+  const MAX_EDITOR_HISTORY = 120;
 
   let notes: LocalNote[] = [];
   let notebooks: LocalNotebook[] = [];
@@ -78,24 +103,46 @@
   let renameNotebookError = '';
   let deletingNotebookId: string | null = null;
   let noteSort: NoteSort = 'date-desc';
+  let searchValue = '';
+  let compactView = false;
+  let editorZoom = 1;
   let currentTime = new Date();
   let titleInput: HTMLInputElement | null = null;
   let bodyTextarea: HTMLTextAreaElement | null = null;
+  let importInput: HTMLInputElement | null = null;
+  let settingsModal: HTMLElement | null = null;
   let menusOpen = false;
   let menuCloseTimer: ReturnType<typeof setTimeout> | null = null;
+  let isImporting = false;
+  let settingsOpen = false;
+  let contextMenu: ContextMenuState = null;
+  let undoStack: EditorSnapshot[] = [];
+  let redoStack: EditorSnapshot[] = [];
+  let lastHistorySnapshot: EditorSnapshot = { title: '', body: '' };
 
   $: filteredNotes =
     filterId === 'trash'
       ? trash
       : notes.filter((note) => {
           if (filterId === 'all') return true;
-          if (filterId === 'unfiled') return note.notebookId === null;
-          return note.notebookId === filterId;
+          if (filterId === 'unfiled') return noteNotebookIds(note).length === 0;
+          return noteNotebookIds(note).includes(filterId);
         });
-  $: visibleNotes = sortNotes(filteredNotes, noteSort);
+  $: searchedNotes = filterNotesBySearch(filteredNotes, searchValue);
+  $: visibleNotes = sortNotes(searchedNotes, noteSort);
   $: visibleNoteGroups = groupNotesByDateRange(visibleNotes, noteSort);
   $: wordCount = countWords(`${titleValue} ${bodyValue}`);
   $: activeConflict = conflicts[0] ?? null;
+  $: notebookCounts = countNotesByNotebook(notes);
+  $: unfiledCount = notebookCounts.get('') ?? 0;
+  $: pendingSyncCount = countPendingSync(notes, trash, notebooks);
+  $: syncIndicatorKind = getSyncIndicatorKind();
+  $: syncIndicatorLabel = getSyncIndicatorLabel();
+  $: contextNote = getContextNote(contextMenu);
+  $: contextNotebook = getContextNotebook(contextMenu);
+  $: if (settingsOpen) void focusSettingsModal();
+  $: canUndoEditor = undoStack.length > 0 && !selectedNote?.trashedAt;
+  $: canRedoEditor = redoStack.length > 0 && !selectedNote?.trashedAt;
 
   onMount(() => {
     const clock = setInterval(() => {
@@ -115,6 +162,8 @@
     theme = getTheme();
     setTheme(theme);
     noteSort = getStoredSort();
+    compactView = getStoredCompactView();
+    editorZoom = getStoredEditorZoom();
     await refresh();
     openDraftNote();
 
@@ -154,6 +203,7 @@
     linkingNoteId = null;
     titleValue = '';
     bodyValue = '';
+    resetEditorHistory();
     void focusEditor('title');
   }
 
@@ -163,6 +213,7 @@
     linkingNoteId = null;
     titleValue = note.title;
     bodyValue = note.body;
+    resetEditorHistory();
     void focusEditor(note.title || note.body ? 'body' : 'title');
   }
 
@@ -181,10 +232,114 @@
     element.setSelectionRange(element.value.length, element.value.length);
   }
 
+  function currentEditorSnapshot(): EditorSnapshot {
+    return {
+      title: titleValue,
+      body: bodyValue
+    };
+  }
+
+  function sameEditorSnapshot(a: EditorSnapshot, b: EditorSnapshot): boolean {
+    return a.title === b.title && a.body === b.body;
+  }
+
+  function resetEditorHistory() {
+    undoStack = [];
+    redoStack = [];
+    lastHistorySnapshot = currentEditorSnapshot();
+  }
+
+  function pushEditorHistory(stack: EditorSnapshot[], snapshot: EditorSnapshot): EditorSnapshot[] {
+    const nextStack = stack.length && sameEditorSnapshot(stack[stack.length - 1], snapshot)
+      ? stack
+      : [...stack, snapshot];
+    return nextStack.slice(-MAX_EDITOR_HISTORY);
+  }
+
+  function handleEditorInput(event: Event, field: 'title' | 'body') {
+    const value = (event.currentTarget as HTMLInputElement | HTMLTextAreaElement).value;
+    const nextSnapshot = {
+      title: field === 'title' ? value : titleValue,
+      body: field === 'body' ? value : bodyValue
+    };
+
+    if (field === 'title') {
+      titleValue = value;
+    } else {
+      bodyValue = value;
+    }
+
+    if (!sameEditorSnapshot(lastHistorySnapshot, nextSnapshot)) {
+      undoStack = pushEditorHistory(undoStack, lastHistorySnapshot);
+      redoStack = [];
+      lastHistorySnapshot = nextSnapshot;
+    }
+
+    scheduleNoteSave();
+  }
+
+  function applyEditorHistorySnapshot(snapshot: EditorSnapshot) {
+    titleValue = snapshot.title;
+    bodyValue = snapshot.body;
+    lastHistorySnapshot = snapshot;
+    scheduleNoteSave();
+  }
+
+  function undoEditorHistory() {
+    if (!canUndoEditor) return;
+    const current = currentEditorSnapshot();
+    const snapshot = undoStack[undoStack.length - 1];
+    if (!snapshot) return;
+    undoStack = undoStack.slice(0, -1);
+    redoStack = pushEditorHistory(redoStack, current);
+    applyEditorHistorySnapshot(snapshot);
+  }
+
+  function redoEditorHistory() {
+    if (!canRedoEditor) return;
+    const current = currentEditorSnapshot();
+    const snapshot = redoStack[redoStack.length - 1];
+    if (!snapshot) return;
+    redoStack = redoStack.slice(0, -1);
+    undoStack = pushEditorHistory(undoStack, current);
+    applyEditorHistorySnapshot(snapshot);
+  }
+
+  function isEditorEventTarget(target: EventTarget | null): boolean {
+    return target === titleInput || target === bodyTextarea;
+  }
+
   function handleTitleKeydown(event: KeyboardEvent) {
     if (event.key !== 'Enter') return;
     event.preventDefault();
     void focusEditor('body');
+  }
+
+  function handleGlobalKeydown(event: KeyboardEvent) {
+    const key = event.key.toLowerCase();
+
+    if ((event.metaKey || event.ctrlKey) && isEditorEventTarget(event.target)) {
+      if (key === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) {
+          redoEditorHistory();
+        } else {
+          undoEditorHistory();
+        }
+        return;
+      }
+
+      if (key === 'y') {
+        event.preventDefault();
+        redoEditorHistory();
+        return;
+      }
+    }
+
+    if (event.key !== 'Escape') return;
+    closeContextMenu();
+    closeSettings();
+    linkingNoteId = null;
   }
 
   function openMenus() {
@@ -193,6 +348,53 @@
       menuCloseTimer = null;
     }
     menusOpen = true;
+  }
+
+  function toggleMenus() {
+    if (menuCloseTimer) {
+      clearTimeout(menuCloseTimer);
+      menuCloseTimer = null;
+    }
+    menusOpen = !menusOpen;
+  }
+
+  function closeContextMenu() {
+    contextMenu = null;
+  }
+
+  function closeSettings() {
+    settingsOpen = false;
+    loginOpen = false;
+  }
+
+  function toggleSettings() {
+    settingsOpen = !settingsOpen;
+    if (!settingsOpen) {
+      loginOpen = false;
+    }
+    closeContextMenu();
+  }
+
+  function openSettingsModal() {
+    settingsOpen = true;
+    closeContextMenu();
+  }
+
+  function openLoginSettings() {
+    loginOpen = true;
+    openSettingsModal();
+  }
+
+  async function focusSettingsModal() {
+    await tick();
+    settingsModal?.focus({ preventScroll: true });
+  }
+
+  function handleWindowClick(event: MouseEvent) {
+    closeContextMenu();
+    if (!settingsOpen || !(event.target instanceof Element)) return;
+    if (event.target.closest('.settings-modal') || event.target.closest('.profile-menu')) return;
+    closeSettings();
   }
 
   function scheduleMenusClose() {
@@ -257,9 +459,45 @@
     return stored === 'az' || stored === 'za' || stored === 'date-desc' ? stored : 'date-desc';
   }
 
+  function getStoredCompactView(): boolean {
+    return localStorage.getItem(COMPACT_VIEW_KEY) === '1';
+  }
+
+  function getStoredEditorZoom(): number {
+    const stored = Number(localStorage.getItem(EDITOR_ZOOM_KEY));
+    return Number.isFinite(stored) ? clampZoom(stored) : 1;
+  }
+
   function changeSort(event: Event) {
     noteSort = (event.currentTarget as HTMLSelectElement).value as NoteSort;
     localStorage.setItem(SORT_KEY, noteSort);
+  }
+
+  function toggleCompactView() {
+    compactView = !compactView;
+    localStorage.setItem(COMPACT_VIEW_KEY, compactView ? '1' : '0');
+  }
+
+  function zoomEditor(direction: -1 | 1) {
+    editorZoom = clampZoom(Number((editorZoom + direction * EDITOR_ZOOM_STEP).toFixed(2)));
+    localStorage.setItem(EDITOR_ZOOM_KEY, String(editorZoom));
+  }
+
+  function clampZoom(value: number): number {
+    return Math.min(MAX_EDITOR_ZOOM, Math.max(MIN_EDITOR_ZOOM, value));
+  }
+
+  function zoomPercent(): string {
+    return `${Math.round(editorZoom * 100)}%`;
+  }
+
+  function filterNotesBySearch(items: LocalNote[], query: string): LocalNote[] {
+    const normalized = query.trim().toLocaleLowerCase();
+    if (!normalized) return items;
+
+    return items.filter((note) =>
+      `${note.title}\n${note.body}`.toLocaleLowerCase().includes(normalized)
+    );
   }
 
   function sortNotes(items: LocalNote[], sort: NoteSort): LocalNote[] {
@@ -323,6 +561,23 @@
     });
   }
 
+  function relativeAge(iso: string): string {
+    const date = new Date(iso);
+    const today = startOfDay(currentTime);
+    const target = startOfDay(date);
+    const daysAgo = Math.max(0, Math.floor((today.getTime() - target.getTime()) / 86_400_000));
+
+    if (daysAgo === 0) return 'today';
+    if (daysAgo === 1) return '1d ago';
+    if (daysAgo < 30) return `${daysAgo}d ago`;
+
+    const monthsAgo = Math.floor(daysAgo / 30);
+    if (monthsAgo < 12) return `${monthsAgo}mo ago`;
+
+    const yearsAgo = Math.floor(daysAgo / 365);
+    return `${yearsAgo}y ago`;
+  }
+
   function formatClock(date: Date): string {
     return date.toLocaleString(undefined, {
       dateStyle: 'medium',
@@ -339,9 +594,68 @@
     return note.body.replace(/\s+/g, ' ').trim().slice(0, 96);
   }
 
+  function countNotesByNotebook(items: LocalNote[]): Map<string, number> {
+    const counts = new Map<string, number>();
+    for (const note of items) {
+      const notebookIds = noteNotebookIds(note);
+      if (!notebookIds.length) {
+        counts.set('', (counts.get('') ?? 0) + 1);
+        continue;
+      }
+
+      for (const key of notebookIds) {
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }
+
+  function countPendingSync(
+    activeNotes: LocalNote[],
+    trashedNotes: LocalNote[],
+    activeNotebooks: LocalNotebook[]
+  ): number {
+    const pendingNotes = [...activeNotes, ...trashedNotes].filter(
+      (note) => note.syncStatus === 'pending'
+    ).length;
+    const pendingNotebooks = activeNotebooks.filter(
+      (notebook) => notebook.syncStatus === 'pending'
+    ).length;
+    return pendingNotes + pendingNotebooks;
+  }
+
+  function getSyncIndicatorKind(): SyncIndicatorKind {
+    if (isSyncing) return 'syncing';
+    if (conflicts.length > 0) return 'conflict';
+    if (pendingSyncCount > 0) return 'pending';
+    if (hasToken) return 'synced';
+    return 'offline';
+  }
+
+  function getSyncIndicatorLabel(): string {
+    if (isSyncing) return 'Syncing';
+    if (conflicts.length > 0) return `${conflicts.length} conflict${conflicts.length === 1 ? '' : 's'}`;
+    if (pendingSyncCount > 0) return `${pendingSyncCount} pending`;
+    if (hasToken) return 'Synced';
+    return 'Offline';
+  }
+
+  function noteStatusLabel(note: LocalNote): string {
+    if (note.syncStatus === 'pending') return 'Pending sync';
+    if (note.syncStatus === 'conflict') return 'Conflict';
+    if (note.syncStatus === 'deleted') return 'Deleted';
+    return 'Synced';
+  }
+
   function notebookName(notebookId: string | null): string | null {
     if (!notebookId) return null;
     return notebooks.find((notebook) => notebook.id === notebookId)?.name ?? null;
+  }
+
+  function notebookNamesForNote(note: LocalNote): string[] {
+    return noteNotebookIds(note)
+      .map((notebookId) => notebookName(notebookId))
+      .filter((name): name is string => Boolean(name));
   }
 
   function deviceName(deviceId: string | null | undefined): string {
@@ -349,11 +663,84 @@
     return devices.find((device) => device.id === deviceId)?.name ?? deviceId;
   }
 
-  async function assignNotebookForNote(noteId: string, event: Event) {
-    const value = (event.currentTarget as HTMLSelectElement).value;
-    const updated = await assignNoteToNotebook(noteId, value || null);
-    if (updated && selectedNote?.id === noteId) selectedNote = updated;
-    linkingNoteId = null;
+  function openNotebookContext(event: MouseEvent, notebook: LocalNotebook) {
+    event.preventDefault();
+    event.stopPropagation();
+    contextMenu = positionContextMenu({
+      type: 'notebook',
+      notebookId: notebook.id,
+      x: event.clientX,
+      y: event.clientY
+    });
+  }
+
+  function openNoteContext(event: MouseEvent, note: LocalNote) {
+    event.preventDefault();
+    event.stopPropagation();
+    contextMenu = positionContextMenu({
+      type: 'note',
+      noteId: note.id,
+      x: event.clientX,
+      y: event.clientY
+    });
+  }
+
+  function positionContextMenu<T extends Exclude<ContextMenuState, null>>(menu: T): T {
+    const width = 190;
+    const height = menu.type === 'note' ? 116 : 84;
+    return {
+      ...menu,
+      x: Math.min(menu.x, window.innerWidth - width - 8),
+      y: Math.min(menu.y, window.innerHeight - height - 8)
+    };
+  }
+
+  function contextMenuStyle(menu: Exclude<ContextMenuState, null>): string {
+    return `left: ${menu.x}px; top: ${menu.y}px;`;
+  }
+
+  function getContextNote(menu: ContextMenuState): LocalNote | null {
+    if (menu?.type !== 'note') return null;
+    return [...notes, ...trash].find((note) => note.id === menu.noteId) ?? null;
+  }
+
+  function getContextNotebook(menu: ContextMenuState): LocalNotebook | null {
+    if (menu?.type !== 'notebook') return null;
+    return notebooks.find((notebook) => notebook.id === menu.notebookId) ?? null;
+  }
+
+  function contextRenameNotebook(notebook: LocalNotebook) {
+    startRenameNotebook(notebook);
+    closeContextMenu();
+  }
+
+  function contextDeleteNotebook(notebook: LocalNotebook) {
+    askDeleteNotebook(notebook);
+    closeContextMenu();
+  }
+
+  function contextLinkNote(note: LocalNote) {
+    linkingNoteId = note.id;
+    closeContextMenu();
+  }
+
+  async function contextTrashNote(note: LocalNote) {
+    closeContextMenu();
+    await trashNote(note);
+  }
+
+  async function contextRestoreNote(note: LocalNote) {
+    closeContextMenu();
+    await restoreNoteFromRow(note);
+  }
+
+  async function assignNotebookForNote(note: LocalNote, notebookId: string | null) {
+    const updated = await assignNoteToNotebook(
+      note.id,
+      notebookId,
+      notebookId ? !noteNotebookIds(note).includes(notebookId) : false
+    );
+    if (updated && selectedNote?.id === note.id) selectedNote = updated;
     await refresh();
   }
 
@@ -391,7 +778,7 @@
     if (notebook) {
       filterId = notebook.id;
       if (selectedNote && !selectedNote.trashedAt) {
-        const updated = await assignNoteToNotebook(selectedNote.id, notebook.id);
+        const updated = await assignNoteToNotebook(selectedNote.id, notebook.id, true);
         if (updated) selectedNote = updated;
       }
       await refresh();
@@ -461,8 +848,9 @@
       filterId = 'all';
     }
 
-    if (selectedNote?.notebookId === notebook.id) {
-      selectedNote = { ...selectedNote, notebookId: null };
+    if (selectedNote && noteNotebookIds(selectedNote).includes(notebook.id)) {
+      const notebookIds = noteNotebookIds(selectedNote).filter((id) => id !== notebook.id);
+      selectedNote = { ...selectedNote, notebookIds, notebookId: notebookIds[0] ?? null };
     }
 
     deletingNotebookId = null;
@@ -509,6 +897,63 @@
     } finally {
       isSyncing = false;
     }
+  }
+
+  async function exportJson() {
+    await flushPendingSave();
+    const archive = await exportNotesJson();
+    const blob = new Blob([JSON.stringify(archive, null, 2)], {
+      type: 'application/json'
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `author-notes-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    syncMessage = `Exported ${archive.notes.length} ${archive.notes.length === 1 ? 'note' : 'notes'}`;
+  }
+
+  function startJsonImport() {
+    importInput?.click();
+  }
+
+  async function handleJsonImport(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    input.value = '';
+    if (!file || isImporting) return;
+
+    await flushPendingSave();
+    isImporting = true;
+    syncMessage = 'Importing JSON';
+    try {
+      const payload = JSON.parse(await file.text()) as unknown;
+      const result = await importNotesJson(payload);
+      await refresh();
+
+      const importedNote = notes.find((note) => note.id === result.noteIds[0]);
+      if (importedNote) {
+        await selectNote(importedNote);
+      }
+
+      syncMessage = importSummary(result.importedNotes, result.importedNotebooks, result.skippedNotes);
+    } catch (error) {
+      syncMessage = error instanceof Error ? error.message : 'Import failed';
+    } finally {
+      isImporting = false;
+    }
+  }
+
+  function importSummary(noteCount: number, notebookCount: number, skippedCount: number): string {
+    const noteText = `${noteCount} ${noteCount === 1 ? 'note' : 'notes'}`;
+    const notebookText = notebookCount
+      ? `, ${notebookCount} new ${notebookCount === 1 ? 'notebook' : 'notebooks'}`
+      : '';
+    const skippedText = skippedCount ? `, ${skippedCount} blank skipped` : '';
+    return `Imported ${noteText}${notebookText}${skippedText}`;
   }
 
   function toggleLoginMenu() {
@@ -570,6 +1015,8 @@
   <title>Notes</title>
 </svelte:head>
 
+<svelte:window on:keydown={handleGlobalKeydown} on:click={handleWindowClick} />
+
 <main class="app-shell">
   <div
     class="menu-dock"
@@ -581,15 +1028,58 @@
     on:focusin={openMenus}
     on:focusout={closeMenusOnBlur}
   >
-    <button
-      class="icon-button menu-trigger"
-      title="Show menus"
-      aria-label="Show menus"
-      aria-controls="navigation-menus"
-      aria-expanded={menusOpen}
-    >
-      <Menu size={18} strokeWidth={1.8} />
-    </button>
+    <div class="dock-buttons">
+      <button
+        class="icon-button menu-trigger"
+        title="Show menus"
+        aria-label="Show menus"
+        aria-controls="navigation-menus"
+        aria-expanded={menusOpen}
+        on:click={toggleMenus}
+      >
+        <Menu size={18} strokeWidth={1.8} />
+      </button>
+      <div class="profile-menu">
+        <button
+          class="icon-button profile-trigger"
+          class:active={settingsOpen}
+          title="Profile and settings"
+          aria-label="Profile and settings"
+          aria-controls="profile-settings"
+          aria-expanded={settingsOpen}
+          on:click={toggleSettings}
+        >
+          <CircleUserRound size={18} strokeWidth={1.8} />
+        </button>
+
+        <div class="profile-hover-card" role="menu" aria-label="Profile quick actions">
+          {#if hasToken}
+            <button class="profile-quick-action" role="menuitem" disabled={isSyncing} on:click={syncNow}>
+              <RefreshCw size={14} strokeWidth={1.8} />
+              <span>{isSyncing ? 'Syncing' : 'Sync'}</span>
+            </button>
+          {:else}
+            <button class="profile-quick-action" role="menuitem" on:click={openLoginSettings}>
+              <LogIn size={14} strokeWidth={1.8} />
+              <span>Login</span>
+            </button>
+          {/if}
+          <button class="profile-quick-action" role="menuitem" on:click={toggleTheme}>
+            {#if theme === 'dark'}
+              <Sun size={14} strokeWidth={1.8} />
+              <span>Light</span>
+            {:else}
+              <Moon size={14} strokeWidth={1.8} />
+              <span>Dark</span>
+            {/if}
+          </button>
+          <button class="profile-quick-action" role="menuitem" on:click={openSettingsModal}>
+            <Settings size={14} strokeWidth={1.8} />
+            <span>Settings</span>
+          </button>
+        </div>
+      </div>
+    </div>
 
     <div class="menu-panels" id="navigation-menus">
       <aside class="notebooks" aria-label="Notebooks">
@@ -611,13 +1101,6 @@
             on:click={toggleNewNotebookMenu}
           >
             <FolderPlus size={16} strokeWidth={1.8} />
-          </button>
-          <button class="icon-button" title="Toggle theme" aria-label="Toggle theme" on:click={toggleTheme}>
-            {#if theme === 'dark'}
-              <Sun size={16} strokeWidth={1.8} />
-            {:else}
-              <Moon size={16} strokeWidth={1.8} />
-            {/if}
           </button>
         </div>
 
@@ -656,12 +1139,26 @@
         {/if}
 
         <nav>
-          <button class:active={filterId === 'unfiled'} on:click={() => (filterId = 'unfiled')}>
-            <Inbox size={15} strokeWidth={1.8} />
-            <span>Unfiled</span>
-          </button>
+          <div class="nav-row" class:active={filterId === 'all'}>
+            <button class="nav-main" on:click={() => (filterId = 'all')}>
+              <Files size={15} strokeWidth={1.8} />
+              <span>All notes</span>
+            </button>
+            <div class="nav-trailing">
+              <span class="nav-count">{notes.length}</span>
+            </div>
+          </div>
+          <div class="nav-row" class:active={filterId === 'unfiled'}>
+            <button class="nav-main" on:click={() => (filterId = 'unfiled')}>
+              <Inbox size={15} strokeWidth={1.8} />
+              <span>Unfiled</span>
+            </button>
+            <div class="nav-trailing">
+              <span class="nav-count">{unfiledCount}</span>
+            </div>
+          </div>
           {#each notebooks as notebook}
-            <div class="notebook-row" class:active={filterId === notebook.id}>
+            <div class="nav-row notebook-row" class:active={filterId === notebook.id}>
               {#if renamingNotebookId === notebook.id}
                 <form
                   class="inline-rename"
@@ -720,35 +1217,44 @@
                 <button
                   class="notebook-main"
                   on:click={() => (filterId = notebook.id)}
+                  on:contextmenu={(event) => openNotebookContext(event, notebook)}
                 >
                   <Notebook size={15} strokeWidth={1.8} />
                   <span>{notebook.name}</span>
                 </button>
-                <div class="notebook-actions">
-                  <button
-                    class="icon-button mini"
-                    title="Rename notebook"
-                    aria-label="Rename notebook"
-                    on:click|stopPropagation={() => startRenameNotebook(notebook)}
-                  >
-                    <Pencil size={13} strokeWidth={1.8} />
-                  </button>
-                  <button
-                    class="icon-button mini danger"
-                    title="Delete notebook"
-                    aria-label="Delete notebook"
-                    on:click|stopPropagation={() => askDeleteNotebook(notebook)}
-                  >
-                    <Trash2 size={13} strokeWidth={1.8} />
-                  </button>
+                <div class="nav-trailing notebook-trailing">
+                  <span class="nav-count">{notebookCounts.get(notebook.id) ?? 0}</span>
+                  <div class="notebook-actions">
+                    <button
+                      class="icon-button mini"
+                      title="Rename notebook"
+                      aria-label="Rename notebook"
+                      on:click|stopPropagation={() => startRenameNotebook(notebook)}
+                    >
+                      <Pencil size={13} strokeWidth={1.8} />
+                    </button>
+                    <button
+                      class="icon-button mini danger"
+                      title="Delete notebook"
+                      aria-label="Delete notebook"
+                      on:click|stopPropagation={() => askDeleteNotebook(notebook)}
+                    >
+                      <Trash2 size={13} strokeWidth={1.8} />
+                    </button>
+                  </div>
                 </div>
               {/if}
             </div>
           {/each}
-          <button class:active={filterId === 'trash'} on:click={() => (filterId = 'trash')}>
-            <Trash2 size={15} strokeWidth={1.8} />
-            <span>Trash</span>
-          </button>
+          <div class="nav-row" class:active={filterId === 'trash'}>
+            <button class="nav-main" on:click={() => (filterId = 'trash')}>
+              <Trash2 size={15} strokeWidth={1.8} />
+              <span>Trash</span>
+            </button>
+            <div class="nav-trailing">
+              <span class="nav-count">{trash.length}</span>
+            </div>
+          </div>
         </nav>
       </aside>
 
@@ -757,27 +1263,6 @@
           <button class="icon-button" title="New note" aria-label="New note" on:click={newNote}>
             <FilePlus size={16} strokeWidth={1.8} />
           </button>
-          {#if hasToken}
-            <button
-              class="icon-button"
-              title="Sync"
-              aria-label="Sync"
-              disabled={isSyncing}
-              on:click={syncNow}
-            >
-              <RefreshCw size={16} strokeWidth={1.8} />
-            </button>
-          {:else}
-            <button
-              class="icon-button"
-              class:active={loginOpen}
-              title="Login"
-              aria-label="Login"
-              on:click={toggleLoginMenu}
-            >
-              <LogIn size={16} strokeWidth={1.8} />
-            </button>
-          {/if}
           <label class="sr-only" for="note-sort">Sort notes</label>
           <select id="note-sort" class="sort-select" aria-label="Sort notes" bind:value={noteSort} on:change={changeSort}>
             <option value="date-desc">Date</option>
@@ -786,66 +1271,78 @@
           </select>
         </div>
 
-        {#if loginOpen}
-          <form class="menu-form" aria-label="Login menu" on:submit|preventDefault={submitLoginMenu}>
-            <label class="sr-only" for="sync-password">Sync password</label>
-            <div class="field-row">
-              <input
-                id="sync-password"
-                type="password"
-                bind:value={loginPasswordValue}
-                autocomplete="current-password"
-                placeholder="Sync password"
-                on:input={() => (loginError = '')}
-              />
-              <button
-                class="icon-button mini"
-                type="submit"
-                title="Login"
-                aria-label="Submit login"
-                disabled={isLoggingIn}
-              >
-                <Check size={14} strokeWidth={1.9} />
-              </button>
-              <button
-                class="icon-button mini"
-                type="button"
-                title="Close"
-                aria-label="Close login menu"
-                on:click={() => (loginOpen = false)}
-              >
-                <X size={14} strokeWidth={1.9} />
-              </button>
-            </div>
-            {#if loginError}
-              <p class="form-error">{loginError}</p>
-            {/if}
-          </form>
-        {/if}
+        <div class="search-row">
+          <label class="sr-only" for="note-search">Search notes</label>
+          <Search size={14} strokeWidth={1.8} />
+          <input
+            id="note-search"
+            type="search"
+            bind:value={searchValue}
+            autocomplete="off"
+            placeholder="Search notes"
+          />
+          {#if searchValue}
+            <button
+              class="icon-button mini"
+              title="Clear search"
+              aria-label="Clear search"
+              type="button"
+              on:click={() => (searchValue = '')}
+            >
+              <X size={13} strokeWidth={1.8} />
+            </button>
+          {/if}
+        </div>
 
-        <p class="sync-line">{syncMessage}</p>
+        <p class="sync-line" aria-label={`Sync status: ${syncIndicatorLabel}`}>
+          <span class={`status-dot ${syncIndicatorKind}`} aria-hidden="true"></span>
+          <span>{syncIndicatorLabel}</span>
+          {#if syncMessage && syncMessage !== syncIndicatorLabel}
+            <span class="sync-detail">{syncMessage}</span>
+          {/if}
+        </p>
 
-        <div class="note-list">
+        <div class="note-list" class:compact={compactView}>
           {#each visibleNoteGroups as group}
             {#if group.notes.length}
               <div class="date-range">{group.label}</div>
               {#each group.notes as note}
+                {@const noteNotebookNames = notebookNamesForNote(note)}
                 <div
                   class="note-row"
                   class:active={selectedNote?.id === note.id}
                   class:pending={note.syncStatus === 'pending'}
                   class:conflicted={note.syncStatus === 'conflict'}
                 >
-                  <button class="note-main" on:click={() => selectNote(note)}>
-                    <span class="note-title">{noteDisplayTitle(note)}</span>
-                    <span class="note-preview">{notePreview(note) || 'No text'}</span>
-                    <span class="note-context">
-                      <time>Updated {formatListDate(note.updatedAt)}</time>
-                      <time>Created {formatListDate(note.createdAt)}</time>
-                      {#if notebookName(note.notebookId)}
-                        <span>{notebookName(note.notebookId)}</span>
+                  <button
+                    class="note-main"
+                    on:click={() => selectNote(note)}
+                    on:contextmenu={(event) => openNoteContext(event, note)}
+                  >
+                    <span class="note-heading">
+                      <span
+                        class={`status-dot note-status ${note.syncStatus}`}
+                        title={noteStatusLabel(note)}
+                        aria-label={noteStatusLabel(note)}
+                      ></span>
+                      <span class="note-title">{noteDisplayTitle(note)}</span>
+                      {#if compactView}
+                        <time class="note-age" datetime={note.updatedAt}>{relativeAge(note.updatedAt)}</time>
                       {/if}
                     </span>
+                    {#if !compactView}
+                      <span class="note-preview">{notePreview(note) || 'No text'}</span>
+                      {#if noteNotebookNames.length}
+                        <span class="note-notebooks">
+                          <Notebook size={12} strokeWidth={1.8} />
+                          <span>{noteNotebookNames.join(', ')}</span>
+                        </span>
+                      {/if}
+                      <span class="note-context">
+                        <time>Updated {formatListDate(note.updatedAt)}</time>
+                        <time>Created {formatListDate(note.createdAt)}</time>
+                      </span>
+                    {/if}
                   </button>
 
                   <div class="row-actions">
@@ -861,8 +1358,8 @@
                     {:else}
                       <button
                         class="icon-button mini"
-                        title="Link notebook"
-                        aria-label="Link notebook"
+                        title="Notebooks"
+                        aria-label="Notebooks"
                         on:click|stopPropagation={() =>
                           (linkingNoteId = linkingNoteId === note.id ? null : note.id)}
                       >
@@ -880,30 +1377,49 @@
                   </div>
 
                   {#if linkingNoteId === note.id && !note.trashedAt}
-                    <div class="link-popover">
-                      <select
-                        aria-label="Notebook"
-                        value={note.notebookId ?? ''}
-                        on:change={(event) => assignNotebookForNote(note.id, event)}
+                    <div class="link-popover" role="menu" aria-label="Note notebooks">
+                      <button
+                        class:active={noteNotebookIds(note).length === 0}
+                        aria-checked={noteNotebookIds(note).length === 0}
+                        role="menuitemcheckbox"
+                        on:click|stopPropagation={() => assignNotebookForNote(note, null)}
                       >
-                        <option value="">Unfiled</option>
-                        {#each notebooks as notebook}
-                          <option value={notebook.id}>{notebook.name}</option>
-                        {/each}
-                      </select>
+                        <Inbox size={14} strokeWidth={1.8} />
+                        <span>Unfiled</span>
+                        {#if noteNotebookIds(note).length === 0}
+                          <Check size={13} strokeWidth={1.9} />
+                        {/if}
+                      </button>
+                      {#each notebooks as notebook}
+                        <button
+                          class:active={noteNotebookIds(note).includes(notebook.id)}
+                          aria-checked={noteNotebookIds(note).includes(notebook.id)}
+                          role="menuitemcheckbox"
+                          on:click|stopPropagation={() => assignNotebookForNote(note, notebook.id)}
+                        >
+                          <Notebook size={14} strokeWidth={1.8} />
+                          <span>{notebook.name}</span>
+                          {#if noteNotebookIds(note).includes(notebook.id)}
+                            <Check size={13} strokeWidth={1.9} />
+                          {/if}
+                        </button>
+                      {/each}
                     </div>
                   {/if}
                 </div>
               {/each}
             {/if}
           {/each}
+          {#if !visibleNotes.length}
+            <p class="empty-list">{searchValue ? 'No matching notes' : 'No notes'}</p>
+          {/if}
         </div>
       </aside>
     </div>
   </div>
 
   <section class="editor-wrap" aria-label="Editor">
-    <section class="writer" aria-label="Plain text editor">
+    <section class="writer" aria-label="Plain text editor" style={`--editor-zoom: ${editorZoom};`}>
       <input
         class="title-input"
         aria-label="Note title"
@@ -912,7 +1428,7 @@
         readonly={Boolean(selectedNote?.trashedAt)}
         spellcheck="true"
         on:keydown={handleTitleKeydown}
-        on:input={scheduleNoteSave}
+        on:input={(event) => handleEditorInput(event, 'title')}
       />
       <textarea
         aria-label="Note body"
@@ -920,11 +1436,35 @@
         bind:value={bodyValue}
         readonly={Boolean(selectedNote?.trashedAt)}
         spellcheck="true"
-        on:input={scheduleNoteSave}
+        on:input={(event) => handleEditorInput(event, 'body')}
       ></textarea>
       <footer class="editor-status" aria-label="Note details">
+        <div class="history-controls" aria-label="Editor history">
+          <button
+            class="icon-button mini"
+            title="Undo"
+            aria-label="Undo"
+            disabled={!canUndoEditor}
+            on:mousedown|preventDefault
+            on:click={undoEditorHistory}
+          >
+            <Undo2 size={14} strokeWidth={1.8} />
+          </button>
+          <button
+            class="icon-button mini"
+            title="Redo"
+            aria-label="Redo"
+            disabled={!canRedoEditor}
+            on:mousedown|preventDefault
+            on:click={redoEditorHistory}
+          >
+            <Redo2 size={14} strokeWidth={1.8} />
+          </button>
+        </div>
         <span>{formatClock(currentTime)}</span>
         <span>{wordCount} {wordCount === 1 ? 'word' : 'words'}</span>
+        <span>History {undoStack.length}/{redoStack.length}</span>
+        <span>Zoom {zoomPercent()}</span>
         {#if selectedNote}
           <span>Created {formatDateTime(selectedNote.createdAt)}</span>
           <span>Modified {formatDateTime(selectedNote.updatedAt)} by {deviceName(selectedNote.deviceId)}</span>
@@ -935,6 +1475,184 @@
     </section>
   </section>
 </main>
+
+{#if settingsOpen}
+  <div class="settings-layer" role="presentation">
+    <div
+      class="settings-modal"
+      id="profile-settings"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="settings-title"
+      bind:this={settingsModal}
+      tabindex="-1"
+    >
+      <header class="settings-header">
+        <div class="settings-title">
+          <Settings size={16} strokeWidth={1.8} />
+          <h2 id="settings-title">Settings</h2>
+        </div>
+        <button class="icon-button mini" title="Close" aria-label="Close settings" on:click={closeSettings}>
+          <X size={14} strokeWidth={1.9} />
+        </button>
+      </header>
+
+      <div class="settings-actions">
+        {#if hasToken}
+          <button class="settings-action" disabled={isSyncing} on:click={syncNow}>
+            <RefreshCw size={15} strokeWidth={1.8} />
+            <span>{isSyncing ? 'Syncing' : 'Sync'}</span>
+          </button>
+        {:else}
+          <button class="settings-action" class:active={loginOpen} on:click={toggleLoginMenu}>
+            <LogIn size={15} strokeWidth={1.8} />
+            <span>Login</span>
+          </button>
+        {/if}
+        <button class="settings-action" on:click={exportJson}>
+          <Download size={15} strokeWidth={1.8} />
+          <span>Export JSON</span>
+        </button>
+        <button class="settings-action" disabled={isImporting} on:click={startJsonImport}>
+          <Upload size={15} strokeWidth={1.8} />
+          <span>Import JSON</span>
+        </button>
+        <input
+          bind:this={importInput}
+          class="file-input"
+          type="file"
+          accept="application/json,.json"
+          aria-label="Choose JSON notes file"
+          on:change={handleJsonImport}
+        />
+        <button
+          class="settings-action"
+          class:active={compactView}
+          aria-pressed={compactView}
+          on:click={toggleCompactView}
+        >
+          <Rows3 size={15} strokeWidth={1.8} />
+          <span>Compact notes</span>
+        </button>
+        <button class="settings-action" on:click={toggleTheme}>
+          {#if theme === 'dark'}
+            <Sun size={15} strokeWidth={1.8} />
+            <span>Light mode</span>
+          {:else}
+            <Moon size={15} strokeWidth={1.8} />
+            <span>Dark mode</span>
+          {/if}
+        </button>
+      </div>
+
+      <div class="settings-zoom">
+        <button
+          class="icon-button mini"
+          title="Zoom out"
+          aria-label="Zoom out"
+          disabled={editorZoom <= MIN_EDITOR_ZOOM}
+          on:click={() => zoomEditor(-1)}
+        >
+          <ZoomOut size={14} strokeWidth={1.8} />
+        </button>
+        <span>Zoom {zoomPercent()}</span>
+        <button
+          class="icon-button mini"
+          title="Zoom in"
+          aria-label="Zoom in"
+          disabled={editorZoom >= MAX_EDITOR_ZOOM}
+          on:click={() => zoomEditor(1)}
+        >
+          <ZoomIn size={14} strokeWidth={1.8} />
+        </button>
+      </div>
+
+      {#if loginOpen}
+        <form class="menu-form" aria-label="Login menu" on:submit|preventDefault={submitLoginMenu}>
+          <label class="sr-only" for="sync-password">Sync password</label>
+          <div class="field-row">
+            <input
+              id="sync-password"
+              type="password"
+              bind:value={loginPasswordValue}
+              autocomplete="current-password"
+              placeholder="Sync password"
+              on:input={() => (loginError = '')}
+            />
+            <button
+              class="icon-button mini"
+              type="submit"
+              title="Login"
+              aria-label="Submit login"
+              disabled={isLoggingIn}
+            >
+              <Check size={14} strokeWidth={1.9} />
+            </button>
+            <button
+              class="icon-button mini"
+              type="button"
+              title="Close"
+              aria-label="Close login menu"
+              on:click={() => (loginOpen = false)}
+            >
+              <X size={14} strokeWidth={1.9} />
+            </button>
+          </div>
+          {#if loginError}
+            <p class="form-error">{loginError}</p>
+          {/if}
+        </form>
+      {/if}
+    </div>
+  </div>
+{/if}
+
+{#if contextMenu?.type === 'notebook' && contextNotebook}
+  <div
+    class="context-menu"
+    style={contextMenuStyle(contextMenu)}
+    role="menu"
+    tabindex="-1"
+    aria-label={`${contextNotebook.name} actions`}
+    on:contextmenu|preventDefault
+  >
+    <button role="menuitem" on:click|stopPropagation={() => contextRenameNotebook(contextNotebook)}>
+      <Pencil size={14} strokeWidth={1.8} />
+      <span>Rename</span>
+    </button>
+    <button class="danger" role="menuitem" on:click|stopPropagation={() => contextDeleteNotebook(contextNotebook)}>
+      <Trash2 size={14} strokeWidth={1.8} />
+      <span>Delete</span>
+    </button>
+  </div>
+{/if}
+
+{#if contextMenu?.type === 'note' && contextNote}
+  <div
+    class="context-menu"
+    style={contextMenuStyle(contextMenu)}
+    role="menu"
+    tabindex="-1"
+    aria-label={`${noteDisplayTitle(contextNote)} actions`}
+    on:contextmenu|preventDefault
+  >
+    {#if contextNote.trashedAt}
+      <button role="menuitem" on:click|stopPropagation={() => contextRestoreNote(contextNote)}>
+        <ArchiveRestore size={14} strokeWidth={1.8} />
+        <span>Restore</span>
+      </button>
+    {:else}
+      <button role="menuitem" on:click|stopPropagation={() => contextLinkNote(contextNote)}>
+        <FolderSymlink size={14} strokeWidth={1.8} />
+        <span>Move to notebook</span>
+      </button>
+      <button class="danger" role="menuitem" on:click|stopPropagation={() => contextTrashNote(contextNote)}>
+        <Trash2 size={14} strokeWidth={1.8} />
+        <span>Move to Trash</span>
+      </button>
+    {/if}
+  </div>
+{/if}
 
 {#if activeConflict}
   <div class="conflict-backdrop" role="presentation">
@@ -983,43 +1701,142 @@
   .menu-dock {
     position: fixed;
     z-index: 20;
-    top: 14px;
-    left: 14px;
+    top: 0;
+    left: 50%;
+    width: min(920px, calc(100vw - 40px));
+    height: 76px;
+    transform: translateX(-50%);
+    pointer-events: auto;
+  }
+
+  .menu-dock.open,
+  .menu-dock:hover,
+  .menu-dock:focus-within {
+    height: 100vh;
+  }
+
+  .dock-buttons {
+    position: absolute;
+    z-index: 23;
+    top: 16px;
+    left: 50%;
+    display: flex;
+    gap: 14px;
+    border-radius: 999px;
+    padding: 8px;
+    background: var(--panel-transparent);
+    backdrop-filter: blur(12px);
+    transform: translateX(-50%);
+    pointer-events: auto;
   }
 
   .menu-trigger {
     position: relative;
-    z-index: 3;
-    background: var(--panel);
-    box-shadow: 0 4px 18px var(--shadow);
+    z-index: 1;
+    background: transparent;
     transition:
       background-color 120ms ease,
       border-color 120ms ease,
-      color 120ms ease,
-      transform 120ms ease,
-      box-shadow 120ms ease;
+      color 120ms ease;
   }
 
-  .menu-panels {
-    position: fixed;
-    z-index: 2;
-    inset: 0;
+  .profile-trigger {
+    position: relative;
+    z-index: 1;
+    background: transparent;
+    transition:
+      background-color 120ms ease,
+      border-color 120ms ease,
+      color 120ms ease;
+  }
+
+  .profile-menu {
+    position: relative;
     display: grid;
-    grid-template-columns: minmax(180px, 240px) minmax(300px, 430px) minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr);
-    gap: 8px;
-    width: 100vw;
-    height: 100vh;
-    padding: 52px 14px 14px;
-    background: var(--overlay);
+  }
+
+  .profile-hover-card {
+    position: absolute;
+    z-index: 25;
+    top: 54px;
+    left: 0;
+    display: grid;
+    gap: 10px;
+    width: 190px;
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 14px;
+    background: var(--panel-transparent);
+    backdrop-filter: blur(12px);
     visibility: hidden;
     opacity: 0;
     pointer-events: none;
-    transform: translateY(-6px);
+    transform: translateY(-3px);
     transition:
-      opacity 140ms ease,
-      transform 140ms ease,
-      visibility 140ms ease;
+      opacity 120ms ease,
+      transform 120ms ease,
+      visibility 120ms ease;
+  }
+
+  .profile-menu:hover .profile-hover-card,
+  .profile-menu:focus-within .profile-hover-card {
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+
+  .profile-quick-action {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+    min-height: 40px;
+    border-color: transparent;
+    padding: 0 12px;
+    color: var(--muted);
+    text-align: left;
+  }
+
+  .profile-quick-action span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .profile-quick-action:hover,
+  .profile-quick-action:focus-visible {
+    border-color: var(--line);
+    color: var(--text);
+  }
+
+  .menu-panels {
+    position: absolute;
+    z-index: 2;
+    top: 82px;
+    left: 0;
+    display: grid;
+    grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    gap: 18px;
+    width: 100%;
+    height: min(80vh, calc(100vh - 104px));
+    padding: 24px;
+    overflow: hidden;
+    background: var(--panel-transparent);
+    backdrop-filter: blur(14px);
+    border: 1px solid var(--line);
+    border-radius: 28px;
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-8px) scale(0.98);
+    transform-origin: top center;
+    transition:
+      opacity 120ms ease,
+      transform 120ms ease,
+      visibility 120ms ease;
   }
 
   .menu-dock.open .menu-panels,
@@ -1027,59 +1844,159 @@
   .menu-dock:focus-within .menu-panels {
     visibility: visible;
     opacity: 1;
-    pointer-events: none;
-    transform: translateY(0);
+    pointer-events: auto;
+    transform: translateY(0) scale(1);
+  }
+
+  .settings-layer {
+    position: fixed;
+    z-index: 70;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: var(--bg);
+  }
+
+  .settings-modal {
+    display: grid;
+    gap: 14px;
+    width: min(430px, 100%);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 14px;
+    background: var(--paper);
+    animation: menu-in 120ms ease-out;
+  }
+
+  .settings-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    min-width: 0;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 12px;
+  }
+
+  .settings-title {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+    min-width: 0;
+    color: var(--text);
+  }
+
+  .settings-title h2 {
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    font-size: 18px;
+    line-height: 1.15;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .settings-actions {
+    display: grid;
+    gap: 4px;
+  }
+
+  .settings-action {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+    min-height: 32px;
+    border-color: var(--line);
+    padding: 0 9px;
+    background: transparent;
+    color: var(--muted);
+    text-align: left;
+  }
+
+  .settings-action span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .settings-action:hover,
+  .settings-action:focus-visible,
+  .settings-action.active {
+    border-color: var(--line-strong);
+    background: transparent;
+    color: var(--text);
+  }
+
+  .settings-zoom {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 16px;
+    align-items: center;
+    border-top: 1px solid var(--line);
+    padding-top: 10px;
+  }
+
+  .settings-zoom span {
+    min-width: 0;
+    color: var(--muted);
+    font-size: 12px;
+    text-align: center;
   }
 
   aside {
     min-width: 0;
     overflow: hidden;
     pointer-events: auto;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: var(--panel);
-    box-shadow: 0 12px 36px var(--shadow);
+    border: 0;
+    border-radius: 0;
+    background: var(--panel-soft-transparent);
+    box-shadow: none;
   }
 
   .notebooks,
   .notes {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    padding: 10px;
+    gap: 22px;
+    padding: 22px;
   }
 
   .notebooks {
     min-height: 0;
+    border-right: 1px solid var(--line);
   }
 
   .notes {
     min-height: 0;
-    background: var(--panel-soft);
+    background: transparent;
   }
 
   .icon-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
+    gap: 14px;
     min-width: 0;
   }
 
   .icon-button {
     display: inline-grid;
-    width: 30px;
-    min-width: 30px;
-    height: 30px;
-    min-height: 30px;
+    width: 38px;
+    min-width: 38px;
+    height: 38px;
+    min-height: 38px;
     place-items: center;
     padding: 0;
+    background: transparent;
     color: var(--muted);
     transition:
       background-color 120ms ease,
       border-color 120ms ease,
-      color 120ms ease,
-      transform 120ms ease,
-      box-shadow 120ms ease;
+      color 120ms ease;
   }
 
   .icon-button:hover,
@@ -1087,28 +2004,28 @@
   .active.icon-button {
     color: var(--text);
     border-color: var(--line-strong);
-    background: var(--field);
+    background: transparent;
   }
 
   .icon-button:not(:disabled):hover {
-    transform: translateY(-1px);
+    transform: none;
   }
 
   .mini {
-    width: 26px;
-    min-width: 26px;
-    height: 26px;
-    min-height: 26px;
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
+    min-height: 32px;
   }
 
   .sort-select {
-    width: 72px;
-    height: 30px;
+    width: 92px;
+    height: 38px;
     margin-left: auto;
     padding: 0 8px;
     color: var(--muted);
     font-size: 12px;
-    background: transparent;
+    background: var(--field);
     transition:
       background-color 120ms ease,
       border-color 120ms ease,
@@ -1124,30 +2041,63 @@
 
   .menu-form {
     display: grid;
-    gap: 6px;
+    gap: 14px;
     min-width: 0;
     border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 8px;
+    border-radius: 18px;
+    padding: 16px;
     background: var(--field);
-    box-shadow: 0 8px 22px var(--shadow);
+    box-shadow: none;
     animation: menu-in 120ms ease-out;
+  }
+
+  .file-input {
+    display: none;
+  }
+
+  .search-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    min-height: 44px;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 0 12px 0 16px;
+    background: var(--field);
+    color: var(--muted);
+  }
+
+  .search-row input {
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font-size: 13px;
+  }
+
+  .search-row input:focus-visible {
+    outline: 0;
+  }
+
+  .search-row input::placeholder {
+    color: var(--muted);
   }
 
   .field-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto auto;
-    gap: 6px;
+    gap: 12px;
     align-items: center;
     min-width: 0;
   }
 
   .menu-form input {
     min-width: 0;
-    height: 30px;
+    height: 40px;
     border: 1px solid var(--line);
-    border-radius: 6px;
-    padding: 0 10px;
+    border-radius: 14px;
+    padding: 0 14px;
     background: var(--bg);
     color: var(--text);
     font-size: 13px;
@@ -1176,9 +2126,10 @@
 
   nav,
   .note-list {
+    --nav-trailing-width: 58px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 12px;
     min-height: 0;
     overflow: auto;
     scrollbar-width: none;
@@ -1191,32 +2142,38 @@
     height: 0;
   }
 
-  nav > button,
+  .nav-main,
   .notebook-main {
-    display: flex;
+    display: grid;
     align-items: center;
     gap: 8px;
     width: 100%;
-    min-height: 34px;
-    padding: 0 10px;
+    min-width: 0;
+    min-height: 46px;
+    padding: 0 14px;
+    background: transparent;
     border-color: transparent;
     font-size: 13px;
     text-align: left;
     transition:
       background-color 120ms ease,
       border-color 120ms ease,
-      color 120ms ease,
-      transform 120ms ease;
+      color 120ms ease;
   }
 
-  nav > button:hover,
-  nav > button:focus-visible,
+  .nav-main,
+  .notebook-main {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .nav-row:hover,
+  .nav-row:focus-within,
   .notebook-row:hover,
   .notebook-row:focus-within {
-    transform: translateX(2px);
+    border-color: var(--line);
   }
 
-  nav > button span,
+  .nav-main span,
   .notebook-main span {
     min-width: 0;
     overflow: hidden;
@@ -1224,18 +2181,41 @@
     white-space: nowrap;
   }
 
-  .notebook-row {
+  .nav-count {
+    justify-self: stretch;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.35;
+    text-align: right;
+    transition: opacity 120ms ease;
+  }
+
+  .nav-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) var(--nav-trailing-width);
     align-items: center;
-    min-height: 34px;
+    width: 100%;
+    min-width: 0;
+    min-height: 46px;
     border: 1px solid transparent;
-    border-radius: 8px;
+    border-radius: 16px;
     transition:
       background-color 120ms ease,
-      border-color 120ms ease,
-      box-shadow 120ms ease,
-      transform 120ms ease;
+      border-color 120ms ease;
+  }
+
+  .nav-trailing,
+  .notebook-trailing {
+    position: relative;
+    display: grid;
+    width: var(--nav-trailing-width);
+    place-items: center stretch;
+    padding-right: 14px;
   }
 
   .notebook-main {
@@ -1244,34 +2224,44 @@
   }
 
   .notebook-actions {
+    position: absolute;
+    top: 50%;
+    right: 14px;
     display: flex;
-    gap: 4px;
-    padding-right: 4px;
+    gap: 8px;
     opacity: 0;
+    pointer-events: none;
+    transform: translateY(-50%);
     transition: opacity 120ms ease;
   }
 
   .notebook-row:hover .notebook-actions,
   .notebook-row:focus-within .notebook-actions {
     opacity: 1;
+    pointer-events: auto;
+  }
+
+  .notebook-row:hover .notebook-trailing .nav-count,
+  .notebook-row:focus-within .notebook-trailing .nav-count {
+    opacity: 0;
   }
 
   .inline-rename {
     grid-column: 1 / -1;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto auto;
-    gap: 6px;
+    gap: 12px;
     align-items: center;
     min-width: 0;
-    padding: 4px;
+    padding: 8px;
   }
 
   .inline-rename input {
     min-width: 0;
-    height: 28px;
+    height: 40px;
     border: 1px solid var(--line);
-    border-radius: 6px;
-    padding: 0 8px;
+    border-radius: 14px;
+    padding: 0 14px;
     background: var(--bg);
     color: var(--text);
     font-size: 13px;
@@ -1286,10 +2276,10 @@
     grid-column: 1 / -1;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto auto;
-    gap: 6px;
+    gap: 12px;
     align-items: center;
-    min-height: 34px;
-    padding: 4px 4px 4px 10px;
+    min-height: 46px;
+    padding: 8px 8px 8px 14px;
     color: var(--danger);
     font-size: 12px;
   }
@@ -1305,7 +2295,7 @@
   }
 
   .date-range {
-    padding: 9px 10px 4px;
+    padding: 14px 14px 6px;
     color: var(--muted);
     font-size: 10px;
     font-weight: 600;
@@ -1318,33 +2308,40 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    min-height: 74px;
+    min-height: 116px;
     border: 1px solid transparent;
-    border-radius: 8px;
+    border-radius: 18px;
     transition:
       background-color 120ms ease,
-      border-color 120ms ease,
-      box-shadow 120ms ease,
-      transform 120ms ease;
+      border-color 120ms ease;
   }
 
   .note-row:hover,
   .note-row:focus-within {
-    transform: translateX(2px);
+    border-color: var(--line);
   }
 
   .note-main {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 4px;
-    min-height: 70px;
-    padding: 8px 10px;
+    gap: 10px;
+    min-height: 108px;
+    padding: 16px 18px;
     border: 0;
     text-align: left;
   }
 
+  .note-heading {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    min-width: 0;
+  }
+
   .note-title,
-  .note-preview {
+  .note-preview,
+  .note-age {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1361,10 +2358,34 @@
     font-size: 12px;
   }
 
+  .note-notebooks {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 6px;
+    align-items: center;
+    min-width: 0;
+    color: var(--text);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.25;
+  }
+
+  .note-notebooks span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .note-age {
+    color: var(--muted);
+    font-size: 11px;
+  }
+
   .note-context {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 12px;
     align-items: center;
     color: var(--muted);
     font-size: 11px;
@@ -1372,16 +2393,14 @@
     overflow: hidden;
   }
 
-  .note-context time,
-  .note-context span {
+  .note-context time {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .note-context time + time::before,
-  .note-context span::before {
+  .note-context time + time::before {
     margin-right: 6px;
     content: '·';
   }
@@ -1393,14 +2412,23 @@
   }
 
   .sync-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
     min-height: 16px;
-    margin: -4px 2px 0;
+    margin: -8px 4px 0;
+  }
+
+  .sync-detail {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .row-actions {
     display: flex;
-    gap: 4px;
-    padding-right: 6px;
+    gap: 10px;
+    padding-right: 12px;
     opacity: 0;
     transition: opacity 120ms ease;
   }
@@ -1410,34 +2438,116 @@
     opacity: 1;
   }
 
+  .compact {
+    gap: 8px;
+  }
+
+  .compact .date-range {
+    padding-top: 12px;
+  }
+
+  .compact .note-row {
+    min-height: 58px;
+  }
+
+  .compact .note-main {
+    min-height: 54px;
+    padding-block: 12px;
+  }
+
+  .compact .row-actions {
+    align-self: center;
+  }
+
   .link-popover {
     position: absolute;
     z-index: 2;
-    top: 48px;
-    right: 8px;
-    width: min(190px, calc(100% - 16px));
+    top: 70px;
+    right: 18px;
+    width: min(260px, calc(100% - 36px));
     border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 6px;
+    border-radius: 20px;
+    padding: 14px;
     background: var(--field);
-    box-shadow: 0 8px 24px var(--shadow);
+    box-shadow: none;
     animation: menu-in 120ms ease-out;
   }
 
-  .link-popover select {
-    width: 100%;
-    min-height: 30px;
+  .link-popover {
+    display: grid;
+    gap: 10px;
+  }
+
+  .link-popover button {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) 14px;
+    gap: 12px;
+    align-items: center;
+    min-height: 42px;
+    border-color: transparent;
+    padding: 0 12px;
+    text-align: left;
+  }
+
+  .link-popover button:hover,
+  .link-popover button:focus-visible {
+    border-color: var(--line);
+  }
+
+  .link-popover button.active {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .link-popover button span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .active {
     border-color: var(--line-strong);
-    background: var(--field);
-    box-shadow: 0 1px 8px var(--shadow);
+    background: transparent;
+    box-shadow: none;
   }
 
-  .pending .note-title::after {
+  .status-dot {
+    display: inline-block;
+    width: 8px;
+    min-width: 8px;
+    height: 8px;
+    border: 0;
+    border-radius: 0;
     color: var(--muted);
-    content: ' *';
+    background: transparent;
+  }
+
+  .status-dot.synced {
+    color: var(--text);
+    background: var(--text);
+  }
+
+  .status-dot.pending,
+  .status-dot.syncing {
+    color: var(--muted);
+    background: var(--muted);
+  }
+
+  .status-dot.conflict,
+  .status-dot.deleted {
+    color: var(--danger);
+    background: var(--danger);
+  }
+
+  .status-dot.offline {
+    color: var(--muted);
+  }
+
+  .note-status {
+    width: 7px;
+    min-width: 7px;
+    height: 7px;
   }
 
   .conflicted {
@@ -1448,26 +2558,58 @@
     color: var(--danger);
   }
 
+  .empty-list {
+    margin: 14px 10px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .context-menu {
+    position: fixed;
+    z-index: 60;
+    display: grid;
+    gap: 2px;
+    width: 190px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 4px;
+    background: var(--field);
+    box-shadow: none;
+  }
+
+  .context-menu button {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+    min-height: 30px;
+    border-color: transparent;
+    padding: 0 8px;
+    text-align: left;
+  }
+
+  .context-menu button:hover,
+  .context-menu button:focus-visible {
+    border-color: var(--line);
+    background: transparent;
+  }
+
   .editor-wrap {
     display: grid;
     min-width: 0;
     min-height: 100vh;
-    background: var(--bg);
+    background: var(--paper);
   }
 
   .writer {
     display: grid;
     grid-template-rows: auto minmax(0, 1fr) auto;
-    width: min(860px, 100%);
+    width: min(940px, 100%);
     min-width: 0;
     min-height: 100vh;
     justify-self: center;
-    padding: clamp(28px, 6vw, 82px);
-  }
-
-  .title-input,
-  textarea {
-    font-family: "Source Serif 4", ui-serif, Georgia, Cambria, "Times New Roman", serif;
+    padding: clamp(48px, 8vw, 118px);
+    background: var(--paper);
   }
 
   .title-input,
@@ -1484,15 +2626,19 @@
 
   .title-input {
     min-height: 46px;
-    margin-bottom: 16px;
-    font-size: clamp(28px, 4.5vw, 46px);
+    margin-bottom: 30px;
+    font-size: clamp(
+      calc(28px * var(--editor-zoom, 1)),
+      calc(4.5vw * var(--editor-zoom, 1)),
+      calc(46px * var(--editor-zoom, 1))
+    );
     font-weight: 700;
     line-height: 1.04;
   }
 
   textarea {
     min-height: 0;
-    font-size: 16px;
+    font-size: calc(16px * var(--editor-zoom, 1));
     line-height: 1.6;
     scrollbar-width: none;
   }
@@ -1500,11 +2646,20 @@
   .editor-status {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px 14px;
+    gap: 8px 12px;
+    align-items: center;
+    justify-content: center;
     min-width: 0;
     padding-top: 18px;
+    text-align: center;
     color: var(--muted);
     font-size: 11px;
+  }
+
+  .history-controls {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
   }
 
   .title-input:focus-visible,
@@ -1518,16 +2673,16 @@
     display: grid;
     place-items: center;
     padding: 20px;
-    background: rgba(0, 0, 0, 0.26);
+    background: var(--bg);
   }
 
   .conflict-dialog {
     width: min(720px, 100%);
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: 6px;
     padding: 18px;
     background: var(--bg);
-    box-shadow: 0 18px 50px var(--shadow);
+    box-shadow: none;
   }
 
   .conflict-dialog h1 {
@@ -1551,7 +2706,7 @@
   .versions article {
     min-width: 0;
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: 6px;
     padding: 12px;
     background: var(--panel-soft);
   }
@@ -1591,25 +2746,33 @@
 
   @media (prefers-reduced-motion: reduce) {
     .menu-trigger,
+    .profile-trigger,
+    .profile-hover-card,
+    .profile-quick-action,
     .menu-panels,
+    .settings-modal,
+    .settings-action,
     .icon-button,
-    nav > button,
+    .nav-row,
+    .nav-main,
     .notebook-row,
     .notebook-main,
     .notebook-actions,
+    .notebook-trailing .nav-count,
     .note-row,
     .row-actions {
       transition: none;
     }
 
     .menu-form,
+    .settings-modal,
     .link-popover {
       animation: none;
     }
 
     .icon-button:not(:disabled):hover,
-    nav > button:hover,
-    nav > button:focus-visible,
+    .nav-row:hover,
+    .nav-row:focus-within,
     .notebook-row:hover,
     .notebook-row:focus-within,
     .note-row:hover,
@@ -1619,41 +2782,101 @@
   }
 
   @media (max-width: 980px) {
+    .app-shell {
+      display: block;
+    }
+
     .menu-dock {
-      top: 10px;
-      left: 10px;
+      position: fixed;
+      top: 0;
+      left: 50%;
+      width: min(100vw - 18px, 920px);
+      height: 76px;
+      border-right: 0;
+      background: transparent;
+      transform: translateX(-50%);
+    }
+
+    .menu-dock.open,
+    .menu-dock:hover,
+    .menu-dock:focus-within {
+      height: 100vh;
+    }
+
+    .dock-buttons {
+      top: 16px;
+      left: 50%;
+    }
+
+    .menu-trigger {
+      position: relative;
+      top: 0;
+      left: 0;
+      z-index: 22;
+    }
+
+    .profile-trigger {
+      z-index: 22;
     }
 
     .menu-panels {
-      grid-template-columns: minmax(118px, 0.42fr) minmax(0, 0.58fr) 0;
+      position: absolute;
+      z-index: 21;
+      top: 82px;
+      left: 0;
+      grid-template-columns: minmax(150px, 0.42fr) minmax(0, 0.58fr);
       grid-template-rows: minmax(0, 1fr);
-      padding: 48px 10px 10px;
+      width: 100%;
+      height: min(80vh, calc(100vh - 96px));
+      padding: 14px;
+      background: var(--panel-transparent);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      visibility: hidden;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(-8px) scale(0.98);
+      transform-origin: top center;
+      transition:
+        opacity 120ms ease,
+        transform 120ms ease,
+        visibility 120ms ease;
+    }
+
+    .menu-dock.open .menu-panels,
+    .menu-dock:hover .menu-panels,
+    .menu-dock:focus-within .menu-panels {
+      visibility: visible;
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0) scale(1);
+    }
+
+    .settings-layer {
+      padding: 14px;
     }
 
     .notebooks,
     .notes {
-      padding: 10px;
+      gap: 16px;
+      padding: 16px;
     }
 
     .row-actions {
       opacity: 1;
     }
 
-    .notebook-actions {
-      opacity: 1;
-    }
-
     .editor-wrap,
     .writer {
-      min-height: 58vh;
+      min-height: 100vh;
     }
 
     .writer {
-      padding: 26px 22px;
+      padding: 38px 30px;
     }
 
     .title-input {
-      font-size: 30px;
+      font-size: calc(30px * var(--editor-zoom, 1));
     }
 
     .versions {

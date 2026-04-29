@@ -34,12 +34,35 @@ function asNullableString(value: unknown): string | null {
   return value === null || value === undefined ? null : String(value);
 }
 
+function noteNotebookIdsFromRow(row: Row): string[] {
+  const raw = asNullableString(row.notebook_ids);
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        return [...new Set(parsed.filter((id): id is string => typeof id === 'string' && Boolean(id)))];
+      }
+    } catch {
+      // Fall through to legacy notebook_id.
+    }
+  }
+
+  const legacyId = asNullableString(row.notebook_id);
+  return legacyId ? [legacyId] : [];
+}
+
+function noteNotebookIds(note: Note): string[] {
+  return [...new Set(note.notebookIds?.length ? note.notebookIds : note.notebookId ? [note.notebookId] : [])];
+}
+
 function toNote(row: Row): Note {
+  const notebookIds = noteNotebookIdsFromRow(row);
   return {
     id: asString(row.id),
     title: asString(row.title),
     body: asString(row.body),
-    notebookId: asNullableString(row.notebook_id),
+    notebookIds,
+    notebookId: notebookIds[0] ?? asNullableString(row.notebook_id),
     createdAt: asString(row.created_at),
     updatedAt: asString(row.updated_at),
     deletedAt: asNullableString(row.deleted_at),
@@ -169,14 +192,15 @@ async function saveNoteSnapshot(
   await runSql(
     db,
     `INSERT INTO note_versions (
-       note_id, title, body, notebook_id, created_at, updated_at,
+       note_id, title, body, notebook_ids, notebook_id, created_at, updated_at,
        deleted_at, trashed_at, device_id, version, saved_at, reason
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       note.id,
       note.title,
       note.body,
-      note.notebookId,
+      JSON.stringify(noteNotebookIds(note)),
+      noteNotebookIds(note)[0] ?? null,
       note.createdAt,
       note.updatedAt,
       note.deletedAt,
@@ -218,12 +242,13 @@ async function putNote(db: NotesExecutor, note: Note): Promise<Note> {
   await runSql(
     db,
     `INSERT INTO notes (
-       id, title, body, notebook_id, created_at, updated_at,
+       id, title, body, notebook_ids, notebook_id, created_at, updated_at,
        deleted_at, trashed_at, device_id, version, sync_status
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        title = excluded.title,
        body = excluded.body,
+       notebook_ids = excluded.notebook_ids,
        notebook_id = excluded.notebook_id,
        created_at = excluded.created_at,
        updated_at = excluded.updated_at,
@@ -236,7 +261,8 @@ async function putNote(db: NotesExecutor, note: Note): Promise<Note> {
       note.id,
       note.title,
       note.body,
-      note.notebookId,
+      JSON.stringify(noteNotebookIds(note)),
+      noteNotebookIds(note)[0] ?? null,
       note.createdAt,
       note.updatedAt,
       note.deletedAt,

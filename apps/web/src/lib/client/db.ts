@@ -63,6 +63,28 @@ export class NotesLocalDatabase extends Dexie {
             delete note.markdownBody;
           });
       });
+    this.version(3)
+      .stores({
+        notes:
+          'id, notebookId, *notebookIds, createdAt, updatedAt, deletedAt, trashedAt, deviceId, version, syncStatus, lastSyncedVersion',
+        notebooks: 'id, name, createdAt, updatedAt, deletedAt, deviceId, version, syncStatus, lastSyncedVersion',
+        devices: 'id, name',
+        syncMeta: 'key',
+        conflicts: 'id, entityType, entityId, status, createdAt'
+      })
+      .upgrade(async (tx) => {
+        await tx
+          .table('notes')
+          .toCollection()
+          .modify((note) => {
+            note.notebookIds = Array.isArray(note.notebookIds)
+              ? [...new Set(note.notebookIds.filter(Boolean))]
+              : note.notebookId
+                ? [note.notebookId]
+                : [];
+            note.notebookId = note.notebookIds[0] ?? null;
+          });
+      });
   }
 }
 

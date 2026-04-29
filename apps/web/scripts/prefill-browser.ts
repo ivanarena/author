@@ -141,11 +141,13 @@ function mockNote(
 ): LocalNote {
   const updatedAt = daysAgoIso(daysAgo, 8 + hour);
   const createdAt = daysAgoIso(daysAgo + 2, 8 + hour);
+  const notebookIds = notebookId ? [notebookId] : [];
   return {
     id,
     title,
     body,
-    notebookId,
+    notebookIds,
+    notebookId: notebookIds[0] ?? null,
     createdAt,
     updatedAt,
     deletedAt: null,

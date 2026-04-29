@@ -10,7 +10,7 @@ time:
   '@esbuild/linux-x64@0.27.7': 2026-04-02T16:42:42.543Z
   '@esbuild/win32-arm64@0.27.7': 2026-04-02T16:43:29.208Z
   '@esbuild/win32-x64@0.27.7': 2026-04-02T16:43:41.245Z
-  '@fontsource/source-serif-4@5.2.9': 2025-09-14T01:26:54.391Z
+  '@fontsource/jetbrains-mono@5.2.8': 2025-09-17T09:09:23.675Z
   '@jridgewell/gen-mapping@0.3.13': 2025-08-12T06:43:21.134Z
   '@jridgewell/remapping@2.3.5': 2025-08-12T06:43:35.321Z
   '@jridgewell/resolve-uri@3.1.2': 2024-02-14T19:32:38.143Z
@@ -175,9 +175,9 @@ importers:
       '@author/sync-spec':
         specifier: workspace:*
         version: 0.0.1
-      '@fontsource/source-serif-4':
-        specifier: latest
-        version: 5.2.9
+      '@fontsource/jetbrains-mono':
+        specifier: ^5.2.8
+        version: 5.2.8
       '@libsql/client':
         specifier: latest
         version: 0.17.3
@@ -306,8 +306,8 @@ packages:
     cpu:
     - x64
 
-  '@fontsource/source-serif-4@5.2.9':
-    resolution: {integrity: sha512-er/Pym9emsEVJNf947umJ4kXarXfsiN6CN7kTYinefKRaHLwiquiiHOZvKvxWgkV8JMCf3pV3g0NcsPFpVCH9w==}
+  '@fontsource/jetbrains-mono@5.2.8':
+    resolution: {integrity: sha512-6w8/SG4kqvIMu7xd7wt6x3idn1Qux3p9N62s6G3rfldOUYHpWcc2FKrqf+Vo44jRvqWj2oAtTHrZXEP23oSKwQ==}
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -1150,7 +1150,7 @@ snapshots:
 
   '@esbuild/win32-x64@0.27.7': {}
 
-  '@fontsource/source-serif-4@5.2.9': {}
+  '@fontsource/jetbrains-mono@5.2.8': {}
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:

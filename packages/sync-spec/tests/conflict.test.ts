@@ -13,6 +13,7 @@ const baseNote: Note = {
   id: 'note-1',
   title: 'Draft',
   body: 'Local body',
+  notebookIds: [],
   notebookId: null,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T01:00:00.000Z',

@@ -108,6 +108,7 @@ test('persists in browser IndexedDB, syncs, and shows stale-edit conflicts', asy
       id: string;
       title: string;
       body: string;
+      notebookIds: string[];
       notebookId: string | null;
       createdAt: string;
       updatedAt: string;

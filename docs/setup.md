@@ -115,7 +115,7 @@ The app works offline immediately because all note edits go to IndexedDB first.
 aube -F @author/web run seed
 ```
 
-This creates an Inbox notebook and one sample note in the configured server database.
+This clears the configured server database, then seeds the deterministic fixture notebooks and notes.
 
 ## CI/CD
 

@@ -6,6 +6,7 @@ export interface Note {
   id: string;
   title: string;
   body: string;
+  notebookIds: string[];
   notebookId: string | null;
   createdAt: ISODateString;
   updatedAt: ISODateString;

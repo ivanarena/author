@@ -20,7 +20,7 @@
     "@author/api-types": "workspace:*",
     "@author/schema": "workspace:*",
     "@author/sync-spec": "workspace:*",
-    "@fontsource/source-serif-4": "latest",
+    "@fontsource/jetbrains-mono": "^5.2.8",
     "@libsql/client": "latest",
     "dexie": "latest",
     "hono": "latest",

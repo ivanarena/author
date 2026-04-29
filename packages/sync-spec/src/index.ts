@@ -24,6 +24,7 @@ export function recordsDiffer<T extends SyncEntity>(a: T, b: T): boolean {
     return (
       a.title !== b.title ||
       a.body !== b.body ||
+      noteNotebookIds(a).join('\0') !== noteNotebookIds(b).join('\0') ||
       a.notebookId !== b.notebookId ||
       a.deletedAt !== b.deletedAt ||
       a.trashedAt !== b.trashedAt
@@ -35,6 +36,10 @@ export function recordsDiffer<T extends SyncEntity>(a: T, b: T): boolean {
   }
 
   return true;
+}
+
+function noteNotebookIds(note: Note): string[] {
+  return [...new Set(note.notebookIds?.length ? note.notebookIds : note.notebookId ? [note.notebookId] : [])].sort();
 }
 
 export function shouldConflict<T extends SyncEntity>(

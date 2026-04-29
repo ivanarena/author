@@ -32,6 +32,7 @@ const schemaSql = `
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     body TEXT NOT NULL,
+    notebook_ids TEXT NOT NULL DEFAULT '[]',
     notebook_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -48,6 +49,7 @@ const schemaSql = `
     note_id TEXT NOT NULL,
     title TEXT NOT NULL,
     body TEXT NOT NULL,
+    notebook_ids TEXT NOT NULL DEFAULT '[]',
     notebook_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -78,6 +80,7 @@ const createNotesTableSql = `
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     body TEXT NOT NULL,
+    notebook_ids TEXT NOT NULL DEFAULT '[]',
     notebook_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -96,6 +99,7 @@ const createNoteVersionsTableSql = `
     note_id TEXT NOT NULL,
     title TEXT NOT NULL,
     body TEXT NOT NULL,
+    notebook_ids TEXT NOT NULL DEFAULT '[]',
     notebook_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -136,17 +140,21 @@ async function migrateLegacyMarkdownColumns(db: NotesDb): Promise<void> {
   const notesHaveMarkdownBody = await hasColumn(db, 'notes', 'markdown_body');
   if (notesHaveMarkdownBody) {
     const bodyExpression = notesHaveBody ? "COALESCE(NULLIF(body, ''), markdown_body)" : 'markdown_body';
+    const notesHaveNotebookIds = await hasColumn(db, 'notes', 'notebook_ids');
+    const notebookIdsExpression = notesHaveNotebookIds
+      ? "COALESCE(notebook_ids, CASE WHEN notebook_id IS NULL THEN '[]' ELSE json_array(notebook_id) END)"
+      : "CASE WHEN notebook_id IS NULL THEN '[]' ELSE json_array(notebook_id) END";
     await exec(
       db,
       `PRAGMA foreign_keys = OFF;
        ALTER TABLE notes RENAME TO notes_legacy_markdown;
        ${createNotesTableSql}
        INSERT INTO notes (
-         id, title, body, notebook_id, created_at, updated_at,
+         id, title, body, notebook_ids, notebook_id, created_at, updated_at,
          deleted_at, trashed_at, device_id, version, sync_status
        )
        SELECT
-         id, title, ${bodyExpression}, notebook_id, created_at, updated_at,
+         id, title, ${bodyExpression}, ${notebookIdsExpression}, notebook_id, created_at, updated_at,
          deleted_at, trashed_at, device_id, version, sync_status
        FROM notes_legacy_markdown;
        DROP TABLE notes_legacy_markdown;
@@ -158,16 +166,20 @@ async function migrateLegacyMarkdownColumns(db: NotesDb): Promise<void> {
   const versionsHaveMarkdownBody = await hasColumn(db, 'note_versions', 'markdown_body');
   if (versionsHaveMarkdownBody) {
     const bodyExpression = versionsHaveBody ? "COALESCE(NULLIF(body, ''), markdown_body)" : 'markdown_body';
+    const versionsHaveNotebookIds = await hasColumn(db, 'note_versions', 'notebook_ids');
+    const notebookIdsExpression = versionsHaveNotebookIds
+      ? "COALESCE(notebook_ids, CASE WHEN notebook_id IS NULL THEN '[]' ELSE json_array(notebook_id) END)"
+      : "CASE WHEN notebook_id IS NULL THEN '[]' ELSE json_array(notebook_id) END";
     await exec(
       db,
       `ALTER TABLE note_versions RENAME TO note_versions_legacy_markdown;
        ${createNoteVersionsTableSql}
        INSERT INTO note_versions (
-         id, note_id, title, body, notebook_id, created_at, updated_at,
+         id, note_id, title, body, notebook_ids, notebook_id, created_at, updated_at,
          deleted_at, trashed_at, device_id, version, saved_at, reason
        )
        SELECT
-         id, note_id, title, ${bodyExpression}, notebook_id, created_at, updated_at,
+         id, note_id, title, ${bodyExpression}, ${notebookIdsExpression}, notebook_id, created_at, updated_at,
          deleted_at, trashed_at, device_id, version, saved_at, reason
        FROM note_versions_legacy_markdown;
        DROP TABLE note_versions_legacy_markdown;`
@@ -175,9 +187,22 @@ async function migrateLegacyMarkdownColumns(db: NotesDb): Promise<void> {
   }
 }
 
+async function migrateNotebookIds(db: NotesDb): Promise<void> {
+  if (!(await hasColumn(db, 'notes', 'notebook_ids'))) {
+    await run(db, `ALTER TABLE notes ADD COLUMN notebook_ids TEXT NOT NULL DEFAULT '[]'`);
+    await run(db, `UPDATE notes SET notebook_ids = CASE WHEN notebook_id IS NULL THEN '[]' ELSE json_array(notebook_id) END`);
+  }
+
+  if (!(await hasColumn(db, 'note_versions', 'notebook_ids'))) {
+    await run(db, `ALTER TABLE note_versions ADD COLUMN notebook_ids TEXT NOT NULL DEFAULT '[]'`);
+    await run(db, `UPDATE note_versions SET notebook_ids = CASE WHEN notebook_id IS NULL THEN '[]' ELSE json_array(notebook_id) END`);
+  }
+}
+
 export async function initializeDatabase(db: NotesDb): Promise<void> {
   await exec(db, schemaSql);
   await migrateLegacyMarkdownColumns(db);
+  await migrateNotebookIds(db);
 }
 
 export async function openDatabase(): Promise<NotesDb> {

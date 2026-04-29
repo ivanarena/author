@@ -1,39 +1,42 @@
 :root {
   color-scheme: light;
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #f8f7f3;
-  color: #1f211d;
-  --bg: #f8f7f3;
-  --panel: #efede6;
-  --panel-soft: #f4f2ec;
-  --text: #1f211d;
-  --muted: #747064;
-  --line: #dedacf;
-  --line-strong: #cfc9bb;
-  --accent: #365f5d;
-  --danger: #93433f;
-  --field: #fbfaf6;
-  --shadow: rgba(31, 33, 29, 0.08);
-  --overlay: rgba(248, 247, 243, 0.92);
+    "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Consolas,
+    "Liberation Mono", monospace;
+  background: #ffffff;
+  color: #202020;
+  --bg: #ffffff;
+  --paper: #ffffff;
+  --panel: #f0f0ee;
+  --panel-soft: #f3f3f1;
+  --panel-transparent: rgba(246, 246, 244, 0.88);
+  --panel-soft-transparent: rgba(240, 240, 238, 0.78);
+  --text: #202020;
+  --muted: #707070;
+  --line: transparent;
+  --line-strong: transparent;
+  --accent: #4f4f4f;
+  --danger: #4f4f4f;
+  --field: #f8f8f6;
 }
 
-:root[data-theme='dark'] {
+:root[data-theme="dark"] {
   color-scheme: dark;
-  background: #161812;
-  color: #f0eee7;
-  --bg: #161812;
-  --panel: #20231a;
-  --panel-soft: #1b1e17;
-  --text: #f0eee7;
-  --muted: #aaa493;
-  --line: #33362b;
-  --line-strong: #474a3c;
-  --accent: #9ac5bd;
-  --danger: #e69a91;
-  --field: #181b14;
-  --shadow: rgba(0, 0, 0, 0.26);
-  --overlay: rgba(22, 24, 18, 0.92);
+  background: #111111;
+  color: #f2f2f2;
+  --bg: #111111;
+  --paper: #151515;
+  --panel: #191919;
+  --panel-soft: #1f1f1f;
+  --panel-transparent: rgba(21, 21, 21, 0.88);
+  --panel-soft-transparent: rgba(31, 31, 31, 0.76);
+  --text: #f2f2f2;
+  --muted: #aaaaaa;
+  --line: transparent;
+  --line-strong: transparent;
+  --accent: #e8e8e8;
+  --danger: #d8d8d8;
+  --field: #171717;
 }
 
 * {
@@ -57,14 +60,18 @@ textarea {
 
 button,
 select {
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: transparent;
+  border: 0;
+  border-radius: 0;
   color: var(--text);
 }
 
 button {
+  background: transparent;
   cursor: pointer;
+}
+
+select {
+  background: var(--field);
 }
 
 button:disabled {

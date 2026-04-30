@@ -2,13 +2,21 @@
   position: fixed;
   z-index: 60;
   display: grid;
-  gap: 2px;
+  gap: 4px;
   width: 190px;
   border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 4px;
+  border-radius: var(--radius-lg);
+  padding: 6px;
   background: var(--field);
   box-shadow: none;
+}
+
+.note-context-menu {
+  gap: 8px;
+  width: 280px;
+  max-height: min(360px, calc(100vh - 16px));
+  overflow: auto;
+  padding: 8px;
 }
 
 .context-menu button {
@@ -16,16 +24,51 @@
   grid-template-columns: auto minmax(0, 1fr);
   gap: 8px;
   align-items: center;
-  min-height: 30px;
+  min-height: 32px;
   border-color: transparent;
   padding: 0 8px;
   text-align: left;
 }
 
+.note-context-menu button {
+  grid-template-columns: auto minmax(0, 1fr) 14px;
+  min-height: var(--control-height);
+}
+
+.context-section {
+  display: grid;
+  gap: 2px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
+}
+
+.context-section-title {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  padding: 2px 8px 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.context-section-title span,
+.context-menu button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .context-menu button:hover,
-.context-menu button:focus-visible {
+.context-menu button:focus-visible,
+.context-menu button.active {
   border-color: var(--line);
-  background: transparent;
+  background: var(--hover);
+  color: var(--text);
 }
 
 .conflict-backdrop {
@@ -34,15 +77,16 @@
   display: grid;
   place-items: center;
   padding: 20px;
-  background: var(--bg);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(8px);
 }
 
 .conflict-dialog {
   width: min(720px, 100%);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-panel);
   padding: 18px;
-  background: var(--bg);
+  background: var(--paper);
   box-shadow: none;
 }
 
@@ -67,7 +111,7 @@
 .versions article {
   min-width: 0;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   padding: 12px;
   background: var(--panel-soft);
 }

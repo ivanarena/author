@@ -27,6 +27,7 @@ textarea::-webkit-scrollbar {
   padding: 0 14px;
   background: transparent;
   border-color: transparent;
+  border-radius: var(--radius-md);
   font-size: 13px;
   text-align: left;
   transition:
@@ -45,6 +46,7 @@ textarea::-webkit-scrollbar {
 .notebook-row:hover,
 .notebook-row:focus-within {
   border-color: var(--line);
+  background: var(--hover);
 }
 
 .nav-main span,
@@ -77,7 +79,7 @@ textarea::-webkit-scrollbar {
   min-width: 0;
   min-height: 46px;
   border: 1px solid transparent;
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   transition:
     background-color 120ms ease,
     border-color 120ms ease;
@@ -132,9 +134,9 @@ textarea::-webkit-scrollbar {
 
 .inline-rename input {
   min-width: 0;
-  height: 40px;
+  height: var(--control-height);
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   padding: 0 14px;
   background: var(--bg);
   color: var(--text);
@@ -184,7 +186,7 @@ textarea::-webkit-scrollbar {
   align-items: center;
   min-height: 116px;
   border: 1px solid transparent;
-  border-radius: 18px;
+  border-radius: var(--radius-lg);
   transition:
     background-color 120ms ease,
     border-color 120ms ease;
@@ -193,6 +195,7 @@ textarea::-webkit-scrollbar {
 .note-row:hover,
 .note-row:focus-within {
   border-color: var(--line);
+  background: var(--hover);
 }
 
 .note-main {
@@ -287,13 +290,15 @@ textarea::-webkit-scrollbar {
 
 .sync-line {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  min-height: 16px;
-  margin: -8px 4px 0;
+  gap: 8px;
+  min-height: 24px;
+  margin: -6px 4px 0;
 }
 
 .sync-detail {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -340,7 +345,7 @@ textarea::-webkit-scrollbar {
   right: 18px;
   width: min(260px, calc(100% - 36px));
   border: 1px solid var(--line);
-  border-radius: 20px;
+  border-radius: var(--radius-lg);
   padding: 14px;
   background: var(--field);
   box-shadow: none;
@@ -357,7 +362,7 @@ textarea::-webkit-scrollbar {
   grid-template-columns: auto minmax(0, 1fr) 14px;
   gap: 12px;
   align-items: center;
-  min-height: 42px;
+  min-height: var(--control-height);
   border-color: transparent;
   padding: 0 12px;
   text-align: left;
@@ -366,6 +371,7 @@ textarea::-webkit-scrollbar {
 .link-popover button:hover,
 .link-popover button:focus-visible {
   border-color: var(--line);
+  background: var(--hover);
 }
 
 .link-popover button.active {

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { ArchiveRestore, FolderSymlink, Pencil, Trash2 } from 'lucide-svelte';
-  import { noteDisplayTitle } from '$lib/client/note-utils';
+  import { ArchiveRestore, Check, FolderSymlink, Inbox, Notebook, Pencil, Trash2 } from 'lucide-svelte';
+  import { noteDisplayTitle, noteNotebookIds } from '$lib/client/note-utils';
   import type { ContextMenuModel } from './notes-page-controller.svelte.js';
 
   let { model }: { model: ContextMenuModel } = $props();
@@ -44,10 +44,10 @@
   </div>
 {/if}
 
-{#if model.contextMenu?.type === 'note' && model.contextNote}
+{#if (model.contextMenu?.type === 'note' || model.contextMenu?.type === 'editor') && model.contextNote}
   {@const contextNote = model.contextNote}
   <div
-    class="context-menu"
+    class="context-menu note-context-menu"
     style={menuStyle}
     role="menu"
     tabindex="-1"
@@ -66,16 +66,44 @@
         <span>Restore</span>
       </button>
     {:else}
-      <button
-        role="menuitem"
-        onclick={(event) => {
-          event.stopPropagation();
-          model.contextLinkNote(contextNote);
-        }}
-      >
-        <FolderSymlink size={14} strokeWidth={1.8} />
-        <span>Move to notebook</span>
-      </button>
+      <div class="context-section" aria-label="Notebook links">
+        <span class="context-section-title">
+          <FolderSymlink size={13} strokeWidth={1.8} />
+          <span>Notebook</span>
+        </span>
+        <button
+          class:active={noteNotebookIds(contextNote).length === 0}
+          aria-checked={noteNotebookIds(contextNote).length === 0}
+          role="menuitemcheckbox"
+          onclick={(event) => {
+            event.stopPropagation();
+            void model.assignNotebookForNote(contextNote, null);
+          }}
+        >
+          <Inbox size={14} strokeWidth={1.8} />
+          <span>Unfiled</span>
+          {#if noteNotebookIds(contextNote).length === 0}
+            <Check size={13} strokeWidth={1.9} />
+          {/if}
+        </button>
+        {#each model.notebooks as notebook}
+          <button
+            class:active={noteNotebookIds(contextNote).includes(notebook.id)}
+            aria-checked={noteNotebookIds(contextNote).includes(notebook.id)}
+            role="menuitemcheckbox"
+            onclick={(event) => {
+              event.stopPropagation();
+              void model.assignNotebookForNote(contextNote, notebook.id);
+            }}
+          >
+            <Notebook size={14} strokeWidth={1.8} />
+            <span>{notebook.name}</span>
+            {#if noteNotebookIds(contextNote).includes(notebook.id)}
+              <Check size={13} strokeWidth={1.9} />
+            {/if}
+          </button>
+        {/each}
+      </div>
       <button
         class="danger"
         role="menuitem"

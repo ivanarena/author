@@ -64,9 +64,14 @@
     {/if}
   </div>
 
-  <p class="sync-line" aria-label={`Sync status: ${model.syncIndicator.label}`}>
-    <span class={`status-dot ${model.syncIndicator.kind}`} aria-hidden="true"></span>
-    <span>{model.syncIndicator.label}</span>
+  <p class="sync-line">
+    <span
+      class={`sync-badge ${model.syncIndicator.kind === 'synced' ? 'ok' : 'error'}`}
+      aria-label={`Sync status: ${model.syncIndicator.label}`}
+    >
+      <span aria-hidden="true"></span>
+      <span>{model.syncIndicator.label}</span>
+    </span>
     {#if model.syncIndicator.detail}
       <span class="sync-detail">{model.syncIndicator.detail}</span>
     {/if}

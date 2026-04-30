@@ -117,7 +117,11 @@
           void model.submitLoginMenu();
         }}
       >
-        <label class="sr-only" for="sync-username">Sync username</label>
+        <div class="login-copy">
+          <strong>Sign in to sync</strong>
+          <span>Connect this browser and keep notes current across devices.</span>
+        </div>
+        <label for="sync-username">Username</label>
         <input
           id="sync-username"
           type="text"
@@ -128,38 +132,32 @@
           spellcheck="false"
           oninput={() => (model.loginError = '')}
         />
-        <label class="sr-only" for="sync-password">Sync password</label>
-        <div class="field-row">
-          <input
-            id="sync-password"
-            type="password"
-            bind:value={model.loginPasswordValue}
-            autocomplete="current-password"
-            placeholder="Sync password"
-            oninput={() => (model.loginError = '')}
-          />
-          <button
-            class="icon-button mini"
-            type="submit"
-            title="Login"
-            aria-label="Submit login"
-            disabled={model.isLoggingIn}
-          >
-            <Check size={14} strokeWidth={1.9} />
-          </button>
-          <button
-            class="icon-button mini"
-            type="button"
-            title="Close"
-            aria-label="Close login menu"
-            onclick={() => (model.loginOpen = false)}
-          >
-            <X size={14} strokeWidth={1.9} />
-          </button>
-        </div>
+        <label for="sync-password">Password</label>
+        <input
+          id="sync-password"
+          type="password"
+          bind:value={model.loginPasswordValue}
+          autocomplete="current-password"
+          placeholder="Sync password"
+          oninput={() => (model.loginError = '')}
+        />
         {#if model.loginError}
           <p class="form-error">{model.loginError}</p>
         {/if}
+        <div class="login-actions">
+          <button class="settings-action login-submit" type="submit" disabled={model.isLoggingIn}>
+            <Check size={15} strokeWidth={1.9} />
+            <span>{model.isLoggingIn ? 'Signing in' : 'Sign in'}</span>
+          </button>
+          <button
+            class="settings-action"
+            type="button"
+            onclick={() => (model.loginOpen = false)}
+          >
+            <X size={15} strokeWidth={1.9} />
+            <span>Cancel</span>
+          </button>
+        </div>
       </form>
     {/if}
   </div>

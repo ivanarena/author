@@ -13,11 +13,18 @@
   --panel-soft-transparent: rgba(240, 240, 238, 0.78);
   --text: #202020;
   --muted: #707070;
-  --line: transparent;
-  --line-strong: transparent;
+  --line: rgba(32, 32, 32, 0.09);
+  --line-strong: rgba(32, 32, 32, 0.18);
   --accent: #4f4f4f;
   --danger: #4f4f4f;
   --field: #f8f8f6;
+  --hover: rgba(32, 32, 32, 0.04);
+  --active: rgba(32, 32, 32, 0.07);
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-panel: 18px;
+  --control-height: 38px;
 }
 
 :root[data-theme="dark"] {
@@ -32,11 +39,18 @@
   --panel-soft-transparent: rgba(31, 31, 31, 0.76);
   --text: #f2f2f2;
   --muted: #aaaaaa;
-  --line: transparent;
-  --line-strong: transparent;
+  --line: rgba(242, 242, 242, 0.1);
+  --line-strong: rgba(242, 242, 242, 0.2);
   --accent: #e8e8e8;
   --danger: #d8d8d8;
   --field: #171717;
+  --hover: rgba(242, 242, 242, 0.06);
+  --active: rgba(242, 242, 242, 0.1);
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-panel: 18px;
+  --control-height: 38px;
 }
 
 * {
@@ -60,8 +74,8 @@ textarea {
 
 button,
 select {
-  border: 0;
-  border-radius: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
   color: var(--text);
 }
 

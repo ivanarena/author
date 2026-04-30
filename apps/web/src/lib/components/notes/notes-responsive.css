@@ -65,7 +65,7 @@
   .menu-dock.open,
   .menu-dock:hover,
   .menu-dock:focus-within {
-    height: 100vh;
+    height: min(900px, calc(82px + min(80vh, calc(100vh - 96px))));
   }
 
   .dock-buttons {
@@ -117,6 +117,14 @@
     transform: translateY(0) scale(1);
   }
 
+  .menu-dock:has(.profile-menu:hover) .menu-panels,
+  .menu-dock:has(.profile-menu:focus-within) .menu-panels {
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-8px) scale(0.98);
+  }
+
   .settings-layer {
     padding: 14px;
   }
@@ -137,7 +145,7 @@
   }
 
   .writer {
-    padding: 38px 30px;
+    padding: 190px 30px 38px;
   }
 
   .title-input {

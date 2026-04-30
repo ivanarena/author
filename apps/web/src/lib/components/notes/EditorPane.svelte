@@ -6,7 +6,7 @@
   let { model }: { model: EditorPaneModel } = $props();
 </script>
 
-<section class="editor-wrap" aria-label="Editor">
+<section class="editor-wrap" aria-label="Editor" oncontextmenu={model.openEditorContext}>
   <section class="writer" aria-label="Plain text editor" style={`--editor-zoom: ${model.editorZoom};`}>
     <input
       class="title-input"

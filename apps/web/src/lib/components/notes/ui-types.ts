@@ -4,6 +4,7 @@ export type EditorSnapshot = { title: string; body: string };
 
 export type ContextMenuState =
   | { type: 'note'; noteId: string; x: number; y: number }
+  | { type: 'editor'; noteId: string; x: number; y: number }
   | { type: 'notebook'; notebookId: string; x: number; y: number }
   | null;
 

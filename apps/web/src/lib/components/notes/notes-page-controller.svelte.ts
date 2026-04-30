@@ -149,6 +149,7 @@ export interface EditorPaneModel {
   handleEditorInput: (event: Event, field: 'title' | 'body') => void;
   undoEditorHistory: () => void;
   redoEditorHistory: () => void;
+  openEditorContext: (event: MouseEvent) => void;
 }
 
 export interface SettingsModalModel {
@@ -184,6 +185,8 @@ export interface ContextMenuModel {
   contextMenu: ContextMenuState;
   contextNote: LocalNote | null;
   contextNotebook: LocalNotebook | null;
+  notebooks: LocalNotebook[];
+  assignNotebookForNote: (note: LocalNote, notebookId: string | null) => void | Promise<void>;
   contextRenameNotebook: NotebookCallback;
   contextDeleteNotebook: NotebookCallback;
   contextLinkNote: NoteCallback;
@@ -543,6 +546,18 @@ export class NotesPageController
     this.contextMenu = this.positionContextMenu({
       type: 'note',
       noteId: note.id,
+      x: event.clientX,
+      y: event.clientY
+    });
+  };
+
+  openEditorContext = (event: MouseEvent) => {
+    if (!this.selectedNote) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.contextMenu = this.positionContextMenu({
+      type: 'editor',
+      noteId: this.selectedNote.id,
       x: event.clientX,
       y: event.clientY
     });
@@ -1036,8 +1051,9 @@ export class NotesPageController
   }
 
   private positionContextMenu = <T extends Exclude<ContextMenuState, null>>(menu: T): T => {
-    const width = 190;
-    const height = menu.type === 'note' ? 116 : 84;
+    const width = menu.type === 'notebook' ? 190 : 280;
+    const height =
+      menu.type === 'notebook' ? 84 : Math.min(360, 142 + Math.max(1, this.notebooks.length) * 40);
     return {
       ...menu,
       x: Math.min(menu.x, window.innerWidth - width - 8),
@@ -1046,7 +1062,7 @@ export class NotesPageController
   };
 
   private getContextNote(menu: ContextMenuState): LocalNote | null {
-    if (menu?.type !== 'note') return null;
+    if (menu?.type !== 'note' && menu?.type !== 'editor') return null;
     return [...this.notes, ...this.trash].find((note) => note.id === menu.noteId) ?? null;
   }
 

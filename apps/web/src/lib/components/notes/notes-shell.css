@@ -19,7 +19,7 @@
 .menu-dock.open,
 .menu-dock:hover,
 .menu-dock:focus-within {
-  height: 100vh;
+  height: min(900px, calc(82px + min(80vh, calc(100vh - 104px))));
 }
 
 .dock-buttons {
@@ -29,10 +29,9 @@
   left: 50%;
   display: flex;
   gap: 14px;
-  border-radius: 999px;
-  padding: 8px;
-  background: var(--panel-transparent);
-  backdrop-filter: blur(12px);
+  padding: 0;
+  background: transparent;
+  backdrop-filter: none;
   transform: translateX(-50%);
   pointer-events: auto;
 }
@@ -62,17 +61,26 @@
   display: grid;
 }
 
+.profile-menu::before {
+  position: absolute;
+  top: 38px;
+  right: -18px;
+  left: -18px;
+  height: 34px;
+  content: '';
+}
+
 .profile-hover-card {
   position: absolute;
   z-index: 25;
-  top: 54px;
-  left: 0;
+  top: 66px;
+  right: 0;
   display: grid;
-  gap: 10px;
-  width: 190px;
+  gap: 14px;
+  width: min(360px, calc(100vw - 40px));
   border: 1px solid var(--line);
-  border-radius: 20px;
-  padding: 14px;
+  border-radius: var(--radius-panel);
+  padding: 22px;
   background: var(--panel-transparent);
   backdrop-filter: blur(12px);
   visibility: hidden;
@@ -93,12 +101,89 @@
   transform: none;
 }
 
+.profile-card-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  min-width: 0;
+  color: var(--text);
+}
+
+.profile-card-header div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.profile-card-header strong,
+.profile-card-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profile-card-header strong {
+  font-size: 14px;
+}
+
+.profile-card-detail {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.sync-badge {
+  display: inline-grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 7px;
+  align-items: center;
+  justify-self: start;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 24px;
+  border: 1px solid color-mix(in srgb, currentColor 42%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.sync-badge > span:first-child {
+  width: 7px;
+  min-width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.sync-badge > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sync-badge.ok {
+  color: #1f8f4d;
+}
+
+.sync-badge.error {
+  color: #c9362f;
+}
+
+.profile-card-actions {
+  display: grid;
+  gap: 6px;
+}
+
 .profile-quick-action {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 8px;
   align-items: center;
-  min-height: 40px;
+  min-height: var(--control-height);
   border-color: transparent;
   padding: 0 12px;
   color: var(--muted);
@@ -113,8 +198,10 @@
 }
 
 .profile-quick-action:hover,
-.profile-quick-action:focus-visible {
+.profile-quick-action:focus-visible,
+.profile-quick-action.primary {
   border-color: var(--line);
+  background: var(--hover);
   color: var(--text);
 }
 
@@ -134,7 +221,7 @@
   background: var(--panel-transparent);
   backdrop-filter: blur(14px);
   border: 1px solid var(--line);
-  border-radius: 28px;
+  border-radius: var(--radius-panel);
   visibility: hidden;
   opacity: 0;
   pointer-events: none;
@@ -155,12 +242,20 @@
   transform: translateY(0) scale(1);
 }
 
+.menu-dock:has(.profile-menu:hover) .menu-panels,
+.menu-dock:has(.profile-menu:focus-within) .menu-panels {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-8px) scale(0.98);
+}
+
 aside {
   min-width: 0;
   overflow: hidden;
   pointer-events: auto;
   border: 0;
-  border-radius: 0;
+  border-radius: var(--radius-lg);
   background: var(--panel-soft-transparent);
   box-shadow: none;
 }
@@ -176,11 +271,13 @@ aside {
 .notebooks {
   min-height: 0;
   border-right: 1px solid var(--line);
+  border-radius: var(--radius-lg) 0 0 var(--radius-lg);
 }
 
 .notes {
   min-height: 0;
   background: transparent;
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
 }
 
 .icon-row {
@@ -193,10 +290,10 @@ aside {
 
 .icon-button {
   display: inline-grid;
-  width: 38px;
-  min-width: 38px;
-  height: 38px;
-  min-height: 38px;
+  width: var(--control-height);
+  min-width: var(--control-height);
+  height: var(--control-height);
+  min-height: var(--control-height);
   place-items: center;
   padding: 0;
   background: transparent;
@@ -212,7 +309,7 @@ aside {
 .active.icon-button {
   color: var(--text);
   border-color: var(--line-strong);
-  background: transparent;
+  background: var(--hover);
 }
 
 .icon-button:not(:disabled):hover {
@@ -228,7 +325,7 @@ aside {
 
 .sort-select {
   width: 92px;
-  height: 38px;
+  height: var(--control-height);
   margin-left: auto;
   padding: 0 8px;
   color: var(--muted);
@@ -244,7 +341,7 @@ aside {
 .sort-select:focus-visible {
   color: var(--text);
   border-color: var(--line-strong);
-  background: var(--field);
+  background: var(--hover);
 }
 
 .menu-form {
@@ -252,7 +349,7 @@ aside {
   gap: 14px;
   min-width: 0;
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: var(--radius-lg);
   padding: 16px;
   background: var(--field);
   box-shadow: none;
@@ -268,9 +365,9 @@ aside {
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
-  min-height: 44px;
+  min-height: 42px;
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: var(--radius-lg);
   padding: 0 12px 0 16px;
   background: var(--field);
   color: var(--muted);
@@ -302,9 +399,9 @@ aside {
 
 .menu-form input {
   min-width: 0;
-  height: 40px;
+  height: var(--control-height);
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   padding: 0 14px;
   background: var(--bg);
   color: var(--text);
@@ -334,7 +431,7 @@ aside {
 
 .active {
   border-color: var(--line-strong);
-  background: transparent;
+  background: var(--active);
   box-shadow: none;
 }
 
@@ -344,7 +441,7 @@ aside {
   min-width: 8px;
   height: 8px;
   border: 0;
-  border-radius: 0;
+  border-radius: 999px;
   color: var(--muted);
   background: transparent;
 }

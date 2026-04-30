@@ -8,7 +8,7 @@
   border-radius: var(--radius-lg);
   padding: 6px;
   background: var(--field);
-  box-shadow: none;
+  box-shadow: var(--shadow-soft);
 }
 
 .note-context-menu {
@@ -78,7 +78,7 @@
   place-items: center;
   padding: 20px;
   background: color-mix(in srgb, var(--bg) 92%, transparent);
-  backdrop-filter: blur(8px);
+  backdrop-filter: var(--surface-blur);
 }
 
 .conflict-dialog {
@@ -87,7 +87,7 @@
   border-radius: var(--radius-panel);
   padding: 18px;
   background: var(--paper);
-  box-shadow: none;
+  box-shadow: var(--shadow-soft);
 }
 
 .conflict-dialog h1 {

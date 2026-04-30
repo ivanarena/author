@@ -27,6 +27,18 @@
     <button class="icon-button" title="New note" aria-label="New note" onclick={model.newNote}>
       <FilePlus size={16} strokeWidth={1.8} />
     </button>
+    <p class="sync-line">
+      <span
+        class={`sync-badge ${model.syncIndicator.kind === 'synced' ? 'ok' : 'error'}`}
+        aria-label={`Sync status: ${model.syncIndicator.label}`}
+      >
+        <span aria-hidden="true"></span>
+        <span>{model.syncIndicator.label}</span>
+      </span>
+      {#if model.syncIndicator.detail}
+        <span class="sync-detail">{model.syncIndicator.detail}</span>
+      {/if}
+    </p>
     <label class="sr-only" for="note-sort">Sort notes</label>
     <select
       id="note-sort"
@@ -63,19 +75,6 @@
       </button>
     {/if}
   </div>
-
-  <p class="sync-line">
-    <span
-      class={`sync-badge ${model.syncIndicator.kind === 'synced' ? 'ok' : 'error'}`}
-      aria-label={`Sync status: ${model.syncIndicator.label}`}
-    >
-      <span aria-hidden="true"></span>
-      <span>{model.syncIndicator.label}</span>
-    </span>
-    {#if model.syncIndicator.detail}
-      <span class="sync-detail">{model.syncIndicator.detail}</span>
-    {/if}
-  </p>
 
   <div class="note-list" class:compact={model.compactView}>
     {#each model.visibleNoteGroups as group}

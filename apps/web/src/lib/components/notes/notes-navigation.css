@@ -3,7 +3,7 @@ nav,
   --nav-trailing-width: 58px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-2);
   min-height: 0;
   overflow: auto;
   scrollbar-width: none;
@@ -168,10 +168,13 @@ textarea::-webkit-scrollbar {
 
 .note-list {
   flex: 1;
+  gap: 0;
+  border-top: 1px solid var(--line);
+  padding-top: var(--space-2);
 }
 
 .date-range {
-  padding: 14px 14px 6px;
+  padding: 14px 14px 8px;
   color: var(--muted);
   font-size: 10px;
   font-weight: 600;
@@ -187,9 +190,21 @@ textarea::-webkit-scrollbar {
   min-height: 116px;
   border: 1px solid transparent;
   border-radius: var(--radius-lg);
+  margin: 0 0 var(--space-2);
   transition:
     background-color 120ms ease,
     border-color 120ms ease;
+}
+
+.note-row::after {
+  position: absolute;
+  right: 18px;
+  bottom: calc(var(--space-2) * -0.5);
+  left: 18px;
+  height: 1px;
+  background: var(--line);
+  content: '';
+  pointer-events: none;
 }
 
 .note-row:hover,
@@ -293,8 +308,9 @@ textarea::-webkit-scrollbar {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  flex: 1 1 160px;
   min-height: 24px;
-  margin: -6px 4px 0;
+  margin: 0;
 }
 
 .sync-detail {
@@ -318,7 +334,7 @@ textarea::-webkit-scrollbar {
 }
 
 .compact {
-  gap: 8px;
+  gap: 0;
 }
 
 .compact .date-range {
@@ -327,6 +343,7 @@ textarea::-webkit-scrollbar {
 
 .compact .note-row {
   min-height: 58px;
+  margin-bottom: var(--space-1);
 }
 
 .compact .note-main {
@@ -348,7 +365,7 @@ textarea::-webkit-scrollbar {
   border-radius: var(--radius-lg);
   padding: 14px;
   background: var(--field);
-  box-shadow: none;
+  box-shadow: var(--shadow-soft);
   animation: menu-in 120ms ease-out;
 }
 

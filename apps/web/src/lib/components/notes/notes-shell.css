@@ -2,7 +2,7 @@
   position: relative;
   min-height: 100vh;
   isolation: isolate;
-  background: var(--bg);
+  background: var(--app-backdrop);
 }
 
 .menu-dock {
@@ -96,6 +96,7 @@
   padding: 22px;
   background: var(--panel-transparent);
   box-shadow: var(--shadow-soft);
+  -webkit-backdrop-filter: var(--surface-blur);
   backdrop-filter: var(--surface-blur);
   visibility: hidden;
   opacity: 0;
@@ -148,43 +149,24 @@
   line-height: 1.35;
 }
 
-.sync-badge {
-  display: inline-grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 7px;
-  align-items: center;
+.sync-state {
+  display: inline-block;
   justify-self: start;
   max-width: 100%;
   min-width: 0;
-  min-height: 24px;
-  border: 1px solid color-mix(in srgb, currentColor 42%, transparent);
-  border-radius: var(--radius-sm);
-  padding: 0 10px;
+  overflow: hidden;
   font-size: 12px;
   font-weight: 600;
-  line-height: 1;
-}
-
-.sync-badge > span:first-child {
-  width: 7px;
-  min-width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: currentColor;
-}
-
-.sync-badge > span:last-child {
-  min-width: 0;
-  overflow: hidden;
+  line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.sync-badge.ok {
+.sync-state.ok {
   color: #1f8f4d;
 }
 
-.sync-badge.error {
+.sync-state.error {
   color: #c9362f;
 }
 
@@ -216,7 +198,7 @@
 .profile-quick-action:focus-visible,
 .profile-quick-action.primary {
   border-color: var(--line);
-  background: var(--hover);
+  background: transparent;
   color: var(--text);
 }
 
@@ -235,6 +217,7 @@
   overflow: hidden;
   background: var(--panel-transparent);
   box-shadow: var(--shadow-soft);
+  -webkit-backdrop-filter: var(--surface-blur);
   backdrop-filter: var(--surface-blur);
   border: 1px solid var(--line);
   border-radius: var(--radius-panel);
@@ -273,6 +256,8 @@ aside {
   border: 0;
   border-radius: var(--radius-lg);
   background: var(--panel-soft-transparent);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
   box-shadow: none;
 }
 
@@ -292,7 +277,7 @@ aside {
 
 .notes {
   min-height: 0;
-  background: transparent;
+  background: var(--panel-soft-transparent);
   border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
 }
 
@@ -328,6 +313,24 @@ aside {
   background: var(--hover);
 }
 
+.menu-trigger,
+.profile-trigger {
+  border-color: var(--line);
+  background: var(--panel-transparent);
+  box-shadow: var(--shadow-soft);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
+}
+
+.menu-trigger:hover,
+.menu-trigger:focus-visible,
+.profile-trigger:hover,
+.profile-trigger:focus-visible,
+.profile-trigger.active {
+  border-color: var(--line-strong);
+  background: var(--active);
+}
+
 .icon-button:not(:disabled):hover {
   transform: none;
 }
@@ -347,6 +350,8 @@ aside {
   color: var(--muted);
   font-size: 12px;
   background: var(--field);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
   transition:
     background-color 120ms ease,
     border-color 120ms ease,
@@ -368,6 +373,8 @@ aside {
   border-radius: var(--radius-lg);
   padding: 16px;
   background: var(--field);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
   box-shadow: none;
   animation: menu-in 120ms ease-out;
 }
@@ -387,6 +394,8 @@ aside {
   padding: 0 12px 0 16px;
   background: var(--field);
   color: var(--muted);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
 }
 
 .search-row input {
@@ -419,9 +428,11 @@ aside {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: 0 14px;
-  background: var(--bg);
+  background: var(--field);
   color: var(--text);
   font-size: 13px;
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
 }
 
 .menu-form input::placeholder {
@@ -447,50 +458,8 @@ aside {
 
 .active {
   border-color: var(--line-strong);
-  background: var(--active);
-  box-shadow: none;
-}
-
-.status-dot {
-  display: inline-block;
-  width: 8px;
-  min-width: 8px;
-  height: 8px;
-  border: 0;
-  border-radius: 999px;
-  color: var(--muted);
   background: transparent;
-}
-
-.status-dot.synced {
-  color: var(--text);
-  background: var(--text);
-}
-
-.status-dot.pending,
-.status-dot.syncing {
-  color: var(--muted);
-  background: var(--muted);
-}
-
-.status-dot.conflict,
-.status-dot.deleted {
-  color: var(--danger);
-  background: var(--danger);
-}
-
-.status-dot.offline {
-  color: var(--muted);
-}
-
-.status-dot.local-only {
-  color: var(--muted);
-}
-
-.note-status {
-  width: 7px;
-  min-width: 7px;
-  height: 7px;
+  box-shadow: none;
 }
 
 .conflicted {

@@ -23,7 +23,7 @@ time:
   '@eslint/js@10.0.1': 2026-02-06T22:34:56.290Z
   '@eslint/object-schema@3.0.5': 2026-04-08T09:22:34.549Z
   '@eslint/plugin-kit@0.7.1': 2026-04-08T09:22:43.810Z
-  '@fontsource/jetbrains-mono@5.2.8': 2025-09-17T09:09:23.675Z
+  '@fontsource/jost@5.2.8': 2025-09-17T09:09:23.666Z
   '@humanfs/core@0.19.2': 2026-04-17T20:51:11.882Z
   '@humanfs/node@0.16.8': 2026-04-17T20:51:26.959Z
   '@humanfs/types@0.15.0': 2024-09-09T19:44:08.000Z
@@ -357,7 +357,7 @@ importers:
       '@author/sync-spec':
         specifier: workspace:*
         version: 0.0.1
-      '@fontsource/jetbrains-mono':
+      '@fontsource/jost':
         specifier: ^5.2.8
         version: 5.2.8
       '@libsql/client':
@@ -557,8 +557,8 @@ packages:
     resolution: {integrity: sha512-rZAP3aVgB9ds9KOeUSL+zZ21hPmo8dh6fnIFwRQj5EAZl9gzR7wxYbYXYysAM8CTqGmUGyp2S4kUdV17MnGuWQ==}
     engines: {node: ^20.19.0 || ^22.13.0 || >=24}
 
-  '@fontsource/jetbrains-mono@5.2.8':
-    resolution: {integrity: sha512-6w8/SG4kqvIMu7xd7wt6x3idn1Qux3p9N62s6G3rfldOUYHpWcc2FKrqf+Vo44jRvqWj2oAtTHrZXEP23oSKwQ==}
+  '@fontsource/jost@5.2.8':
+    resolution: {integrity: sha512-PEK7oGJL8r+YZm6BriWhmCql9DhVYTMt0iEQbZHo8mqfIPIZo67Tm68xEIaRA0yB3wsHA7Tm66yMQDIxq3Bjqw==}
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -2016,7 +2016,7 @@ snapshots:
       '@eslint/core': 1.2.1
       levn: 0.4.1
 
-  '@fontsource/jetbrains-mono@5.2.8': {}
+  '@fontsource/jost@5.2.8': {}
 
   '@humanfs/core@0.19.2':
     dependencies:

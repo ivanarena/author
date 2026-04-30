@@ -5,7 +5,8 @@
   display: grid;
   place-items: center;
   padding: 20px;
-  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  background: var(--scrim);
+  -webkit-backdrop-filter: var(--surface-blur);
   backdrop-filter: var(--surface-blur);
 }
 
@@ -16,8 +17,10 @@
   border: 1px solid var(--line);
   border-radius: var(--radius-panel);
   padding: 18px;
-  background: var(--paper);
+  background: var(--panel-transparent);
   box-shadow: var(--shadow-soft);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
   animation: menu-in 120ms ease-out;
 }
 
@@ -102,8 +105,8 @@
 .settings-menu-item:hover,
 .settings-menu-item:focus-visible,
 .settings-menu-item.active {
-  border-color: var(--line);
-  background: var(--hover);
+  border-color: transparent;
+  background: transparent;
   color: var(--text);
 }
 
@@ -161,7 +164,7 @@
 .settings-action.active,
 .settings-action.login-submit {
   border-color: var(--line-strong);
-  background: var(--hover);
+  background: transparent;
   color: var(--text);
 }
 
@@ -191,6 +194,8 @@
   border-radius: var(--radius-md);
   padding: 12px;
   background: var(--field);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
 }
 
 .settings-progress div:first-child {

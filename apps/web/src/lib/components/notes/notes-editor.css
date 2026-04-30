@@ -27,6 +27,7 @@ textarea {
   background: transparent;
   color: var(--text);
   letter-spacing: 0;
+  word-spacing: 0.025em;
 }
 
 .title-input {
@@ -38,13 +39,13 @@ textarea {
     calc(46px * var(--editor-zoom, 1))
   );
   font-weight: 700;
-  line-height: 1.04;
+  line-height: 1.12;
 }
 
 textarea {
   min-height: 0;
   font-size: calc(16px * var(--editor-zoom, 1));
-  line-height: 1.6;
+  line-height: 1.75;
   scrollbar-width: none;
 }
 
@@ -59,6 +60,7 @@ textarea {
   text-align: center;
   color: var(--muted);
   font-size: 11px;
+  line-height: 1.45;
 }
 
 .history-controls {

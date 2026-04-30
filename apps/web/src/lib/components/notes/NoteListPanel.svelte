@@ -14,7 +14,6 @@
   import {
     formatListDate,
     notePreview,
-    noteStatusLabel,
     relativeAge
   } from '$lib/client/view-model';
   import type { NoteListPanelModel } from './notes-page-controller.svelte.js';
@@ -34,12 +33,10 @@
     </button>
     <p class="sync-line">
       <span
-        class={`sync-badge ${model.syncIndicator.kind === 'synced' ? 'ok' : 'error'}`}
+        class={`sync-state ${model.syncIndicator.kind === 'synced' ? 'ok' : 'error'}`}
         aria-label={`Sync status: ${model.syncIndicator.label}`}
+        >{model.syncIndicator.label}</span
       >
-        <span aria-hidden="true"></span>
-        <span>{model.syncIndicator.label}</span>
-      </span>
       {#if model.syncIndicator.detail}
         <span class="sync-detail">{model.syncIndicator.detail}</span>
       {/if}
@@ -99,11 +96,6 @@
               oncontextmenu={(event) => model.openNoteContext(event, note)}
             >
               <span class="note-heading">
-                <span
-                  class={`status-dot note-status ${note.syncStatus}`}
-                  title={noteStatusLabel(note)}
-                  aria-label={noteStatusLabel(note)}
-                ></span>
                 <span class="note-title">{noteDisplayTitle(note)}</span>
                 {#if model.compactView}
                   <time class="note-age" datetime={note.updatedAt}

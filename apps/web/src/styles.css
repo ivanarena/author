@@ -1,27 +1,36 @@
 :root {
   color-scheme: light;
   font-family:
-    'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Consolas,
-    'Liberation Mono', monospace;
+    'Jost',
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   background: #ffffff;
   color: #202020;
+  --app-backdrop: #ffffff;
   --bg: #ffffff;
   --paper: #ffffff;
-  --panel: #f0f0ee;
-  --panel-soft: #f3f3f1;
-  --panel-transparent: rgba(246, 246, 244, 0.88);
-  --panel-soft-transparent: rgba(240, 240, 238, 0.78);
+  --panel: rgba(255, 255, 255, 0.42);
+  --panel-soft: rgba(255, 255, 255, 0.3);
+  --panel-transparent: rgba(255, 255, 255, 0.36);
+  --panel-soft-transparent: rgba(255, 255, 255, 0.26);
+  --scrim: rgba(255, 255, 255, 0.42);
   --text: #202020;
   --muted: #707070;
-  --line: rgba(32, 32, 32, 0.09);
-  --line-strong: rgba(32, 32, 32, 0.18);
+  --line: rgba(32, 32, 32, 0.11);
+  --line-strong: rgba(32, 32, 32, 0.2);
   --accent: #4f4f4f;
   --danger: #4f4f4f;
-  --field: #f8f8f6;
-  --hover: rgba(32, 32, 32, 0.04);
-  --active: rgba(32, 32, 32, 0.07);
-  --surface-blur: blur(14px);
-  --shadow-soft: 0 18px 60px rgba(32, 32, 32, 0.08);
+  --field: rgba(255, 255, 255, 0.34);
+  --hover: rgba(32, 32, 32, 0.055);
+  --active: rgba(32, 32, 32, 0.085);
+  --surface-blur: blur(30px) saturate(180%);
+  --glass-highlight: rgba(255, 255, 255, 0.58);
+  --shadow-soft:
+    0 18px 60px rgba(32, 32, 32, 0.1), inset 0 1px 0 var(--glass-highlight);
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -42,23 +51,27 @@
   color-scheme: dark;
   background: #111111;
   color: #f2f2f2;
+  --app-backdrop: #111111;
   --bg: #111111;
   --paper: #151515;
-  --panel: #191919;
-  --panel-soft: #1f1f1f;
-  --panel-transparent: rgba(21, 21, 21, 0.88);
-  --panel-soft-transparent: rgba(31, 31, 31, 0.76);
+  --panel: rgba(24, 24, 27, 0.46);
+  --panel-soft: rgba(32, 32, 36, 0.32);
+  --panel-transparent: rgba(18, 18, 21, 0.42);
+  --panel-soft-transparent: rgba(36, 36, 40, 0.3);
+  --scrim: rgba(17, 19, 22, 0.44);
   --text: #f2f2f2;
   --muted: #aaaaaa;
-  --line: rgba(242, 242, 242, 0.1);
-  --line-strong: rgba(242, 242, 242, 0.2);
+  --line: rgba(242, 242, 242, 0.12);
+  --line-strong: rgba(242, 242, 242, 0.23);
   --accent: #e8e8e8;
   --danger: #d8d8d8;
-  --field: #171717;
-  --hover: rgba(242, 242, 242, 0.06);
-  --active: rgba(242, 242, 242, 0.1);
-  --surface-blur: blur(14px);
-  --shadow-soft: 0 18px 60px rgba(0, 0, 0, 0.28);
+  --field: rgba(24, 24, 28, 0.32);
+  --hover: rgba(242, 242, 242, 0.075);
+  --active: rgba(242, 242, 242, 0.12);
+  --surface-blur: blur(30px) saturate(170%);
+  --glass-highlight: rgba(255, 255, 255, 0.08);
+  --shadow-soft:
+    0 20px 70px rgba(0, 0, 0, 0.34), inset 0 1px 0 var(--glass-highlight);
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -82,9 +95,12 @@
 body {
   margin: 0;
   min-width: 320px;
-  background: var(--bg);
+  background: var(--app-backdrop);
+  background-attachment: fixed;
   color: var(--text);
   font-size: 14px;
+  line-height: 1.45;
+  text-rendering: optimizeLegibility;
 }
 
 button,
@@ -108,6 +124,8 @@ button {
 
 select {
   background: var(--field);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
 }
 
 button:disabled {

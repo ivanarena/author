@@ -61,12 +61,10 @@
               >{model.hasToken ? 'Sync profile' : 'Local workspace'}</strong
             >
             <span
-              class={`sync-badge ${model.syncIndicator.kind === 'synced' ? 'ok' : 'error'}`}
+              class={`sync-state ${model.syncIndicator.kind === 'synced' ? 'ok' : 'error'}`}
               aria-label={`Sync status: ${model.syncIndicator.label}`}
+              >{model.syncIndicator.label}</span
             >
-              <span aria-hidden="true"></span>
-              <span>{model.syncIndicator.label}</span>
-            </span>
           </div>
         </header>
         {#if model.syncIndicator.detail}

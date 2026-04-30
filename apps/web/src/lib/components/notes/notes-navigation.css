@@ -29,6 +29,7 @@ textarea::-webkit-scrollbar {
   border-color: transparent;
   border-radius: var(--radius-md);
   font-size: 13px;
+  line-height: 1.4;
   text-align: left;
   transition:
     background-color 120ms ease,
@@ -45,8 +46,8 @@ textarea::-webkit-scrollbar {
 .nav-row:focus-within,
 .notebook-row:hover,
 .notebook-row:focus-within {
-  border-color: var(--line);
-  background: var(--hover);
+  border-color: transparent;
+  background: transparent;
 }
 
 .nav-main span,
@@ -73,6 +74,7 @@ textarea::-webkit-scrollbar {
 
 .nav-row {
   display: grid;
+  position: relative;
   grid-template-columns: minmax(0, 1fr) var(--nav-trailing-width);
   align-items: center;
   width: 100%;
@@ -83,6 +85,29 @@ textarea::-webkit-scrollbar {
   transition:
     background-color 120ms ease,
     border-color 120ms ease;
+}
+
+.nav-row::before {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 0;
+  width: 2px;
+  background: var(--text);
+  content: '';
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.nav-row.active::before,
+.nav-row:hover::before,
+.nav-row:focus-within::before {
+  opacity: 0.45;
+}
+
+.nav-row.active {
+  border-color: transparent;
 }
 
 .nav-trailing,
@@ -138,9 +163,11 @@ textarea::-webkit-scrollbar {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: 0 14px;
-  background: var(--bg);
+  background: var(--field);
   color: var(--text);
   font-size: 13px;
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
 }
 
 .notebook-error {
@@ -205,28 +232,41 @@ textarea::-webkit-scrollbar {
   background: var(--line);
   content: '';
   pointer-events: none;
+  transition: opacity 120ms ease;
 }
 
 .note-row:hover,
 .note-row:focus-within {
-  border-color: var(--line);
-  background: var(--hover);
+  border-color: transparent;
+  background: transparent;
+}
+
+.note-row.active::after,
+.note-row:hover::after,
+.note-row:focus-within::after {
+  opacity: 0;
+}
+
+.note-row.active {
+  border-color: transparent;
+  border-left-color: var(--line-strong);
 }
 
 .note-main {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 10px;
-  min-height: 108px;
-  padding: 16px 18px;
+  gap: 12px;
+  min-height: 112px;
+  padding: 18px;
   border: 0;
+  line-height: 1.45;
   text-align: left;
 }
 
 .note-heading {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
   align-items: center;
   min-width: 0;
 }
@@ -243,11 +283,15 @@ textarea::-webkit-scrollbar {
   color: var(--text);
   font-size: 13px;
   font-weight: 600;
+  line-height: 1.35;
+  word-spacing: 0.02em;
 }
 
 .note-preview {
   color: var(--muted);
   font-size: 12px;
+  line-height: 1.45;
+  word-spacing: 0.02em;
 }
 
 .note-notebooks {
@@ -259,7 +303,8 @@ textarea::-webkit-scrollbar {
   color: var(--text);
   font-size: 11px;
   font-weight: 600;
-  line-height: 1.25;
+  line-height: 1.4;
+  word-spacing: 0.02em;
 }
 
 .note-notebooks span {
@@ -272,6 +317,7 @@ textarea::-webkit-scrollbar {
 .note-age {
   color: var(--muted);
   font-size: 11px;
+  line-height: 1.35;
 }
 
 .note-context {
@@ -281,8 +327,9 @@ textarea::-webkit-scrollbar {
   align-items: center;
   color: var(--muted);
   font-size: 11px;
-  line-height: 1.25;
+  line-height: 1.45;
   overflow: hidden;
+  word-spacing: 0.02em;
 }
 
 .note-context time {
@@ -366,6 +413,8 @@ textarea::-webkit-scrollbar {
   padding: 14px;
   background: var(--field);
   box-shadow: var(--shadow-soft);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
   animation: menu-in 120ms ease-out;
 }
 

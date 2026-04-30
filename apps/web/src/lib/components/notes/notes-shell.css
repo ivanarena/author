@@ -25,7 +25,7 @@
 .dock-buttons {
   position: absolute;
   z-index: 23;
-  top: 16px;
+  top: 125px;
   left: 50%;
   display: flex;
   gap: 14px;
@@ -63,21 +63,21 @@
 
 .profile-menu::before {
   position: absolute;
-  top: 38px;
+  top: 65px;
   right: -18px;
   left: -18px;
   height: 34px;
-  content: '';
+  content: "";
 }
 
 .profile-hover-card {
-  position: absolute;
+  position: fixed;
   z-index: 25;
-  top: 66px;
-  right: 0;
+  top: 82px;
+  left: 50%;
   display: grid;
   gap: 14px;
-  width: min(360px, calc(100vw - 40px));
+  width: min(430px, calc(100vw - 40px));
   border: 1px solid var(--line);
   border-radius: var(--radius-panel);
   padding: 22px;
@@ -86,7 +86,8 @@
   visibility: hidden;
   opacity: 0;
   pointer-events: none;
-  transform: translateY(-3px);
+  transform: translateX(-50%) translateY(-8px) scale(0.98);
+  transform-origin: top center;
   transition:
     opacity 120ms ease,
     transform 120ms ease,
@@ -98,7 +99,7 @@
   visibility: visible;
   opacity: 1;
   pointer-events: auto;
-  transform: none;
+  transform: translateX(-50%) translateY(0) scale(1);
 }
 
 .profile-card-header {
@@ -208,14 +209,14 @@
 .menu-panels {
   position: absolute;
   z-index: 2;
-  top: 82px;
+  top: 200px;
   left: 0;
   display: grid;
   grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   gap: 18px;
   width: 100%;
-  height: min(80vh, calc(100vh - 104px));
+  height: min(60vh, calc(100vh - 104px));
   padding: 24px;
   overflow: hidden;
   background: var(--panel-transparent);

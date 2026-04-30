@@ -91,6 +91,11 @@ async function hoverMenusThroughBridge(page: Page) {
   await page.mouse.move(box.x + 80, box.y + box.height + 18);
 }
 
+async function waitForVisibleSyncedStatus(page: Page) {
+  await hoverMenusThroughBridge(page);
+  await expect(page.getByLabel('Sync status: All changes saved')).toBeVisible();
+}
+
 test.beforeEach(async ({ page, request }) => {
   token = await loginForToken(request);
   await page.addInitScript(
@@ -145,6 +150,43 @@ test('keeps a stored online session synced from local edits', async ({ page, req
       { timeout: 15_000 }
     )
     .toBe(bodyText);
+});
+
+test('shows local IndexedDB notes after a browser reload', async ({ page }) => {
+  await page.goto('/');
+
+  const titleText = `Reloaded local note ${Date.now()}`;
+  const bodyText = 'Still here after a browser reload';
+
+  await page.getByLabel('Note title').fill(titleText);
+  await page.getByLabel('Note body').fill(bodyText);
+  await expect.poll(() => browserNoteBodies(page)).toContain(bodyText);
+
+  await page.reload();
+  await hoverMenusThroughBridge(page);
+  await expect(page.getByText(titleText, { exact: true })).toBeVisible();
+
+  await page.getByText(titleText, { exact: true }).click();
+  await expect(page.getByLabel('Note body')).toHaveValue(bodyText);
+});
+
+test('logs in from the settings modal when no session is stored', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.removeItem('author-notes-token');
+    localStorage.removeItem('author-notes-username');
+  });
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Profile and settings' }).click();
+  await page.getByRole('button', { name: 'Login' }).click();
+  await page.getByLabel('Sync username').fill(loginUsername);
+  await page.getByLabel('Sync password').fill(loginPassword);
+  await page.getByRole('button', { name: 'Submit login' }).click();
+
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('author-notes-token')))
+    .toEqual(expect.any(String));
+  await expect(page.getByRole('button', { name: 'Sync' })).toBeVisible();
 });
 
 test('keeps edits made during an online sync pending until the latest local version lands', async ({
@@ -272,6 +314,7 @@ test('persists in browser IndexedDB, syncs, and shows stale-edit conflicts', asy
     .toBe('Stored in IndexedDB first');
   const remoteNote = (await pullRemoteNotes(request)).find((note) => note.title === 'Browser sync note');
   expect(remoteNote).toBeDefined();
+  await waitForVisibleSyncedStatus(page);
 
   const phoneEdit = {
     ...remoteNote!,

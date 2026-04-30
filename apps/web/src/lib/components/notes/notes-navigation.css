@@ -1,0 +1,381 @@
+nav,
+.note-list {
+  --nav-trailing-width: 58px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: none;
+}
+
+nav::-webkit-scrollbar,
+.note-list::-webkit-scrollbar,
+textarea::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.nav-main,
+.notebook-main {
+  display: grid;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  padding: 0 14px;
+  background: transparent;
+  border-color: transparent;
+  font-size: 13px;
+  text-align: left;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+.nav-main,
+.notebook-main {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.nav-row:hover,
+.nav-row:focus-within,
+.notebook-row:hover,
+.notebook-row:focus-within {
+  border-color: var(--line);
+}
+
+.nav-main span,
+.notebook-main span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-count {
+  justify-self: stretch;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+  text-align: right;
+  transition: opacity 120ms ease;
+}
+
+.nav-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--nav-trailing-width);
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  border: 1px solid transparent;
+  border-radius: 16px;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+
+.nav-trailing,
+.notebook-trailing {
+  position: relative;
+  display: grid;
+  width: var(--nav-trailing-width);
+  place-items: center stretch;
+  padding-right: 14px;
+}
+
+.notebook-main {
+  border: 0;
+  box-shadow: none;
+}
+
+.notebook-actions {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  display: flex;
+  gap: 8px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: opacity 120ms ease;
+}
+
+.notebook-row:hover .notebook-actions,
+.notebook-row:focus-within .notebook-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.notebook-row:hover .notebook-trailing .nav-count,
+.notebook-row:focus-within .notebook-trailing .nav-count {
+  opacity: 0;
+}
+
+.inline-rename {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  padding: 8px;
+}
+
+.inline-rename input {
+  min-width: 0;
+  height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 0 14px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.notebook-error {
+  grid-column: 1 / -1;
+  padding: 0 4px 2px;
+}
+
+.delete-confirm {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 46px;
+  padding: 8px 8px 8px 14px;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.delete-confirm span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-list {
+  flex: 1;
+}
+
+.date-range {
+  padding: 14px 14px 6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.note-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 116px;
+  border: 1px solid transparent;
+  border-radius: 18px;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+
+.note-row:hover,
+.note-row:focus-within {
+  border-color: var(--line);
+}
+
+.note-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  min-height: 108px;
+  padding: 16px 18px;
+  border: 0;
+  text-align: left;
+}
+
+.note-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.note-title,
+.note-preview,
+.note-age {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-title {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.note-preview {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.note-notebooks {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.note-notebooks span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-age {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.note-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.25;
+  overflow: hidden;
+}
+
+.note-context time {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-context time + time::before {
+  margin-right: 6px;
+  content: '·';
+}
+
+.note-main time,
+.sync-line {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.sync-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 16px;
+  margin: -8px 4px 0;
+}
+
+.sync-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-actions {
+  display: flex;
+  gap: 10px;
+  padding-right: 12px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.note-row:hover .row-actions,
+.note-row:focus-within .row-actions {
+  opacity: 1;
+}
+
+.compact {
+  gap: 8px;
+}
+
+.compact .date-range {
+  padding-top: 12px;
+}
+
+.compact .note-row {
+  min-height: 58px;
+}
+
+.compact .note-main {
+  min-height: 54px;
+  padding-block: 12px;
+}
+
+.compact .row-actions {
+  align-self: center;
+}
+
+.link-popover {
+  position: absolute;
+  z-index: 2;
+  top: 70px;
+  right: 18px;
+  width: min(260px, calc(100% - 36px));
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 14px;
+  background: var(--field);
+  box-shadow: none;
+  animation: menu-in 120ms ease-out;
+}
+
+.link-popover {
+  display: grid;
+  gap: 10px;
+}
+
+.link-popover button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 14px;
+  gap: 12px;
+  align-items: center;
+  min-height: 42px;
+  border-color: transparent;
+  padding: 0 12px;
+  text-align: left;
+}
+
+.link-popover button:hover,
+.link-popover button:focus-visible {
+  border-color: var(--line);
+}
+
+.link-popover button.active {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.link-popover button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

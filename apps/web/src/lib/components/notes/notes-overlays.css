@@ -1,0 +1,95 @@
+.context-menu {
+  position: fixed;
+  z-index: 60;
+  display: grid;
+  gap: 2px;
+  width: 190px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px;
+  background: var(--field);
+  box-shadow: none;
+}
+
+.context-menu button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-height: 30px;
+  border-color: transparent;
+  padding: 0 8px;
+  text-align: left;
+}
+
+.context-menu button:hover,
+.context-menu button:focus-visible {
+  border-color: var(--line);
+  background: transparent;
+}
+
+.conflict-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: var(--bg);
+}
+
+.conflict-dialog {
+  width: min(720px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 18px;
+  background: var(--bg);
+  box-shadow: none;
+}
+
+.conflict-dialog h1 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  letter-spacing: 0;
+}
+
+.conflict-dialog p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.versions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.versions article {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 12px;
+  background: var(--panel-soft);
+}
+
+.versions strong,
+.versions time {
+  display: block;
+}
+
+.versions time {
+  margin: 4px 0 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.versions p {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

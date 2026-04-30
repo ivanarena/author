@@ -1,4 +1,5 @@
 import type { Note, Notebook } from '@author/schema';
+import type { PullResponse } from '@author/api-types';
 import { recordsDiffer } from '@author/sync-spec';
 import { getRemoteDatabaseConfig, shouldSyncRemoteDatabase } from './config';
 import {
@@ -149,20 +150,25 @@ async function syncUsers(source: NotesDb, target: NotesDb): Promise<void> {
   }
 }
 
-async function syncDevices(source: NotesDb, target: NotesDb): Promise<void> {
-  const pulled = await pullChangesSince(source, null);
-  for (const device of pulled.devices) {
+async function syncDevices(snapshot: PullResponse, target: NotesDb): Promise<void> {
+  for (const device of snapshot.devices) {
     await upsertDevice(target, device);
   }
 }
 
-async function notebookChanges(source: NotesDb, target: NotesDb): Promise<PushRequestNotebookChange[]> {
-  const pulled = await pullChangesSince(source, null);
+async function notebookChanges(
+  snapshot: PullResponse,
+  target: NotesDb
+): Promise<PushRequestNotebookChange[]> {
   const changes: PushRequestNotebookChange[] = [];
 
-  for (const notebook of pulled.notebooks) {
+  for (const notebook of snapshot.notebooks) {
     const targetNotebook = await getNotebook(target, notebook.id);
-    if (!targetNotebook || (recordsDiffer(notebook, targetNotebook) && newerOrTieBreakingSource(notebook, targetNotebook))) {
+    const shouldMirror =
+      !targetNotebook ||
+      (recordsDiffer(notebook, targetNotebook) &&
+        newerOrTieBreakingSource(notebook, targetNotebook));
+    if (shouldMirror) {
       changes.push({ record: notebook, baseVersion: targetNotebook?.version ?? 0 });
     }
   }
@@ -170,13 +176,15 @@ async function notebookChanges(source: NotesDb, target: NotesDb): Promise<PushRe
   return changes;
 }
 
-async function noteChanges(source: NotesDb, target: NotesDb): Promise<PushRequestNoteChange[]> {
-  const pulled = await pullChangesSince(source, null);
+async function noteChanges(snapshot: PullResponse, target: NotesDb): Promise<PushRequestNoteChange[]> {
   const changes: PushRequestNoteChange[] = [];
 
-  for (const note of pulled.notes) {
+  for (const note of snapshot.notes) {
     const targetNote = await getNote(target, note.id);
-    if (!targetNote || (recordsDiffer(note, targetNote) && newerOrTieBreakingSource(note, targetNote))) {
+    const shouldMirror =
+      !targetNote ||
+      (recordsDiffer(note, targetNote) && newerOrTieBreakingSource(note, targetNote));
+    if (shouldMirror) {
       changes.push({ record: note, baseVersion: targetNote?.version ?? 0 });
     }
   }
@@ -189,9 +197,10 @@ type PushRequestNoteChange = { record: Note; baseVersion: number };
 
 async function syncOneWay(source: NotesDb, target: NotesDb): Promise<void> {
   await syncUsers(source, target);
-  await syncDevices(source, target);
-  const notebooks = await notebookChanges(source, target);
-  const notes = await noteChanges(source, target);
+  const snapshot = await pullChangesSince(source, null);
+  await syncDevices(snapshot, target);
+  const notebooks = await notebookChanges(snapshot, target);
+  const notes = await noteChanges(snapshot, target);
   if (!notebooks.length && !notes.length) return;
 
   await pushChanges(target, {

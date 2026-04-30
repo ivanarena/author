@@ -12,7 +12,7 @@
 .settings-modal {
   display: grid;
   gap: 16px;
-  width: min(430px, 100%);
+  width: min(640px, 100%);
   border: 1px solid var(--line);
   border-radius: var(--radius-panel);
   padding: 18px;
@@ -50,6 +50,94 @@
   white-space: nowrap;
 }
 
+.settings-body {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 14px;
+  min-width: 0;
+}
+
+.settings-menu,
+.settings-panel {
+  min-width: 0;
+}
+
+.settings-menu {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  border-right: 1px solid var(--line);
+  padding-right: 12px;
+}
+
+.settings-menu-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-height: var(--control-height);
+  border-color: transparent;
+  padding: 0 10px;
+  color: var(--muted);
+  text-align: left;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+.settings-menu-item span,
+.settings-action span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-menu-item svg:last-child {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.settings-menu-item:hover,
+.settings-menu-item:focus-visible,
+.settings-menu-item.active {
+  border-color: var(--line);
+  background: var(--hover);
+  color: var(--text);
+}
+
+.settings-menu-item:hover svg:last-child,
+.settings-menu-item:focus-visible svg:last-child,
+.settings-menu-item.active svg:last-child {
+  opacity: 1;
+}
+
+.settings-panel {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.settings-panel-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-height: 32px;
+  color: var(--text);
+}
+
+.settings-panel-header h3 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .settings-actions {
   display: grid;
   gap: var(--space-2);
@@ -68,13 +156,6 @@
   text-align: left;
 }
 
-.settings-action span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .settings-action:hover,
 .settings-action:focus-visible,
 .settings-action.active,
@@ -82,6 +163,74 @@
   border-color: var(--line-strong);
   background: var(--hover);
   color: var(--text);
+}
+
+.settings-action-group {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.settings-action-group > span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.settings-progress {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  background: var(--field);
+}
+
+.settings-progress div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settings-progress strong,
+.settings-progress span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-progress strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.settings-progress span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.settings-progress-track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--line);
+}
+
+.settings-progress-track span {
+  display: block;
+  width: var(--progress);
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 160ms ease;
 }
 
 .settings-zoom {

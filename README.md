@@ -80,7 +80,7 @@ No blocks, toolbars, slash commands, public sharing, collaboration, Markdown ren
 
 ## Import and Export
 
-The note toolbar can export a local JSON archive and import one back into IndexedDB. The JSON archive includes notebooks, active notes, and trashed notes; imported records are added as pending local changes so the normal sync flow can publish them.
+The note toolbar can export a local JSON archive and import one back into IndexedDB. It can also import a Markdown folder where folders are notebooks and `.md` files are notes with frontmatter, then export the same Markdown/frontmatter layout as a ZIP. Imported records are added as pending local changes so the normal sync flow can publish them.
 
 ## Visual Mock Data
 

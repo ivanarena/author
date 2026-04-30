@@ -14,11 +14,14 @@ import {
   deleteNotebook,
   ensureLocalNotesEncrypted,
   exportNotesJson,
+  exportNotesMarkdownZip,
   getTheme,
   getToken,
   getUsername,
   importNotesJson,
   importNotesJsonSummary,
+  importNotesMarkdownFiles,
+  importNotesMarkdownSummary,
   loadDevices,
   loadNotes,
   loadNotebooks,
@@ -71,12 +74,19 @@ import type {
 
 export type NotesFilterId = 'all' | 'unfiled' | 'trash' | (string & {});
 export type Theme = 'light' | 'dark';
+export type SettingsSection = 'sync' | 'data' | 'appearance';
 export type ConflictChoice =
   | 'keep-newer'
   | 'keep-older'
   | 'keep-local'
   | 'keep-remote'
   | 'duplicate-both';
+
+export interface ArchiveOperation {
+  label: string;
+  detail: string;
+  progress: number;
+}
 
 export interface NotebookSidebarModel {
   notes: LocalNote[];
@@ -133,6 +143,7 @@ export interface NavigationDockModel
   settingsOpen: boolean;
   hasToken: boolean;
   isSyncing: boolean;
+  isArchiveBusy: boolean;
   theme: Theme;
   openMenus: () => void;
   scheduleMenusClose: () => void;
@@ -170,11 +181,15 @@ export interface EditorPaneModel {
 export interface SettingsModalModel {
   settingsModal: HTMLElement | null;
   importInput: HTMLInputElement | null;
+  importMarkdownInput: HTMLInputElement | null;
   hasToken: boolean;
   isSyncing: boolean;
   isImporting: boolean;
+  isArchiveBusy: boolean;
+  archiveOperation: ArchiveOperation | null;
   compactView: boolean;
   theme: Theme;
+  settingsSection: SettingsSection;
   editorZoom: number;
   minEditorZoom: number;
   maxEditorZoom: number;
@@ -185,9 +200,13 @@ export interface SettingsModalModel {
   isLoggingIn: boolean;
   syncNow: () => void | Promise<void>;
   toggleLoginMenu: () => void;
+  setSettingsSection: (section: SettingsSection) => void;
   exportJson: () => void | Promise<void>;
+  exportMarkdown: () => void | Promise<void>;
   startJsonImport: () => void;
+  startMarkdownImport: () => void;
   handleJsonImport: (event: Event) => void | Promise<void>;
+  handleMarkdownImport: (event: Event) => void | Promise<void>;
   toggleCompactView: () => void;
   toggleTheme: () => void;
   zoomEditor: (direction: -1 | 1) => void;
@@ -271,6 +290,8 @@ export class NotesPageController
   currentTime = $state(new Date());
   menusOpen = $state(false);
   isImporting = $state(false);
+  archiveOperation = $state<ArchiveOperation | null>(null);
+  settingsSection = $state<SettingsSection>('sync');
   settingsOpen = $state(false);
   contextMenu = $state<ContextMenuState>(null);
   undoStack = $state<EditorSnapshot[]>([]);
@@ -279,6 +300,7 @@ export class NotesPageController
   titleInput: HTMLInputElement | null = null;
   bodyTextarea: HTMLTextAreaElement | null = null;
   importInput: HTMLInputElement | null = null;
+  importMarkdownInput: HTMLInputElement | null = null;
   settingsModal: HTMLElement | null = null;
   readonly minEditorZoom = MIN_EDITOR_ZOOM;
   readonly maxEditorZoom = MAX_EDITOR_ZOOM;
@@ -320,6 +342,7 @@ export class NotesPageController
   selectedDeviceName = $derived(
     this.selectedNote ? this.deviceName(this.selectedNote.deviceId) : ''
   );
+  isArchiveBusy = $derived(Boolean(this.archiveOperation) || this.isImporting);
   canUndoEditor = $derived(
     this.undoStack.length > 0 && !this.selectedNote?.trashedAt
   );
@@ -561,6 +584,7 @@ export class NotesPageController
   };
 
   openLoginSettings = () => {
+    this.settingsSection = 'sync';
     this.loginOpen = true;
     this.loginUsernameValue = getUsername() ?? '';
     this.openSettingsModal();
@@ -569,6 +593,13 @@ export class NotesPageController
   closeSettings = () => {
     this.settingsOpen = false;
     this.loginOpen = false;
+  };
+
+  setSettingsSection = (section: SettingsSection) => {
+    this.settingsSection = section;
+    if (section !== 'sync') {
+      this.loginOpen = false;
+    }
   };
 
   changeSort = (event: Event) => {
@@ -806,6 +837,11 @@ export class NotesPageController
   };
 
   syncNow = async () => {
+    if (this.isArchiveBusy) {
+      this.syncQueued = true;
+      this.syncMessage = 'Sync paused during import/export';
+      return;
+    }
     const token = getToken();
     this.hasToken = Boolean(token);
     if (!token) return;
@@ -854,40 +890,82 @@ export class NotesPageController
   };
 
   exportJson = async () => {
+    if (this.isSyncing || this.isArchiveBusy) return;
     await this.flushPendingSave();
-    const archive = await exportNotesJson();
-    const blob = new Blob([JSON.stringify(archive, null, 2)], {
-      type: 'application/json'
-    });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `author-notes-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
-    this.syncMessage = `Exported ${archive.notes.length} ${
-      archive.notes.length === 1 ? 'note' : 'notes'
-    }`;
+    this.beginArchiveOperation('Exporting JSON', 'Collecting notes', 18);
+    try {
+      await this.yieldToUi();
+      const archive = await exportNotesJson();
+      this.updateArchiveOperation('Preparing download', 72);
+      await this.yieldToUi();
+      const blob = new Blob([JSON.stringify(archive, null, 2)], {
+        type: 'application/json'
+      });
+      this.downloadBlob(
+        blob,
+        `author-notes-${new Date().toISOString().slice(0, 10)}.json`
+      );
+      this.updateArchiveOperation('Done', 100);
+      this.syncMessage = `Exported ${archive.notes.length} ${
+        archive.notes.length === 1 ? 'note' : 'notes'
+      }`;
+      await this.yieldToUi();
+    } catch (error) {
+      this.syncMessage =
+        error instanceof Error ? error.message : 'Export failed';
+    } finally {
+      this.endArchiveOperation();
+    }
+  };
+
+  exportMarkdown = async () => {
+    if (this.isSyncing || this.isArchiveBusy) return;
+    await this.flushPendingSave();
+    this.beginArchiveOperation('Exporting Markdown', 'Collecting notes', 16);
+    try {
+      await this.yieldToUi();
+      const archive = await exportNotesMarkdownZip();
+      this.updateArchiveOperation('Writing ZIP archive', 78);
+      await this.yieldToUi();
+      this.downloadBlob(archive.blob, archive.fileName);
+      this.updateArchiveOperation('Done', 100);
+      this.syncMessage = `Exported ${archive.noteCount} ${
+        archive.noteCount === 1 ? 'note' : 'notes'
+      }`;
+      await this.yieldToUi();
+    } catch (error) {
+      this.syncMessage =
+        error instanceof Error ? error.message : 'Export failed';
+    } finally {
+      this.endArchiveOperation();
+    }
   };
 
   startJsonImport = () => {
+    if (this.isSyncing || this.isArchiveBusy) return;
     this.importInput?.click();
+  };
+
+  startMarkdownImport = () => {
+    if (this.isSyncing || this.isArchiveBusy) return;
+    this.importMarkdownInput?.click();
   };
 
   handleJsonImport = async (event: Event) => {
     const input = event.currentTarget as HTMLInputElement;
     const file = input.files?.[0] ?? null;
     input.value = '';
-    if (!file || this.isImporting) return;
+    if (!file || this.isSyncing || this.isArchiveBusy) return;
 
     await this.flushPendingSave();
-    this.isImporting = true;
-    this.syncMessage = 'Importing JSON';
+    this.beginArchiveOperation('Importing JSON', 'Reading file', 12);
     try {
+      await this.yieldToUi();
       const payload = JSON.parse(await file.text()) as unknown;
+      this.updateArchiveOperation('Adding notes', 42);
+      await this.yieldToUi();
       const result = await importNotesJson(payload);
+      this.updateArchiveOperation('Refreshing library', 82);
       await this.refresh();
 
       const importedNote = this.notes.find(
@@ -898,11 +976,48 @@ export class NotesPageController
       }
 
       this.syncMessage = importNotesJsonSummary(result);
+      this.updateArchiveOperation('Done', 100);
+      await this.yieldToUi();
     } catch (error) {
       this.syncMessage =
         error instanceof Error ? error.message : 'Import failed';
     } finally {
-      this.isImporting = false;
+      this.endArchiveOperation(true);
+    }
+  };
+
+  handleMarkdownImport = async (event: Event) => {
+    const input = event.currentTarget as HTMLInputElement;
+    const files = input.files ? [...input.files] : [];
+    input.value = '';
+    if (!files.length || this.isSyncing || this.isArchiveBusy) return;
+
+    await this.flushPendingSave();
+    this.beginArchiveOperation('Importing Markdown', 'Reading folder', 8);
+    try {
+      await this.yieldToUi();
+      this.updateArchiveOperation(`Reading ${files.length} files`, 28);
+      const result = await importNotesMarkdownFiles(files);
+      this.updateArchiveOperation('Adding notes', 62);
+      await this.yieldToUi();
+      await this.refresh();
+      this.updateArchiveOperation('Refreshing library', 86);
+
+      const importedNote = this.notes.find(
+        (note) => note.id === result.noteIds[0]
+      );
+      if (importedNote) {
+        await this.selectNote(importedNote);
+      }
+
+      this.syncMessage = importNotesMarkdownSummary(result);
+      this.updateArchiveOperation('Done', 100);
+      await this.yieldToUi();
+    } catch (error) {
+      this.syncMessage =
+        error instanceof Error ? error.message : 'Import failed';
+    } finally {
+      this.endArchiveOperation(true);
     }
   };
 
@@ -1099,6 +1214,57 @@ export class NotesPageController
     this.settingsModal?.focus({ preventScroll: true });
   };
 
+  private downloadBlob = (blob: Blob, fileName: string) => {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = fileName;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  private beginArchiveOperation = (
+    label: string,
+    detail: string,
+    progress: number
+  ) => {
+    this.settingsSection = 'data';
+    this.isImporting = true;
+    this.archiveOperation = { label, detail, progress };
+    this.syncMessage = label;
+    if (this.autoSyncTimer) {
+      clearTimeout(this.autoSyncTimer);
+      this.autoSyncTimer = null;
+    }
+  };
+
+  private updateArchiveOperation = (detail: string, progress: number) => {
+    if (!this.archiveOperation) return;
+    this.archiveOperation = {
+      ...this.archiveOperation,
+      detail,
+      progress: Math.max(0, Math.min(100, progress))
+    };
+  };
+
+  private endArchiveOperation = (syncAfter = false) => {
+    this.archiveOperation = null;
+    this.isImporting = false;
+    if (syncAfter || this.syncQueued) {
+      this.syncQueued = false;
+      this.scheduleSync(0);
+    }
+  };
+
+  private yieldToUi = async () => {
+    await tick();
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => resolve())
+    );
+  };
+
   private saveEditorNow = async (noteId: string | null) => {
     if (noteId) {
       const updated = await updateNoteContent(
@@ -1211,6 +1377,10 @@ export class NotesPageController
 
   private scheduleSync = (delayMs = AUTO_SYNC_DELAY_MS) => {
     if (!this.hasToken || !this.isBrowserOnline) return;
+    if (this.isArchiveBusy) {
+      this.syncQueued = true;
+      return;
+    }
     if (this.isSyncing) {
       this.syncQueued = true;
       return;

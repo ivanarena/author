@@ -77,11 +77,17 @@
             <button
               class="profile-quick-action"
               role="menuitem"
-              disabled={model.isSyncing}
+              disabled={model.isSyncing || model.isArchiveBusy}
               onclick={model.syncNow}
             >
               <RefreshCw size={14} strokeWidth={1.8} />
-              <span>{model.isSyncing ? 'Syncing changes' : 'Sync now'}</span>
+              <span>
+                {model.isArchiveBusy
+                  ? 'Sync paused'
+                  : model.isSyncing
+                    ? 'Syncing changes'
+                    : 'Sync now'}
+              </span>
             </button>
           {:else}
             <button

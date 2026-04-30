@@ -17,6 +17,8 @@
   .menu-panels,
   .settings-modal,
   .settings-action,
+  .settings-menu-item,
+  .settings-progress-track span,
   .icon-button,
   .nav-row,
   .nav-main,
@@ -133,6 +135,31 @@
 
   .settings-layer {
     padding: 14px;
+  }
+
+  .settings-modal {
+    max-height: calc(100vh - 28px);
+    overflow: auto;
+  }
+
+  .settings-body {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-menu {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    padding-right: 0;
+    padding-bottom: 12px;
+  }
+
+  .settings-menu-item {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .settings-menu-item svg:last-child {
+    display: none;
   }
 
   .notebooks,

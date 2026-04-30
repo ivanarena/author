@@ -243,7 +243,7 @@ function readDate(
   return null;
 }
 
-function parseDateValue(value: unknown): string | null {
+export function parseDateValue(value: unknown): string | null {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return dateFromNumber(value);
   }

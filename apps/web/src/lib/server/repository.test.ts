@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { fixtureDevice, fixtureNote, fixtureNotebook } from '@author/test-fixtures';
+import {
+  fixtureDevice,
+  fixtureNote,
+  fixtureNotebook
+} from '@author/test-fixtures';
 import { authenticateUser, setUserPassword } from './auth';
 import { openMemoryDatabase } from './db';
 import {
@@ -125,7 +129,10 @@ describe('server repository', () => {
         notes: [{ record: oldTrashedNote, baseVersion: 0 }]
       });
 
-      const result = await cleanupTrash(db, new Date('2026-04-29T00:00:00.000Z'));
+      const result = await cleanupTrash(
+        db,
+        new Date('2026-04-29T00:00:00.000Z')
+      );
 
       expect(result.deletedNotes).toBe(1);
       expect(await getNote(db, fixtureNote.id)).toBeNull();
@@ -163,8 +170,12 @@ describe('server repository', () => {
 
       await syncDatabases(local, remote);
 
-      expect((await getNote(remote, fixtureNote.id))?.body).toBe(fixtureNote.body);
-      expect((await getNote(local, remoteOnlyNote.id))?.body).toBe(remoteOnlyNote.body);
+      expect((await getNote(remote, fixtureNote.id))?.body).toBe(
+        fixtureNote.body
+      );
+      expect((await getNote(local, remoteOnlyNote.id))?.body).toBe(
+        remoteOnlyNote.body
+      );
     } finally {
       local.close();
       remote.close();
@@ -180,10 +191,14 @@ describe('server repository', () => {
 
       await syncDatabases(local, remote);
 
-      await expect(authenticateUser(remote, 'local-user', 'local-password')).resolves.toEqual({
+      await expect(
+        authenticateUser(remote, 'local-user', 'local-password')
+      ).resolves.toEqual({
         username: 'local-user'
       });
-      await expect(authenticateUser(local, 'remote-user', 'remote-password')).resolves.toEqual({
+      await expect(
+        authenticateUser(local, 'remote-user', 'remote-password')
+      ).resolves.toEqual({
         username: 'remote-user'
       });
     } finally {

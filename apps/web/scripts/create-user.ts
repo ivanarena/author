@@ -3,7 +3,9 @@ import { openDatabase } from '../src/lib/server/db';
 import { authenticateUser, setUserPassword } from '../src/lib/server/auth';
 
 function usage(): never {
-  console.error('Usage: tsx scripts/create-user.ts <username> [password|--random]');
+  console.error(
+    'Usage: tsx scripts/create-user.ts <username> [password|--random]'
+  );
   process.exit(1);
 }
 
@@ -15,13 +17,15 @@ const username = process.argv[2];
 const passwordArg = process.argv[3];
 if (!username) usage();
 
-const password = passwordArg === '--random' || !passwordArg ? randomPassword() : passwordArg;
+const password =
+  passwordArg === '--random' || !passwordArg ? randomPassword() : passwordArg;
 const db = await openDatabase();
 
 try {
   const user = await setUserPassword(db, username, password);
   const verified = await authenticateUser(db, user.username, password);
-  if (!verified) throw new Error(`Created user ${user.username} could not authenticate`);
+  if (!verified)
+    throw new Error(`Created user ${user.username} could not authenticate`);
 
   console.log(`User: ${user.username}`);
   console.log(`Password: ${password}`);

@@ -1,5 +1,14 @@
 <script lang="ts">
-  import { Check, Files, FolderPlus, Inbox, Notebook, Pencil, Trash2, X } from 'lucide-svelte';
+  import {
+    Check,
+    Files,
+    FolderPlus,
+    Inbox,
+    Notebook,
+    Pencil,
+    Trash2,
+    X
+  } from 'lucide-svelte';
   import type { NotebookSidebarModel } from './notes-page-controller.svelte.js';
 
   let { model }: { model: NotebookSidebarModel } = $props();
@@ -45,7 +54,12 @@
           placeholder="Notebook name"
           oninput={() => (model.notebookError = '')}
         />
-        <button class="icon-button mini" type="submit" title="Create notebook" aria-label="Create notebook">
+        <button
+          class="icon-button mini"
+          type="submit"
+          title="Create notebook"
+          aria-label="Create notebook"
+        >
           <Check size={14} strokeWidth={1.9} />
         </button>
         <button
@@ -84,7 +98,10 @@
       </div>
     </div>
     {#each model.notebooks as notebook}
-      <div class="nav-row notebook-row" class:active={model.filterId === notebook.id}>
+      <div
+        class="nav-row notebook-row"
+        class:active={model.filterId === notebook.id}
+      >
         {#if model.renamingNotebookId === notebook.id}
           <form
             class="inline-rename"
@@ -94,7 +111,9 @@
               void model.submitRenameNotebook(notebook);
             }}
           >
-            <label class="sr-only" for={`rename-notebook-${notebook.id}`}>Notebook name</label>
+            <label class="sr-only" for={`rename-notebook-${notebook.id}`}
+              >Notebook name</label
+            >
             <input
               id={`rename-notebook-${notebook.id}`}
               bind:value={model.renameNotebookValue}
@@ -119,11 +138,17 @@
               <X size={14} strokeWidth={1.9} />
             </button>
             {#if model.renameNotebookError}
-              <p class="form-error notebook-error">{model.renameNotebookError}</p>
+              <p class="form-error notebook-error">
+                {model.renameNotebookError}
+              </p>
             {/if}
           </form>
         {:else if model.deletingNotebookId === notebook.id}
-          <div class="delete-confirm" aria-label={`Delete ${notebook.name}?`} role="group">
+          <div
+            class="delete-confirm"
+            aria-label={`Delete ${notebook.name}?`}
+            role="group"
+          >
             <span>Delete?</span>
             <button
               class="icon-button mini danger"
@@ -146,13 +171,16 @@
           <button
             class="notebook-main"
             onclick={() => (model.filterId = notebook.id)}
-            oncontextmenu={(event) => model.openNotebookContext(event, notebook)}
+            oncontextmenu={(event) =>
+              model.openNotebookContext(event, notebook)}
           >
             <Notebook size={15} strokeWidth={1.8} />
             <span>{notebook.name}</span>
           </button>
           <div class="nav-trailing notebook-trailing">
-            <span class="nav-count">{model.notebookCounts.get(notebook.id) ?? 0}</span>
+            <span class="nav-count"
+              >{model.notebookCounts.get(notebook.id) ?? 0}</span
+            >
             <div class="notebook-actions">
               <button
                 class="icon-button mini"

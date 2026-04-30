@@ -15,7 +15,10 @@ export function getDatabasePath(): string {
   return resolve(process.env.NOTES_DB_PATH ?? '.data/notes.sqlite');
 }
 
-export function getLocalDatabaseConfig(): Extract<DatabaseConfig, { provider: 'local' }> {
+export function getLocalDatabaseConfig(): Extract<
+  DatabaseConfig,
+  { provider: 'local' }
+> {
   const filePath = getDatabasePath();
   return {
     provider: 'local',
@@ -24,7 +27,10 @@ export function getLocalDatabaseConfig(): Extract<DatabaseConfig, { provider: 'l
   };
 }
 
-export function getRemoteDatabaseConfig(): Extract<DatabaseConfig, { provider: 'turso' }> | null {
+export function getRemoteDatabaseConfig(): Extract<
+  DatabaseConfig,
+  { provider: 'turso' }
+> | null {
   const url = process.env.TURSO_DATABASE_URL;
   const authToken = process.env.TURSO_AUTH_TOKEN;
   if (!url || !authToken) return null;

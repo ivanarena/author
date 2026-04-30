@@ -68,7 +68,9 @@ export function tokensMatch(actual: string | null, expected: string): boolean {
   return timingSafeEqual(digest(actual), digest(expected));
 }
 
-export function normalizeUsername(username: string | null | undefined): string | null {
+export function normalizeUsername(
+  username: string | null | undefined
+): string | null {
   const normalized = username?.trim().toLocaleLowerCase();
   if (!normalized || !USERNAME_PATTERN.test(normalized)) return null;
   return normalized;
@@ -77,7 +79,9 @@ export function normalizeUsername(username: string | null | undefined): string |
 function requireUsername(username: string): string {
   const normalized = normalizeUsername(username);
   if (!normalized) {
-    throw new Error('Usernames may contain lowercase letters, numbers, dots, hyphens, and underscores');
+    throw new Error(
+      'Usernames may contain lowercase letters, numbers, dots, hyphens, and underscores'
+    );
   }
   return normalized;
 }
@@ -94,7 +98,13 @@ async function hashPassword(
   salt = randomBytes(16).toString('base64url'),
   iterations = PASSWORD_ITERATIONS
 ): Promise<{ hash: string; salt: string; iterations: number }> {
-  const derived = await pbkdf2Async(password, salt, iterations, PASSWORD_KEY_LENGTH, 'sha256');
+  const derived = await pbkdf2Async(
+    password,
+    salt,
+    iterations,
+    PASSWORD_KEY_LENGTH,
+    'sha256'
+  );
   return {
     hash: derived.toString('base64url'),
     salt,
@@ -102,7 +112,10 @@ async function hashPassword(
   };
 }
 
-async function verifyPassword(password: string, row: UserRow): Promise<boolean> {
+async function verifyPassword(
+  password: string,
+  row: UserRow
+): Promise<boolean> {
   const derived = await pbkdf2Async(
     password,
     row.password_salt,
@@ -114,7 +127,10 @@ async function verifyPassword(password: string, row: UserRow): Promise<boolean> 
   return stored.length === derived.length && timingSafeEqual(stored, derived);
 }
 
-async function getUserRow(db: NotesExecutor, username: string): Promise<UserRow | null> {
+async function getUserRow(
+  db: NotesExecutor,
+  username: string
+): Promise<UserRow | null> {
   const row = await get(
     db,
     `SELECT username, password_hash, password_salt, password_iterations
@@ -132,7 +148,12 @@ async function maybeBootstrapEnvUser(
 ): Promise<UserRow | null> {
   const bootstrapUsername = normalizeUsername(getLoginUsername());
   const bootstrapPassword = getLoginPassword();
-  if (!bootstrapUsername || !bootstrapPassword || username !== bootstrapUsername) return null;
+  if (
+    !bootstrapUsername ||
+    !bootstrapPassword ||
+    username !== bootstrapUsername
+  )
+    return null;
   if (!tokensMatch(password, bootstrapPassword)) return null;
 
   await setUserPassword(db, username, password);
@@ -181,9 +202,13 @@ export async function authenticateUser(
   const normalized = normalizeUsername(username ?? getLoginUsername());
   if (!normalized || typeof password !== 'string') return null;
 
-  const row = (await getUserRow(db, normalized)) ?? (await maybeBootstrapEnvUser(db, normalized, password));
+  const row =
+    (await getUserRow(db, normalized)) ??
+    (await maybeBootstrapEnvUser(db, normalized, password));
   if (!row) return null;
-  return (await verifyPassword(password, row)) ? { username: normalized } : null;
+  return (await verifyPassword(password, row))
+    ? { username: normalized }
+    : null;
 }
 
 export async function createAuthSession(
@@ -195,7 +220,9 @@ export async function createAuthSession(
   const hash = tokenHash(token);
   const now = new Date();
   const nowIso = now.toISOString();
-  const expiresAt = new Date(now.getTime() + getAuthSessionDays() * 86_400_000).toISOString();
+  const expiresAt = new Date(
+    now.getTime() + getAuthSessionDays() * 86_400_000
+  ).toISOString();
 
   await run(db, 'DELETE FROM auth_sessions WHERE expires_at <= ?', [nowIso]);
   await run(
@@ -246,8 +273,15 @@ export async function sessionFromToken(
   }
 
   const lastSeenAt = Date.parse(row.last_seen_at);
-  if (Number.isNaN(lastSeenAt) || Date.now() - lastSeenAt > SESSION_TOUCH_INTERVAL_MS) {
-    await run(db, 'UPDATE auth_sessions SET last_seen_at = ? WHERE token_hash = ?', [now, hash]);
+  if (
+    Number.isNaN(lastSeenAt) ||
+    Date.now() - lastSeenAt > SESSION_TOUCH_INTERVAL_MS
+  ) {
+    await run(
+      db,
+      'UPDATE auth_sessions SET last_seen_at = ? WHERE token_hash = ?',
+      [now, hash]
+    );
   }
 
   return {
@@ -273,6 +307,9 @@ export function unauthorized(): Response {
   });
 }
 
-export async function requireAuth(db: NotesExecutor, request: Request): Promise<Response | null> {
+export async function requireAuth(
+  db: NotesExecutor,
+  request: Request
+): Promise<Response | null> {
   return (await sessionFromRequest(db, request)) ? null : unauthorized();
 }

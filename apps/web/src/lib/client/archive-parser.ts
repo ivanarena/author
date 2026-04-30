@@ -22,18 +22,25 @@ export interface ParsedImportPayload {
   notes: ParsedImportNote[];
 }
 
-export function parseNotesJsonImportPayload(payload: unknown): ParsedImportPayload {
+export function parseNotesJsonImportPayload(
+  payload: unknown
+): ParsedImportPayload {
   const root = asRecord(payload);
   const rawNotebooks = root ? readArray(root, 'notebooks') : [];
-  const rawNotes = Array.isArray(payload) ? payload : root ? readArray(root, 'notes') : [];
+  const rawNotes = Array.isArray(payload)
+    ? payload
+    : root
+      ? readArray(root, 'notes')
+      : [];
   const notebooks = rawNotebooks.flatMap((item) => {
     const notebook = parseImportNotebook(item);
     return notebook ? [notebook] : [];
   });
   const notebookNameBySourceId = new Map(
     notebooks
-      .filter((notebook): notebook is ParsedImportNotebook & { sourceId: string } =>
-        Boolean(notebook.sourceId)
+      .filter(
+        (notebook): notebook is ParsedImportNotebook & { sourceId: string } =>
+          Boolean(notebook.sourceId)
       )
       .map((notebook) => [notebook.sourceId, notebook.name])
   );
@@ -48,20 +55,37 @@ export function parseNotesJsonImportPayload(payload: unknown): ParsedImportPaylo
 function parseImportNotebook(item: unknown): ParsedImportNotebook | null {
   if (typeof item === 'string') {
     const name = item.trim();
-    return name ? { sourceId: null, name, createdAt: null, updatedAt: null } : null;
+    return name
+      ? { sourceId: null, name, createdAt: null, updatedAt: null }
+      : null;
   }
 
   const record = asRecord(item);
   if (!record) return null;
 
-  const name = (readString(record, 'name') ?? readString(record, 'title') ?? '').trim();
+  const name = (
+    readString(record, 'name') ??
+    readString(record, 'title') ??
+    ''
+  ).trim();
   if (!name) return null;
 
   return {
     sourceId: readString(record, 'id'),
     name,
-    createdAt: readDate(record, ['createdAt', 'created_at', 'created', 'createdDate']),
-    updatedAt: readDate(record, ['updatedAt', 'updated_at', 'updated', 'modifiedAt', 'modified'])
+    createdAt: readDate(record, [
+      'createdAt',
+      'created_at',
+      'created',
+      'createdDate'
+    ]),
+    updatedAt: readDate(record, [
+      'updatedAt',
+      'updated_at',
+      'updated',
+      'modifiedAt',
+      'modified'
+    ])
   };
 }
 
@@ -93,13 +117,26 @@ function parseImportNote(
     readString(record, 'textContent') ??
     readString(record, 'content') ??
     '';
-  const title = readString(record, 'title') ?? readString(record, 'name') ?? deriveTitle(body);
-  const sourceNotebookIds = readStringArray(record, ['notebookIds', 'folderIds', 'parentIds']);
+  const title =
+    readString(record, 'title') ??
+    readString(record, 'name') ??
+    deriveTitle(body);
+  const sourceNotebookIds = readStringArray(record, [
+    'notebookIds',
+    'folderIds',
+    'parentIds'
+  ]);
   const singleNotebookId =
-    readString(record, 'notebookId') ?? readString(record, 'folderId') ?? readString(record, 'parentId');
+    readString(record, 'notebookId') ??
+    readString(record, 'folderId') ??
+    readString(record, 'parentId');
   if (singleNotebookId) sourceNotebookIds.push(singleNotebookId);
 
-  const sourceNotebookNames = readStringArray(record, ['notebookNames', 'notebooks', 'folders']);
+  const sourceNotebookNames = readStringArray(record, [
+    'notebookNames',
+    'notebooks',
+    'folders'
+  ]);
   const singleNotebookName =
     readString(record, 'notebookName') ??
     readString(record, 'notebook') ??
@@ -146,12 +183,18 @@ function readArray(record: Record<string, unknown>, key: string): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
-function readString(record: Record<string, unknown>, key: string): string | null {
+function readString(
+  record: Record<string, unknown>,
+  key: string
+): string | null {
   const value = record[key];
   return typeof value === 'string' && value.trim() ? value : null;
 }
 
-function readStringArray(record: Record<string, unknown>, keys: string[]): string[] {
+function readStringArray(
+  record: Record<string, unknown>,
+  keys: string[]
+): string[] {
   const values: string[] = [];
   for (const key of keys) {
     const value = record[key];
@@ -159,7 +202,9 @@ function readStringArray(record: Record<string, unknown>, keys: string[]): strin
       for (const item of value) {
         if (typeof item === 'string' && item.trim()) values.push(item.trim());
         const nested = asRecord(item);
-        const nestedName = nested ? readString(nested, 'name') ?? readString(nested, 'id') : null;
+        const nestedName = nested
+          ? (readString(nested, 'name') ?? readString(nested, 'id'))
+          : null;
         if (nestedName) values.push(nestedName);
       }
     } else if (typeof value === 'string' && value.trim()) {
@@ -186,7 +231,10 @@ function readLabelNames(value: unknown): string[] {
   return [...new Set(names)];
 }
 
-function readDate(record: Record<string, unknown>, keys: string[]): string | null {
+function readDate(
+  record: Record<string, unknown>,
+  keys: string[]
+): string | null {
   for (const key of keys) {
     const parsed = parseDateValue(record[key]);
     if (parsed) return parsed;

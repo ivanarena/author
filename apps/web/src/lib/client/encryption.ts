@@ -1,7 +1,8 @@
 import type { Note } from '@author/schema';
 
 export const ENCRYPTION_PREFIX = 'enc:v1:';
-export const ENCRYPTION_KEY_MATERIAL_STORAGE_KEY = 'author-notes-encryption-key-material-v1';
+export const ENCRYPTION_KEY_MATERIAL_STORAGE_KEY =
+  'author-notes-encryption-key-material-v1';
 
 const USERNAME_KEY = 'author-notes-username';
 const FALLBACK_KEY_MATERIAL = 'author-notes:local:v1';
@@ -84,7 +85,8 @@ export async function decryptText(
   if (!isEncryptedText(value)) return value;
 
   const parts = value.split(':');
-  if (parts.length !== 4 || parts[0] !== 'enc' || parts[1] !== 'v1') return value;
+  if (parts.length !== 4 || parts[0] !== 'enc' || parts[1] !== 'v1')
+    return value;
 
   for (const material of decryptionKeyMaterials(keyMaterial)) {
     try {
@@ -185,7 +187,10 @@ async function encryptionIv(
 function base64UrlEncode(bytes: Uint8Array): string {
   const binary = bytesToBinary(bytes);
   if (typeof btoa === 'function') {
-    return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+    return btoa(binary)
+      .replaceAll('+', '-')
+      .replaceAll('/', '_')
+      .replaceAll('=', '');
   }
   return Buffer.from(bytes).toString('base64url');
 }

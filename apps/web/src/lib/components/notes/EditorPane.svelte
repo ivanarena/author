@@ -6,8 +6,16 @@
   let { model }: { model: EditorPaneModel } = $props();
 </script>
 
-<section class="editor-wrap" aria-label="Editor" oncontextmenu={model.openEditorContext}>
-  <section class="writer" aria-label="Plain text editor" style={`--editor-zoom: ${model.editorZoom};`}>
+<section
+  class="editor-wrap"
+  aria-label="Editor"
+  oncontextmenu={model.openEditorContext}
+>
+  <section
+    class="writer"
+    aria-label="Plain text editor"
+    style={`--editor-zoom: ${model.editorZoom};`}
+  >
     <input
       class="title-input"
       aria-label="Note title"
@@ -55,7 +63,9 @@
       <span>Zoom {model.zoomPercent()}</span>
       {#if model.selectedNote}
         <span>Created {formatDateTime(model.selectedNote.createdAt)}</span>
-        <span>Modified {formatDateTime(model.selectedNote.updatedAt)} by {model.selectedDeviceName}</span>
+        <span
+          >Modified {formatDateTime(model.selectedNote.updatedAt)} by {model.selectedDeviceName}</span
+        >
       {:else}
         <span>Unsaved draft</span>
       {/if}

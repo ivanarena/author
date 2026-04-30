@@ -10,7 +10,9 @@ export const EDITOR_ZOOM_STEP = 0.1;
 
 export function getStoredSort(): NoteSort {
   const stored = localStorage.getItem(SORT_KEY);
-  return stored === 'az' || stored === 'za' || stored === 'date-desc' ? stored : 'date-desc';
+  return stored === 'az' || stored === 'za' || stored === 'date-desc'
+    ? stored
+    : 'date-desc';
 }
 
 export function setStoredSort(sort: NoteSort): void {
@@ -35,7 +37,9 @@ export function setStoredEditorZoom(zoom: number): void {
 }
 
 export function nextEditorZoom(current: number, direction: -1 | 1): number {
-  return clampEditorZoom(Number((current + direction * EDITOR_ZOOM_STEP).toFixed(2)));
+  return clampEditorZoom(
+    Number((current + direction * EDITOR_ZOOM_STEP).toFixed(2))
+  );
 }
 
 export function clampEditorZoom(value: number): number {

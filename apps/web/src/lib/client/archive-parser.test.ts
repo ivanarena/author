@@ -92,8 +92,13 @@ describe('notes JSON archive parser', () => {
   });
 
   it('drops malformed top-level collections instead of throwing', () => {
-    expect(parseNotesJsonImportPayload(null)).toEqual({ notebooks: [], notes: [] });
-    expect(parseNotesJsonImportPayload({ notebooks: 'bad', notes: 'bad' })).toEqual({
+    expect(parseNotesJsonImportPayload(null)).toEqual({
+      notebooks: [],
+      notes: []
+    });
+    expect(
+      parseNotesJsonImportPayload({ notebooks: 'bad', notes: 'bad' })
+    ).toEqual({
       notebooks: [],
       notes: []
     });

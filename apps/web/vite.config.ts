@@ -16,6 +16,23 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts']
+    include: ['src/**/*.test.ts'],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html', 'lcov'],
+      reportsDirectory: 'coverage',
+      include: ['src/lib/**/*.{ts,svelte.ts}'],
+      exclude: [
+        'src/lib/**/*.test.ts',
+        'src/lib/components/**/*.svelte',
+        'src/lib/components/**/*.css'
+      ],
+      thresholds: {
+        statements: 45,
+        branches: 40,
+        functions: 45,
+        lines: 45
+      }
+    }
   }
 });

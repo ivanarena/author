@@ -35,22 +35,35 @@ const MAX_FAILED_LOGIN_ATTEMPTS = 8;
 const MAX_LOGIN_ATTEMPT_KEYS = 500;
 const MAX_LOGIN_BODY_BYTES = 16 * 1024;
 const MAX_SYNC_BODY_BYTES = 5 * 1024 * 1024;
-const SYNC_STATUSES = new Set<SyncStatus>(['synced', 'pending', 'conflict', 'deleted']);
+const SYNC_STATUSES = new Set<SyncStatus>([
+  'synced',
+  'pending',
+  'conflict',
+  'deleted'
+]);
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 
 async function syncRemoteBestEffort(db: NotesDb): Promise<void> {
   try {
     await syncRemoteDatabase(db);
   } catch (error) {
-    console.warn('Remote database sync failed:', error instanceof Error ? error.message : error);
+    console.warn(
+      'Remote database sync failed:',
+      error instanceof Error ? error.message : error
+    );
   }
 }
 
-function loginAttemptKey(request: Request, username: string | null | undefined): string {
+function loginAttemptKey(
+  request: Request,
+  username: string | null | undefined
+): string {
   const forwardedFor = shouldTrustProxyHeaders()
     ? request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
     : null;
-  const realIp = shouldTrustProxyHeaders() ? request.headers.get('x-real-ip')?.trim() : null;
+  const realIp = shouldTrustProxyHeaders()
+    ? request.headers.get('x-real-ip')?.trim()
+    : null;
   const ip = forwardedFor || realIp || 'local';
   return `${ip}:${normalizeUsername(username) ?? 'unknown'}`;
 }
@@ -80,7 +93,10 @@ function recordFailedLogin(key: string, now = Date.now()): void {
   pruneLoginAttempts(now);
   const attempt = loginAttempts.get(key);
   if (!attempt || attempt.resetAt <= now) {
-    loginAttempts.set(key, { count: 1, resetAt: now + LOGIN_ATTEMPT_WINDOW_MS });
+    loginAttempts.set(key, {
+      count: 1,
+      resetAt: now + LOGIN_ATTEMPT_WINDOW_MS
+    });
     return;
   }
 
@@ -91,7 +107,9 @@ function clearFailedLogins(key: string): void {
   loginAttempts.delete(key);
 }
 
-function hasDevicePayload(device: unknown): device is AuthLoginRequest['device'] {
+function hasDevicePayload(
+  device: unknown
+): device is AuthLoginRequest['device'] {
   if (!device || typeof device !== 'object') return false;
   const candidate = device as { id?: unknown; name?: unknown };
   return (
@@ -181,13 +199,18 @@ function hasEntityChanges<T>(
     value.every((change) => {
       if (!change || typeof change !== 'object') return false;
       const candidate = change as { baseVersion?: unknown; record?: unknown };
-      return isNonNegativeInteger(candidate.baseVersion) && hasRecord(candidate.record);
+      return (
+        isNonNegativeInteger(candidate.baseVersion) &&
+        hasRecord(candidate.record)
+      );
     })
   );
 }
 
 function pullSince(value: unknown): string | null {
-  return typeof value === 'string' && !Number.isNaN(Date.parse(value)) ? value : null;
+  return typeof value === 'string' && !Number.isNaN(Date.parse(value))
+    ? value
+    : null;
 }
 
 api.get('/api/health', (c) =>
@@ -203,7 +226,9 @@ api.post('/api/auth/login', async (c) => {
     return c.json({ error: 'Login payload too large' }, 413);
   }
 
-  const body = (await c.req.json().catch(() => null)) as AuthLoginRequest | null;
+  const body = (await c.req
+    .json()
+    .catch(() => null)) as AuthLoginRequest | null;
 
   if (!hasDevicePayload(body?.device) || typeof body?.password !== 'string') {
     return c.json({ error: 'Invalid login payload' }, 400);
@@ -211,7 +236,10 @@ api.post('/api/auth/login', async (c) => {
 
   const attemptKey = loginAttemptKey(c.req.raw, body.username);
   if (isLoginRateLimited(attemptKey)) {
-    return c.json({ error: 'Too many login attempts. Try again shortly.' }, 429);
+    return c.json(
+      { error: 'Too many login attempts. Try again shortly.' },
+      429
+    );
   }
 
   const db = await openLocalDatabase();

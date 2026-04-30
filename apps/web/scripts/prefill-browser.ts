@@ -17,7 +17,9 @@ interface LocalNotebook extends Notebook {
 const appUrl = process.env.NOTES_APP_URL ?? 'http://127.0.0.1:5173';
 const headless = process.env.HEADLESS === '1';
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const profileDir = process.env.NOTES_MOCK_PROFILE ?? resolve(appRoot, '.data/mock-browser-profile');
+const profileDir =
+  process.env.NOTES_MOCK_PROFILE ??
+  resolve(appRoot, '.data/mock-browser-profile');
 
 const devices: Device[] = [
   { id: 'mock-device-laptop', name: 'Mock laptop' },
@@ -114,7 +116,11 @@ const notes: LocalNote[] = [
   )
 ];
 
-function mockNotebook(id: string, name: string, daysAgo: number): LocalNotebook {
+function mockNotebook(
+  id: string,
+  name: string,
+  daysAgo: number
+): LocalNotebook {
   const createdAt = daysAgoIso(daysAgo, 9);
   return {
     id,
@@ -217,7 +223,10 @@ try {
       }
 
       const db = await openDatabase();
-      const deleteTransaction = db.transaction(['devices', 'notebooks', 'notes', 'conflicts'], 'readwrite');
+      const deleteTransaction = db.transaction(
+        ['devices', 'notebooks', 'notes', 'conflicts'],
+        'readwrite'
+      );
       await Promise.all([
         deleteMockRows(deleteTransaction.objectStore('notes')),
         deleteMockRows(deleteTransaction.objectStore('notebooks')),
@@ -228,7 +237,10 @@ try {
       db.close();
 
       const writeDb = await openDatabase();
-      const writeTransaction = writeDb.transaction(['devices', 'notebooks', 'notes'], 'readwrite');
+      const writeTransaction = writeDb.transaction(
+        ['devices', 'notebooks', 'notes'],
+        'readwrite'
+      );
       const deviceStore = writeTransaction.objectStore('devices');
       const notebookStore = writeTransaction.objectStore('notebooks');
       const noteStore = writeTransaction.objectStore('notes');

@@ -33,7 +33,7 @@ Pull accepts an optional timestamp:
 
 ```ts
 {
-  since: string | null
+  since: string | null;
 }
 ```
 

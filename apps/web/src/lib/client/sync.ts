@@ -39,10 +39,15 @@ function authHeaders(token: string): HeadersInit {
   };
 }
 
-async function responseError(response: Response, fallback: string): Promise<Error> {
+async function responseError(
+  response: Response,
+  fallback: string
+): Promise<Error> {
   if (response.status === 401) return new AuthError();
 
-  const body = (await response.json().catch(() => null)) as { error?: string } | null;
+  const body = (await response.json().catch(() => null)) as {
+    error?: string;
+  } | null;
   return new SyncHttpError(response.status, body?.error ?? fallback);
 }
 
@@ -67,19 +72,26 @@ async function apiPost<TRequest, TResponse>(
   return (await response.json()) as TResponse;
 }
 
-export async function validateSession(token: string): Promise<AuthValidateResponse> {
+export async function validateSession(
+  token: string
+): Promise<AuthValidateResponse> {
   const response = await fetch('/api/auth/validate', {
     headers: authHeaders(token)
   });
 
   if (!response.ok) {
-    throw await responseError(response, `Session check failed: ${response.status}`);
+    throw await responseError(
+      response,
+      `Session check failed: ${response.status}`
+    );
   }
 
   return (await response.json()) as AuthValidateResponse;
 }
 
-export async function runSync(token: string): Promise<{ pushed: number; pulled: number; conflicts: number }> {
+export async function runSync(
+  token: string
+): Promise<{ pushed: number; pulled: number; conflicts: number }> {
   if (!hasStoredEncryptionKeyMaterial()) {
     throw new Error('Sign in again to sync encrypted notes');
   }
@@ -93,43 +105,60 @@ export async function runSync(token: string): Promise<{ pushed: number; pulled: 
 
   const pushPayload: PushRequest = {
     device,
-    notes: notes.map((record) => ({ record, baseVersion: record.lastSyncedVersion })),
-    notebooks: notebooks.map((record) => ({ record, baseVersion: record.lastSyncedVersion }))
+    notes: notes.map((record) => ({
+      record,
+      baseVersion: record.lastSyncedVersion
+    })),
+    notebooks: notebooks.map((record) => ({
+      record,
+      baseVersion: record.lastSyncedVersion
+    }))
   };
 
   let conflicts = 0;
   if (pushPayload.notes.length || pushPayload.notebooks.length) {
-    const pushResponse = await apiPost<PushRequest, PushResponse>('/api/sync/push', token, pushPayload);
-    await markAcceptedChanges(
-      pushResponse.accepted,
-      pushResponse.serverTime,
-      [
-        ...pushPayload.notes.map((change) => ({
-          entityType: 'note' as const,
-          id: change.record.id,
-          version: change.record.version,
-          updatedAt: change.record.updatedAt
-        })),
-        ...pushPayload.notebooks.map((change) => ({
-          entityType: 'notebook' as const,
-          id: change.record.id,
-          version: change.record.version,
-          updatedAt: change.record.updatedAt
-        }))
-      ]
+    const pushResponse = await apiPost<PushRequest, PushResponse>(
+      '/api/sync/push',
+      token,
+      pushPayload
     );
+    await markAcceptedChanges(pushResponse.accepted, pushResponse.serverTime, [
+      ...pushPayload.notes.map((change) => ({
+        entityType: 'note' as const,
+        id: change.record.id,
+        version: change.record.version,
+        updatedAt: change.record.updatedAt
+      })),
+      ...pushPayload.notebooks.map((change) => ({
+        entityType: 'notebook' as const,
+        id: change.record.id,
+        version: change.record.version,
+        updatedAt: change.record.updatedAt
+      }))
+    ]);
     for (const conflict of pushResponse.conflicts) {
       conflicts += 1;
       await saveConflict(conflict);
     }
   }
 
-  const pullResponse = await apiPost<{ since: string | null }, PullResponse>('/api/sync/pull', token, {
-    since: null
-  });
+  const pullResponse = await apiPost<{ since: string | null }, PullResponse>(
+    '/api/sync/pull',
+    token,
+    {
+      since: null
+    }
+  );
   await saveDevices(pullResponse.devices);
-  await mergeRemoteChanges(pullResponse.notes, pullResponse.notebooks, pullResponse.serverTime);
-  await localDb.syncMeta.put({ key: 'lastPulledAt', value: pullResponse.serverTime });
+  await mergeRemoteChanges(
+    pullResponse.notes,
+    pullResponse.notebooks,
+    pullResponse.serverTime
+  );
+  await localDb.syncMeta.put({
+    key: 'lastPulledAt',
+    value: pullResponse.serverTime
+  });
 
   return {
     pushed: pushPayload.notes.length + pushPayload.notebooks.length,
@@ -138,7 +167,10 @@ export async function runSync(token: string): Promise<{ pushed: number; pulled: 
   };
 }
 
-export async function login(username: string, password: string): Promise<AuthLoginResponse> {
+export async function login(
+  username: string,
+  password: string
+): Promise<AuthLoginResponse> {
   const device = await getOrCreateDevice();
   const response = await fetch('/api/auth/login', {
     method: 'POST',

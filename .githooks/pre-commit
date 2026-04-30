@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+set -eu
+
+npx -y @endevco/aube@1.4.0 exec lint-staged

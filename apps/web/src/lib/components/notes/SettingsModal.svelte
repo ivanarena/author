@@ -33,19 +33,32 @@
         <Settings size={16} strokeWidth={1.8} />
         <h2 id="settings-title">Settings</h2>
       </div>
-      <button class="icon-button mini" title="Close" aria-label="Close settings" onclick={model.closeSettings}>
+      <button
+        class="icon-button mini"
+        title="Close"
+        aria-label="Close settings"
+        onclick={model.closeSettings}
+      >
         <X size={14} strokeWidth={1.9} />
       </button>
     </header>
 
     <div class="settings-actions">
       {#if model.hasToken}
-        <button class="settings-action" disabled={model.isSyncing} onclick={model.syncNow}>
+        <button
+          class="settings-action"
+          disabled={model.isSyncing}
+          onclick={model.syncNow}
+        >
           <RefreshCw size={15} strokeWidth={1.8} />
           <span>{model.isSyncing ? 'Syncing' : 'Sync'}</span>
         </button>
       {:else}
-        <button class="settings-action" class:active={model.loginOpen} onclick={model.toggleLoginMenu}>
+        <button
+          class="settings-action"
+          class:active={model.loginOpen}
+          onclick={model.toggleLoginMenu}
+        >
           <LogIn size={15} strokeWidth={1.8} />
           <span>Login</span>
         </button>
@@ -54,7 +67,11 @@
         <Download size={15} strokeWidth={1.8} />
         <span>Export JSON</span>
       </button>
-      <button class="settings-action" disabled={model.isImporting} onclick={model.startJsonImport}>
+      <button
+        class="settings-action"
+        disabled={model.isImporting}
+        onclick={model.startJsonImport}
+      >
         <Upload size={15} strokeWidth={1.8} />
         <span>Import JSON</span>
       </button>
@@ -119,7 +136,9 @@
       >
         <div class="login-copy">
           <strong>Sign in to sync</strong>
-          <span>Connect this browser and keep notes current across devices.</span>
+          <span
+            >Connect this browser and keep notes current across devices.</span
+          >
         </div>
         <label for="sync-username">Username</label>
         <input
@@ -145,7 +164,11 @@
           <p class="form-error">{model.loginError}</p>
         {/if}
         <div class="login-actions">
-          <button class="settings-action login-submit" type="submit" disabled={model.isLoggingIn}>
+          <button
+            class="settings-action login-submit"
+            type="submit"
+            disabled={model.isLoggingIn}
+          >
             <Check size={15} strokeWidth={1.9} />
             <span>{model.isLoggingIn ? 'Signing in' : 'Sign in'}</span>
           </button>

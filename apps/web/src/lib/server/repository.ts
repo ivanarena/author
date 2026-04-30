@@ -8,7 +8,12 @@ import type {
   PushResponse,
   SyncConflict
 } from '@author/api-types';
-import { NOTE_RETENTION_DAYS, type Device, type Note, type Notebook } from '@author/schema';
+import {
+  NOTE_RETENTION_DAYS,
+  type Device,
+  type Note,
+  type Notebook
+} from '@author/schema';
 import {
   previewText,
   recordsDiffer,
@@ -40,7 +45,13 @@ function noteNotebookIdsFromRow(row: Row): string[] {
     try {
       const parsed = JSON.parse(raw) as unknown;
       if (Array.isArray(parsed)) {
-        return [...new Set(parsed.filter((id): id is string => typeof id === 'string' && Boolean(id)))];
+        return [
+          ...new Set(
+            parsed.filter(
+              (id): id is string => typeof id === 'string' && Boolean(id)
+            )
+          )
+        ];
       }
     } catch {
       // Fall through to legacy notebook_id.
@@ -52,7 +63,15 @@ function noteNotebookIdsFromRow(row: Row): string[] {
 }
 
 function noteNotebookIds(note: Note): string[] {
-  return [...new Set(note.notebookIds?.length ? note.notebookIds : note.notebookId ? [note.notebookId] : [])];
+  return [
+    ...new Set(
+      note.notebookIds?.length
+        ? note.notebookIds
+        : note.notebookId
+          ? [note.notebookId]
+          : []
+    )
+  ];
 }
 
 function toNote(row: Row): Note {
@@ -107,18 +126,33 @@ export async function upsertDevice(
   );
 }
 
-async function getDeviceName(db: NotesExecutor, deviceId: string): Promise<string> {
-  const row = (await queryOne(db, 'SELECT name FROM devices WHERE id = ?', [deviceId])) as Row | null;
+async function getDeviceName(
+  db: NotesExecutor,
+  deviceId: string
+): Promise<string> {
+  const row = (await queryOne(db, 'SELECT name FROM devices WHERE id = ?', [
+    deviceId
+  ])) as Row | null;
   return row ? asString(row.name) : deviceId;
 }
 
-export async function getNote(db: NotesExecutor, id: string): Promise<Note | null> {
-  const row = (await queryOne(db, 'SELECT * FROM notes WHERE id = ?', [id])) as Row | null;
+export async function getNote(
+  db: NotesExecutor,
+  id: string
+): Promise<Note | null> {
+  const row = (await queryOne(db, 'SELECT * FROM notes WHERE id = ?', [
+    id
+  ])) as Row | null;
   return row ? toNote(row) : null;
 }
 
-export async function getNotebook(db: NotesExecutor, id: string): Promise<Notebook | null> {
-  const row = (await queryOne(db, 'SELECT * FROM notebooks WHERE id = ?', [id])) as Row | null;
+export async function getNotebook(
+  db: NotesExecutor,
+  id: string
+): Promise<Notebook | null> {
+  const row = (await queryOne(db, 'SELECT * FROM notebooks WHERE id = ?', [
+    id
+  ])) as Row | null;
   return row ? toNotebook(row) : null;
 }
 
@@ -161,19 +195,26 @@ export async function pullChangesSince(
   since: string | null | undefined
 ): Promise<PullResponse> {
   const sinceValue = since ?? '0000-01-01T00:00:00.000Z';
-  const notes = ((await queryAll(
-    db,
-    'SELECT * FROM notes WHERE updated_at > ? ORDER BY updated_at ASC',
-    [sinceValue]
-  )) as Row[]).map(toNote);
-  const notebooks = ((await queryAll(
-    db,
-    'SELECT * FROM notebooks WHERE updated_at > ? ORDER BY updated_at ASC',
-    [sinceValue]
-  )) as Row[]).map(toNotebook);
-  const devices = ((await queryAll(db, 'SELECT id, name FROM devices ORDER BY name ASC')) as Row[]).map(
-    toDevice
-  );
+  const notes = (
+    (await queryAll(
+      db,
+      'SELECT * FROM notes WHERE updated_at > ? ORDER BY updated_at ASC',
+      [sinceValue]
+    )) as Row[]
+  ).map(toNote);
+  const notebooks = (
+    (await queryAll(
+      db,
+      'SELECT * FROM notebooks WHERE updated_at > ? ORDER BY updated_at ASC',
+      [sinceValue]
+    )) as Row[]
+  ).map(toNotebook);
+  const devices = (
+    (await queryAll(
+      db,
+      'SELECT id, name FROM devices ORDER BY name ASC'
+    )) as Row[]
+  ).map(toDevice);
 
   return {
     serverTime: new Date().toISOString(),
@@ -276,7 +317,10 @@ async function putNote(db: NotesExecutor, note: Note): Promise<Note> {
   return { ...note, syncStatus: 'synced' };
 }
 
-async function putNotebook(db: NotesExecutor, notebook: Notebook): Promise<Notebook> {
+async function putNotebook(
+  db: NotesExecutor,
+  notebook: Notebook
+): Promise<Notebook> {
   await runSql(
     db,
     `INSERT INTO notebooks (
@@ -305,7 +349,10 @@ async function putNotebook(db: NotesExecutor, notebook: Notebook): Promise<Noteb
   return { ...notebook, syncStatus: 'synced' };
 }
 
-function accepted(entityType: 'note' | 'notebook', record: Note | Notebook): AcceptedChange {
+function accepted(
+  entityType: 'note' | 'notebook',
+  record: Note | Notebook
+): AcceptedChange {
   return {
     entityType,
     id: record.id,
@@ -343,7 +390,8 @@ async function makeConflict<T extends Note | Notebook>(
     id: randomUUID(),
     entityType,
     entityId: local.id,
-    reason: reason ?? (remote.deletedAt ? 'deleted_remotely' : 'remote_changed'),
+    reason:
+      reason ?? (remote.deletedAt ? 'deleted_remotely' : 'remote_changed'),
     local: await conflictVersion(db, 'local', local, localDeviceName),
     remote: await conflictVersion(db, 'remote', remote)
   };
@@ -359,7 +407,11 @@ async function acceptNoteChange(
   }
 
   const version = remote ? remote.version + 1 : Math.max(local.version, 1);
-  const acceptedNote = await putNote(db, { ...local, version, syncStatus: 'synced' });
+  const acceptedNote = await putNote(db, {
+    ...local,
+    version,
+    syncStatus: 'synced'
+  });
   await saveNoteSnapshot(db, acceptedNote, 'push');
   return acceptedNote;
 }
@@ -374,12 +426,19 @@ async function acceptNotebookChange(
   }
 
   const version = remote ? remote.version + 1 : Math.max(local.version, 1);
-  const acceptedNotebook = await putNotebook(db, { ...local, version, syncStatus: 'synced' });
+  const acceptedNotebook = await putNotebook(db, {
+    ...local,
+    version,
+    syncStatus: 'synced'
+  });
   await saveNotebookSnapshot(db, acceptedNotebook, 'push');
   return acceptedNotebook;
 }
 
-export async function pushChanges(db: NotesDb, request: PushRequest): Promise<PushResponse> {
+export async function pushChanges(
+  db: NotesDb,
+  request: PushRequest
+): Promise<PushResponse> {
   const now = new Date().toISOString();
   const acceptedChanges: AcceptedChange[] = [];
   const conflicts: PushResponse['conflicts'] = [];
@@ -393,14 +452,24 @@ export async function pushChanges(db: NotesDb, request: PushRequest): Promise<Pu
         await saveNotebookSnapshot(tx, change.record, 'conflict');
         await saveNotebookSnapshot(tx, remote, 'conflict');
         conflicts.push(
-          await makeConflict<Notebook>(tx, 'notebook', change.record, remote, request.device.name)
+          await makeConflict<Notebook>(
+            tx,
+            'notebook',
+            change.record,
+            remote,
+            request.device.name
+          )
         );
         continue;
       }
 
       const duplicate = change.record.deletedAt
         ? null
-        : await getActiveNotebookByName(tx, change.record.name, change.record.id);
+        : await getActiveNotebookByName(
+            tx,
+            change.record.name,
+            change.record.id
+          );
       if (duplicate) {
         await saveNotebookSnapshot(tx, change.record, 'conflict');
         await saveNotebookSnapshot(tx, duplicate, 'conflict');
@@ -417,7 +486,12 @@ export async function pushChanges(db: NotesDb, request: PushRequest): Promise<Pu
         continue;
       }
 
-      acceptedChanges.push(accepted('notebook', await acceptNotebookChange(tx, change.record, remote)));
+      acceptedChanges.push(
+        accepted(
+          'notebook',
+          await acceptNotebookChange(tx, change.record, remote)
+        )
+      );
     }
 
     for (const change of request.notes) {
@@ -425,11 +499,21 @@ export async function pushChanges(db: NotesDb, request: PushRequest): Promise<Pu
       if (remote && shouldConflict(change.record, remote, change.baseVersion)) {
         await saveNoteSnapshot(tx, change.record, 'conflict');
         await saveNoteSnapshot(tx, remote, 'conflict');
-        conflicts.push(await makeConflict<Note>(tx, 'note', change.record, remote, request.device.name));
+        conflicts.push(
+          await makeConflict<Note>(
+            tx,
+            'note',
+            change.record,
+            remote,
+            request.device.name
+          )
+        );
         continue;
       }
 
-      acceptedChanges.push(accepted('note', await acceptNoteChange(tx, change.record, remote)));
+      acceptedChanges.push(
+        accepted('note', await acceptNoteChange(tx, change.record, remote))
+      );
     }
   });
 
@@ -440,18 +524,25 @@ export async function pushChanges(db: NotesDb, request: PushRequest): Promise<Pu
   };
 }
 
-export async function cleanupTrash(db: NotesDb, now = new Date()): Promise<CleanupResponse> {
+export async function cleanupTrash(
+  db: NotesDb,
+  now = new Date()
+): Promise<CleanupResponse> {
   const cutoff = retentionCutoff(now, NOTE_RETENTION_DAYS);
-  const oldNotes = ((await queryAll(
-    db,
-    'SELECT * FROM notes WHERE trashed_at IS NOT NULL AND trashed_at < ?',
-    [cutoff]
-  )) as Row[]).map(toNote);
-  const oldNotebooks = ((await queryAll(
-    db,
-    'SELECT * FROM notebooks WHERE deleted_at IS NOT NULL AND deleted_at < ?',
-    [cutoff]
-  )) as Row[]).map(toNotebook);
+  const oldNotes = (
+    (await queryAll(
+      db,
+      'SELECT * FROM notes WHERE trashed_at IS NOT NULL AND trashed_at < ?',
+      [cutoff]
+    )) as Row[]
+  ).map(toNote);
+  const oldNotebooks = (
+    (await queryAll(
+      db,
+      'SELECT * FROM notebooks WHERE deleted_at IS NOT NULL AND deleted_at < ?',
+      [cutoff]
+    )) as Row[]
+  ).map(toNotebook);
 
   await withWriteTransaction(db, async (tx) => {
     for (const note of oldNotes) {
@@ -461,8 +552,16 @@ export async function cleanupTrash(db: NotesDb, now = new Date()): Promise<Clean
       await saveNotebookSnapshot(tx, notebook, 'cleanup');
     }
 
-    await runSql(tx, 'DELETE FROM notes WHERE trashed_at IS NOT NULL AND trashed_at < ?', [cutoff]);
-    await runSql(tx, 'DELETE FROM notebooks WHERE deleted_at IS NOT NULL AND deleted_at < ?', [cutoff]);
+    await runSql(
+      tx,
+      'DELETE FROM notes WHERE trashed_at IS NOT NULL AND trashed_at < ?',
+      [cutoff]
+    );
+    await runSql(
+      tx,
+      'DELETE FROM notebooks WHERE deleted_at IS NOT NULL AND deleted_at < ?',
+      [cutoff]
+    );
   });
 
   return {

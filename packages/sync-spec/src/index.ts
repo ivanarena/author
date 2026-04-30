@@ -39,7 +39,15 @@ export function recordsDiffer<T extends SyncEntity>(a: T, b: T): boolean {
 }
 
 function noteNotebookIds(note: Note): string[] {
-  return [...new Set(note.notebookIds?.length ? note.notebookIds : note.notebookId ? [note.notebookId] : [])].sort();
+  return [
+    ...new Set(
+      note.notebookIds?.length
+        ? note.notebookIds
+        : note.notebookId
+          ? [note.notebookId]
+          : []
+    )
+  ].sort();
 }
 
 export function shouldConflict<T extends SyncEntity>(

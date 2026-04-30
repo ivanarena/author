@@ -10,9 +10,37 @@
     "dev": "aube -F @author/web run dev",
     "build": "aube -F @author/web run build",
     "check": "aube -F @author/web run check",
+    "lint": "eslint . --max-warnings=0",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier . --write",
+    "format:check": "prettier . --check",
+    "hooks:install": "git config core.hooksPath .githooks",
+    "quality": "aube run format:check && aube run lint && aube run check",
+    "prepare": "git config core.hooksPath .githooks || true",
     "test": "aube -F @author/sync-spec run test && aube -F @author/web run test",
+    "test:coverage": "aube -F @author/sync-spec run test:coverage && aube -F @author/web run test:coverage",
     "test:e2e": "aube -F @author/web run test:e2e",
+    "deps:check": "aube check",
     "seed": "aube -F @author/web run seed",
     "mock:browser": "aube -F @author/web run mock:browser"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@vitest/coverage-v8": "^4.1.5",
+    "eslint": "^10.2.1",
+    "eslint-plugin-svelte": "^3.17.1",
+    "globals": "^17.5.0",
+    "lint-staged": "^16.4.0",
+    "prettier": "^3.8.3",
+    "prettier-plugin-svelte": "^3.5.1",
+    "typescript-eslint": "^8.59.1"
+  },
+  "lint-staged": {
+    "*.{js,ts,svelte,css,json,jsonc,md,yml,yaml,html}": [
+      "prettier --write"
+    ],
+    "*.{js,ts,svelte}": [
+      "eslint --fix --max-warnings=0"
+    ]
   }
 }

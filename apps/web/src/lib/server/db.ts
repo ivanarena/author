@@ -1,7 +1,13 @@
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { createClient, type Client, type InArgs, type Row, type Transaction } from '@libsql/client';
+import {
+  createClient,
+  type Client,
+  type InArgs,
+  type Row,
+  type Transaction
+} from '@libsql/client';
 import { getLocalDatabaseConfig, type DatabaseConfig } from './config';
 
 export type NotesDb = Client;
@@ -141,29 +147,47 @@ export async function exec(db: NotesExecutor, sql: string): Promise<void> {
   await db.executeMultiple(sql);
 }
 
-export async function run(db: NotesExecutor, sql: string, args: SqlArgs = []): Promise<void> {
+export async function run(
+  db: NotesExecutor,
+  sql: string,
+  args: SqlArgs = []
+): Promise<void> {
   await db.execute({ sql, args });
 }
 
-export async function all(db: NotesExecutor, sql: string, args: SqlArgs = []): Promise<Row[]> {
+export async function all(
+  db: NotesExecutor,
+  sql: string,
+  args: SqlArgs = []
+): Promise<Row[]> {
   const result = await db.execute({ sql, args });
   return result.rows;
 }
 
-export async function get(db: NotesExecutor, sql: string, args: SqlArgs = []): Promise<Row | null> {
+export async function get(
+  db: NotesExecutor,
+  sql: string,
+  args: SqlArgs = []
+): Promise<Row | null> {
   const result = await db.execute({ sql, args });
   return result.rows[0] ?? null;
 }
 
 function databaseInitKey(config: DatabaseConfig): string {
-  return config.provider === 'local' ? `local:${config.filePath}` : `turso:${config.client.url}`;
+  return config.provider === 'local'
+    ? `local:${config.filePath}`
+    : `turso:${config.client.url}`;
 }
 
 async function enableConnectionPragmas(db: NotesDb): Promise<void> {
   await run(db, 'PRAGMA foreign_keys = ON');
 }
 
-async function hasColumn(db: NotesDb, tableName: string, columnName: string): Promise<boolean> {
+async function hasColumn(
+  db: NotesDb,
+  tableName: string,
+  columnName: string
+): Promise<boolean> {
   const rows = await all(db, `PRAGMA table_info(${tableName})`);
   return rows.some((row) => row.name === columnName);
 }
@@ -172,7 +196,9 @@ async function migrateLegacyMarkdownColumns(db: NotesDb): Promise<void> {
   const notesHaveBody = await hasColumn(db, 'notes', 'body');
   const notesHaveMarkdownBody = await hasColumn(db, 'notes', 'markdown_body');
   if (notesHaveMarkdownBody) {
-    const bodyExpression = notesHaveBody ? "COALESCE(NULLIF(body, ''), markdown_body)" : 'markdown_body';
+    const bodyExpression = notesHaveBody
+      ? "COALESCE(NULLIF(body, ''), markdown_body)"
+      : 'markdown_body';
     const notesHaveNotebookIds = await hasColumn(db, 'notes', 'notebook_ids');
     const notebookIdsExpression = notesHaveNotebookIds
       ? "COALESCE(notebook_ids, CASE WHEN notebook_id IS NULL THEN '[]' ELSE json_array(notebook_id) END)"
@@ -196,10 +222,20 @@ async function migrateLegacyMarkdownColumns(db: NotesDb): Promise<void> {
   }
 
   const versionsHaveBody = await hasColumn(db, 'note_versions', 'body');
-  const versionsHaveMarkdownBody = await hasColumn(db, 'note_versions', 'markdown_body');
+  const versionsHaveMarkdownBody = await hasColumn(
+    db,
+    'note_versions',
+    'markdown_body'
+  );
   if (versionsHaveMarkdownBody) {
-    const bodyExpression = versionsHaveBody ? "COALESCE(NULLIF(body, ''), markdown_body)" : 'markdown_body';
-    const versionsHaveNotebookIds = await hasColumn(db, 'note_versions', 'notebook_ids');
+    const bodyExpression = versionsHaveBody
+      ? "COALESCE(NULLIF(body, ''), markdown_body)"
+      : 'markdown_body';
+    const versionsHaveNotebookIds = await hasColumn(
+      db,
+      'note_versions',
+      'notebook_ids'
+    );
     const notebookIdsExpression = versionsHaveNotebookIds
       ? "COALESCE(notebook_ids, CASE WHEN notebook_id IS NULL THEN '[]' ELSE json_array(notebook_id) END)"
       : "CASE WHEN notebook_id IS NULL THEN '[]' ELSE json_array(notebook_id) END";
@@ -222,13 +258,25 @@ async function migrateLegacyMarkdownColumns(db: NotesDb): Promise<void> {
 
 async function migrateNotebookIds(db: NotesDb): Promise<void> {
   if (!(await hasColumn(db, 'notes', 'notebook_ids'))) {
-    await run(db, `ALTER TABLE notes ADD COLUMN notebook_ids TEXT NOT NULL DEFAULT '[]'`);
-    await run(db, `UPDATE notes SET notebook_ids = CASE WHEN notebook_id IS NULL THEN '[]' ELSE json_array(notebook_id) END`);
+    await run(
+      db,
+      `ALTER TABLE notes ADD COLUMN notebook_ids TEXT NOT NULL DEFAULT '[]'`
+    );
+    await run(
+      db,
+      `UPDATE notes SET notebook_ids = CASE WHEN notebook_id IS NULL THEN '[]' ELSE json_array(notebook_id) END`
+    );
   }
 
   if (!(await hasColumn(db, 'note_versions', 'notebook_ids'))) {
-    await run(db, `ALTER TABLE note_versions ADD COLUMN notebook_ids TEXT NOT NULL DEFAULT '[]'`);
-    await run(db, `UPDATE note_versions SET notebook_ids = CASE WHEN notebook_id IS NULL THEN '[]' ELSE json_array(notebook_id) END`);
+    await run(
+      db,
+      `ALTER TABLE note_versions ADD COLUMN notebook_ids TEXT NOT NULL DEFAULT '[]'`
+    );
+    await run(
+      db,
+      `UPDATE note_versions SET notebook_ids = CASE WHEN notebook_id IS NULL THEN '[]' ELSE json_array(notebook_id) END`
+    );
   }
 }
 
@@ -238,7 +286,9 @@ export async function initializeDatabase(db: NotesDb): Promise<void> {
   await migrateNotebookIds(db);
 }
 
-async function ensureDatabaseInitialized(config: DatabaseConfig): Promise<void> {
+async function ensureDatabaseInitialized(
+  config: DatabaseConfig
+): Promise<void> {
   const key = databaseInitKey(config);
   const existing = initializedDatabases.get(key);
   if (existing) {
@@ -264,7 +314,9 @@ async function ensureDatabaseInitialized(config: DatabaseConfig): Promise<void> 
   await initializedDatabases.get(key);
 }
 
-export async function openConfiguredDatabase(config: DatabaseConfig): Promise<NotesDb> {
+export async function openConfiguredDatabase(
+  config: DatabaseConfig
+): Promise<NotesDb> {
   if (config.provider === 'local') {
     mkdirSync(dirname(config.filePath), { recursive: true });
   }

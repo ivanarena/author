@@ -24,7 +24,12 @@
 
 <aside class="notes" aria-label="Notes">
   <div class="icon-row">
-    <button class="icon-button" title="New note" aria-label="New note" onclick={model.newNote}>
+    <button
+      class="icon-button"
+      title="New note"
+      aria-label="New note"
+      onclick={model.newNote}
+    >
       <FilePlus size={16} strokeWidth={1.8} />
     </button>
     <p class="sync-line">
@@ -101,11 +106,15 @@
                 ></span>
                 <span class="note-title">{noteDisplayTitle(note)}</span>
                 {#if model.compactView}
-                  <time class="note-age" datetime={note.updatedAt}>{relativeAge(note.updatedAt, model.currentTime)}</time>
+                  <time class="note-age" datetime={note.updatedAt}
+                    >{relativeAge(note.updatedAt, model.currentTime)}</time
+                  >
                 {/if}
               </span>
               {#if !model.compactView}
-                <span class="note-preview">{notePreview(note) || 'No text'}</span>
+                <span class="note-preview"
+                  >{notePreview(note) || 'No text'}</span
+                >
                 {#if noteNotebookNames.length}
                   <span class="note-notebooks">
                     <Notebook size={12} strokeWidth={1.8} />
@@ -139,7 +148,8 @@
                   aria-label="Notebooks"
                   onclick={(event) => {
                     event.stopPropagation();
-                    model.linkingNoteId = model.linkingNoteId === note.id ? null : note.id;
+                    model.linkingNoteId =
+                      model.linkingNoteId === note.id ? null : note.id;
                   }}
                 >
                   <FolderSymlink size={14} strokeWidth={1.8} />
@@ -199,7 +209,9 @@
       {/if}
     {/each}
     {#if !model.visibleNotes.length}
-      <p class="empty-list">{model.searchValue ? 'No matching notes' : 'No notes'}</p>
+      <p class="empty-list">
+        {model.searchValue ? 'No matching notes' : 'No notes'}
+      </p>
     {/if}
   </div>
 </aside>

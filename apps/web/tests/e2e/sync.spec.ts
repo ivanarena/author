@@ -49,7 +49,11 @@ async function browserStoredNotes(page: Page): Promise<RemoteNote[]> {
   );
 }
 
-async function expectBrowserStoredEncryptedNote(page: Page, title: string, body: string) {
+async function expectBrowserStoredEncryptedNote(
+  page: Page,
+  title: string,
+  body: string
+) {
   await expect
     .poll(async () => {
       const rawNotes = await browserStoredNotes(page);
@@ -72,14 +76,18 @@ async function expectBrowserStoredEncryptedNote(page: Page, title: string, body:
     .toBe(true);
 }
 
-async function pullRemoteNotes(request: APIRequestContext): Promise<RemoteNote[]> {
+async function pullRemoteNotes(
+  request: APIRequestContext
+): Promise<RemoteNote[]> {
   const response = await request.post('/api/sync/pull', {
     headers: { authorization: `Bearer ${token}` },
     data: { since: null }
   });
   expect(response.ok()).toBe(true);
   const body = (await response.json()) as { notes: RemoteNote[] };
-  return Promise.all(body.notes.map((note) => decryptNoteFields(note, e2eKeyMaterial)));
+  return Promise.all(
+    body.notes.map((note) => decryptNoteFields(note, e2eKeyMaterial))
+  );
 }
 
 async function pushRemoteNote(
@@ -173,14 +181,19 @@ test('renames and deletes notebooks from hover controls', async ({ page }) => {
   await expect(page.locator('nav')).toHaveCSS('scrollbar-width', 'none');
 
   await page.getByRole('button', { name: 'Work' }).hover();
-  await page.getByRole('button', { name: 'Delete notebook', exact: true }).click();
+  await page
+    .getByRole('button', { name: 'Delete notebook', exact: true })
+    .click();
   await expect(page.getByRole('group', { name: 'Delete Work?' })).toBeVisible();
   await page.getByRole('button', { name: 'Confirm delete notebook' }).click();
 
   await expect(page.getByRole('button', { name: 'Work' })).toHaveCount(0);
 });
 
-test('keeps a stored online session synced from local edits', async ({ page, request }) => {
+test('keeps a stored online session synced from local edits', async ({
+  page,
+  request
+}) => {
   await page.goto('/');
 
   const titleText = `Online session note ${Date.now()}`;
@@ -192,7 +205,10 @@ test('keeps a stored online session synced from local edits', async ({ page, req
 
   await expect
     .poll(
-      async () => (await pullRemoteNotes(request)).find((note) => note.title === titleText)?.body ?? null,
+      async () =>
+        (await pullRemoteNotes(request)).find(
+          (note) => note.title === titleText
+        )?.body ?? null,
       { timeout: 15_000 }
     )
     .toBe(bodyText);
@@ -216,7 +232,9 @@ test('shows local IndexedDB notes after a browser reload', async ({ page }) => {
   await expect(page.getByLabel('Note body')).toHaveValue(bodyText);
 });
 
-test('logs in from the settings modal when no session is stored', async ({ page }) => {
+test('logs in from the settings modal when no session is stored', async ({
+  page
+}) => {
   await page.addInitScript(() => {
     localStorage.removeItem('author-notes-token');
     localStorage.removeItem('author-notes-username');
@@ -272,7 +290,10 @@ test('keeps edits made during an online sync pending until the latest local vers
 
   await expect
     .poll(
-      async () => (await pullRemoteNotes(request)).find((note) => note.title === titleText)?.body ?? null,
+      async () =>
+        (await pullRemoteNotes(request)).find(
+          (note) => note.title === titleText
+        )?.body ?? null,
       { timeout: 15_000 }
     )
     .toBe(secondBody);
@@ -298,7 +319,10 @@ test('keeps local offline edits and reports conflicts when the online session re
     version: 1,
     syncStatus: 'pending'
   };
-  await pushRemoteNote(request, note, 0, { id: 'e2e-seed-device', name: 'E2E seed' });
+  await pushRemoteNote(request, note, 0, {
+    id: 'e2e-seed-device',
+    name: 'E2E seed'
+  });
 
   await page.goto('/');
   await hoverMenusThroughBridge(page);
@@ -351,15 +375,24 @@ test('persists in browser IndexedDB, syncs, and shows stale-edit conflicts', asy
   await title.fill('Browser sync note');
   await body.fill('Stored in IndexedDB first');
   await expect(body).toHaveValue('Stored in IndexedDB first');
-  await expectBrowserStoredEncryptedNote(page, 'Browser sync note', 'Stored in IndexedDB first');
+  await expectBrowserStoredEncryptedNote(
+    page,
+    'Browser sync note',
+    'Stored in IndexedDB first'
+  );
 
   await expect
     .poll(
-      async () => (await pullRemoteNotes(request)).find((note) => note.title === 'Browser sync note')?.body ?? null,
+      async () =>
+        (await pullRemoteNotes(request)).find(
+          (note) => note.title === 'Browser sync note'
+        )?.body ?? null,
       { timeout: 15_000 }
     )
     .toBe('Stored in IndexedDB first');
-  const remoteNote = (await pullRemoteNotes(request)).find((note) => note.title === 'Browser sync note');
+  const remoteNote = (await pullRemoteNotes(request)).find(
+    (note) => note.title === 'Browser sync note'
+  );
   expect(remoteNote).toBeDefined();
   await waitForVisibleSyncedStatus(page);
 

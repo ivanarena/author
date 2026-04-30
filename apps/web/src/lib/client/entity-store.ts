@@ -1,12 +1,21 @@
 import type { Device } from '@author/schema';
-import { localDb, type LocalConflict, type LocalNote, type LocalNotebook } from './db';
+import {
+  localDb,
+  type LocalConflict,
+  type LocalNote,
+  type LocalNotebook
+} from './db';
 import {
   decryptNoteFields,
   encryptNoteFields,
   isEncryptedText,
   reencryptNoteFields
 } from './encryption';
-import { normalizeNotebookName, noteNotebookIds, primaryNotebookId } from './note-utils';
+import {
+  normalizeNotebookName,
+  noteNotebookIds,
+  primaryNotebookId
+} from './note-utils';
 import { getOrCreateDevice, newId, nowIso } from './local-state';
 
 export async function createBlankNote(
@@ -36,7 +45,9 @@ export async function createBlankNote(
   return note;
 }
 
-export async function createNotebook(name: string): Promise<LocalNotebook | null> {
+export async function createNotebook(
+  name: string
+): Promise<LocalNotebook | null> {
   const trimmed = name.trim();
   if (!trimmed) return null;
   if (await notebookNameExists(trimmed)) return null;
@@ -91,39 +102,51 @@ export async function deleteNotebook(notebookId: string): Promise<void> {
 
   const device = await getOrCreateDevice();
   const now = nowIso();
-  await localDb.transaction('rw', [localDb.notebooks, localDb.notes], async () => {
-    await localDb.notebooks.put({
-      ...notebook,
-      deletedAt: now,
-      updatedAt: now,
-      deviceId: device.id,
-      version: notebook.version + 1,
-      syncStatus: 'pending'
-    });
-
-    const assignedNotes = await localDb.notes.toArray();
-    const updatedNotes = assignedNotes
-      .filter((note) => !note.deletedAt && noteNotebookIds(note).includes(notebookId))
-      .map((note) => {
-        const notebookIds = noteNotebookIds(note).filter((id) => id !== notebookId);
-        return {
-          ...note,
-          notebookIds,
-          notebookId: primaryNotebookId(notebookIds),
-          updatedAt: now,
-          deviceId: device.id,
-          version: note.version + 1,
-          syncStatus: 'pending' as const
-        };
+  await localDb.transaction(
+    'rw',
+    [localDb.notebooks, localDb.notes],
+    async () => {
+      await localDb.notebooks.put({
+        ...notebook,
+        deletedAt: now,
+        updatedAt: now,
+        deviceId: device.id,
+        version: notebook.version + 1,
+        syncStatus: 'pending'
       });
 
-    if (updatedNotes.length) {
-      await localDb.notes.bulkPut(updatedNotes);
+      const assignedNotes = await localDb.notes.toArray();
+      const updatedNotes = assignedNotes
+        .filter(
+          (note) =>
+            !note.deletedAt && noteNotebookIds(note).includes(notebookId)
+        )
+        .map((note) => {
+          const notebookIds = noteNotebookIds(note).filter(
+            (id) => id !== notebookId
+          );
+          return {
+            ...note,
+            notebookIds,
+            notebookId: primaryNotebookId(notebookIds),
+            updatedAt: now,
+            deviceId: device.id,
+            version: note.version + 1,
+            syncStatus: 'pending' as const
+          };
+        });
+
+      if (updatedNotes.length) {
+        await localDb.notes.bulkPut(updatedNotes);
+      }
     }
-  });
+  );
 }
 
-export async function notebookNameExists(name: string, excludeId?: string): Promise<boolean> {
+export async function notebookNameExists(
+  name: string,
+  excludeId?: string
+): Promise<boolean> {
   const normalized = normalizeNotebookName(name);
   if (!normalized) return false;
 
@@ -176,7 +199,8 @@ export async function assignNoteToNotebook(
       : currentIds.filter((id) => id !== notebookId)
     : [];
 
-  if (currentIds.join('\0') === notebookIds.join('\0')) return decryptNoteFields(note);
+  if (currentIds.join('\0') === notebookIds.join('\0'))
+    return decryptNoteFields(note);
 
   const device = await getOrCreateDevice();
   const updated: LocalNote = {
@@ -227,7 +251,9 @@ export async function restoreNote(noteId: string): Promise<void> {
 
 export async function loadNotes(): Promise<LocalNote[]> {
   const notes = await localDb.notes.toArray();
-  const decrypted = await Promise.all(notes.map((note) => decryptNoteFields(note)));
+  const decrypted = await Promise.all(
+    notes.map((note) => decryptNoteFields(note))
+  );
   return decrypted
     .filter((note) => !note.deletedAt && !note.trashedAt)
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -235,7 +261,9 @@ export async function loadNotes(): Promise<LocalNote[]> {
 
 export async function loadTrash(): Promise<LocalNote[]> {
   const notes = await localDb.notes.toArray();
-  const decrypted = await Promise.all(notes.map((note) => decryptNoteFields(note)));
+  const decrypted = await Promise.all(
+    notes.map((note) => decryptNoteFields(note))
+  );
   return decrypted
     .filter((note) => !note.deletedAt && Boolean(note.trashedAt))
     .sort((a, b) => (b.trashedAt ?? '').localeCompare(a.trashedAt ?? ''));
@@ -249,7 +277,10 @@ export async function loadNotebooks(): Promise<LocalNotebook[]> {
 }
 
 export async function loadPendingConflicts(): Promise<LocalConflict[]> {
-  return localDb.conflicts.where('status').equals('pending').sortBy('createdAt');
+  return localDb.conflicts
+    .where('status')
+    .equals('pending')
+    .sortBy('createdAt');
 }
 
 export async function loadDevices(): Promise<Device[]> {
@@ -271,7 +302,9 @@ export async function ensureLocalNotesEncrypted(): Promise<void> {
   );
   if (!plaintextNotes.length) return;
 
-  await localDb.notes.bulkPut(await Promise.all(plaintextNotes.map((note) => encryptNoteFields(note))));
+  await localDb.notes.bulkPut(
+    await Promise.all(plaintextNotes.map((note) => encryptNoteFields(note)))
+  );
 }
 
 export async function reencryptLocalNotes(
@@ -284,6 +317,10 @@ export async function reencryptLocalNotes(
   if (!notes.length) return;
 
   await localDb.notes.bulkPut(
-    await Promise.all(notes.map((note) => reencryptNoteFields(note, previousMaterial, nextMaterial)))
+    await Promise.all(
+      notes.map((note) =>
+        reencryptNoteFields(note, previousMaterial, nextMaterial)
+      )
+    )
   );
 }

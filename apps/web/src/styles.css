@@ -1,8 +1,8 @@
 :root {
   color-scheme: light;
   font-family:
-    "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Consolas,
-    "Liberation Mono", monospace;
+    'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Consolas,
+    'Liberation Mono', monospace;
   background: #ffffff;
   color: #202020;
   --bg: #ffffff;
@@ -38,7 +38,7 @@
   --menu-panel-height: min(60vh, calc(100vh - 104px));
 }
 
-:root[data-theme="dark"] {
+:root[data-theme='dark'] {
   color-scheme: dark;
   background: #111111;
   color: #f2f2f2;

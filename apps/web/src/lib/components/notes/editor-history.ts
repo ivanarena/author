@@ -1,6 +1,9 @@
 import type { EditorSnapshot } from './ui-types';
 
-export function sameEditorSnapshot(a: EditorSnapshot, b: EditorSnapshot): boolean {
+export function sameEditorSnapshot(
+  a: EditorSnapshot,
+  b: EditorSnapshot
+): boolean {
   return a.title === b.title && a.body === b.body;
 }
 

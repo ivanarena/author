@@ -30,7 +30,9 @@ describe('client note encryption', () => {
 
     expect(encrypted).not.toContain('private text');
     expect(isEncryptedText(encrypted)).toBe(true);
-    await expect(decryptText(encrypted, 'test-key')).resolves.toBe('private text');
+    await expect(decryptText(encrypted, 'test-key')).resolves.toBe(
+      'private text'
+    );
   });
 
   it('keeps note field encryption deterministic for sync comparisons', async () => {
@@ -49,13 +51,21 @@ describe('client note encryption', () => {
 
   it('reencrypts existing notes when the active key changes', async () => {
     const oldEncrypted = await encryptNoteFields(note, 'old-key');
-    const nextEncrypted = await reencryptNoteFields(oldEncrypted, 'old-key', 'new-key');
+    const nextEncrypted = await reencryptNoteFields(
+      oldEncrypted,
+      'old-key',
+      'new-key'
+    );
 
     expect(nextEncrypted.body).not.toBe(oldEncrypted.body);
-    await expect(decryptNoteFields(nextEncrypted, 'new-key')).resolves.toMatchObject({
+    await expect(
+      decryptNoteFields(nextEncrypted, 'new-key')
+    ).resolves.toMatchObject({
       title: note.title,
       body: note.body
     });
-    expect(await decryptText(nextEncrypted.body, 'old-key')).toBe(nextEncrypted.body);
+    expect(await decryptText(nextEncrypted.body, 'old-key')).toBe(
+      nextEncrypted.body
+    );
   });
 });

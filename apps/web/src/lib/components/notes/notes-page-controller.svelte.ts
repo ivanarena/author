@@ -1,7 +1,10 @@
 import { onMount, tick } from 'svelte';
 import type { Device } from '@author/schema';
 import type { LocalConflict, LocalNote, LocalNotebook } from '$lib/client/db';
-import { hasStoredEncryptionKeyMaterial, rememberEncryptionPassword } from '$lib/client/encryption';
+import {
+  hasStoredEncryptionKeyMaterial,
+  rememberEncryptionPassword
+} from '$lib/client/encryption';
 import { noteNotebookIds, normalizeNotebookName } from '$lib/client/note-utils';
 import {
   assignNoteToNotebook,
@@ -59,7 +62,12 @@ import {
   setStoredSort,
   zoomPercent as formatZoomPercent
 } from './page-preferences';
-import type { ContextMenuState, EditorSnapshot, NoteCallback, NotebookCallback } from './ui-types';
+import type {
+  ContextMenuState,
+  EditorSnapshot,
+  NoteCallback,
+  NotebookCallback
+} from './ui-types';
 
 export type NotesFilterId = 'all' | 'unfiled' | 'trash' | (string & {});
 export type Theme = 'light' | 'dark';
@@ -112,11 +120,15 @@ export interface NoteListPanelModel {
   openNoteContext: (event: MouseEvent, note: LocalNote) => void;
   restoreNoteFromRow: NoteCallback;
   trashNote: NoteCallback;
-  assignNotebookForNote: (note: LocalNote, notebookId: string | null) => void | Promise<void>;
+  assignNotebookForNote: (
+    note: LocalNote,
+    notebookId: string | null
+  ) => void | Promise<void>;
   notebookNamesForNote: (note: LocalNote) => string[];
 }
 
-export interface NavigationDockModel extends NotebookSidebarModel, NoteListPanelModel {
+export interface NavigationDockModel
+  extends NotebookSidebarModel, NoteListPanelModel {
   menusOpen: boolean;
   settingsOpen: boolean;
   hasToken: boolean;
@@ -189,7 +201,10 @@ export interface ContextMenuModel {
   contextNote: LocalNote | null;
   contextNotebook: LocalNotebook | null;
   notebooks: LocalNotebook[];
-  assignNotebookForNote: (note: LocalNote, notebookId: string | null) => void | Promise<void>;
+  assignNotebookForNote: (
+    note: LocalNote,
+    notebookId: string | null
+  ) => void | Promise<void>;
   contextRenameNotebook: NotebookCallback;
   contextDeleteNotebook: NotebookCallback;
   contextLinkNote: NoteCallback;
@@ -203,7 +218,11 @@ export interface ConflictDialogModel {
   resolveActiveConflict: (choice: ConflictChoice) => void | Promise<void>;
 }
 
-const EMPTY_NOTEBOOK_FILTERS = new Set<NotesFilterId>(['all', 'unfiled', 'trash']);
+const EMPTY_NOTEBOOK_FILTERS = new Set<NotesFilterId>([
+  'all',
+  'unfiled',
+  'trash'
+]);
 const MAX_EDITOR_HISTORY = 120;
 const AUTO_SYNC_DELAY_MS = 600;
 const SYNC_RETRY_DELAY_MS = 12_000;
@@ -272,8 +291,12 @@ export class NotesPageController
   private syncQueued = false;
   private lastHistorySnapshot: EditorSnapshot = { title: '', body: '' };
 
-  filteredNotes = $derived(filterNotesForView(this.notes, this.trash, this.filterId));
-  searchedNotes = $derived(filterNotesBySearch(this.filteredNotes, this.searchValue));
+  filteredNotes = $derived(
+    filterNotesForView(this.notes, this.trash, this.filterId)
+  );
+  searchedNotes = $derived(
+    filterNotesBySearch(this.filteredNotes, this.searchValue)
+  );
   visibleNotes = $derived(sortNotes(this.searchedNotes, this.noteSort));
   visibleNoteGroups = $derived(
     groupNotesByDateRange(this.visibleNotes, this.noteSort, this.currentTime)
@@ -297,8 +320,12 @@ export class NotesPageController
   selectedDeviceName = $derived(
     this.selectedNote ? this.deviceName(this.selectedNote.deviceId) : ''
   );
-  canUndoEditor = $derived(this.undoStack.length > 0 && !this.selectedNote?.trashedAt);
-  canRedoEditor = $derived(this.redoStack.length > 0 && !this.selectedNote?.trashedAt);
+  canUndoEditor = $derived(
+    this.undoStack.length > 0 && !this.selectedNote?.trashedAt
+  );
+  canRedoEditor = $derived(
+    this.redoStack.length > 0 && !this.selectedNote?.trashedAt
+  );
 
   constructor() {
     $effect(() => {
@@ -322,7 +349,10 @@ export class NotesPageController
         }
       }, ONLINE_SESSION_SYNC_MS);
 
-      document.addEventListener('visibilitychange', this.handleVisibilityChange);
+      document.addEventListener(
+        'visibilitychange',
+        this.handleVisibilityChange
+      );
 
       void this.initialize();
 
@@ -333,14 +363,19 @@ export class NotesPageController
         if (this.autoSyncTimer) clearTimeout(this.autoSyncTimer);
         if (this.retrySyncTimer) clearTimeout(this.retrySyncTimer);
         if (this.onlineSessionTimer) clearInterval(this.onlineSessionTimer);
-        document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+        document.removeEventListener(
+          'visibilitychange',
+          this.handleVisibilityChange
+        );
       };
     });
   }
 
   handleOnline = () => {
     this.isBrowserOnline = true;
-    this.syncMessage = this.hasSyncSession() ? 'All changes saved' : 'Sign in to sync';
+    this.syncMessage = this.hasSyncSession()
+      ? 'All changes saved'
+      : 'Sign in to sync';
     void this.resumeOnlineSession();
   };
 
@@ -371,7 +406,10 @@ export class NotesPageController
   handleGlobalKeydown = (event: KeyboardEvent) => {
     const key = event.key.toLowerCase();
 
-    if ((event.metaKey || event.ctrlKey) && this.isEditorEventTarget(event.target)) {
+    if (
+      (event.metaKey || event.ctrlKey) &&
+      this.isEditorEventTarget(event.target)
+    ) {
       if (key === 'z') {
         event.preventDefault();
         if (event.shiftKey) {
@@ -398,7 +436,11 @@ export class NotesPageController
   handleWindowClick = (event: MouseEvent) => {
     this.closeContextMenu();
     if (!this.settingsOpen || !(event.target instanceof Element)) return;
-    if (event.target.closest('.settings-modal') || event.target.closest('.profile-menu')) return;
+    if (
+      event.target.closest('.settings-modal') ||
+      event.target.closest('.profile-menu')
+    )
+      return;
     this.closeSettings();
   };
 
@@ -419,7 +461,9 @@ export class NotesPageController
   };
 
   handleEditorInput = (event: Event, field: 'title' | 'body') => {
-    const value = (event.currentTarget as HTMLInputElement | HTMLTextAreaElement).value;
+    const value = (
+      event.currentTarget as HTMLInputElement | HTMLTextAreaElement
+    ).value;
     const nextSnapshot = {
       title: field === 'title' ? value : this.titleValue,
       body: field === 'body' ? value : this.bodyValue
@@ -432,7 +476,11 @@ export class NotesPageController
     }
 
     if (!sameEditorSnapshot(this.lastHistorySnapshot, nextSnapshot)) {
-      this.undoStack = pushEditorHistory(this.undoStack, this.lastHistorySnapshot, MAX_EDITOR_HISTORY);
+      this.undoStack = pushEditorHistory(
+        this.undoStack,
+        this.lastHistorySnapshot,
+        MAX_EDITOR_HISTORY
+      );
       this.redoStack = [];
       this.lastHistorySnapshot = nextSnapshot;
     }
@@ -446,7 +494,11 @@ export class NotesPageController
     const snapshot = this.undoStack[this.undoStack.length - 1];
     if (!snapshot) return;
     this.undoStack = this.undoStack.slice(0, -1);
-    this.redoStack = pushEditorHistory(this.redoStack, current, MAX_EDITOR_HISTORY);
+    this.redoStack = pushEditorHistory(
+      this.redoStack,
+      current,
+      MAX_EDITOR_HISTORY
+    );
     this.applyEditorHistorySnapshot(snapshot);
   };
 
@@ -456,7 +508,11 @@ export class NotesPageController
     const snapshot = this.redoStack[this.redoStack.length - 1];
     if (!snapshot) return;
     this.redoStack = this.redoStack.slice(0, -1);
-    this.undoStack = pushEditorHistory(this.undoStack, current, MAX_EDITOR_HISTORY);
+    this.undoStack = pushEditorHistory(
+      this.undoStack,
+      current,
+      MAX_EDITOR_HISTORY
+    );
     this.applyEditorHistorySnapshot(snapshot);
   };
 
@@ -516,7 +572,8 @@ export class NotesPageController
   };
 
   changeSort = (event: Event) => {
-    this.noteSort = (event.currentTarget as HTMLSelectElement).value as NoteSort;
+    this.noteSort = (event.currentTarget as HTMLSelectElement)
+      .value as NoteSort;
     setStoredSort(this.noteSort);
   };
 
@@ -591,13 +648,17 @@ export class NotesPageController
     await this.restoreNoteFromRow(note);
   };
 
-  assignNotebookForNote = async (note: LocalNote, notebookId: string | null) => {
+  assignNotebookForNote = async (
+    note: LocalNote,
+    notebookId: string | null
+  ) => {
     const updated = await assignNoteToNotebook(
       note.id,
       notebookId,
       notebookId ? !noteNotebookIds(note).includes(notebookId) : false
     );
-    if (updated && this.selectedNote?.id === note.id) this.selectedNote = updated;
+    if (updated && this.selectedNote?.id === note.id)
+      this.selectedNote = updated;
     await this.refresh();
   };
 
@@ -617,7 +678,10 @@ export class NotesPageController
       return;
     }
 
-    if (this.localNotebookNameExists(name) || (await notebookNameExists(name))) {
+    if (
+      this.localNotebookNameExists(name) ||
+      (await notebookNameExists(name))
+    ) {
       this.notebookError = 'Notebook already exists';
       return;
     }
@@ -626,7 +690,11 @@ export class NotesPageController
     if (notebook) {
       this.filterId = notebook.id;
       if (this.selectedNote && !this.selectedNote.trashedAt) {
-        const updated = await assignNoteToNotebook(this.selectedNote.id, notebook.id, true);
+        const updated = await assignNoteToNotebook(
+          this.selectedNote.id,
+          notebook.id,
+          true
+        );
         if (updated) this.selectedNote = updated;
       }
       await this.refresh();
@@ -696,9 +764,18 @@ export class NotesPageController
       this.filterId = 'all';
     }
 
-    if (this.selectedNote && noteNotebookIds(this.selectedNote).includes(notebook.id)) {
-      const notebookIds = noteNotebookIds(this.selectedNote).filter((id) => id !== notebook.id);
-      this.selectedNote = { ...this.selectedNote, notebookIds, notebookId: notebookIds[0] ?? null };
+    if (
+      this.selectedNote &&
+      noteNotebookIds(this.selectedNote).includes(notebook.id)
+    ) {
+      const notebookIds = noteNotebookIds(this.selectedNote).filter(
+        (id) => id !== notebook.id
+      );
+      this.selectedNote = {
+        ...this.selectedNote,
+        notebookIds,
+        notebookId: notebookIds[0] ?? null
+      };
     }
 
     this.deletingNotebookId = null;
@@ -710,7 +787,8 @@ export class NotesPageController
     await this.refresh();
 
     if (this.selectedNote?.id === note.id) {
-      const next = this.notes.find((candidate) => candidate.id !== note.id) ?? null;
+      const next =
+        this.notes.find((candidate) => candidate.id !== note.id) ?? null;
       if (next) {
         await this.selectNote(next);
       } else {
@@ -812,14 +890,17 @@ export class NotesPageController
       const result = await importNotesJson(payload);
       await this.refresh();
 
-      const importedNote = this.notes.find((note) => note.id === result.noteIds[0]);
+      const importedNote = this.notes.find(
+        (note) => note.id === result.noteIds[0]
+      );
       if (importedNote) {
         await this.selectNote(importedNote);
       }
 
       this.syncMessage = importNotesJsonSummary(result);
     } catch (error) {
-      this.syncMessage = error instanceof Error ? error.message : 'Import failed';
+      this.syncMessage =
+        error instanceof Error ? error.message : 'Import failed';
     } finally {
       this.isImporting = false;
     }
@@ -850,10 +931,16 @@ export class NotesPageController
     this.loginError = '';
     try {
       const session = await login(username, password);
-      const encryption = await rememberEncryptionPassword(session.user.username, password);
+      const encryption = await rememberEncryptionPassword(
+        session.user.username,
+        password
+      );
       setToken(session.token);
       setUsername(session.user.username);
-      await reencryptLocalNotes(encryption.previousMaterial, encryption.nextMaterial);
+      await reencryptLocalNotes(
+        encryption.previousMaterial,
+        encryption.nextMaterial
+      );
       this.hasToken = true;
       this.loginOpen = false;
       this.loginUsernameValue = session.user.username;
@@ -932,14 +1019,15 @@ export class NotesPageController
   };
 
   private refresh = async () => {
-    const [notes, notebooks, trash, conflicts, devices, pendingSyncCount] = await Promise.all([
-      loadNotes(),
-      loadNotebooks(),
-      loadTrash(),
-      loadPendingConflicts(),
-      loadDevices(),
-      loadPendingSyncCount()
-    ]);
+    const [notes, notebooks, trash, conflicts, devices, pendingSyncCount] =
+      await Promise.all([
+        loadNotes(),
+        loadNotebooks(),
+        loadTrash(),
+        loadPendingConflicts(),
+        loadDevices(),
+        loadPendingSyncCount()
+      ]);
 
     this.notes = notes;
     this.notebooks = notebooks;
@@ -1013,7 +1101,11 @@ export class NotesPageController
 
   private saveEditorNow = async (noteId: string | null) => {
     if (noteId) {
-      const updated = await updateNoteContent(noteId, this.titleValue, this.bodyValue);
+      const updated = await updateNoteContent(
+        noteId,
+        this.titleValue,
+        this.bodyValue
+      );
       if (updated && this.selectedNote?.id === noteId) {
         this.selectedNote = updated;
       }
@@ -1056,7 +1148,10 @@ export class NotesPageController
 
   private notebookName = (notebookId: string | null): string | null => {
     if (!notebookId) return null;
-    return this.notebooks.find((notebook) => notebook.id === notebookId)?.name ?? null;
+    return (
+      this.notebooks.find((notebook) => notebook.id === notebookId)?.name ??
+      null
+    );
   };
 
   notebookNamesForNote = (note: LocalNote): string[] =>
@@ -1066,13 +1161,19 @@ export class NotesPageController
 
   private deviceName(deviceId: string | null | undefined): string {
     if (!deviceId) return 'Unknown device';
-    return this.devices.find((device) => device.id === deviceId)?.name ?? deviceId;
+    return (
+      this.devices.find((device) => device.id === deviceId)?.name ?? deviceId
+    );
   }
 
-  private positionContextMenu = <T extends Exclude<ContextMenuState, null>>(menu: T): T => {
+  private positionContextMenu = <T extends Exclude<ContextMenuState, null>>(
+    menu: T
+  ): T => {
     const width = menu.type === 'notebook' ? 190 : 280;
     const height =
-      menu.type === 'notebook' ? 84 : Math.min(360, 142 + Math.max(1, this.notebooks.length) * 40);
+      menu.type === 'notebook'
+        ? 84
+        : Math.min(360, 142 + Math.max(1, this.notebooks.length) * 40);
     return {
       ...menu,
       x: Math.min(menu.x, window.innerWidth - width - 8),
@@ -1082,20 +1183,29 @@ export class NotesPageController
 
   private getContextNote(menu: ContextMenuState): LocalNote | null {
     if (menu?.type !== 'note' && menu?.type !== 'editor') return null;
-    return [...this.notes, ...this.trash].find((note) => note.id === menu.noteId) ?? null;
+    return (
+      [...this.notes, ...this.trash].find((note) => note.id === menu.noteId) ??
+      null
+    );
   }
 
   private getContextNotebook(menu: ContextMenuState): LocalNotebook | null {
     if (menu?.type !== 'notebook') return null;
-    return this.notebooks.find((notebook) => notebook.id === menu.notebookId) ?? null;
+    return (
+      this.notebooks.find((notebook) => notebook.id === menu.notebookId) ?? null
+    );
   }
 
-  private localNotebookNameExists = (name: string, excludeId?: string): boolean => {
+  private localNotebookNameExists = (
+    name: string,
+    excludeId?: string
+  ): boolean => {
     const normalized = normalizeNotebookName(name);
     if (!normalized) return false;
     return this.notebooks.some(
       (notebook) =>
-        notebook.id !== excludeId && normalizeNotebookName(notebook.name) === normalized
+        notebook.id !== excludeId &&
+        normalizeNotebookName(notebook.name) === normalized
     );
   };
 

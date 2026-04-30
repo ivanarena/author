@@ -1,0 +1,15 @@
+node_modules
+aube-lock.yaml
+.svelte-kit
+build
+.vite
+coverage
+playwright-report
+test-results
+.data
+to_import
+
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.env

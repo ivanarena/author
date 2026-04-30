@@ -1,12 +1,22 @@
 <script lang="ts">
-  import { ArchiveRestore, Check, FolderSymlink, Inbox, Notebook, Pencil, Trash2 } from 'lucide-svelte';
+  import {
+    ArchiveRestore,
+    Check,
+    FolderSymlink,
+    Inbox,
+    Notebook,
+    Pencil,
+    Trash2
+  } from 'lucide-svelte';
   import { noteDisplayTitle, noteNotebookIds } from '$lib/client/note-utils';
   import type { ContextMenuModel } from './notes-page-controller.svelte.js';
 
   let { model }: { model: ContextMenuModel } = $props();
 
   const menuStyle = $derived(
-    model.contextMenu ? `left: ${model.contextMenu.x}px; top: ${model.contextMenu.y}px;` : ''
+    model.contextMenu
+      ? `left: ${model.contextMenu.x}px; top: ${model.contextMenu.y}px;`
+      : ''
   );
 </script>
 

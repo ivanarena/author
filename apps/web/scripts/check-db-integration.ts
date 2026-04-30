@@ -4,9 +4,23 @@ import {
   getRemoteDatabaseConfig,
   shouldSyncRemoteDatabase
 } from '../src/lib/server/config';
-import { authenticateUser, createAuthSession, sessionFromToken, setUserPassword } from '../src/lib/server/auth';
-import { openConfiguredDatabase, openDatabase, run, type NotesDb } from '../src/lib/server/db';
-import { getNote, pullChangesSince, pushChanges } from '../src/lib/server/repository';
+import {
+  authenticateUser,
+  createAuthSession,
+  sessionFromToken,
+  setUserPassword
+} from '../src/lib/server/auth';
+import {
+  openConfiguredDatabase,
+  openDatabase,
+  run,
+  type NotesDb
+} from '../src/lib/server/db';
+import {
+  getNote,
+  pullChangesSince,
+  pushChanges
+} from '../src/lib/server/repository';
 import { syncRemoteDatabase } from '../src/lib/server/remote-sync';
 import type { Device, Note, Notebook } from '@author/schema';
 
@@ -62,13 +76,30 @@ const remoteOnlyNote: Note = {
 };
 
 async function cleanupDb(target: NotesDb): Promise<void> {
-  await run(target, 'DELETE FROM note_versions WHERE note_id IN (?, ?)', [note.id, remoteOnlyNote.id]).catch(() => {});
-  await run(target, 'DELETE FROM notebook_versions WHERE notebook_id = ?', [notebook.id]).catch(() => {});
-  await run(target, 'DELETE FROM notes WHERE id IN (?, ?)', [note.id, remoteOnlyNote.id]).catch(() => {});
-  await run(target, 'DELETE FROM notebooks WHERE id = ?', [notebook.id]).catch(() => {});
-  await run(target, 'DELETE FROM auth_sessions WHERE username = ?', [username]).catch(() => {});
-  await run(target, 'DELETE FROM users WHERE username = ?', [username]).catch(() => {});
-  await run(target, 'DELETE FROM devices WHERE id IN (?, ?)', [device.id, remoteDevice.id]).catch(() => {});
+  await run(target, 'DELETE FROM note_versions WHERE note_id IN (?, ?)', [
+    note.id,
+    remoteOnlyNote.id
+  ]).catch(() => {});
+  await run(target, 'DELETE FROM notebook_versions WHERE notebook_id = ?', [
+    notebook.id
+  ]).catch(() => {});
+  await run(target, 'DELETE FROM notes WHERE id IN (?, ?)', [
+    note.id,
+    remoteOnlyNote.id
+  ]).catch(() => {});
+  await run(target, 'DELETE FROM notebooks WHERE id = ?', [notebook.id]).catch(
+    () => {}
+  );
+  await run(target, 'DELETE FROM auth_sessions WHERE username = ?', [
+    username
+  ]).catch(() => {});
+  await run(target, 'DELETE FROM users WHERE username = ?', [username]).catch(
+    () => {}
+  );
+  await run(target, 'DELETE FROM devices WHERE id IN (?, ?)', [
+    device.id,
+    remoteDevice.id
+  ]).catch(() => {});
 }
 
 const db = await openDatabase();
@@ -81,7 +112,8 @@ try {
 
   const session = await createAuthSession(db, user, null);
   const validated = await sessionFromToken(db, session.token);
-  if (validated?.user.username !== username) throw new Error('Created session could not validate');
+  if (validated?.user.username !== username)
+    throw new Error('Created session could not validate');
 
   const pushed = await pushChanges(db, {
     device,
@@ -94,8 +126,13 @@ try {
 
   const pulled = await pullChangesSince(db, '0000-01-01T00:00:00.000Z');
   const pulledNote = pulled.notes.find((candidate) => candidate.id === note.id);
-  const pulledNotebook = pulled.notebooks.find((candidate) => candidate.id === notebook.id);
-  if (pulledNote?.body !== note.body || pulledNotebook?.name !== notebook.name) {
+  const pulledNotebook = pulled.notebooks.find(
+    (candidate) => candidate.id === notebook.id
+  );
+  if (
+    pulledNote?.body !== note.body ||
+    pulledNotebook?.name !== notebook.name
+  ) {
     throw new Error('Pull round trip did not return the pushed records');
   }
 
@@ -103,9 +140,18 @@ try {
     await syncRemoteDatabase(db);
     remote = await openConfiguredDatabase(remoteConfig);
 
-    const remotePulled = await pullChangesSince(remote, '0000-01-01T00:00:00.000Z');
-    if (!remotePulled.notes.some((candidate) => candidate.id === note.id && candidate.body === note.body)) {
-      throw new Error('Local-only record did not reconcile to the remote database');
+    const remotePulled = await pullChangesSince(
+      remote,
+      '0000-01-01T00:00:00.000Z'
+    );
+    if (
+      !remotePulled.notes.some(
+        (candidate) => candidate.id === note.id && candidate.body === note.body
+      )
+    ) {
+      throw new Error(
+        'Local-only record did not reconcile to the remote database'
+      );
     }
 
     const remotePushed = await pushChanges(remote, {
@@ -120,13 +166,17 @@ try {
     await syncRemoteDatabase(db);
     const mirroredRemoteNote = await getNote(db, remoteOnlyNote.id);
     if (mirroredRemoteNote?.body !== remoteOnlyNote.body) {
-      throw new Error('Remote-only record did not reconcile to the local database');
+      throw new Error(
+        'Remote-only record did not reconcile to the local database'
+      );
     }
   }
 
   console.log(
     `DB integration check passed for local SQLite at ${localConfig.filePath}${
-      remoteConfig && shouldSyncRemoteDatabase() ? ' with Turso reconciliation' : ''
+      remoteConfig && shouldSyncRemoteDatabase()
+        ? ' with Turso reconciliation'
+        : ''
     }`
   );
 } finally {

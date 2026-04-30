@@ -52,7 +52,10 @@ export function filterNotesForView(
   });
 }
 
-export function filterNotesBySearch(items: LocalNote[], query: string): LocalNote[] {
+export function filterNotesBySearch(
+  items: LocalNote[],
+  query: string
+): LocalNote[] {
   const normalized = query.trim().toLocaleLowerCase();
   if (!normalized) return items;
 
@@ -81,7 +84,8 @@ export function groupNotesByDateRange(
   sort: NoteSort,
   now = new Date()
 ): NoteGroup[] {
-  if (sort !== 'date-desc') return [{ label: sort === 'az' ? 'A-Z' : 'Z-A', notes: items }];
+  if (sort !== 'date-desc')
+    return [{ label: sort === 'az' ? 'A-Z' : 'Z-A', notes: items }];
 
   const groups = new Map<string, LocalNote[]>();
   for (const note of items) {
@@ -89,7 +93,10 @@ export function groupNotesByDateRange(
     groups.set(label, [...(groups.get(label) ?? []), note]);
   }
 
-  return Array.from(groups, ([label, groupNotes]) => ({ label, notes: groupNotes }));
+  return Array.from(groups, ([label, groupNotes]) => ({
+    label,
+    notes: groupNotes
+  }));
 }
 
 export function dateRangeLabel(iso: string, now = new Date()): string {
@@ -126,7 +133,10 @@ export function relativeAge(iso: string, now = new Date()): string {
   const date = new Date(iso);
   const today = startOfDay(now);
   const target = startOfDay(date);
-  const daysAgo = Math.max(0, Math.floor((today.getTime() - target.getTime()) / DAY_MS));
+  const daysAgo = Math.max(
+    0,
+    Math.floor((today.getTime() - target.getTime()) / DAY_MS)
+  );
 
   if (daysAgo === 0) return 'today';
   if (daysAgo === 1) return '1d ago';
@@ -179,8 +189,14 @@ export function noteStatusLabel(note: LocalNote): string {
 }
 
 export function syncIndicatorState(state: SyncIndicatorState): SyncIndicator {
-  const { isSyncing, conflictCount, isBrowserOnline, hasSession, pendingSyncCount, syncMessage } =
-    state;
+  const {
+    isSyncing,
+    conflictCount,
+    isBrowserOnline,
+    hasSession,
+    pendingSyncCount,
+    syncMessage
+  } = state;
 
   if (isSyncing) return { kind: 'syncing', label: 'Saving', detail: '' };
   if (conflictCount > 0) {
@@ -190,8 +206,14 @@ export function syncIndicatorState(state: SyncIndicatorState): SyncIndicator {
       detail: ''
     };
   }
-  if (!isBrowserOnline) return { kind: 'offline', label: 'Offline', detail: '' };
-  if (!hasSession) return { kind: 'local-only', label: 'Local only', detail: 'Sign in to sync' };
+  if (!isBrowserOnline)
+    return { kind: 'offline', label: 'Offline', detail: '' };
+  if (!hasSession)
+    return {
+      kind: 'local-only',
+      label: 'Local only',
+      detail: 'Sign in to sync'
+    };
   if (pendingSyncCount > 0) {
     const label = 'Saving';
     return { kind: 'pending', label, detail: syncDetail(syncMessage, label) };
@@ -206,7 +228,9 @@ function startOfDay(date: Date): Date {
 }
 
 function syncDetail(syncMessage: string, label: string): string {
-  return syncMessage && !HEALTHY_SYNC_MESSAGES.has(syncMessage) && syncMessage !== label
+  return syncMessage &&
+    !HEALTHY_SYNC_MESSAGES.has(syncMessage) &&
+    syncMessage !== label
     ? syncMessage
     : '';
 }

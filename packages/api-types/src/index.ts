@@ -69,7 +69,11 @@ export interface SyncConflict<T> {
   id: string;
   entityType: 'note' | 'notebook';
   entityId: string;
-  reason: 'remote_changed' | 'deleted_remotely' | 'version_mismatch' | 'duplicate_name';
+  reason:
+    | 'remote_changed'
+    | 'deleted_remotely'
+    | 'version_mismatch'
+    | 'duplicate_name';
   local: ConflictVersion<T>;
   remote: ConflictVersion<T>;
 }

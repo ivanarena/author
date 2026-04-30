@@ -1,4 +1,8 @@
-import { fixtureDevice, fixtureNotes, fixtureNotebooks } from '@author/test-fixtures';
+import {
+  fixtureDevice,
+  fixtureNotes,
+  fixtureNotebooks
+} from '@author/test-fixtures';
 import { exec, openDatabase } from '../src/lib/server/db';
 import { pushChanges, upsertDevice } from '../src/lib/server/repository';
 

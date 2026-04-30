@@ -1,5 +1,13 @@
 <script lang="ts">
-  import { CircleUserRound, LogIn, Menu, Moon, RefreshCw, Settings, Sun } from 'lucide-svelte';
+  import {
+    CircleUserRound,
+    LogIn,
+    Menu,
+    Moon,
+    RefreshCw,
+    Settings,
+    Sun
+  } from 'lucide-svelte';
   import NoteListPanel from './NoteListPanel.svelte';
   import NotebookSidebar from './NotebookSidebar.svelte';
   import type { NavigationDockModel } from './notes-page-controller.svelte.js';
@@ -41,11 +49,17 @@
         <CircleUserRound size={18} strokeWidth={1.8} />
       </button>
 
-      <div class="profile-hover-card" role="menu" aria-label="Profile and settings menu">
+      <div
+        class="profile-hover-card"
+        role="menu"
+        aria-label="Profile and settings menu"
+      >
         <header class="profile-card-header">
           <CircleUserRound size={30} strokeWidth={1.6} />
           <div>
-            <strong>{model.hasToken ? 'Sync profile' : 'Local workspace'}</strong>
+            <strong
+              >{model.hasToken ? 'Sync profile' : 'Local workspace'}</strong
+            >
             <span
               class={`sync-badge ${model.syncIndicator.kind === 'synced' ? 'ok' : 'error'}`}
               aria-label={`Sync status: ${model.syncIndicator.label}`}
@@ -60,29 +74,46 @@
         {/if}
         <div class="profile-card-actions">
           {#if model.hasToken}
-            <button class="profile-quick-action" role="menuitem" disabled={model.isSyncing} onclick={model.syncNow}>
+            <button
+              class="profile-quick-action"
+              role="menuitem"
+              disabled={model.isSyncing}
+              onclick={model.syncNow}
+            >
               <RefreshCw size={14} strokeWidth={1.8} />
               <span>{model.isSyncing ? 'Syncing changes' : 'Sync now'}</span>
             </button>
           {:else}
-            <button class="profile-quick-action primary" role="menuitem" onclick={model.openLoginSettings}>
+            <button
+              class="profile-quick-action primary"
+              role="menuitem"
+              onclick={model.openLoginSettings}
+            >
               <LogIn size={14} strokeWidth={1.8} />
               <span>Sign in to sync</span>
             </button>
           {/if}
-        <button class="profile-quick-action" role="menuitem" onclick={model.toggleTheme}>
-          {#if model.theme === 'dark'}
-            <Sun size={14} strokeWidth={1.8} />
-            <span>Light</span>
-          {:else}
-            <Moon size={14} strokeWidth={1.8} />
-            <span>Dark</span>
-          {/if}
-        </button>
-        <button class="profile-quick-action" role="menuitem" onclick={model.openSettingsModal}>
-          <Settings size={14} strokeWidth={1.8} />
-          <span>Settings</span>
-        </button>
+          <button
+            class="profile-quick-action"
+            role="menuitem"
+            onclick={model.toggleTheme}
+          >
+            {#if model.theme === 'dark'}
+              <Sun size={14} strokeWidth={1.8} />
+              <span>Light</span>
+            {:else}
+              <Moon size={14} strokeWidth={1.8} />
+              <span>Dark</span>
+            {/if}
+          </button>
+          <button
+            class="profile-quick-action"
+            role="menuitem"
+            onclick={model.openSettingsModal}
+          >
+            <Settings size={14} strokeWidth={1.8} />
+            <span>Settings</span>
+          </button>
         </div>
       </div>
     </div>

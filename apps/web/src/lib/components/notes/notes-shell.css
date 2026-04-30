@@ -71,7 +71,7 @@
     var(--menu-offset-top) - var(--menu-controls-top) - var(--control-height) +
       var(--space-4)
   );
-  content: "";
+  content: '';
   pointer-events: none;
   transform: translateX(-50%);
   visibility: hidden;

@@ -38,7 +38,8 @@ export class NotesLocalDatabase extends Dexie {
     this.version(1).stores({
       notes:
         'id, notebookId, createdAt, updatedAt, deletedAt, trashedAt, deviceId, version, syncStatus, lastSyncedVersion',
-      notebooks: 'id, name, createdAt, updatedAt, deletedAt, deviceId, version, syncStatus, lastSyncedVersion',
+      notebooks:
+        'id, name, createdAt, updatedAt, deletedAt, deviceId, version, syncStatus, lastSyncedVersion',
       devices: 'id, name',
       syncMeta: 'key',
       conflicts: 'id, entityType, entityId, status, createdAt'
@@ -47,7 +48,8 @@ export class NotesLocalDatabase extends Dexie {
       .stores({
         notes:
           'id, notebookId, createdAt, updatedAt, deletedAt, trashedAt, deviceId, version, syncStatus, lastSyncedVersion',
-        notebooks: 'id, name, createdAt, updatedAt, deletedAt, deviceId, version, syncStatus, lastSyncedVersion',
+        notebooks:
+          'id, name, createdAt, updatedAt, deletedAt, deviceId, version, syncStatus, lastSyncedVersion',
         devices: 'id, name',
         syncMeta: 'key',
         conflicts: 'id, entityType, entityId, status, createdAt'
@@ -67,7 +69,8 @@ export class NotesLocalDatabase extends Dexie {
       .stores({
         notes:
           'id, notebookId, *notebookIds, createdAt, updatedAt, deletedAt, trashedAt, deviceId, version, syncStatus, lastSyncedVersion',
-        notebooks: 'id, name, createdAt, updatedAt, deletedAt, deviceId, version, syncStatus, lastSyncedVersion',
+        notebooks:
+          'id, name, createdAt, updatedAt, deletedAt, deviceId, version, syncStatus, lastSyncedVersion',
         devices: 'id, name',
         syncMeta: 'key',
         conflicts: 'id, entityType, entityId, status, createdAt'

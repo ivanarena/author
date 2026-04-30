@@ -58,10 +58,20 @@ describe('client note view model', () => {
       })
     ];
 
-    expect(filterNotesForView(notes, [], 'unfiled').map((item) => item.id)).toEqual(['a']);
-    expect(filterNotesForView(notes, [], 'work').map((item) => item.id)).toEqual(['b']);
-    expect(filterNotesBySearch(notes, 'shop').map((item) => item.id)).toEqual(['a']);
-    expect(sortNotes(notes, 'az').map((item) => item.id)).toEqual(['a', 'b', 'c']);
+    expect(
+      filterNotesForView(notes, [], 'unfiled').map((item) => item.id)
+    ).toEqual(['a']);
+    expect(
+      filterNotesForView(notes, [], 'work').map((item) => item.id)
+    ).toEqual(['b']);
+    expect(filterNotesBySearch(notes, 'shop').map((item) => item.id)).toEqual([
+      'a'
+    ]);
+    expect(sortNotes(notes, 'az').map((item) => item.id)).toEqual([
+      'a',
+      'b',
+      'c'
+    ]);
     expect(notes.map((item) => item.id)).toEqual(['b', 'a', 'c']);
   });
 
@@ -73,18 +83,22 @@ describe('client note view model', () => {
       note({ id: 'future', updatedAt: '2026-05-01T08:00:00.000Z' })
     ];
 
-    expect(groupNotesByDateRange(notes, 'date-desc', now).map((group) => group.label)).toEqual([
-      'Today',
-      'Yesterday',
-      'Future'
-    ]);
-    expect(dateRangeLabel('2026-04-10T08:00:00.000Z', now)).toBe('Previous 30 days');
+    expect(
+      groupNotesByDateRange(notes, 'date-desc', now).map((group) => group.label)
+    ).toEqual(['Today', 'Yesterday', 'Future']);
+    expect(dateRangeLabel('2026-04-10T08:00:00.000Z', now)).toBe(
+      'Previous 30 days'
+    );
     expect(relativeAge('2026-03-30T08:00:00.000Z', now)).toBe('1mo ago');
   });
 
   it('normalizes notebook ids and counts multi-notebook notes once per notebook', () => {
     const notes = [
-      note({ id: 'one', notebookIds: ['work', 'work', ' personal '], notebookId: 'work' }),
+      note({
+        id: 'one',
+        notebookIds: ['work', 'work', ' personal '],
+        notebookId: 'work'
+      }),
       note({ id: 'two', notebookIds: [], notebookId: null })
     ];
 
@@ -99,11 +113,13 @@ describe('client note view model', () => {
   });
 
   it('derives stable display titles and sync indicator states', () => {
-    expect(noteDisplayTitle(note({ title: '', body: '\n  Body title\nsecond line' }))).toBe(
-      'Body title'
-    );
     expect(
-      noteDisplayTitle(note({ title: '', body: '', trashedAt: '2026-04-30T00:00:00.000Z' }))
+      noteDisplayTitle(note({ title: '', body: '\n  Body title\nsecond line' }))
+    ).toBe('Body title');
+    expect(
+      noteDisplayTitle(
+        note({ title: '', body: '', trashedAt: '2026-04-30T00:00:00.000Z' })
+      )
     ).toBe('Trashed note');
 
     expect(
@@ -126,6 +142,10 @@ describe('client note view model', () => {
         pendingSyncCount: 0,
         syncMessage: 'Login expired'
       })
-    ).toMatchObject({ kind: 'synced', label: 'All changes saved', detail: 'Login expired' });
+    ).toMatchObject({
+      kind: 'synced',
+      label: 'All changes saved',
+      detail: 'Login expired'
+    });
   });
 });

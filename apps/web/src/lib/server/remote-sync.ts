@@ -51,10 +51,17 @@ function toAuthUser(row: Row): AuthUserRecord {
   };
 }
 
-function newerOrTieBreakingSource<T extends Note | Notebook>(source: T, target: T): boolean {
+function newerOrTieBreakingSource<T extends Note | Notebook>(
+  source: T,
+  target: T
+): boolean {
   const sourceTime = Date.parse(source.updatedAt);
   const targetTime = Date.parse(target.updatedAt);
-  if (Number.isFinite(sourceTime) && Number.isFinite(targetTime) && sourceTime !== targetTime) {
+  if (
+    Number.isFinite(sourceTime) &&
+    Number.isFinite(targetTime) &&
+    sourceTime !== targetTime
+  ) {
     return sourceTime > targetTime;
   }
 
@@ -62,7 +69,10 @@ function newerOrTieBreakingSource<T extends Note | Notebook>(source: T, target: 
   return source.deviceId.localeCompare(target.deviceId) >= 0;
 }
 
-function authCredentialsDiffer(source: AuthUserRecord, target: AuthUserRecord): boolean {
+function authCredentialsDiffer(
+  source: AuthUserRecord,
+  target: AuthUserRecord
+): boolean {
   return (
     source.passwordHash !== target.passwordHash ||
     source.passwordSalt !== target.passwordSalt ||
@@ -70,7 +80,10 @@ function authCredentialsDiffer(source: AuthUserRecord, target: AuthUserRecord): 
   );
 }
 
-function authUsersDiffer(source: AuthUserRecord, target: AuthUserRecord): boolean {
+function authUsersDiffer(
+  source: AuthUserRecord,
+  target: AuthUserRecord
+): boolean {
   return (
     authCredentialsDiffer(source, target) ||
     source.createdAt !== target.createdAt ||
@@ -78,10 +91,17 @@ function authUsersDiffer(source: AuthUserRecord, target: AuthUserRecord): boolea
   );
 }
 
-function newerAuthUser(source: AuthUserRecord, target: AuthUserRecord): boolean {
+function newerAuthUser(
+  source: AuthUserRecord,
+  target: AuthUserRecord
+): boolean {
   const sourceTime = Date.parse(source.updatedAt);
   const targetTime = Date.parse(target.updatedAt);
-  if (Number.isFinite(sourceTime) && Number.isFinite(targetTime) && sourceTime !== targetTime) {
+  if (
+    Number.isFinite(sourceTime) &&
+    Number.isFinite(targetTime) &&
+    sourceTime !== targetTime
+  ) {
     return sourceTime > targetTime;
   }
 
@@ -95,12 +115,20 @@ function newerAuthUser(source: AuthUserRecord, target: AuthUserRecord): boolean 
 }
 
 async function listAuthUsers(db: NotesExecutor): Promise<AuthUserRecord[]> {
-  const rows = (await queryAll(db, 'SELECT * FROM users ORDER BY username ASC')) as Row[];
+  const rows = (await queryAll(
+    db,
+    'SELECT * FROM users ORDER BY username ASC'
+  )) as Row[];
   return rows.map(toAuthUser);
 }
 
-async function getAuthUser(db: NotesExecutor, username: string): Promise<AuthUserRecord | null> {
-  const row = (await queryOne(db, 'SELECT * FROM users WHERE username = ?', [username])) as Row | null;
+async function getAuthUser(
+  db: NotesExecutor,
+  username: string
+): Promise<AuthUserRecord | null> {
+  const row = (await queryOne(db, 'SELECT * FROM users WHERE username = ?', [
+    username
+  ])) as Row | null;
   return row ? toAuthUser(row) : null;
 }
 
@@ -110,7 +138,9 @@ async function putAuthUser(
   revokeSessions: boolean
 ): Promise<void> {
   if (revokeSessions) {
-    await runSql(db, 'DELETE FROM auth_sessions WHERE username = ?', [user.username]);
+    await runSql(db, 'DELETE FROM auth_sessions WHERE username = ?', [
+      user.username
+    ]);
   }
 
   await runSql(
@@ -150,7 +180,10 @@ async function syncUsers(source: NotesDb, target: NotesDb): Promise<void> {
   }
 }
 
-async function syncDevices(snapshot: PullResponse, target: NotesDb): Promise<void> {
+async function syncDevices(
+  snapshot: PullResponse,
+  target: NotesDb
+): Promise<void> {
   for (const device of snapshot.devices) {
     await upsertDevice(target, device);
   }
@@ -169,21 +202,28 @@ async function notebookChanges(
       (recordsDiffer(notebook, targetNotebook) &&
         newerOrTieBreakingSource(notebook, targetNotebook));
     if (shouldMirror) {
-      changes.push({ record: notebook, baseVersion: targetNotebook?.version ?? 0 });
+      changes.push({
+        record: notebook,
+        baseVersion: targetNotebook?.version ?? 0
+      });
     }
   }
 
   return changes;
 }
 
-async function noteChanges(snapshot: PullResponse, target: NotesDb): Promise<PushRequestNoteChange[]> {
+async function noteChanges(
+  snapshot: PullResponse,
+  target: NotesDb
+): Promise<PushRequestNoteChange[]> {
   const changes: PushRequestNoteChange[] = [];
 
   for (const note of snapshot.notes) {
     const targetNote = await getNote(target, note.id);
     const shouldMirror =
       !targetNote ||
-      (recordsDiffer(note, targetNote) && newerOrTieBreakingSource(note, targetNote));
+      (recordsDiffer(note, targetNote) &&
+        newerOrTieBreakingSource(note, targetNote));
     if (shouldMirror) {
       changes.push({ record: note, baseVersion: targetNote?.version ?? 0 });
     }
@@ -210,7 +250,10 @@ async function syncOneWay(source: NotesDb, target: NotesDb): Promise<void> {
   });
 }
 
-export async function syncDatabases(local: NotesDb, remote: NotesDb): Promise<void> {
+export async function syncDatabases(
+  local: NotesDb,
+  remote: NotesDb
+): Promise<void> {
   await syncOneWay(remote, local);
   await syncOneWay(local, remote);
   await syncOneWay(remote, local);

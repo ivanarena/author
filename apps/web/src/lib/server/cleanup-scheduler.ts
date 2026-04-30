@@ -32,7 +32,8 @@ export async function runScheduledTrashCleanup(): Promise<void> {
 }
 
 export function startTrashCleanupScheduler(): void {
-  if (!isCleanupSchedulerEnabled() || globalThis.__authorNotesCleanupScheduler) return;
+  if (!isCleanupSchedulerEnabled() || globalThis.__authorNotesCleanupScheduler)
+    return;
 
   const intervalMs = getCleanupIntervalMs();
   if (shouldRunCleanupOnStart()) {

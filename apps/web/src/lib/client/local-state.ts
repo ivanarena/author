@@ -26,7 +26,9 @@ export async function getOrCreateDevice(): Promise<Device> {
 
   const device: Device = {
     id,
-    name: navigator.userAgent.includes('Android') ? 'Android browser' : 'This browser'
+    name: navigator.userAgent.includes('Android')
+      ? 'Android browser'
+      : 'This browser'
   };
   await localDb.devices.put(device);
   return device;

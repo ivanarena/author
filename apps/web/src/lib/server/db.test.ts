@@ -11,7 +11,9 @@ const ENV_KEYS = [
   'TURSO_AUTH_TOKEN'
 ] as const;
 
-function restoreEnv(previous: Map<(typeof ENV_KEYS)[number], string | undefined>): void {
+function restoreEnv(
+  previous: Map<(typeof ENV_KEYS)[number], string | undefined>
+): void {
   for (const key of ENV_KEYS) {
     const value = previous.get(key);
     if (value === undefined) {
@@ -36,11 +38,11 @@ describe('server database config', () => {
     try {
       const db = await openDatabase();
       try {
-        await run(db, 'INSERT INTO devices (id, name, last_seen_at) VALUES (?, ?, ?)', [
-          'local-device',
-          'Local device',
-          new Date().toISOString()
-        ]);
+        await run(
+          db,
+          'INSERT INTO devices (id, name, last_seen_at) VALUES (?, ?, ?)',
+          ['local-device', 'Local device', new Date().toISOString()]
+        );
       } finally {
         db.close();
       }

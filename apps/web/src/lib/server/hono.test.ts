@@ -2,7 +2,11 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { fixtureDevice, fixtureNote, fixtureNotebook } from '@author/test-fixtures';
+import {
+  fixtureDevice,
+  fixtureNote,
+  fixtureNotebook
+} from '@author/test-fixtures';
 import { setUserPassword } from './auth';
 import { openDatabase } from './db';
 import { api } from './hono';
@@ -29,7 +33,10 @@ afterEach(() => {
   delete process.env.NOTES_LEGACY_AUTH_TOKEN_ENABLED;
 });
 
-async function loginToken(username = 'owner', password = 'test-password'): Promise<string> {
+async function loginToken(
+  username = 'owner',
+  password = 'test-password'
+): Promise<string> {
   const login = await api.fetch(
     new Request('http://localhost/api/auth/login', {
       method: 'POST',
@@ -41,7 +48,11 @@ async function loginToken(username = 'owner', password = 'test-password'): Promi
   return ((await login.json()) as { token: string }).token;
 }
 
-async function post(path: string, body: unknown, token: string): Promise<Response> {
+async function post(
+  path: string,
+  body: unknown,
+  token: string
+): Promise<Response> {
   return await api.fetch(
     new Request(`http://localhost${path}`, {
       method: 'POST',
@@ -117,12 +128,18 @@ describe('Hono API', () => {
       new Request('http://localhost/api/auth/login', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ username: 'owner', password: 'test-password', device: fixtureDevice })
+        body: JSON.stringify({
+          username: 'owner',
+          password: 'test-password',
+          device: fixtureDevice
+        })
       })
     );
     expect(oldPassword.status).toBe(401);
 
-    await expect(loginToken('owner', 'new-test-password')).resolves.toEqual(expect.any(String));
+    await expect(loginToken('owner', 'new-test-password')).resolves.toEqual(
+      expect.any(String)
+    );
   });
 
   it('does not accept legacy static tokens unless explicitly enabled', async () => {
@@ -177,17 +194,25 @@ describe('Hono API', () => {
       new Request('http://localhost/api/auth/login', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ username: 'owner', password: 'test-password', device: fixtureDevice })
+        body: JSON.stringify({
+          username: 'owner',
+          password: 'test-password',
+          device: fixtureDevice
+        })
       })
     );
     expect(login.status).toBe(200);
     const token = ((await login.json()) as { token: string }).token;
 
-    const push = await post('/api/sync/push', {
-      device: fixtureDevice,
-      notebooks: [{ record: fixtureNotebook, baseVersion: 0 }],
-      notes: [{ record: fixtureNote, baseVersion: 0 }]
-    }, token);
+    const push = await post(
+      '/api/sync/push',
+      {
+        device: fixtureDevice,
+        notebooks: [{ record: fixtureNotebook, baseVersion: 0 }],
+        notes: [{ record: fixtureNote, baseVersion: 0 }]
+      },
+      token
+    );
     expect(push.status).toBe(200);
     expect((await push.json()).accepted).toHaveLength(2);
 
@@ -198,13 +223,19 @@ describe('Hono API', () => {
 
   it('rejects malformed authenticated push payloads with a client error', async () => {
     const token = await loginToken();
-    const push = await post('/api/sync/push', {
-      device: fixtureDevice,
-      notebooks: [{ record: { id: 'bad-notebook' }, baseVersion: 0 }],
-      notes: []
-    }, token);
+    const push = await post(
+      '/api/sync/push',
+      {
+        device: fixtureDevice,
+        notebooks: [{ record: { id: 'bad-notebook' }, baseVersion: 0 }],
+        notes: []
+      },
+      token
+    );
 
     expect(push.status).toBe(400);
-    await expect(push.json()).resolves.toMatchObject({ error: 'Invalid push payload' });
+    await expect(push.json()).resolves.toMatchObject({
+      error: 'Invalid push payload'
+    });
   });
 });

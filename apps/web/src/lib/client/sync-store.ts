@@ -1,6 +1,11 @@
 import type { SyncConflict } from '@author/api-types';
 import type { Device, Note, Notebook } from '@author/schema';
-import { chooseConflictVersion, nextVersionAfter, previewText, recordsDiffer } from '@author/sync-spec';
+import {
+  chooseConflictVersion,
+  nextVersionAfter,
+  previewText,
+  recordsDiffer
+} from '@author/sync-spec';
 import { localDb, type LocalNote, type LocalNotebook } from './db';
 import { decryptNoteFields, encryptNoteFields } from './encryption';
 import { getOrCreateDevice, newId, nowIso } from './local-state';
@@ -11,7 +16,12 @@ export async function saveDevices(devices: Device[]): Promise<void> {
 }
 
 export async function markAcceptedChanges(
-  accepted: Array<{ entityType: 'note' | 'notebook'; id: string; version: number; updatedAt: string }>,
+  accepted: Array<{
+    entityType: 'note' | 'notebook';
+    id: string;
+    version: number;
+    updatedAt: string;
+  }>,
   syncedAt: string,
   pushed: Array<{
     entityType: 'note' | 'notebook';
@@ -20,44 +30,51 @@ export async function markAcceptedChanges(
     updatedAt: string;
   }> = []
 ): Promise<void> {
-  const pushedByKey = new Map(pushed.map((change) => [`${change.entityType}:${change.id}`, change]));
+  const pushedByKey = new Map(
+    pushed.map((change) => [`${change.entityType}:${change.id}`, change])
+  );
 
-  await localDb.transaction('rw', [localDb.notes, localDb.notebooks], async () => {
-    for (const change of accepted) {
-      if (change.entityType === 'note') {
-        const note = await localDb.notes.get(change.id);
-        if (note) {
-          const pushedNote = pushedByKey.get(`note:${change.id}`);
-          const stillMatchesPush =
-            !pushedNote ||
-            (note.version === pushedNote.version && note.updatedAt === pushedNote.updatedAt);
-          await localDb.notes.put({
-            ...note,
-            version: stillMatchesPush ? change.version : note.version,
-            syncStatus: stillMatchesPush ? 'synced' : 'pending',
-            lastSyncedVersion: change.version,
-            lastSyncedAt: syncedAt
-          });
-        }
-      } else {
-        const notebook = await localDb.notebooks.get(change.id);
-        if (notebook) {
-          const pushedNotebook = pushedByKey.get(`notebook:${change.id}`);
-          const stillMatchesPush =
-            !pushedNotebook ||
-            (notebook.version === pushedNotebook.version &&
-              notebook.updatedAt === pushedNotebook.updatedAt);
-          await localDb.notebooks.put({
-            ...notebook,
-            version: stillMatchesPush ? change.version : notebook.version,
-            syncStatus: stillMatchesPush ? 'synced' : 'pending',
-            lastSyncedVersion: change.version,
-            lastSyncedAt: syncedAt
-          });
+  await localDb.transaction(
+    'rw',
+    [localDb.notes, localDb.notebooks],
+    async () => {
+      for (const change of accepted) {
+        if (change.entityType === 'note') {
+          const note = await localDb.notes.get(change.id);
+          if (note) {
+            const pushedNote = pushedByKey.get(`note:${change.id}`);
+            const stillMatchesPush =
+              !pushedNote ||
+              (note.version === pushedNote.version &&
+                note.updatedAt === pushedNote.updatedAt);
+            await localDb.notes.put({
+              ...note,
+              version: stillMatchesPush ? change.version : note.version,
+              syncStatus: stillMatchesPush ? 'synced' : 'pending',
+              lastSyncedVersion: change.version,
+              lastSyncedAt: syncedAt
+            });
+          }
+        } else {
+          const notebook = await localDb.notebooks.get(change.id);
+          if (notebook) {
+            const pushedNotebook = pushedByKey.get(`notebook:${change.id}`);
+            const stillMatchesPush =
+              !pushedNotebook ||
+              (notebook.version === pushedNotebook.version &&
+                notebook.updatedAt === pushedNotebook.updatedAt);
+            await localDb.notebooks.put({
+              ...notebook,
+              version: stillMatchesPush ? change.version : notebook.version,
+              syncStatus: stillMatchesPush ? 'synced' : 'pending',
+              lastSyncedVersion: change.version,
+              lastSyncedAt: syncedAt
+            });
+          }
         }
       }
     }
-  });
+  );
 }
 
 export async function saveConflict(
@@ -79,7 +96,8 @@ export async function saveConflict(
     if (note) await localDb.notes.put({ ...note, syncStatus: 'conflict' });
   } else {
     const notebook = await localDb.notebooks.get(conflict.entityId);
-    if (notebook) await localDb.notebooks.put({ ...notebook, syncStatus: 'conflict' });
+    if (notebook)
+      await localDb.notebooks.put({ ...notebook, syncStatus: 'conflict' });
   }
 }
 
@@ -159,7 +177,10 @@ async function mergeRemoteNote(remote: Note, syncedAt: string): Promise<void> {
   }
 }
 
-async function mergeRemoteNotebook(remote: Notebook, syncedAt: string): Promise<void> {
+async function mergeRemoteNotebook(
+  remote: Notebook,
+  syncedAt: string
+): Promise<void> {
   const local = await localDb.notebooks.get(remote.id);
   const remoteLocal: LocalNotebook = {
     ...remote,
@@ -226,7 +247,12 @@ export async function mergeRemoteChanges(
 
 export async function resolveConflict(
   conflictId: string,
-  choice: 'keep-newer' | 'keep-older' | 'keep-local' | 'keep-remote' | 'duplicate-both'
+  choice:
+    | 'keep-newer'
+    | 'keep-older'
+    | 'keep-local'
+    | 'keep-remote'
+    | 'duplicate-both'
 ): Promise<void> {
   const localConflict = await localDb.conflicts.get(conflictId);
   if (!localConflict || localConflict.status === 'resolved') return;

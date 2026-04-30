@@ -1,8 +1,25 @@
+import type { APIRequestContext, Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
 
-const token = 'e2e-token';
+let token = '';
 const localDeviceId = 'e2e-browser-device';
+const loginUsername = 'owner';
+const loginPassword = 'e2e-password';
+
+type RemoteNote = {
+  id: string;
+  title: string;
+  body: string;
+  notebookIds: string[];
+  notebookId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+  trashedAt: string | null;
+  deviceId: string;
+  version: number;
+  syncStatus: 'synced' | 'pending' | 'conflict' | 'deleted';
+};
 
 async function browserNoteBodies(page: Page) {
   return await page.evaluate(
@@ -24,6 +41,46 @@ async function browserNoteBodies(page: Page) {
   );
 }
 
+async function pullRemoteNotes(request: APIRequestContext): Promise<RemoteNote[]> {
+  const response = await request.post('/api/sync/pull', {
+    headers: { authorization: `Bearer ${token}` },
+    data: { since: null }
+  });
+  expect(response.ok()).toBe(true);
+  const body = (await response.json()) as { notes: RemoteNote[] };
+  return body.notes;
+}
+
+async function pushRemoteNote(
+  request: APIRequestContext,
+  note: RemoteNote,
+  baseVersion: number,
+  device = { id: 'e2e-remote-device', name: 'E2E remote' }
+) {
+  const response = await request.post('/api/sync/push', {
+    headers: { authorization: `Bearer ${token}` },
+    data: {
+      device,
+      notebooks: [],
+      notes: [{ record: note, baseVersion }]
+    }
+  });
+  expect(response.ok()).toBe(true);
+}
+
+async function loginForToken(request: APIRequestContext): Promise<string> {
+  const response = await request.post('/api/auth/login', {
+    data: {
+      username: loginUsername,
+      password: loginPassword,
+      device: { id: localDeviceId, name: 'E2E browser' }
+    }
+  });
+  expect(response.ok()).toBe(true);
+  const body = (await response.json()) as { token: string };
+  return body.token;
+}
+
 async function hoverMenusThroughBridge(page: Page) {
   const menuButton = page.getByRole('button', { name: 'Show menus' });
   const box = await menuButton.boundingBox();
@@ -34,13 +91,15 @@ async function hoverMenusThroughBridge(page: Page) {
   await page.mouse.move(box.x + 80, box.y + box.height + 18);
 }
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, request }) => {
+  token = await loginForToken(request);
   await page.addInitScript(
-    ({ deviceId, authToken }) => {
+    ({ deviceId, authToken, username }) => {
       localStorage.setItem('author-notes-device-id', deviceId);
       localStorage.setItem('author-notes-token', authToken);
+      localStorage.setItem('author-notes-username', username);
     },
-    { deviceId: localDeviceId, authToken: token }
+    { deviceId: localDeviceId, authToken: token, username: loginUsername }
   );
 });
 
@@ -70,6 +129,125 @@ test('renames and deletes notebooks from hover controls', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Work' })).toHaveCount(0);
 });
 
+test('keeps a stored online session synced from local edits', async ({ page, request }) => {
+  await page.goto('/');
+
+  const titleText = `Online session note ${Date.now()}`;
+  const bodyText = 'Autosynced from a local IndexedDB edit';
+
+  await page.getByLabel('Note title').fill(titleText);
+  await page.getByLabel('Note body').fill(bodyText);
+  await expect.poll(() => browserNoteBodies(page)).toContain(bodyText);
+
+  await expect
+    .poll(
+      async () => (await pullRemoteNotes(request)).find((note) => note.title === titleText)?.body ?? null,
+      { timeout: 15_000 }
+    )
+    .toBe(bodyText);
+});
+
+test('keeps edits made during an online sync pending until the latest local version lands', async ({
+  page,
+  request
+}) => {
+  let sawFirstPush: () => void = () => undefined;
+  const firstPushStarted = new Promise<void>((resolve) => {
+    sawFirstPush = resolve;
+  });
+  let delayedFirstPush = false;
+
+  await page.route('**/api/sync/push', async (route) => {
+    if (!delayedFirstPush) {
+      delayedFirstPush = true;
+      sawFirstPush();
+      await page.waitForTimeout(700);
+    }
+    await route.continue();
+  });
+
+  await page.goto('/');
+
+  const titleText = `In-flight local edit ${Date.now()}`;
+  const firstBody = 'First version sent to the server';
+  const secondBody = 'Second version typed while sync is still running';
+
+  await page.getByLabel('Note title').fill(titleText);
+  await page.getByLabel('Note body').fill(firstBody);
+  await expect.poll(() => browserNoteBodies(page)).toContain(firstBody);
+
+  await firstPushStarted;
+
+  await page.getByLabel('Note body').fill(secondBody);
+  await expect.poll(() => browserNoteBodies(page)).toContain(secondBody);
+
+  await expect
+    .poll(
+      async () => (await pullRemoteNotes(request)).find((note) => note.title === titleText)?.body ?? null,
+      { timeout: 15_000 }
+    )
+    .toBe(secondBody);
+});
+
+test('keeps local offline edits and reports conflicts when the online session returns', async ({
+  page,
+  request
+}) => {
+  const now = new Date().toISOString();
+  const titleText = `Reconnect conflict ${Date.now()}`;
+  const note: RemoteNote = {
+    id: `e2e-reconnect-conflict-${Date.now()}`,
+    title: titleText,
+    body: 'Original remote note',
+    notebookIds: [],
+    notebookId: null,
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: null,
+    trashedAt: null,
+    deviceId: 'e2e-seed-device',
+    version: 1,
+    syncStatus: 'pending'
+  };
+  await pushRemoteNote(request, note, 0, { id: 'e2e-seed-device', name: 'E2E seed' });
+
+  await page.goto('/');
+  await hoverMenusThroughBridge(page);
+  const seededNote = page.getByText(titleText, { exact: true });
+  await expect(seededNote).toBeVisible();
+  await seededNote.click();
+
+  await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+  await page.context().setOffline(true);
+
+  const localBody = 'Local browser version while offline';
+  await page.getByLabel('Note body').fill(localBody);
+  await expect.poll(() => browserNoteBodies(page)).toContain(localBody);
+
+  const remoteBody = 'Remote phone version while browser was offline';
+  await pushRemoteNote(
+    request,
+    {
+      ...note,
+      body: remoteBody,
+      deviceId: 'e2e-phone-device',
+      updatedAt: new Date(Date.now() + 1000).toISOString(),
+      version: 2,
+      syncStatus: 'pending'
+    },
+    1,
+    { id: 'e2e-phone-device', name: 'E2E Phone' }
+  );
+
+  await page.context().setOffline(false);
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+
+  const dialog = page.getByRole('dialog', { name: 'Sync conflict' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText(remoteBody);
+  await expect(dialog).toContainText(localBody);
+});
+
 test('persists in browser IndexedDB, syncs, and shows stale-edit conflicts', async ({
   page,
   request
@@ -78,49 +256,22 @@ test('persists in browser IndexedDB, syncs, and shows stale-edit conflicts', asy
 
   const title = page.getByLabel('Note title');
   const body = page.getByLabel('Note body');
-  const menuButton = page.getByRole('button', { name: 'Show menus' });
-  const syncButton = page.getByRole('button', { name: 'Sync', exact: true });
 
   await expect(title).toBeVisible();
-  await menuButton.hover();
-  await expect(syncButton).toBeVisible();
-  await expect(syncButton).toBeEnabled();
-  await hoverMenusThroughBridge(page);
-  await expect(syncButton).toBeVisible();
 
   await title.fill('Browser sync note');
   await body.fill('Stored in IndexedDB first');
   await expect(body).toHaveValue('Stored in IndexedDB first');
   await expect.poll(() => browserNoteBodies(page)).toContain('Stored in IndexedDB first');
 
-  await menuButton.hover();
-  await syncButton.click();
-  await expect(page.getByText('Synced')).toBeVisible();
-
-  const pullResponse = await request.post('/api/sync/pull', {
-    headers: { authorization: `Bearer ${token}` },
-    data: { since: null }
-  });
-  expect(pullResponse.ok()).toBe(true);
-
-  const pulled = (await pullResponse.json()) as {
-    notes: Array<{
-      id: string;
-      title: string;
-      body: string;
-      notebookIds: string[];
-      notebookId: string | null;
-      createdAt: string;
-      updatedAt: string;
-      deletedAt: string | null;
-      trashedAt: string | null;
-      deviceId: string;
-      version: number;
-      syncStatus: 'synced' | 'pending' | 'conflict' | 'deleted';
-    }>;
-  };
-  const remoteNote = pulled.notes.find((note) => note.title === 'Browser sync note');
-  expect(remoteNote?.body).toBe('Stored in IndexedDB first');
+  await expect
+    .poll(
+      async () => (await pullRemoteNotes(request)).find((note) => note.title === 'Browser sync note')?.body ?? null,
+      { timeout: 15_000 }
+    )
+    .toBe('Stored in IndexedDB first');
+  const remoteNote = (await pullRemoteNotes(request)).find((note) => note.title === 'Browser sync note');
+  expect(remoteNote).toBeDefined();
 
   const phoneEdit = {
     ...remoteNote!,
@@ -141,12 +292,9 @@ test('persists in browser IndexedDB, syncs, and shows stale-edit conflicts', asy
   expect(remotePush.ok()).toBe(true);
 
   await body.fill('Local browser version');
-  await page.waitForTimeout(300);
-  await menuButton.hover();
-  await syncButton.click();
 
   const dialog = page.getByRole('dialog', { name: 'Sync conflict' });
-  await expect(dialog).toBeVisible();
+  await expect(dialog).toBeVisible({ timeout: 15_000 });
   await expect(dialog).toContainText('Remote phone version');
   await expect(dialog).toContainText('Local browser version');
 });

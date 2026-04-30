@@ -15,7 +15,6 @@ RUN aube install && aube -F @author/web run build
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3000
-ENV NOTES_DB_PROVIDER=local
 ENV NOTES_DB_PATH=/data/notes.sqlite
 ENV NOTES_CLEANUP_ENABLED=true
 ENV NOTES_CLEANUP_RUN_ON_START=true

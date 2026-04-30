@@ -5,6 +5,7 @@ import { localDb, type LocalConflict, type LocalNote, type LocalNotebook } from 
 
 const DEVICE_KEY = 'author-notes-device-id';
 const TOKEN_KEY = 'author-notes-token';
+const USERNAME_KEY = 'author-notes-username';
 const THEME_KEY = 'author-notes-theme';
 
 export interface NotesJsonNotebook {
@@ -118,6 +119,18 @@ export function getToken(): string | null {
 
 export function setToken(token: string): void {
   localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function clearToken(): void {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+export function getUsername(): string | null {
+  return localStorage.getItem(USERNAME_KEY);
+}
+
+export function setUsername(username: string): void {
+  localStorage.setItem(USERNAME_KEY, username);
 }
 
 export function getTheme(): 'light' | 'dark' {
@@ -374,6 +387,14 @@ export async function loadPendingConflicts(): Promise<LocalConflict[]> {
 
 export async function loadDevices(): Promise<Device[]> {
   return localDb.devices.toArray();
+}
+
+export async function loadPendingSyncCount(): Promise<number> {
+  const [notes, notebooks] = await Promise.all([
+    localDb.notes.where('syncStatus').equals('pending').count(),
+    localDb.notebooks.where('syncStatus').equals('pending').count()
+  ]);
+  return notes + notebooks;
 }
 
 export async function exportNotesJson(): Promise<NotesJsonArchive> {
@@ -753,17 +774,29 @@ export async function saveDevices(devices: Device[]): Promise<void> {
 
 export async function markAcceptedChanges(
   accepted: Array<{ entityType: 'note' | 'notebook'; id: string; version: number; updatedAt: string }>,
-  syncedAt: string
+  syncedAt: string,
+  pushed: Array<{
+    entityType: 'note' | 'notebook';
+    id: string;
+    version: number;
+    updatedAt: string;
+  }> = []
 ): Promise<void> {
+  const pushedByKey = new Map(pushed.map((change) => [`${change.entityType}:${change.id}`, change]));
+
   await localDb.transaction('rw', [localDb.notes, localDb.notebooks], async () => {
     for (const change of accepted) {
       if (change.entityType === 'note') {
         const note = await localDb.notes.get(change.id);
         if (note) {
+          const pushedNote = pushedByKey.get(`note:${change.id}`);
+          const stillMatchesPush =
+            !pushedNote ||
+            (note.version === pushedNote.version && note.updatedAt === pushedNote.updatedAt);
           await localDb.notes.put({
             ...note,
-            version: change.version,
-            syncStatus: 'synced',
+            version: stillMatchesPush ? change.version : note.version,
+            syncStatus: stillMatchesPush ? 'synced' : 'pending',
             lastSyncedVersion: change.version,
             lastSyncedAt: syncedAt
           });
@@ -771,10 +804,15 @@ export async function markAcceptedChanges(
       } else {
         const notebook = await localDb.notebooks.get(change.id);
         if (notebook) {
+          const pushedNotebook = pushedByKey.get(`notebook:${change.id}`);
+          const stillMatchesPush =
+            !pushedNotebook ||
+            (notebook.version === pushedNotebook.version &&
+              notebook.updatedAt === pushedNotebook.updatedAt);
           await localDb.notebooks.put({
             ...notebook,
-            version: change.version,
-            syncStatus: 'synced',
+            version: stillMatchesPush ? change.version : notebook.version,
+            syncStatus: stillMatchesPush ? 'synced' : 'pending',
             lastSyncedVersion: change.version,
             lastSyncedAt: syncedAt
           });

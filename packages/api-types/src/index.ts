@@ -1,13 +1,27 @@
 import type { Device, Note, Notebook } from '@author/schema';
 
 export interface AuthLoginRequest {
+  username?: string;
   password: string;
   device: Device;
 }
 
+export interface AuthUser {
+  username: string;
+}
+
 export interface AuthLoginResponse {
   token: string;
+  user: AuthUser;
   device: Device;
+  expiresAt: string;
+}
+
+export interface AuthValidateResponse {
+  ok: true;
+  time: string;
+  user: AuthUser;
+  expiresAt: string | null;
 }
 
 export interface HealthResponse {

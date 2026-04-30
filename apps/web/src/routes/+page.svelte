@@ -32,17 +32,20 @@
   import type { LocalConflict, LocalNote, LocalNotebook } from '$lib/client/db';
   import {
     assignNoteToNotebook,
+    clearToken,
     createBlankNote,
     createNotebook,
     deleteNotebook,
     exportNotesJson,
     getTheme,
     getToken,
+    getUsername,
     importNotesJson,
     loadDevices,
     loadNotes,
     loadNotebooks,
     loadPendingConflicts,
+    loadPendingSyncCount,
     loadTrash,
     moveNoteToTrash,
     noteDisplayTitle,
@@ -54,14 +57,22 @@
     resolveConflict,
     setTheme,
     setToken,
+    setUsername,
     updateNoteContent
   } from '$lib/client/store';
-  import { login, runSync } from '$lib/client/sync';
+  import { AuthError, login, runSync, validateSession } from '$lib/client/sync';
 
   type NoteSort = 'date-desc' | 'az' | 'za';
   type NoteGroup = { label: string; notes: LocalNote[] };
   type EditorSnapshot = { title: string; body: string };
-  type SyncIndicatorKind = 'synced' | 'pending' | 'conflict' | 'deleted' | 'offline' | 'syncing';
+  type SyncIndicatorKind =
+    | 'synced'
+    | 'pending'
+    | 'conflict'
+    | 'deleted'
+    | 'offline'
+    | 'local-only'
+    | 'syncing';
   type ContextMenuState =
     | { type: 'note'; noteId: string; x: number; y: number }
     | { type: 'notebook'; notebookId: string; x: number; y: number }
@@ -75,27 +86,37 @@
   const MAX_EDITOR_ZOOM = 1.4;
   const EDITOR_ZOOM_STEP = 0.1;
   const MAX_EDITOR_HISTORY = 120;
+  const AUTO_SYNC_DELAY_MS = 600;
+  const SYNC_RETRY_DELAY_MS = 12_000;
+  const ONLINE_SESSION_SYNC_MS = 60_000;
 
   let notes: LocalNote[] = [];
   let notebooks: LocalNotebook[] = [];
   let trash: LocalNote[] = [];
   let devices: Device[] = [];
   let conflicts: LocalConflict[] = [];
+  let pendingSyncCount = 0;
   let selectedNote: LocalNote | null = null;
   let titleValue = '';
   let bodyValue = '';
   let filterId: 'all' | 'unfiled' | 'trash' | string = 'all';
   let linkingNoteId: string | null = null;
-  let syncMessage = 'Offline first';
+  let syncMessage = 'Sign in to sync';
   let isSyncing = false;
   let isLoggingIn = false;
   let hasToken = false;
+  let isBrowserOnline = true;
   let theme: 'light' | 'dark' = 'light';
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  let autoSyncTimer: ReturnType<typeof setTimeout> | null = null;
+  let retrySyncTimer: ReturnType<typeof setTimeout> | null = null;
+  let onlineSessionTimer: ReturnType<typeof setInterval> | null = null;
+  let syncQueued = false;
   let newNotebookOpen = false;
   let notebookNameValue = '';
   let notebookError = '';
   let loginOpen = false;
+  let loginUsernameValue = '';
   let loginPasswordValue = '';
   let loginError = '';
   let renamingNotebookId: string | null = null;
@@ -135,19 +156,30 @@
   $: activeConflict = conflicts[0] ?? null;
   $: notebookCounts = countNotesByNotebook(notes);
   $: unfiledCount = notebookCounts.get('') ?? 0;
-  $: pendingSyncCount = countPendingSync(notes, trash, notebooks);
   $: syncIndicatorKind = getSyncIndicatorKind();
   $: syncIndicatorLabel = getSyncIndicatorLabel();
+  $: syncIndicatorDetail = getSyncIndicatorDetail();
   $: contextNote = getContextNote(contextMenu);
   $: contextNotebook = getContextNotebook(contextMenu);
   $: if (settingsOpen) void focusSettingsModal();
   $: canUndoEditor = undoStack.length > 0 && !selectedNote?.trashedAt;
   $: canRedoEditor = redoStack.length > 0 && !selectedNote?.trashedAt;
+  $: if (hasToken && isBrowserOnline && pendingSyncCount > 0) {
+    scheduleSync(AUTO_SYNC_DELAY_MS);
+  }
 
   onMount(() => {
+    isBrowserOnline = navigator.onLine;
     const clock = setInterval(() => {
       currentTime = new Date();
     }, 1000);
+    onlineSessionTimer = setInterval(() => {
+      if (document.visibilityState !== 'hidden') {
+        scheduleSync(0);
+      }
+    }, ONLINE_SESSION_SYNC_MS);
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     void initialize();
 
@@ -155,6 +187,10 @@
       clearInterval(clock);
       if (saveTimer) clearTimeout(saveTimer);
       if (menuCloseTimer) clearTimeout(menuCloseTimer);
+      if (autoSyncTimer) clearTimeout(autoSyncTimer);
+      if (retrySyncTimer) clearTimeout(retrySyncTimer);
+      if (onlineSessionTimer) clearInterval(onlineSessionTimer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   });
 
@@ -170,17 +206,62 @@
     const token = getToken();
     hasToken = Boolean(token);
     if (token) {
+      await resumeOnlineSession(token);
+    }
+  }
+
+  async function resumeOnlineSession(token = getToken()) {
+    if (!token) {
+      hasToken = false;
+      return;
+    }
+
+    hasToken = true;
+    if (!isBrowserOnline) {
+      syncMessage = 'Offline';
+      return;
+    }
+
+    try {
+      await validateSession(token);
       await syncNow();
+    } catch (error) {
+      handleSyncError(error);
+    }
+  }
+
+  function handleOnline() {
+    isBrowserOnline = true;
+    syncMessage = hasSyncSession() ? 'All changes saved' : 'Sign in to sync';
+    void resumeOnlineSession();
+  }
+
+  function handleOffline() {
+    isBrowserOnline = false;
+    if (autoSyncTimer) {
+      clearTimeout(autoSyncTimer);
+      autoSyncTimer = null;
+    }
+    syncMessage = 'Offline';
+  }
+
+  function handleVisibilityChange() {
+    if (document.visibilityState === 'visible') {
+      if (!navigator.onLine) {
+        isBrowserOnline = false;
+      }
+      scheduleSync(0);
     }
   }
 
   async function refresh() {
-    [notes, notebooks, trash, conflicts, devices] = await Promise.all([
+    [notes, notebooks, trash, conflicts, devices, pendingSyncCount] = await Promise.all([
       loadNotes(),
       loadNotebooks(),
       loadTrash(),
       loadPendingConflicts(),
-      loadDevices()
+      loadDevices(),
+      loadPendingSyncCount()
     ]);
   }
 
@@ -382,6 +463,7 @@
 
   function openLoginSettings() {
     loginOpen = true;
+    loginUsernameValue = getUsername() ?? '';
     openSettingsModal();
   }
 
@@ -610,34 +692,41 @@
     return counts;
   }
 
-  function countPendingSync(
-    activeNotes: LocalNote[],
-    trashedNotes: LocalNote[],
-    activeNotebooks: LocalNotebook[]
-  ): number {
-    const pendingNotes = [...activeNotes, ...trashedNotes].filter(
-      (note) => note.syncStatus === 'pending'
-    ).length;
-    const pendingNotebooks = activeNotebooks.filter(
-      (notebook) => notebook.syncStatus === 'pending'
-    ).length;
-    return pendingNotes + pendingNotebooks;
-  }
-
   function getSyncIndicatorKind(): SyncIndicatorKind {
+    const hasSession = hasSyncSession();
     if (isSyncing) return 'syncing';
     if (conflicts.length > 0) return 'conflict';
+    if (!isBrowserOnline) return 'offline';
+    if (!hasSession) return 'local-only';
     if (pendingSyncCount > 0) return 'pending';
-    if (hasToken) return 'synced';
-    return 'offline';
+    return 'synced';
   }
 
   function getSyncIndicatorLabel(): string {
-    if (isSyncing) return 'Syncing';
+    const hasSession = hasSyncSession();
+    if (isSyncing) return 'Saving';
     if (conflicts.length > 0) return `${conflicts.length} conflict${conflicts.length === 1 ? '' : 's'}`;
-    if (pendingSyncCount > 0) return `${pendingSyncCount} pending`;
-    if (hasToken) return 'Synced';
-    return 'Offline';
+    if (!isBrowserOnline) return 'Offline';
+    if (!hasSession) return 'Local only';
+    if (pendingSyncCount > 0) return 'Saving';
+    return 'All changes saved';
+  }
+
+  function getSyncIndicatorDetail(): string {
+    if (isSyncing || conflicts.length > 0 || !isBrowserOnline) return '';
+    if (!hasSyncSession()) return 'Sign in to sync';
+    if (syncMessage && !isHealthySyncMessage(syncMessage) && syncMessage !== syncIndicatorLabel) {
+      return syncMessage;
+    }
+    return '';
+  }
+
+  function isHealthySyncMessage(message: string): boolean {
+    return ['Online', 'Saving', 'Syncing', 'Synced', 'All changes saved'].includes(message);
+  }
+
+  function hasSyncSession(): boolean {
+    return hasToken || Boolean(getToken());
   }
 
   function noteStatusLabel(note: LocalNote): string {
@@ -879,23 +968,100 @@
     if (restored) await selectNote(restored);
   }
 
+  function scheduleSync(delayMs = AUTO_SYNC_DELAY_MS) {
+    if (!hasToken || !isBrowserOnline) return;
+    if (isSyncing) {
+      syncQueued = true;
+      return;
+    }
+    if (autoSyncTimer) return;
+
+    autoSyncTimer = setTimeout(() => {
+      autoSyncTimer = null;
+      void syncNow();
+    }, delayMs);
+  }
+
+  function scheduleSyncRetry() {
+    if (!hasToken || !isBrowserOnline || retrySyncTimer) return;
+    retrySyncTimer = setTimeout(() => {
+      retrySyncTimer = null;
+      scheduleSync(0);
+    }, SYNC_RETRY_DELAY_MS);
+  }
+
+  function expireSession(message = 'Login expired') {
+    clearToken();
+    hasToken = false;
+    syncQueued = false;
+    if (autoSyncTimer) {
+      clearTimeout(autoSyncTimer);
+      autoSyncTimer = null;
+    }
+    if (retrySyncTimer) {
+      clearTimeout(retrySyncTimer);
+      retrySyncTimer = null;
+    }
+    syncMessage = message;
+    settingsOpen = true;
+    loginOpen = true;
+  }
+
+  function handleSyncError(error: unknown) {
+    if (error instanceof AuthError) {
+      expireSession(error.message);
+      return;
+    }
+
+    if (!navigator.onLine) {
+      isBrowserOnline = false;
+      syncMessage = 'Offline';
+      return;
+    }
+
+    syncMessage = error instanceof Error ? error.message : 'Sync failed';
+    scheduleSyncRetry();
+  }
+
   async function syncNow() {
     const token = getToken();
-    if (!token || isSyncing) return;
+    hasToken = Boolean(token);
+    if (!token) return;
+    if (!isBrowserOnline) {
+      syncMessage = 'Offline';
+      return;
+    }
+    if (isSyncing) {
+      syncQueued = true;
+      return;
+    }
 
+    if (autoSyncTimer) {
+      clearTimeout(autoSyncTimer);
+      autoSyncTimer = null;
+    }
+    if (retrySyncTimer) {
+      clearTimeout(retrySyncTimer);
+      retrySyncTimer = null;
+    }
     isSyncing = true;
-    syncMessage = 'Syncing';
+    syncMessage = 'Saving';
     try {
       const result = await runSync(token);
       syncMessage =
         result.conflicts > 0
           ? `${result.conflicts} conflict${result.conflicts === 1 ? '' : 's'}`
-          : 'Synced';
+          : 'All changes saved';
       await refresh();
     } catch (error) {
-      syncMessage = error instanceof Error ? error.message : 'Sync failed';
+      handleSyncError(error);
     } finally {
       isSyncing = false;
+      const shouldSyncAgain = syncQueued || pendingSyncCount > 0;
+      syncQueued = false;
+      if (shouldSyncAgain) {
+        scheduleSync(0);
+      }
     }
   }
 
@@ -959,14 +1125,20 @@
   function toggleLoginMenu() {
     loginOpen = !loginOpen;
     newNotebookOpen = false;
+    loginUsernameValue = getUsername() ?? '';
     loginPasswordValue = '';
     loginError = '';
   }
 
   async function submitLoginMenu() {
-    const password = loginPasswordValue.trim();
+    const username = loginUsernameValue.trim();
+    const password = loginPasswordValue;
     if (isLoggingIn) return;
-    if (!password) {
+    if (!username) {
+      loginError = 'Username required';
+      return;
+    }
+    if (!password.trim()) {
       loginError = 'Password required';
       return;
     }
@@ -974,10 +1146,12 @@
     isLoggingIn = true;
     loginError = '';
     try {
-      const token = await login(password);
-      setToken(token);
+      const session = await login(username, password);
+      setToken(session.token);
+      setUsername(session.user.username);
       hasToken = true;
       loginOpen = false;
+      loginUsernameValue = session.user.username;
       loginPasswordValue = '';
       await syncNow();
     } catch {
@@ -1015,7 +1189,12 @@
   <title>Notes</title>
 </svelte:head>
 
-<svelte:window on:keydown={handleGlobalKeydown} on:click={handleWindowClick} />
+<svelte:window
+  on:keydown={handleGlobalKeydown}
+  on:click={handleWindowClick}
+  on:online={handleOnline}
+  on:offline={handleOffline}
+/>
 
 <main class="app-shell">
   <div
@@ -1297,8 +1476,8 @@
         <p class="sync-line" aria-label={`Sync status: ${syncIndicatorLabel}`}>
           <span class={`status-dot ${syncIndicatorKind}`} aria-hidden="true"></span>
           <span>{syncIndicatorLabel}</span>
-          {#if syncMessage && syncMessage !== syncIndicatorLabel}
-            <span class="sync-detail">{syncMessage}</span>
+          {#if syncIndicatorDetail}
+            <span class="sync-detail">{syncIndicatorDetail}</span>
           {/if}
         </p>
 
@@ -1568,7 +1747,18 @@
       </div>
 
       {#if loginOpen}
-        <form class="menu-form" aria-label="Login menu" on:submit|preventDefault={submitLoginMenu}>
+        <form class="menu-form login-form" aria-label="Login menu" on:submit|preventDefault={submitLoginMenu}>
+          <label class="sr-only" for="sync-username">Sync username</label>
+          <input
+            id="sync-username"
+            type="text"
+            bind:value={loginUsernameValue}
+            autocomplete="username"
+            placeholder="Username"
+            autocapitalize="none"
+            spellcheck="false"
+            on:input={() => (loginError = '')}
+          />
           <label class="sr-only" for="sync-password">Sync password</label>
           <div class="field-row">
             <input
@@ -2541,6 +2731,10 @@
   }
 
   .status-dot.offline {
+    color: var(--muted);
+  }
+
+  .status-dot.local-only {
     color: var(--muted);
   }
 

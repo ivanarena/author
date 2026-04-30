@@ -1,4 +1,10 @@
-import type { PullResponse, PushRequest, PushResponse } from '@author/api-types';
+import type {
+  AuthLoginResponse,
+  AuthValidateResponse,
+  PullResponse,
+  PushRequest,
+  PushResponse
+} from '@author/api-types';
 import { localDb } from './db';
 import {
   getOrCreateDevice,
@@ -8,6 +14,36 @@ import {
   saveConflict
 } from './store';
 
+export class AuthError extends Error {
+  constructor(message = 'Login expired') {
+    super(message);
+    this.name = 'AuthError';
+  }
+}
+
+export class SyncHttpError extends Error {
+  constructor(
+    readonly status: number,
+    message = `Sync failed: ${status}`
+  ) {
+    super(message);
+    this.name = 'SyncHttpError';
+  }
+}
+
+function authHeaders(token: string): HeadersInit {
+  return {
+    authorization: `Bearer ${token}`
+  };
+}
+
+async function responseError(response: Response, fallback: string): Promise<Error> {
+  if (response.status === 401) return new AuthError();
+
+  const body = (await response.json().catch(() => null)) as { error?: string } | null;
+  return new SyncHttpError(response.status, body?.error ?? fallback);
+}
+
 async function apiPost<TRequest, TResponse>(
   path: string,
   token: string,
@@ -16,17 +52,29 @@ async function apiPost<TRequest, TResponse>(
   const response = await fetch(path, {
     method: 'POST',
     headers: {
-      authorization: `Bearer ${token}`,
+      ...authHeaders(token),
       'content-type': 'application/json'
     },
     body: JSON.stringify(body)
   });
 
   if (!response.ok) {
-    throw new Error(`Sync failed: ${response.status}`);
+    throw await responseError(response, `Sync failed: ${response.status}`);
   }
 
   return (await response.json()) as TResponse;
+}
+
+export async function validateSession(token: string): Promise<AuthValidateResponse> {
+  const response = await fetch('/api/auth/validate', {
+    headers: authHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw await responseError(response, `Session check failed: ${response.status}`);
+  }
+
+  return (await response.json()) as AuthValidateResponse;
 }
 
 export async function runSync(token: string): Promise<{ pushed: number; pulled: number; conflicts: number }> {
@@ -45,16 +93,32 @@ export async function runSync(token: string): Promise<{ pushed: number; pulled: 
   let conflicts = 0;
   if (pushPayload.notes.length || pushPayload.notebooks.length) {
     const pushResponse = await apiPost<PushRequest, PushResponse>('/api/sync/push', token, pushPayload);
-    await markAcceptedChanges(pushResponse.accepted, pushResponse.serverTime);
+    await markAcceptedChanges(
+      pushResponse.accepted,
+      pushResponse.serverTime,
+      [
+        ...pushPayload.notes.map((change) => ({
+          entityType: 'note' as const,
+          id: change.record.id,
+          version: change.record.version,
+          updatedAt: change.record.updatedAt
+        })),
+        ...pushPayload.notebooks.map((change) => ({
+          entityType: 'notebook' as const,
+          id: change.record.id,
+          version: change.record.version,
+          updatedAt: change.record.updatedAt
+        }))
+      ]
+    );
     for (const conflict of pushResponse.conflicts) {
       conflicts += 1;
       await saveConflict(conflict);
     }
   }
 
-  const since = (await localDb.syncMeta.get('lastPulledAt'))?.value ?? null;
   const pullResponse = await apiPost<{ since: string | null }, PullResponse>('/api/sync/pull', token, {
-    since
+    since: null
   });
   await saveDevices(pullResponse.devices);
   await mergeRemoteChanges(pullResponse.notes, pullResponse.notebooks, pullResponse.serverTime);
@@ -67,20 +131,19 @@ export async function runSync(token: string): Promise<{ pushed: number; pulled: 
   };
 }
 
-export async function login(password: string): Promise<string> {
+export async function login(username: string, password: string): Promise<AuthLoginResponse> {
   const device = await getOrCreateDevice();
   const response = await fetch('/api/auth/login', {
     method: 'POST',
     headers: {
       'content-type': 'application/json'
     },
-    body: JSON.stringify({ password, device })
+    body: JSON.stringify({ username, password, device })
   });
 
   if (!response.ok) {
-    throw new Error('Login failed');
+    throw await responseError(response, 'Login failed');
   }
 
-  const body = (await response.json()) as { token: string };
-  return body.token;
+  return (await response.json()) as AuthLoginResponse;
 }

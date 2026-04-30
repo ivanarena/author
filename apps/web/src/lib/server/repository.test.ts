@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fixtureDevice, fixtureNote, fixtureNotebook } from '@author/test-fixtures';
+import { authenticateUser, setUserPassword } from './auth';
 import { openMemoryDatabase } from './db';
 import {
   cleanupTrash,
@@ -9,6 +10,7 @@ import {
   pushChanges,
   upsertDevice
 } from './repository';
+import { syncDatabases } from './remote-sync';
 
 describe('server repository', () => {
   it('accepts new notebook and note pushes, then pulls them', async () => {
@@ -129,6 +131,64 @@ describe('server repository', () => {
       expect(await getNote(db, fixtureNote.id)).toBeNull();
     } finally {
       db.close();
+    }
+  });
+
+  it('mirrors local-only and remote-only records between databases', async () => {
+    const local = await openMemoryDatabase();
+    const remote = await openMemoryDatabase();
+    try {
+      await pushChanges(local, {
+        device: fixtureDevice,
+        notebooks: [{ record: fixtureNotebook, baseVersion: 0 }],
+        notes: [{ record: fixtureNote, baseVersion: 0 }]
+      });
+
+      const remoteOnlyNote = {
+        ...fixtureNote,
+        id: 'remote-only-note',
+        title: 'Remote only',
+        body: 'Created directly on the remote database',
+        notebookIds: [],
+        notebookId: null,
+        updatedAt: '2026-05-01T00:00:00.000Z',
+        deviceId: 'remote-device',
+        syncStatus: 'pending' as const
+      };
+      await pushChanges(remote, {
+        device: { id: 'remote-device', name: 'Remote device' },
+        notebooks: [],
+        notes: [{ record: remoteOnlyNote, baseVersion: 0 }]
+      });
+
+      await syncDatabases(local, remote);
+
+      expect((await getNote(remote, fixtureNote.id))?.body).toBe(fixtureNote.body);
+      expect((await getNote(local, remoteOnlyNote.id))?.body).toBe(remoteOnlyNote.body);
+    } finally {
+      local.close();
+      remote.close();
+    }
+  });
+
+  it('mirrors DB-backed users between databases', async () => {
+    const local = await openMemoryDatabase();
+    const remote = await openMemoryDatabase();
+    try {
+      await setUserPassword(local, 'local-user', 'local-password');
+      await setUserPassword(remote, 'remote-user', 'remote-password');
+
+      await syncDatabases(local, remote);
+
+      await expect(authenticateUser(remote, 'local-user', 'local-password')).resolves.toEqual({
+        username: 'local-user'
+      });
+      await expect(authenticateUser(local, 'remote-user', 'remote-password')).resolves.toEqual({
+        username: 'remote-user'
+      });
+    } finally {
+      local.close();
+      remote.close();
     }
   });
 });

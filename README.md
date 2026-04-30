@@ -2,7 +2,7 @@
 
 A super minimal local-first notes app for personal use.
 
-The web app opens directly into a blank note, writes instantly to IndexedDB, and syncs to a small Hono API running inside SvelteKit. The self-hosted default is local SQLite/libSQL on disk; Turso/libSQL is available as an optional remote database. The data contracts live in shared packages so a future Kotlin Android app can implement the same model and sync protocol.
+The web app opens directly into a blank note, writes instantly to IndexedDB, and syncs to a small Hono API running inside SvelteKit. The self-hosted default is local SQLite/libSQL on disk; when Turso/libSQL is configured the server keeps SQLite active and mirrors local/remote records in both directions. The data contracts live in shared packages so a future Kotlin Android app can implement the same model and sync protocol.
 
 ## Quick Start
 
@@ -23,13 +23,15 @@ aube install
 aube -F @author/web run dev
 ```
 
-Open the URL printed by Vite. The default local login password is `local-dev-password` and the default token is `local-dev-token`; change both in `apps/web/.env` for real use.
+Open the URL printed by Vite. The default local login is `owner` / `local-dev-password`; change it in `apps/web/.env` or create a DB-backed user with `aube -F @author/web run user:create -- iarena --random` for real use.
 
 ## Scripts
 
 ```sh
 aube -F @author/web run dev    # SvelteKit web app and API
 aube -F @author/web run seed   # Reset and seed the SQLite database
+aube -F @author/web run user:create -- iarena --random  # Create or reset a user
+aube -F @author/web run db:check                        # Smoke-check DB/auth/sync
 aube run mock:browser          # Open a persistent browser profile filled with mock notes
 aube run test                  # Backend, sync, and conflict tests
 aube run test:e2e              # Browser IndexedDB sync tests

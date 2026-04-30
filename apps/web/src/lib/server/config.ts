@@ -15,26 +15,7 @@ export function getDatabasePath(): string {
   return resolve(process.env.NOTES_DB_PATH ?? '.data/notes.sqlite');
 }
 
-export function getDatabaseConfig(): DatabaseConfig {
-  const provider = process.env.NOTES_DB_PROVIDER ?? 'local';
-
-  if (provider === 'turso') {
-    const url = process.env.TURSO_DATABASE_URL;
-    const authToken = process.env.TURSO_AUTH_TOKEN;
-    if (!url || !authToken) {
-      throw new Error('TURSO_DATABASE_URL and TURSO_AUTH_TOKEN are required when NOTES_DB_PROVIDER=turso');
-    }
-
-    return {
-      provider: 'turso',
-      client: { url, authToken }
-    };
-  }
-
-  if (provider !== 'local') {
-    throw new Error(`Unsupported NOTES_DB_PROVIDER "${provider}"`);
-  }
-
+export function getLocalDatabaseConfig(): Extract<DatabaseConfig, { provider: 'local' }> {
   const filePath = getDatabasePath();
   return {
     provider: 'local',
@@ -43,12 +24,52 @@ export function getDatabaseConfig(): DatabaseConfig {
   };
 }
 
-export function getAuthToken(): string {
-  return process.env.NOTES_AUTH_TOKEN ?? 'local-dev-token';
+export function getRemoteDatabaseConfig(): Extract<DatabaseConfig, { provider: 'turso' }> | null {
+  const url = process.env.TURSO_DATABASE_URL;
+  const authToken = process.env.TURSO_AUTH_TOKEN;
+  if (!url || !authToken) return null;
+
+  return {
+    provider: 'turso',
+    client: { url, authToken }
+  };
 }
 
-export function getLoginPassword(): string {
-  return process.env.NOTES_LOGIN_PASSWORD ?? 'local-dev-password';
+export function getDatabaseConfig(): DatabaseConfig {
+  // Backward-compatible name for callers that need the primary server DB.
+  // The primary DB is always local SQLite; Turso is an optional sync peer.
+  return getLocalDatabaseConfig();
+}
+
+export function shouldSyncRemoteDatabase(): boolean {
+  if (process.env.NOTES_REMOTE_SYNC_ENABLED === 'false') return false;
+  return Boolean(getRemoteDatabaseConfig());
+}
+
+export function getLegacyAuthToken(): string | null {
+  if (process.env.NOTES_LEGACY_AUTH_TOKEN_ENABLED !== 'true') return null;
+
+  const token = process.env.NOTES_AUTH_TOKEN?.trim();
+  return token || null;
+}
+
+export function getLoginUsername(): string {
+  return process.env.NOTES_LOGIN_USERNAME ?? 'owner';
+}
+
+export function getLoginPassword(): string | null {
+  const password = process.env.NOTES_LOGIN_PASSWORD;
+  if (password !== undefined) return password.trim() ? password : null;
+  return process.env.NODE_ENV === 'production' ? null : 'local-dev-password';
+}
+
+export function getAuthSessionDays(): number {
+  const days = Number(process.env.NOTES_AUTH_SESSION_DAYS ?? '90');
+  return Number.isFinite(days) && days > 0 ? Math.min(days, 3650) : 90;
+}
+
+export function shouldTrustProxyHeaders(): boolean {
+  return process.env.NOTES_TRUST_PROXY_HEADERS === 'true';
 }
 
 export function isCleanupSchedulerEnabled(): boolean {

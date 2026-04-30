@@ -2,11 +2,13 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { createClient, type Client, type InArgs, type Row, type Transaction } from '@libsql/client';
-import { getDatabaseConfig } from './config';
+import { getLocalDatabaseConfig, type DatabaseConfig } from './config';
 
 export type NotesDb = Client;
 export type NotesExecutor = Client | Transaction;
 export type SqlArgs = InArgs;
+
+const initializedDatabases = new Map<string, Promise<void>>();
 
 const schemaSql = `
   PRAGMA foreign_keys = ON;
@@ -16,6 +18,29 @@ const schemaSql = `
     name TEXT NOT NULL,
     last_seen_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS users (
+    username TEXT PRIMARY KEY,
+    password_hash TEXT NOT NULL,
+    password_salt TEXT NOT NULL,
+    password_iterations INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS auth_sessions (
+    token_hash TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    device_id TEXT,
+    created_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE,
+    FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE SET NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS auth_sessions_expires_at_idx
+    ON auth_sessions(expires_at);
 
   CREATE TABLE IF NOT EXISTS notebooks (
     id TEXT PRIMARY KEY,
@@ -130,6 +155,14 @@ export async function get(db: NotesExecutor, sql: string, args: SqlArgs = []): P
   return result.rows[0] ?? null;
 }
 
+function databaseInitKey(config: DatabaseConfig): string {
+  return config.provider === 'local' ? `local:${config.filePath}` : `turso:${config.client.url}`;
+}
+
+async function enableConnectionPragmas(db: NotesDb): Promise<void> {
+  await run(db, 'PRAGMA foreign_keys = ON');
+}
+
 async function hasColumn(db: NotesDb, tableName: string, columnName: string): Promise<boolean> {
   const rows = await all(db, `PRAGMA table_info(${tableName})`);
   return rows.some((row) => row.name === columnName);
@@ -205,15 +238,49 @@ export async function initializeDatabase(db: NotesDb): Promise<void> {
   await migrateNotebookIds(db);
 }
 
-export async function openDatabase(): Promise<NotesDb> {
-  const config = getDatabaseConfig();
+async function ensureDatabaseInitialized(config: DatabaseConfig): Promise<void> {
+  const key = databaseInitKey(config);
+  const existing = initializedDatabases.get(key);
+  if (existing) {
+    await existing;
+    return;
+  }
+
+  const initialize = (async () => {
+    const db = createClient(config.client);
+    try {
+      await initializeDatabase(db);
+    } finally {
+      db.close();
+    }
+  })();
+  initializedDatabases.set(
+    key,
+    initialize.catch((error) => {
+      initializedDatabases.delete(key);
+      throw error;
+    })
+  );
+  await initializedDatabases.get(key);
+}
+
+export async function openConfiguredDatabase(config: DatabaseConfig): Promise<NotesDb> {
   if (config.provider === 'local') {
     mkdirSync(dirname(config.filePath), { recursive: true });
   }
 
+  await ensureDatabaseInitialized(config);
   const db = createClient(config.client);
-  await initializeDatabase(db);
+  await enableConnectionPragmas(db);
   return db;
+}
+
+export async function openDatabase(): Promise<NotesDb> {
+  return await openLocalDatabase();
+}
+
+export async function openLocalDatabase(): Promise<NotesDb> {
+  return await openConfiguredDatabase(getLocalDatabaseConfig());
 }
 
 export async function openMemoryDatabase(): Promise<NotesDb> {

@@ -12,6 +12,8 @@
     "test:e2e": "playwright test",
     "test:watch": "vitest",
     "seed": "tsx scripts/seed.ts",
+    "user:create": "tsx scripts/create-user.ts",
+    "db:check": "tsx scripts/check-db-integration.ts",
     "mock:browser": "tsx scripts/prefill-browser.ts",
     "cleanup": "tsx scripts/cleanup-trash.ts",
     "prepare": "svelte-kit sync || true"

@@ -19,8 +19,8 @@ export default defineConfig({
     trace: 'retain-on-failure'
   },
   webServer: {
-    cwd: repoRoot,
-    command: `bash -lc "rm -f ${e2eDbPath}* && NOTES_DB_PROVIDER=local NOTES_DB_PATH=${e2eDbPath} NOTES_AUTH_TOKEN=e2e-token NOTES_LOGIN_PASSWORD=e2e-password NOTES_CLEANUP_ENABLED=false aube -F @author/web run dev -- --port 5179"`,
+    cwd: resolve(repoRoot, 'apps/web'),
+    command: `bash -lc "rm -f ${e2eDbPath}* && NOTES_DB_PATH=${e2eDbPath} NOTES_LOGIN_USERNAME=owner NOTES_LOGIN_PASSWORD=e2e-password NOTES_CLEANUP_ENABLED=false ./node_modules/.bin/vite --host 0.0.0.0 --port 5179"`,
     url: 'http://127.0.0.1:5179/api/health',
     reuseExistingServer: false,
     timeout: 120_000

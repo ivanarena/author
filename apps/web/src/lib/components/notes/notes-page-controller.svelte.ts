@@ -1,6 +1,7 @@
 import { onMount, tick } from 'svelte';
 import type { Device } from '@author/schema';
 import type { LocalConflict, LocalNote, LocalNotebook } from '$lib/client/db';
+import { hasStoredEncryptionKeyMaterial, rememberEncryptionPassword } from '$lib/client/encryption';
 import { noteNotebookIds, normalizeNotebookName } from '$lib/client/note-utils';
 import {
   assignNoteToNotebook,
@@ -8,6 +9,7 @@ import {
   createBlankNote,
   createNotebook,
   deleteNotebook,
+  ensureLocalNotesEncrypted,
   exportNotesJson,
   getTheme,
   getToken,
@@ -23,6 +25,7 @@ import {
   moveNoteToTrash,
   notebookNameExists,
   renameNotebook,
+  reencryptLocalNotes,
   restoreNote,
   resolveConflict,
   setTheme,
@@ -728,6 +731,12 @@ export class NotesPageController
     const token = getToken();
     this.hasToken = Boolean(token);
     if (!token) return;
+    if (!hasStoredEncryptionKeyMaterial()) {
+      clearToken();
+      this.hasToken = false;
+      this.syncMessage = 'Sign in to sync';
+      return;
+    }
     if (!this.isBrowserOnline) {
       this.syncMessage = 'Offline';
       return;
@@ -841,8 +850,10 @@ export class NotesPageController
     this.loginError = '';
     try {
       const session = await login(username, password);
+      const encryption = await rememberEncryptionPassword(session.user.username, password);
       setToken(session.token);
       setUsername(session.user.username);
+      await reencryptLocalNotes(encryption.previousMaterial, encryption.nextMaterial);
       this.hasToken = true;
       this.loginOpen = false;
       this.loginUsernameValue = session.user.username;
@@ -882,6 +893,7 @@ export class NotesPageController
     this.noteSort = getStoredSort();
     this.compactView = getStoredCompactView();
     this.editorZoom = getStoredEditorZoom();
+    await ensureLocalNotesEncrypted();
     await this.refresh();
     this.openDraftNote();
 
@@ -895,6 +907,13 @@ export class NotesPageController
   private resumeOnlineSession = async (token = getToken()) => {
     if (!token) {
       this.hasToken = false;
+      return;
+    }
+
+    if (!hasStoredEncryptionKeyMaterial()) {
+      clearToken();
+      this.hasToken = false;
+      this.syncMessage = 'Sign in to sync';
       return;
     }
 

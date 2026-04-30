@@ -21,6 +21,11 @@ Each changed entity is sent as:
 ```
 
 `baseVersion` is the last remote version the client successfully synced. New local entities use `0`.
+For notes, the browser encrypts `title` and `body` into `enc:v1` string envelopes before storage
+and push, then decrypts them after pull. Sync metadata, notebook assignment, and notebook names
+remain plain so versioning and notebook conflict checks stay small.
+Browsers with an old session token but no stored encryption key material must sign in again before
+syncing encrypted notes.
 
 ## Pull Payload
 

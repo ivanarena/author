@@ -1,10 +1,18 @@
 import type { APIRequestContext, Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
+import {
+  decryptNoteFields,
+  ENCRYPTION_KEY_MATERIAL_STORAGE_KEY,
+  encryptNoteFields,
+  isEncryptedText,
+  keyMaterialFromPassword
+} from '../../src/lib/client/encryption';
 
 let token = '';
 const localDeviceId = 'e2e-browser-device';
 const loginUsername = 'owner';
 const loginPassword = 'e2e-password';
+let e2eKeyMaterial = '';
 
 type RemoteNote = {
   id: string;
@@ -21,10 +29,10 @@ type RemoteNote = {
   syncStatus: 'synced' | 'pending' | 'conflict' | 'deleted';
 };
 
-async function browserNoteBodies(page: Page) {
+async function browserStoredNotes(page: Page): Promise<RemoteNote[]> {
   return await page.evaluate(
     () =>
-      new Promise<string[]>((resolve, reject) => {
+      new Promise<RemoteNote[]>((resolve, reject) => {
         const request = indexedDB.open('author-notes');
         request.onerror = () => reject(request.error);
         request.onsuccess = () => {
@@ -33,12 +41,35 @@ async function browserNoteBodies(page: Page) {
           const getAll = transaction.objectStore('notes').getAll();
           getAll.onerror = () => reject(getAll.error);
           getAll.onsuccess = () => {
-            resolve(getAll.result.map((note) => String(note.body ?? '')));
+            resolve(getAll.result as RemoteNote[]);
             db.close();
           };
         };
       })
   );
+}
+
+async function expectBrowserStoredEncryptedNote(page: Page, title: string, body: string) {
+  await expect
+    .poll(async () => {
+      const rawNotes = await browserStoredNotes(page);
+      const decryptedNotes = await Promise.all(
+        rawNotes.map((note) => decryptNoteFields(note, e2eKeyMaterial))
+      );
+      const noteIndex = decryptedNotes.findIndex(
+        (note) => note.title === title && note.body === body
+      );
+      if (noteIndex === -1) return false;
+
+      const rawNote = rawNotes[noteIndex];
+      return (
+        isEncryptedText(rawNote.title) &&
+        isEncryptedText(rawNote.body) &&
+        !rawNote.title.includes(title) &&
+        !rawNote.body.includes(body)
+      );
+    })
+    .toBe(true);
 }
 
 async function pullRemoteNotes(request: APIRequestContext): Promise<RemoteNote[]> {
@@ -48,7 +79,7 @@ async function pullRemoteNotes(request: APIRequestContext): Promise<RemoteNote[]
   });
   expect(response.ok()).toBe(true);
   const body = (await response.json()) as { notes: RemoteNote[] };
-  return body.notes;
+  return Promise.all(body.notes.map((note) => decryptNoteFields(note, e2eKeyMaterial)));
 }
 
 async function pushRemoteNote(
@@ -57,15 +88,18 @@ async function pushRemoteNote(
   baseVersion: number,
   device = { id: 'e2e-remote-device', name: 'E2E remote' }
 ) {
+  const encryptedNote = await encryptNoteFields(note, e2eKeyMaterial);
   const response = await request.post('/api/sync/push', {
     headers: { authorization: `Bearer ${token}` },
     data: {
       device,
       notebooks: [],
-      notes: [{ record: note, baseVersion }]
+      notes: [{ record: encryptedNote, baseVersion }]
     }
   });
   expect(response.ok()).toBe(true);
+  const body = (await response.json()) as { conflicts: unknown[] };
+  expect(body.conflicts).toHaveLength(0);
 }
 
 async function loginForToken(request: APIRequestContext): Promise<string> {
@@ -93,18 +127,30 @@ async function hoverMenusThroughBridge(page: Page) {
 
 async function waitForVisibleSyncedStatus(page: Page) {
   await hoverMenusThroughBridge(page);
-  await expect(page.getByLabel('Sync status: All changes saved')).toBeVisible();
+  await expect(
+    page
+      .getByRole('complementary', { name: 'Notes' })
+      .getByLabel('Sync status: All changes saved')
+  ).toBeVisible();
 }
 
 test.beforeEach(async ({ page, request }) => {
   token = await loginForToken(request);
+  e2eKeyMaterial = await keyMaterialFromPassword(loginUsername, loginPassword);
   await page.addInitScript(
-    ({ deviceId, authToken, username }) => {
+    ({ deviceId, authToken, username, keyMaterial, keyMaterialStorageKey }) => {
       localStorage.setItem('author-notes-device-id', deviceId);
       localStorage.setItem('author-notes-token', authToken);
       localStorage.setItem('author-notes-username', username);
+      localStorage.setItem(keyMaterialStorageKey, keyMaterial);
     },
-    { deviceId: localDeviceId, authToken: token, username: loginUsername }
+    {
+      deviceId: localDeviceId,
+      authToken: token,
+      username: loginUsername,
+      keyMaterial: e2eKeyMaterial,
+      keyMaterialStorageKey: ENCRYPTION_KEY_MATERIAL_STORAGE_KEY
+    }
   );
 });
 
@@ -142,7 +188,7 @@ test('keeps a stored online session synced from local edits', async ({ page, req
 
   await page.getByLabel('Note title').fill(titleText);
   await page.getByLabel('Note body').fill(bodyText);
-  await expect.poll(() => browserNoteBodies(page)).toContain(bodyText);
+  await expectBrowserStoredEncryptedNote(page, titleText, bodyText);
 
   await expect
     .poll(
@@ -160,7 +206,7 @@ test('shows local IndexedDB notes after a browser reload', async ({ page }) => {
 
   await page.getByLabel('Note title').fill(titleText);
   await page.getByLabel('Note body').fill(bodyText);
-  await expect.poll(() => browserNoteBodies(page)).toContain(bodyText);
+  await expectBrowserStoredEncryptedNote(page, titleText, bodyText);
 
   await page.reload();
   await hoverMenusThroughBridge(page);
@@ -174,14 +220,15 @@ test('logs in from the settings modal when no session is stored', async ({ page 
   await page.addInitScript(() => {
     localStorage.removeItem('author-notes-token');
     localStorage.removeItem('author-notes-username');
+    localStorage.removeItem('author-notes-encryption-key-material-v1');
   });
 
   await page.goto('/');
   await page.getByRole('button', { name: 'Profile and settings' }).click();
   await page.getByRole('button', { name: 'Login' }).click();
-  await page.getByLabel('Sync username').fill(loginUsername);
-  await page.getByLabel('Sync password').fill(loginPassword);
-  await page.getByRole('button', { name: 'Submit login' }).click();
+  await page.getByLabel('Username').fill(loginUsername);
+  await page.getByLabel('Password').fill(loginPassword);
+  await page.getByRole('button', { name: 'Sign in' }).click();
 
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('author-notes-token')))
@@ -216,12 +263,12 @@ test('keeps edits made during an online sync pending until the latest local vers
 
   await page.getByLabel('Note title').fill(titleText);
   await page.getByLabel('Note body').fill(firstBody);
-  await expect.poll(() => browserNoteBodies(page)).toContain(firstBody);
+  await expectBrowserStoredEncryptedNote(page, titleText, firstBody);
 
   await firstPushStarted;
 
   await page.getByLabel('Note body').fill(secondBody);
-  await expect.poll(() => browserNoteBodies(page)).toContain(secondBody);
+  await expectBrowserStoredEncryptedNote(page, titleText, secondBody);
 
   await expect
     .poll(
@@ -264,7 +311,7 @@ test('keeps local offline edits and reports conflicts when the online session re
 
   const localBody = 'Local browser version while offline';
   await page.getByLabel('Note body').fill(localBody);
-  await expect.poll(() => browserNoteBodies(page)).toContain(localBody);
+  await expectBrowserStoredEncryptedNote(page, titleText, localBody);
 
   const remoteBody = 'Remote phone version while browser was offline';
   await pushRemoteNote(
@@ -304,7 +351,7 @@ test('persists in browser IndexedDB, syncs, and shows stale-edit conflicts', asy
   await title.fill('Browser sync note');
   await body.fill('Stored in IndexedDB first');
   await expect(body).toHaveValue('Stored in IndexedDB first');
-  await expect.poll(() => browserNoteBodies(page)).toContain('Stored in IndexedDB first');
+  await expectBrowserStoredEncryptedNote(page, 'Browser sync note', 'Stored in IndexedDB first');
 
   await expect
     .poll(
@@ -324,12 +371,13 @@ test('persists in browser IndexedDB, syncs, and shows stale-edit conflicts', asy
     version: remoteNote!.version + 1,
     syncStatus: 'pending' as const
   };
+  const encryptedPhoneEdit = await encryptNoteFields(phoneEdit, e2eKeyMaterial);
   const remotePush = await request.post('/api/sync/push', {
     headers: { authorization: `Bearer ${token}` },
     data: {
       device: { id: 'e2e-phone-device', name: 'E2E Phone' },
       notebooks: [],
-      notes: [{ record: phoneEdit, baseVersion: remoteNote!.version }]
+      notes: [{ record: encryptedPhoneEdit, baseVersion: remoteNote!.version }]
     }
   });
   expect(remotePush.ok()).toBe(true);

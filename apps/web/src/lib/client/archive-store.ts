@@ -1,5 +1,6 @@
 import { localDb, type LocalNote } from './db';
 import { parseNotesJsonImportPayload } from './archive-parser';
+import { decryptNoteFields, encryptNoteFields } from './encryption';
 import { normalizeNotebookName, noteNotebookIds, primaryNotebookId } from './note-utils';
 import { getOrCreateDevice, newId, nowIso } from './local-state';
 
@@ -56,6 +57,7 @@ export async function exportNotesJson(): Promise<NotesJsonArchive> {
     localDb.notes.toArray(),
     localDb.notebooks.toArray()
   ]);
+  const decryptedNoteRows = await Promise.all(noteRows.map((note) => decryptNoteFields(note)));
   const notebooks = notebookRows
     .filter((notebook) => !notebook.deletedAt)
     .sort((a, b) => a.name.localeCompare(b.name))
@@ -66,7 +68,7 @@ export async function exportNotesJson(): Promise<NotesJsonArchive> {
       updatedAt: notebook.updatedAt
     }));
   const notebookNameById = new Map(notebooks.map((notebook) => [notebook.id, notebook.name]));
-  const notes = noteRows
+  const notes = decryptedNoteRows
     .filter((note) => !note.deletedAt)
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .map((note) => ({
@@ -200,7 +202,9 @@ export async function importNotesJson(payload: unknown): Promise<ImportNotesJson
     }
 
     if (importedNotes.length) {
-      await localDb.notes.bulkPut(importedNotes);
+      await localDb.notes.bulkPut(
+        await Promise.all(importedNotes.map((note) => encryptNoteFields(note)))
+      );
     }
   });
 

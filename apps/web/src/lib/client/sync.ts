@@ -6,7 +6,9 @@ import type {
   PushResponse
 } from '@author/api-types';
 import { localDb } from './db';
+import { hasStoredEncryptionKeyMaterial } from './encryption';
 import {
+  ensureLocalNotesEncrypted,
   getOrCreateDevice,
   markAcceptedChanges,
   mergeRemoteChanges,
@@ -78,7 +80,12 @@ export async function validateSession(token: string): Promise<AuthValidateRespon
 }
 
 export async function runSync(token: string): Promise<{ pushed: number; pulled: number; conflicts: number }> {
+  if (!hasStoredEncryptionKeyMaterial()) {
+    throw new Error('Sign in again to sync encrypted notes');
+  }
+
   const device = await getOrCreateDevice();
+  await ensureLocalNotesEncrypted();
   const [notes, notebooks] = await Promise.all([
     localDb.notes.where('syncStatus').equals('pending').toArray(),
     localDb.notebooks.where('syncStatus').equals('pending').toArray()

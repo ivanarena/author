@@ -1,7 +1,8 @@
 import type { SyncConflict } from '@author/api-types';
 import type { Device, Note, Notebook } from '@author/schema';
-import { chooseConflictVersion, nextVersionAfter, recordsDiffer } from '@author/sync-spec';
+import { chooseConflictVersion, nextVersionAfter, previewText, recordsDiffer } from '@author/sync-spec';
 import { localDb, type LocalNote, type LocalNotebook } from './db';
+import { decryptNoteFields, encryptNoteFields } from './encryption';
 import { getOrCreateDevice, newId, nowIso } from './local-state';
 
 export async function saveDevices(devices: Device[]): Promise<void> {
@@ -63,13 +64,14 @@ export async function saveConflict(
   conflict: SyncConflict<Note> | SyncConflict<Notebook>
 ): Promise<void> {
   const createdAt = nowIso();
+  const storedConflict = await decryptConflict(conflict);
   await localDb.conflicts.put({
     id: conflict.id,
     entityType: conflict.entityType,
     entityId: conflict.entityId,
     status: 'pending',
     createdAt,
-    conflict
+    conflict: storedConflict
   });
 
   if (conflict.entityType === 'note') {
@@ -81,10 +83,34 @@ export async function saveConflict(
   }
 }
 
+async function decryptConflict(
+  conflict: SyncConflict<Note> | SyncConflict<Notebook>
+): Promise<SyncConflict<Note> | SyncConflict<Notebook>> {
+  if (conflict.entityType !== 'note') return conflict;
+
+  const localRecord = await decryptNoteFields(conflict.local.record as Note);
+  const remoteRecord = await decryptNoteFields(conflict.remote.record as Note);
+  return {
+    ...conflict,
+    local: {
+      ...conflict.local,
+      previewText: previewText(localRecord),
+      record: localRecord
+    },
+    remote: {
+      ...conflict.remote,
+      previewText: previewText(remoteRecord),
+      record: remoteRecord
+    }
+  } satisfies SyncConflict<Note>;
+}
+
 async function mergeRemoteNote(remote: Note, syncedAt: string): Promise<void> {
   const local = await localDb.notes.get(remote.id);
+  const remotePlain = await decryptNoteFields(remote);
+  const remoteStored = await encryptNoteFields(remotePlain);
   const remoteLocal: LocalNote = {
-    ...remote,
+    ...remoteStored,
     syncStatus: 'synced',
     lastSyncedVersion: remote.version,
     lastSyncedAt: syncedAt
@@ -95,10 +121,11 @@ async function mergeRemoteNote(remote: Note, syncedAt: string): Promise<void> {
     return;
   }
 
+  const localPlain = await decryptNoteFields(local);
   if (
     local.syncStatus === 'pending' &&
     local.lastSyncedVersion !== remote.version &&
-    recordsDiffer(local, remote)
+    recordsDiffer(localPlain, remotePlain)
   ) {
     await saveConflict({
       id: newId(),
@@ -111,8 +138,8 @@ async function mergeRemoteNote(remote: Note, syncedAt: string): Promise<void> {
         deviceName: (await getOrCreateDevice()).name,
         updatedAt: local.updatedAt,
         version: local.version,
-        previewText: local.body.slice(0, 160) || 'Empty note',
-        record: local
+        previewText: previewText(localPlain),
+        record: localPlain
       },
       remote: {
         source: 'remote',
@@ -120,8 +147,8 @@ async function mergeRemoteNote(remote: Note, syncedAt: string): Promise<void> {
         deviceName: remote.deviceId,
         updatedAt: remote.updatedAt,
         version: remote.version,
-        previewText: remote.body.slice(0, 160) || 'Empty note',
-        record: remote
+        previewText: previewText(remotePlain),
+        record: remotePlain
       }
     });
     return;
@@ -212,24 +239,28 @@ export async function resolveConflict(
     if (conflict.entityType === 'note') {
       const remote = conflict.remote.record as Note;
       const local = conflict.local.record as Note;
-      await localDb.notes.put({
-        ...remote,
-        syncStatus: 'synced',
-        lastSyncedVersion: remote.version,
-        lastSyncedAt: now
-      });
-      await localDb.notes.put({
-        ...local,
-        id: newId(),
-        title: local.title ? `${local.title} copy` : '',
-        createdAt: now,
-        updatedAt: now,
-        deviceId: device.id,
-        version: 1,
-        syncStatus: 'pending',
-        lastSyncedVersion: 0,
-        lastSyncedAt: null
-      });
+      await localDb.notes.put(
+        await encryptNoteFields({
+          ...remote,
+          syncStatus: 'synced',
+          lastSyncedVersion: remote.version,
+          lastSyncedAt: now
+        })
+      );
+      await localDb.notes.put(
+        await encryptNoteFields({
+          ...local,
+          id: newId(),
+          title: local.title ? `${local.title} copy` : '',
+          createdAt: now,
+          updatedAt: now,
+          deviceId: device.id,
+          version: 1,
+          syncStatus: 'pending',
+          lastSyncedVersion: 0,
+          lastSyncedAt: null
+        })
+      );
     } else {
       const remote = conflict.remote.record as Notebook;
       const local = conflict.local.record as Notebook;
@@ -258,14 +289,18 @@ export async function resolveConflict(
       const selected = chooseConflictVersion(noteConflict, choice);
       const record = selected.record as Note;
       const isRemote = selected.source === 'remote';
-      await localDb.notes.put({
-        ...record,
-        deviceId: isRemote ? record.deviceId : device.id,
-        version: isRemote ? noteConflict.remote.version : nextVersionAfter(noteConflict.remote.version),
-        syncStatus: isRemote ? 'synced' : 'pending',
-        lastSyncedVersion: noteConflict.remote.version,
-        lastSyncedAt: isRemote ? now : null
-      });
+      await localDb.notes.put(
+        await encryptNoteFields({
+          ...record,
+          deviceId: isRemote ? record.deviceId : device.id,
+          version: isRemote
+            ? noteConflict.remote.version
+            : nextVersionAfter(noteConflict.remote.version),
+          syncStatus: isRemote ? 'synced' : 'pending',
+          lastSyncedVersion: noteConflict.remote.version,
+          lastSyncedAt: isRemote ? now : null
+        })
+      );
     } else {
       const notebookConflict = conflict as SyncConflict<Notebook>;
       const selected = chooseConflictVersion(notebookConflict, choice);

@@ -1,5 +1,11 @@
 import type { Device } from '@author/schema';
 import { localDb, type LocalConflict, type LocalNote, type LocalNotebook } from './db';
+import {
+  decryptNoteFields,
+  encryptNoteFields,
+  isEncryptedText,
+  reencryptNoteFields
+} from './encryption';
 import { normalizeNotebookName, noteNotebookIds, primaryNotebookId } from './note-utils';
 import { getOrCreateDevice, newId, nowIso } from './local-state';
 
@@ -26,7 +32,7 @@ export async function createBlankNote(
     lastSyncedAt: null
   };
 
-  await localDb.notes.put(note);
+  await localDb.notes.put(await encryptNoteFields(note));
   return note;
 }
 
@@ -149,7 +155,7 @@ export async function updateNoteContent(
     syncStatus: 'pending'
   };
 
-  await localDb.notes.put(updated);
+  await localDb.notes.put(await encryptNoteFields(updated));
   return updated;
 }
 
@@ -170,7 +176,7 @@ export async function assignNoteToNotebook(
       : currentIds.filter((id) => id !== notebookId)
     : [];
 
-  if (currentIds.join('\0') === notebookIds.join('\0')) return note;
+  if (currentIds.join('\0') === notebookIds.join('\0')) return decryptNoteFields(note);
 
   const device = await getOrCreateDevice();
   const updated: LocalNote = {
@@ -184,7 +190,7 @@ export async function assignNoteToNotebook(
   };
 
   await localDb.notes.put(updated);
-  return updated;
+  return decryptNoteFields(updated);
 }
 
 export async function moveNoteToTrash(noteId: string): Promise<void> {
@@ -221,14 +227,16 @@ export async function restoreNote(noteId: string): Promise<void> {
 
 export async function loadNotes(): Promise<LocalNote[]> {
   const notes = await localDb.notes.toArray();
-  return notes
+  const decrypted = await Promise.all(notes.map((note) => decryptNoteFields(note)));
+  return decrypted
     .filter((note) => !note.deletedAt && !note.trashedAt)
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 export async function loadTrash(): Promise<LocalNote[]> {
   const notes = await localDb.notes.toArray();
-  return notes
+  const decrypted = await Promise.all(notes.map((note) => decryptNoteFields(note)));
+  return decrypted
     .filter((note) => !note.deletedAt && Boolean(note.trashedAt))
     .sort((a, b) => (b.trashedAt ?? '').localeCompare(a.trashedAt ?? ''));
 }
@@ -254,4 +262,28 @@ export async function loadPendingSyncCount(): Promise<number> {
     localDb.notebooks.where('syncStatus').equals('pending').count()
   ]);
   return notes + notebooks;
+}
+
+export async function ensureLocalNotesEncrypted(): Promise<void> {
+  const notes = await localDb.notes.toArray();
+  const plaintextNotes = notes.filter(
+    (note) => !isEncryptedText(note.title) || !isEncryptedText(note.body)
+  );
+  if (!plaintextNotes.length) return;
+
+  await localDb.notes.bulkPut(await Promise.all(plaintextNotes.map((note) => encryptNoteFields(note))));
+}
+
+export async function reencryptLocalNotes(
+  previousMaterial: string,
+  nextMaterial: string
+): Promise<void> {
+  if (previousMaterial === nextMaterial) return;
+
+  const notes = await localDb.notes.toArray();
+  if (!notes.length) return;
+
+  await localDb.notes.bulkPut(
+    await Promise.all(notes.map((note) => reencryptNoteFields(note, previousMaterial, nextMaterial)))
+  );
 }

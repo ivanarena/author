@@ -2,6 +2,7 @@
   import {
     CircleUserRound,
     LogIn,
+    LogOut,
     Menu,
     Moon,
     RefreshCw,
@@ -36,30 +37,39 @@
     >
       <Menu size={18} strokeWidth={1.8} />
     </button>
-    <div class="profile-menu">
+    <div class="profile-menu" class:open={model.accountMenuOpen}>
       <button
         class="icon-button profile-trigger"
-        class:active={model.settingsOpen}
+        class:active={model.accountMenuOpen || model.settingsOpen}
+        type="button"
         title="Profile and settings"
         aria-label="Profile and settings"
-        aria-controls="profile-settings"
-        aria-expanded={model.settingsOpen}
-        onclick={model.toggleSettings}
+        aria-haspopup="menu"
+        aria-controls="profile-menu"
+        aria-expanded={model.accountMenuOpen}
+        onclick={model.toggleAccountMenu}
       >
         <CircleUserRound size={18} strokeWidth={1.8} />
       </button>
 
       <div
         class="profile-hover-card"
+        id="profile-menu"
         role="menu"
         aria-label="Profile and settings menu"
+        aria-hidden={!model.accountMenuOpen}
       >
         <header class="profile-card-header">
           <CircleUserRound size={30} strokeWidth={1.6} />
           <div>
             <strong
-              >{model.hasToken ? 'Sync profile' : 'Local workspace'}</strong
+              >{model.hasToken
+                ? model.accountDisplayName || model.accountUsername
+                : 'Local workspace'}</strong
             >
+            {#if model.hasToken}
+              <span class="profile-username">{model.accountUsername}</span>
+            {/if}
             <span
               class={`sync-state ${model.syncIndicator.kind === 'synced' ? 'ok' : 'error'}`}
               aria-label={`Sync status: ${model.syncIndicator.label}`}
@@ -74,6 +84,7 @@
           {#if model.hasToken}
             <button
               class="profile-quick-action"
+              type="button"
               role="menuitem"
               disabled={model.isSyncing || model.isArchiveBusy}
               onclick={model.syncNow}
@@ -87,9 +98,20 @@
                     : 'Sync now'}
               </span>
             </button>
+            <button
+              class="profile-quick-action"
+              type="button"
+              role="menuitem"
+              disabled={model.isAccountBusy}
+              onclick={model.logoutAccount}
+            >
+              <LogOut size={14} strokeWidth={1.8} />
+              <span>{model.isAccountBusy ? 'Signing out' : 'Log out'}</span>
+            </button>
           {:else}
             <button
               class="profile-quick-action primary"
+              type="button"
               role="menuitem"
               onclick={model.openLoginSettings}
             >
@@ -99,6 +121,7 @@
           {/if}
           <button
             class="profile-quick-action"
+            type="button"
             role="menuitem"
             onclick={model.toggleTheme}
           >
@@ -112,8 +135,9 @@
           </button>
           <button
             class="profile-quick-action"
+            type="button"
             role="menuitem"
-            onclick={model.openSettingsModal}
+            onclick={() => model.openSettingsModal()}
           >
             <Settings size={14} strokeWidth={1.8} />
             <span>Settings</span>

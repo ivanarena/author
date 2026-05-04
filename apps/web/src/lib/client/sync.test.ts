@@ -40,6 +40,7 @@ vi.mock('./db', () => ({
       where: vi.fn()
     },
     syncMeta: {
+      get: vi.fn(),
       put: vi.fn()
     }
   }
@@ -116,6 +117,7 @@ beforeEach(() => {
   vi.mocked(saveConflict).mockResolvedValue(undefined);
   vi.mocked(saveDevices).mockResolvedValue(undefined);
   vi.mocked(mergeRemoteChanges).mockResolvedValue(undefined);
+  vi.mocked(localDb.syncMeta.get).mockResolvedValue(undefined);
   vi.mocked(localDb.syncMeta.put).mockResolvedValue('lastPulledAt');
   mockPendingNotes([]);
   mockPendingNotebooks([]);
@@ -261,6 +263,10 @@ describe('client sync orchestration', () => {
   });
 
   it('skips push when there are no pending changes but still refreshes from pull', async () => {
+    vi.mocked(localDb.syncMeta.get).mockResolvedValue({
+      key: 'lastPulledAt',
+      value: '2026-05-01T10:00:00.000Z'
+    });
     const fetchMock = mockFetch(
       jsonResponse({
         notes: [],
@@ -280,7 +286,7 @@ describe('client sync orchestration', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/sync/pull',
       expect.objectContaining({
-        body: JSON.stringify({ since: null })
+        body: JSON.stringify({ since: '2026-05-01T10:00:00.000Z' })
       })
     );
     expect(markAcceptedChanges).not.toHaveBeenCalled();

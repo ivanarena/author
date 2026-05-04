@@ -8,7 +8,7 @@ import {
 import { noteNotebookIds, normalizeNotebookName } from '$lib/client/note-utils';
 import {
   assignNoteToNotebook,
-  clearToken,
+  clearStoredSession,
   createBlankNote,
   createNotebook,
   deleteNotebook,
@@ -16,8 +16,6 @@ import {
   exportNotesJson,
   exportNotesMarkdownZip,
   getTheme,
-  getToken,
-  getUsername,
   importNotesJson,
   importNotesJsonSummary,
   importNotesMarkdownFiles,
@@ -34,12 +32,22 @@ import {
   reencryptLocalNotes,
   restoreNote,
   resolveConflict,
+  getLoginHint,
+  getStoredSession,
   setTheme,
-  setToken,
-  setUsername,
+  setStoredSession,
   updateNoteContent
 } from '$lib/client/store';
-import { AuthError, login, runSync, validateSession } from '$lib/client/sync';
+import {
+  AuthError,
+  changePassword,
+  deleteAccount,
+  login,
+  logout,
+  runSync,
+  updateAccount,
+  validateSession
+} from '$lib/client/sync';
 import {
   countNotesByNotebook,
   countWords,
@@ -74,7 +82,7 @@ import type {
 
 export type NotesFilterId = 'all' | 'unfiled' | 'trash' | (string & {});
 export type Theme = 'light' | 'dark';
-export type SettingsSection = 'sync' | 'data' | 'appearance';
+export type SettingsSection = 'account' | 'sync' | 'data' | 'appearance';
 export type ConflictChoice =
   | 'keep-newer'
   | 'keep-older'
@@ -140,8 +148,18 @@ export interface NoteListPanelModel {
 export interface NavigationDockModel
   extends NotebookSidebarModel, NoteListPanelModel {
   menusOpen: boolean;
+  accountMenuOpen: boolean;
   settingsOpen: boolean;
   hasToken: boolean;
+  accountUsername: string;
+  accountDisplayName: string;
+  accountMessage: string;
+  accountError: string;
+  currentPasswordValue: string;
+  newPasswordValue: string;
+  confirmPasswordValue: string;
+  deletePasswordValue: string;
+  isAccountBusy: boolean;
   isSyncing: boolean;
   isArchiveBusy: boolean;
   theme: Theme;
@@ -149,11 +167,17 @@ export interface NavigationDockModel
   scheduleMenusClose: () => void;
   closeMenusOnBlur: (event: FocusEvent) => void;
   toggleMenus: () => void;
+  toggleAccountMenu: () => void;
+  closeAccountMenu: () => void;
   toggleSettings: () => void;
   syncNow: () => void | Promise<void>;
+  saveAccountProfile: () => void | Promise<void>;
+  changeAccountPassword: () => void | Promise<void>;
+  logoutAccount: () => void | Promise<void>;
+  deleteAccount: () => void | Promise<void>;
   openLoginSettings: () => void;
   toggleTheme: () => void;
-  openSettingsModal: () => void;
+  openSettingsModal: (section?: SettingsSection) => void;
 }
 
 export interface EditorPaneModel {
@@ -183,6 +207,15 @@ export interface SettingsModalModel {
   importInput: HTMLInputElement | null;
   importMarkdownInput: HTMLInputElement | null;
   hasToken: boolean;
+  accountUsername: string;
+  accountDisplayName: string;
+  accountMessage: string;
+  accountError: string;
+  currentPasswordValue: string;
+  newPasswordValue: string;
+  confirmPasswordValue: string;
+  deletePasswordValue: string;
+  isAccountBusy: boolean;
   isSyncing: boolean;
   isImporting: boolean;
   isArchiveBusy: boolean;
@@ -199,6 +232,10 @@ export interface SettingsModalModel {
   loginError: string;
   isLoggingIn: boolean;
   syncNow: () => void | Promise<void>;
+  saveAccountProfile: () => void | Promise<void>;
+  changeAccountPassword: () => void | Promise<void>;
+  logoutAccount: () => void | Promise<void>;
+  deleteAccount: () => void | Promise<void>;
   toggleLoginMenu: () => void;
   setSettingsSection: (section: SettingsSection) => void;
   exportJson: () => void | Promise<void>;
@@ -269,7 +306,16 @@ export class NotesPageController
   syncMessage = $state('Sign in to sync');
   isSyncing = $state(false);
   isLoggingIn = $state(false);
+  isAccountBusy = $state(false);
   hasToken = $state(false);
+  accountUsername = $state('');
+  accountDisplayName = $state('');
+  accountMessage = $state('');
+  accountError = $state('');
+  currentPasswordValue = $state('');
+  newPasswordValue = $state('');
+  confirmPasswordValue = $state('');
+  deletePasswordValue = $state('');
   isBrowserOnline = $state(true);
   theme = $state<Theme>('light');
   newNotebookOpen = $state(false);
@@ -289,9 +335,10 @@ export class NotesPageController
   editorZoom = $state(1);
   currentTime = $state(new Date());
   menusOpen = $state(false);
+  accountMenuOpen = $state(false);
   isImporting = $state(false);
   archiveOperation = $state<ArchiveOperation | null>(null);
-  settingsSection = $state<SettingsSection>('sync');
+  settingsSection = $state<SettingsSection>('account');
   settingsOpen = $state(false);
   contextMenu = $state<ContextMenuState>(null);
   undoStack = $state<EditorSnapshot[]>([]);
@@ -332,7 +379,7 @@ export class NotesPageController
       isSyncing: this.isSyncing,
       conflictCount: this.conflicts.length,
       isBrowserOnline: this.isBrowserOnline,
-      hasSession: this.hasToken || Boolean(getToken()),
+      hasSession: this.hasToken,
       pendingSyncCount: this.pendingSyncCount,
       syncMessage: this.syncMessage
     })
@@ -452,13 +499,18 @@ export class NotesPageController
 
     if (event.key !== 'Escape') return;
     this.closeContextMenu();
+    this.closeAccountMenu();
     this.closeSettings();
     this.linkingNoteId = null;
   };
 
   handleWindowClick = (event: MouseEvent) => {
     this.closeContextMenu();
-    if (!this.settingsOpen || !(event.target instanceof Element)) return;
+    if (!(event.target instanceof Element)) return;
+    if (!event.target.closest('.profile-menu')) {
+      this.closeAccountMenu();
+    }
+    if (!this.settingsOpen) return;
     if (
       event.target.closest('.settings-modal') ||
       event.target.closest('.profile-menu')
@@ -552,7 +604,20 @@ export class NotesPageController
       clearTimeout(this.menuCloseTimer);
       this.menuCloseTimer = null;
     }
+    this.closeAccountMenu();
     this.menusOpen = !this.menusOpen;
+  };
+
+  toggleAccountMenu = () => {
+    this.accountMenuOpen = !this.accountMenuOpen;
+    if (this.accountMenuOpen) {
+      this.menusOpen = false;
+      this.closeContextMenu();
+    }
+  };
+
+  closeAccountMenu = () => {
+    this.accountMenuOpen = false;
   };
 
   scheduleMenusClose = () => {
@@ -575,18 +640,27 @@ export class NotesPageController
     if (!this.settingsOpen) {
       this.loginOpen = false;
     }
+    this.closeAccountMenu();
     this.closeContextMenu();
   };
 
-  openSettingsModal = () => {
+  openSettingsModal = (section: SettingsSection = 'account') => {
+    this.settingsSection = section;
     this.settingsOpen = true;
+    if (!this.hasToken && section !== 'appearance' && section !== 'data') {
+      this.loginOpen = true;
+      this.loginUsernameValue = getLoginHint();
+    }
+    this.closeAccountMenu();
     this.closeContextMenu();
   };
 
   openLoginSettings = () => {
-    this.settingsSection = 'sync';
+    this.settingsSection = 'account';
     this.loginOpen = true;
-    this.loginUsernameValue = getUsername() ?? '';
+    this.loginUsernameValue = getLoginHint();
+    this.loginPasswordValue = '';
+    this.loginError = '';
     this.openSettingsModal();
   };
 
@@ -597,7 +671,12 @@ export class NotesPageController
 
   setSettingsSection = (section: SettingsSection) => {
     this.settingsSection = section;
-    if (section !== 'sync') {
+    if (!this.hasToken && section === 'account') {
+      this.loginOpen = true;
+      this.loginUsernameValue = getLoginHint();
+      this.loginPasswordValue = '';
+      this.loginError = '';
+    } else if (section !== 'sync') {
       this.loginOpen = false;
     }
   };
@@ -842,13 +921,11 @@ export class NotesPageController
       this.syncMessage = 'Sync paused during import/export';
       return;
     }
-    const token = getToken();
+    const token = getStoredSession()?.token ?? null;
     this.hasToken = Boolean(token);
     if (!token) return;
     if (!hasStoredEncryptionKeyMaterial()) {
-      clearToken();
-      this.hasToken = false;
-      this.syncMessage = 'Sign in to sync';
+      this.expireSession('Sign in again to sync encrypted notes');
       return;
     }
     if (!this.isBrowserOnline) {
@@ -870,6 +947,7 @@ export class NotesPageController
     }
     this.isSyncing = true;
     this.syncMessage = 'Saving';
+    let syncCompleted = false;
     try {
       const result = await runSync(token);
       this.syncMessage =
@@ -877,11 +955,13 @@ export class NotesPageController
           ? `${result.conflicts} conflict${result.conflicts === 1 ? '' : 's'}`
           : 'All changes saved';
       await this.refresh();
+      syncCompleted = true;
     } catch (error) {
       this.handleSyncError(error);
     } finally {
       this.isSyncing = false;
-      const shouldSyncAgain = this.syncQueued || this.pendingSyncCount > 0;
+      const shouldSyncAgain =
+        syncCompleted && (this.syncQueued || this.pendingSyncCount > 0);
       this.syncQueued = false;
       if (shouldSyncAgain) {
         this.scheduleSync(0);
@@ -1024,7 +1104,7 @@ export class NotesPageController
   toggleLoginMenu = () => {
     this.loginOpen = !this.loginOpen;
     this.newNotebookOpen = false;
-    this.loginUsernameValue = getUsername() ?? '';
+    this.loginUsernameValue = getLoginHint();
     this.loginPasswordValue = '';
     this.loginError = '';
   };
@@ -1044,34 +1124,165 @@ export class NotesPageController
 
     this.isLoggingIn = true;
     this.loginError = '';
+    let shouldSync = false;
     try {
       const session = await login(username, password);
       const encryption = await rememberEncryptionPassword(
         session.user.username,
         password
       );
-      setToken(session.token);
-      setUsername(session.user.username);
+      setStoredSession({
+        token: session.token,
+        user: session.user,
+        expiresAt: session.expiresAt
+      });
       await reencryptLocalNotes(
         encryption.previousMaterial,
         encryption.nextMaterial
       );
       this.hasToken = true;
+      this.accountUsername = session.user.username;
+      this.accountDisplayName = session.user.displayName ?? '';
+      this.accountError = '';
+      this.accountMessage = 'Signed in';
       this.loginOpen = false;
       this.loginUsernameValue = session.user.username;
       this.loginPasswordValue = '';
-      await this.syncNow();
-    } catch {
-      this.loginError = 'Login failed';
-      this.syncMessage = 'Login failed';
+      this.syncMessage = 'Signed in';
+      shouldSync = true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Login failed';
+      this.loginError = message;
+      this.syncMessage = message;
     } finally {
       this.isLoggingIn = false;
     }
+
+    if (shouldSync) void this.syncNow();
   };
 
   toggleTheme = () => {
     this.theme = this.theme === 'dark' ? 'light' : 'dark';
     setTheme(this.theme);
+  };
+
+  saveAccountProfile = async () => {
+    const storedSession = getStoredSession();
+    const token = storedSession?.token ?? null;
+    if (!token || this.isAccountBusy) return;
+    this.isAccountBusy = true;
+    this.accountError = '';
+    this.accountMessage = '';
+    try {
+      const response = await updateAccount(token, {
+        displayName: this.accountDisplayName
+      });
+      this.accountUsername = response.user.username;
+      this.accountDisplayName = response.user.displayName ?? '';
+      setStoredSession({
+        token,
+        user: response.user,
+        expiresAt: storedSession?.expiresAt ?? null
+      });
+      this.accountMessage = 'Profile saved';
+    } catch (error) {
+      this.accountError =
+        error instanceof Error ? error.message : 'Could not save profile';
+    } finally {
+      this.isAccountBusy = false;
+    }
+  };
+
+  changeAccountPassword = async () => {
+    const token = getStoredSession()?.token ?? null;
+    if (!token || this.isAccountBusy) return;
+    if (!this.currentPasswordValue.trim()) {
+      this.accountError = 'Current password required';
+      return;
+    }
+    if (!this.newPasswordValue.trim()) {
+      this.accountError = 'New password required';
+      return;
+    }
+    if (this.newPasswordValue !== this.confirmPasswordValue) {
+      this.accountError = 'Passwords do not match';
+      return;
+    }
+
+    this.isAccountBusy = true;
+    this.accountError = '';
+    this.accountMessage = '';
+    try {
+      const response = await changePassword(token, {
+        currentPassword: this.currentPasswordValue,
+        newPassword: this.newPasswordValue
+      });
+      const encryption = await rememberEncryptionPassword(
+        this.accountUsername,
+        this.newPasswordValue
+      );
+      await reencryptLocalNotes(
+        encryption.previousMaterial,
+        encryption.nextMaterial
+      );
+      this.accountUsername = response.user.username;
+      this.accountDisplayName = response.user.displayName ?? '';
+      this.currentPasswordValue = '';
+      this.newPasswordValue = '';
+      this.confirmPasswordValue = '';
+      this.clearLocalSession({
+        accountMessage: 'Password changed. Sign in again to keep syncing.',
+        openLogin: true,
+        syncMessage: 'Sign in to sync'
+      });
+      this.loginUsernameValue = response.user.username;
+    } catch (error) {
+      this.accountError =
+        error instanceof Error ? error.message : 'Could not change password';
+    } finally {
+      this.isAccountBusy = false;
+    }
+  };
+
+  logoutAccount = async () => {
+    const token = getStoredSession()?.token ?? null;
+    if (this.isAccountBusy) return;
+    this.isAccountBusy = true;
+    this.accountError = '';
+    try {
+      if (token) await logout(token).catch(() => undefined);
+      this.clearLocalSession({
+        accountMessage: 'Signed out',
+        syncMessage: 'Sign in to sync'
+      });
+    } finally {
+      this.isAccountBusy = false;
+    }
+  };
+
+  deleteAccount = async () => {
+    const token = getStoredSession()?.token ?? null;
+    if (!token || this.isAccountBusy) return;
+    if (!this.deletePasswordValue.trim()) {
+      this.accountError = 'Password required to delete account';
+      return;
+    }
+    this.isAccountBusy = true;
+    this.accountError = '';
+    this.accountMessage = '';
+    try {
+      await deleteAccount(token, { password: this.deletePasswordValue });
+      this.deletePasswordValue = '';
+      this.clearLocalSession({
+        accountMessage: 'Account deleted',
+        syncMessage: 'Sign in to sync'
+      });
+    } catch (error) {
+      this.accountError =
+        error instanceof Error ? error.message : 'Could not delete account';
+    } finally {
+      this.isAccountBusy = false;
+    }
   };
 
   resolveActiveConflict = async (choice: ConflictChoice) => {
@@ -1095,38 +1306,47 @@ export class NotesPageController
     this.noteSort = getStoredSort();
     this.compactView = getStoredCompactView();
     this.editorZoom = getStoredEditorZoom();
+    const storedSession = getStoredSession();
+    this.accountUsername = storedSession?.user.username ?? '';
+    this.accountDisplayName = storedSession?.user.displayName ?? '';
+    this.loginUsernameValue = getLoginHint();
     await ensureLocalNotesEncrypted();
     await this.refresh();
     this.openDraftNote();
 
-    const token = getToken();
-    this.hasToken = Boolean(token);
-    if (token) {
-      await this.resumeOnlineSession(token);
+    this.hasToken = Boolean(storedSession?.token);
+    if (storedSession?.token) {
+      await this.resumeOnlineSession(storedSession.token);
     }
   };
 
-  private resumeOnlineSession = async (token = getToken()) => {
+  private resumeOnlineSession = async (
+    token = getStoredSession()?.token ?? null
+  ) => {
     if (!token) {
       this.hasToken = false;
       return;
     }
 
     if (!hasStoredEncryptionKeyMaterial()) {
-      clearToken();
-      this.hasToken = false;
-      this.syncMessage = 'Sign in to sync';
-      return;
-    }
-
-    this.hasToken = true;
-    if (!this.isBrowserOnline) {
-      this.syncMessage = 'Offline';
+      this.expireSession('Sign in again to sync encrypted notes');
       return;
     }
 
     try {
-      await validateSession(token);
+      const session = await validateSession(token);
+      this.hasToken = true;
+      this.accountUsername = session.user.username;
+      this.accountDisplayName = session.user.displayName ?? '';
+      setStoredSession({
+        token,
+        user: session.user,
+        expiresAt: session.expiresAt
+      });
+      if (!this.isBrowserOnline) {
+        this.syncMessage = 'Offline';
+        return;
+      }
       await this.syncNow();
     } catch (error) {
       this.handleSyncError(error);
@@ -1219,6 +1439,7 @@ export class NotesPageController
     const anchor = document.createElement('a');
     anchor.href = url;
     anchor.download = fileName;
+    anchor.addEventListener('click', (event) => event.stopPropagation());
     document.body.append(anchor);
     anchor.click();
     anchor.remove();
@@ -1310,7 +1531,47 @@ export class NotesPageController
   private draftNotebookId = (): string | null =>
     EMPTY_NOTEBOOK_FILTERS.has(this.filterId) ? null : this.filterId;
 
-  private hasSyncSession = (): boolean => this.hasToken || Boolean(getToken());
+  private hasSyncSession = (): boolean => this.hasToken;
+
+  private clearLocalSession = ({
+    accountMessage = '',
+    openLogin = false,
+    syncMessage = 'Sign in to sync'
+  }: {
+    accountMessage?: string;
+    openLogin?: boolean;
+    syncMessage?: string;
+  } = {}) => {
+    clearStoredSession();
+    this.hasToken = false;
+    this.accountUsername = '';
+    this.accountDisplayName = '';
+    this.accountMessage = accountMessage;
+    this.accountError = '';
+    this.currentPasswordValue = '';
+    this.newPasswordValue = '';
+    this.confirmPasswordValue = '';
+    this.deletePasswordValue = '';
+    this.loginUsernameValue = getLoginHint();
+    this.loginPasswordValue = '';
+    this.loginError = '';
+    this.loginOpen = openLogin;
+    this.accountMenuOpen = false;
+    this.syncQueued = false;
+    this.syncMessage = syncMessage;
+    if (this.autoSyncTimer) {
+      clearTimeout(this.autoSyncTimer);
+      this.autoSyncTimer = null;
+    }
+    if (this.retrySyncTimer) {
+      clearTimeout(this.retrySyncTimer);
+      this.retrySyncTimer = null;
+    }
+    if (openLogin) {
+      this.settingsSection = 'account';
+      this.settingsOpen = true;
+    }
+  };
 
   private notebookName = (notebookId: string | null): string | null => {
     if (!notebookId) return null;
@@ -1402,20 +1663,13 @@ export class NotesPageController
   };
 
   private expireSession = (message = 'Login expired') => {
-    clearToken();
-    this.hasToken = false;
-    this.syncQueued = false;
-    if (this.autoSyncTimer) {
-      clearTimeout(this.autoSyncTimer);
-      this.autoSyncTimer = null;
-    }
-    if (this.retrySyncTimer) {
-      clearTimeout(this.retrySyncTimer);
-      this.retrySyncTimer = null;
-    }
-    this.syncMessage = message;
-    this.settingsOpen = true;
-    this.loginOpen = true;
+    const displayMessage =
+      message.toLowerCase() === 'unauthorized' ? 'Login expired' : message;
+    this.clearLocalSession({
+      accountMessage: displayMessage,
+      openLogin: true,
+      syncMessage: displayMessage
+    });
   };
 
   private handleSyncError = (error: unknown) => {

@@ -145,6 +145,74 @@ describe('Hono API', () => {
     );
   });
 
+  it('updates profile, logs out, changes password, and deletes account', async () => {
+    let token = await loginToken();
+
+    const profile = await api.fetch(
+      new Request('http://localhost/api/account', {
+        method: 'PATCH',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({ displayName: 'Iv' })
+      })
+    );
+    expect(profile.status).toBe(200);
+    await expect(profile.json()).resolves.toMatchObject({
+      user: { username: 'owner', displayName: 'Iv' }
+    });
+
+    const logout = await post('/api/auth/logout', {}, token);
+    expect(logout.status).toBe(200);
+    const loggedOut = await api.fetch(
+      new Request('http://localhost/api/auth/validate', {
+        headers: { authorization: `Bearer ${token}` }
+      })
+    );
+    expect(loggedOut.status).toBe(401);
+
+    token = await loginToken();
+    const password = await post(
+      '/api/account/password',
+      {
+        currentPassword: 'test-password',
+        newPassword: 'new-test-password'
+      },
+      token
+    );
+    expect(password.status).toBe(200);
+    await expect(loginToken('owner', 'new-test-password')).resolves.toEqual(
+      expect.any(String)
+    );
+
+    token = await loginToken('owner', 'new-test-password');
+    const deleted = await api.fetch(
+      new Request('http://localhost/api/account', {
+        method: 'DELETE',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({ password: 'new-test-password' })
+      })
+    );
+    expect(deleted.status).toBe(200);
+
+    const missing = await api.fetch(
+      new Request('http://localhost/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'owner',
+          password: 'new-test-password',
+          device: fixtureDevice
+        })
+      })
+    );
+    expect(missing.status).toBe(401);
+  });
+
   it('does not accept legacy static tokens unless explicitly enabled', async () => {
     process.env.NOTES_AUTH_TOKEN = 'legacy-test-token';
 

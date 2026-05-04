@@ -23,7 +23,7 @@
     "@author/api-types": "workspace:*",
     "@author/schema": "workspace:*",
     "@author/sync-spec": "workspace:*",
-    "@fontsource/jost": "^5.2.8",
+    "@fontsource/kedebideri": "^5.2.2",
     "@libsql/client": "latest",
     "dexie": "latest",
     "hono": "latest",

@@ -1,6 +1,10 @@
 import type {
+  AccountResponse,
+  AccountUpdateRequest,
   AuthLoginResponse,
   AuthValidateResponse,
+  DeleteAccountRequest,
+  PasswordChangeRequest,
   PullResponse,
   PushRequest,
   PushResponse
@@ -43,11 +47,10 @@ async function responseError(
   response: Response,
   fallback: string
 ): Promise<Error> {
-  if (response.status === 401) return new AuthError();
-
   const body = (await response.json().catch(() => null)) as {
     error?: string;
   } | null;
+  if (response.status === 401) return new AuthError(body?.error ?? undefined);
   return new SyncHttpError(response.status, body?.error ?? fallback);
 }
 
@@ -142,11 +145,13 @@ export async function runSync(
     }
   }
 
+  const lastPulledAt =
+    (await localDb.syncMeta.get('lastPulledAt'))?.value ?? null;
   const pullResponse = await apiPost<{ since: string | null }, PullResponse>(
     '/api/sync/pull',
     token,
     {
-      since: null
+      since: lastPulledAt
     }
   );
   await saveDevices(pullResponse.devices);
@@ -185,4 +190,76 @@ export async function login(
   }
 
   return (await response.json()) as AuthLoginResponse;
+}
+
+export async function loadAccount(token: string): Promise<AccountResponse> {
+  const response = await fetch('/api/account', {
+    headers: authHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw await responseError(response, `Account failed: ${response.status}`);
+  }
+
+  return (await response.json()) as AccountResponse;
+}
+
+export async function updateAccount(
+  token: string,
+  body: AccountUpdateRequest
+): Promise<AccountResponse> {
+  const response = await fetch('/api/account', {
+    method: 'PATCH',
+    headers: {
+      ...authHeaders(token),
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    throw await responseError(response, `Account failed: ${response.status}`);
+  }
+
+  return (await response.json()) as AccountResponse;
+}
+
+export async function changePassword(
+  token: string,
+  body: PasswordChangeRequest
+): Promise<AccountResponse> {
+  return await apiPost<PasswordChangeRequest, AccountResponse>(
+    '/api/account/password',
+    token,
+    body
+  );
+}
+
+export async function logout(token: string): Promise<void> {
+  await apiPost<Record<string, never>, { ok: true }>(
+    '/api/auth/logout',
+    token,
+    {}
+  );
+}
+
+export async function deleteAccount(
+  token: string,
+  body: DeleteAccountRequest
+): Promise<void> {
+  const response = await fetch('/api/account', {
+    method: 'DELETE',
+    headers: {
+      ...authHeaders(token),
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Delete account failed: ${response.status}`
+    );
+  }
 }

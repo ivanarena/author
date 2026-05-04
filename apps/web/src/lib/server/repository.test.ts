@@ -194,12 +194,14 @@ describe('server repository', () => {
       await expect(
         authenticateUser(remote, 'local-user', 'local-password')
       ).resolves.toEqual({
-        username: 'local-user'
+        username: 'local-user',
+        displayName: null
       });
       await expect(
         authenticateUser(local, 'remote-user', 'remote-password')
       ).resolves.toEqual({
-        username: 'remote-user'
+        username: 'remote-user',
+        displayName: null
       });
     } finally {
       local.close();

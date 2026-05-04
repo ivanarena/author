@@ -1,7 +1,7 @@
 :root {
   color-scheme: light;
   font-family:
-    'Jost',
+    'Kedebideri',
     ui-sans-serif,
     system-ui,
     -apple-system,
@@ -13,22 +13,22 @@
   --app-backdrop: #ffffff;
   --bg: #ffffff;
   --paper: #ffffff;
-  --panel: rgba(255, 255, 255, 0.42);
-  --panel-soft: rgba(255, 255, 255, 0.3);
-  --panel-transparent: rgba(255, 255, 255, 0.36);
-  --panel-soft-transparent: rgba(255, 255, 255, 0.26);
-  --scrim: rgba(255, 255, 255, 0.42);
+  --panel: rgba(255, 255, 255, 0.28);
+  --panel-soft: rgba(255, 255, 255, 0.2);
+  --panel-transparent: rgba(255, 255, 255, 0.22);
+  --panel-soft-transparent: rgba(255, 255, 255, 0.16);
+  --scrim: rgba(255, 255, 255, 0.3);
   --text: #202020;
   --muted: #707070;
   --line: rgba(32, 32, 32, 0.11);
   --line-strong: rgba(32, 32, 32, 0.2);
   --accent: #4f4f4f;
   --danger: #4f4f4f;
-  --field: rgba(255, 255, 255, 0.34);
+  --field: rgba(255, 255, 255, 0.2);
   --hover: rgba(32, 32, 32, 0.055);
   --active: rgba(32, 32, 32, 0.085);
   --surface-blur: blur(30px) saturate(180%);
-  --glass-highlight: rgba(255, 255, 255, 0.58);
+  --glass-highlight: rgba(255, 255, 255, 0.4);
   --shadow-soft:
     0 18px 60px rgba(32, 32, 32, 0.1), inset 0 1px 0 var(--glass-highlight);
   --space-1: 4px;
@@ -54,22 +54,22 @@
   --app-backdrop: #111111;
   --bg: #111111;
   --paper: #151515;
-  --panel: rgba(24, 24, 27, 0.46);
-  --panel-soft: rgba(32, 32, 36, 0.32);
-  --panel-transparent: rgba(18, 18, 21, 0.42);
-  --panel-soft-transparent: rgba(36, 36, 40, 0.3);
-  --scrim: rgba(17, 19, 22, 0.44);
+  --panel: rgba(24, 24, 27, 0.32);
+  --panel-soft: rgba(32, 32, 36, 0.22);
+  --panel-transparent: rgba(18, 18, 21, 0.28);
+  --panel-soft-transparent: rgba(36, 36, 40, 0.2);
+  --scrim: rgba(17, 19, 22, 0.32);
   --text: #f2f2f2;
   --muted: #aaaaaa;
   --line: rgba(242, 242, 242, 0.12);
   --line-strong: rgba(242, 242, 242, 0.23);
   --accent: #e8e8e8;
   --danger: #d8d8d8;
-  --field: rgba(24, 24, 28, 0.32);
+  --field: rgba(24, 24, 28, 0.22);
   --hover: rgba(242, 242, 242, 0.075);
   --active: rgba(242, 242, 242, 0.12);
   --surface-blur: blur(30px) saturate(170%);
-  --glass-highlight: rgba(255, 255, 255, 0.08);
+  --glass-highlight: rgba(255, 255, 255, 0.05);
   --shadow-soft:
     0 20px 70px rgba(0, 0, 0, 0.34), inset 0 1px 0 var(--glass-highlight);
   --space-1: 4px;

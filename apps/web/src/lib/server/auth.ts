@@ -17,6 +17,7 @@ const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,62}[a-z0-9]$|^[a-z0-9]$/;
 
 type UserRow = {
   username: string;
+  display_name: string | null;
   password_hash: string;
   password_salt: string;
   password_iterations: number;
@@ -30,6 +31,7 @@ type SessionRow = {
 
 export interface AuthUser {
   username: string;
+  displayName: string | null;
 }
 
 export interface AuthSession {
@@ -93,6 +95,14 @@ function requirePassword(password: string): string {
   return password;
 }
 
+function cleanDisplayName(
+  displayName: string | null | undefined
+): string | null {
+  const trimmed = displayName?.trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, 80);
+}
+
 async function hashPassword(
   password: string,
   salt = randomBytes(16).toString('base64url'),
@@ -133,7 +143,7 @@ async function getUserRow(
 ): Promise<UserRow | null> {
   const row = await get(
     db,
-    `SELECT username, password_hash, password_salt, password_iterations
+    `SELECT username, display_name, password_hash, password_salt, password_iterations
      FROM users
      WHERE username = ?`,
     [username]
@@ -174,8 +184,8 @@ export async function setUserPassword(
   await run(
     db,
     `INSERT INTO users (
-       username, password_hash, password_salt, password_iterations, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?)
+       username, display_name, password_hash, password_salt, password_iterations, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(username) DO UPDATE SET
        password_hash = excluded.password_hash,
        password_salt = excluded.password_salt,
@@ -183,6 +193,7 @@ export async function setUserPassword(
        updated_at = excluded.updated_at`,
     [
       normalized,
+      null,
       passwordHash.hash,
       passwordHash.salt,
       passwordHash.iterations,
@@ -191,7 +202,7 @@ export async function setUserPassword(
     ]
   );
 
-  return { username: normalized };
+  return { username: normalized, displayName: null };
 }
 
 export async function authenticateUser(
@@ -207,7 +218,7 @@ export async function authenticateUser(
     (await maybeBootstrapEnvUser(db, normalized, password));
   if (!row) return null;
   return (await verifyPassword(password, row))
-    ? { username: normalized }
+    ? { username: normalized, displayName: row.display_name }
     : null;
 }
 
@@ -250,7 +261,7 @@ export async function sessionFromToken(
   const legacyToken = getLegacyAuthToken();
   if (legacyToken && tokensMatch(token, legacyToken)) {
     return {
-      user: { username: 'legacy-token' },
+      user: { username: 'legacy-token', displayName: null },
       expiresAt: null,
       legacy: true
     };
@@ -259,11 +270,12 @@ export async function sessionFromToken(
 
   const row = (await get(
     db,
-    `SELECT username, last_seen_at, expires_at
+    `SELECT auth_sessions.username, users.display_name, last_seen_at, expires_at
      FROM auth_sessions
+     LEFT JOIN users ON users.username = auth_sessions.username
      WHERE token_hash = ?`,
     [hash]
-  )) as SessionRow | null;
+  )) as (SessionRow & { display_name: string | null }) | null;
   if (!row) return null;
 
   const now = new Date().toISOString();
@@ -285,10 +297,61 @@ export async function sessionFromToken(
   }
 
   return {
-    user: { username: row.username },
+    user: { username: row.username, displayName: row.display_name },
     expiresAt: row.expires_at,
     legacy: false
   };
+}
+
+export async function updateUserProfile(
+  db: NotesExecutor,
+  username: string,
+  displayName: string | null | undefined
+): Promise<AuthUser> {
+  const normalized = requireUsername(username);
+  const nextDisplayName = cleanDisplayName(displayName);
+  await run(
+    db,
+    'UPDATE users SET display_name = ?, updated_at = ? WHERE username = ?',
+    [nextDisplayName, new Date().toISOString(), normalized]
+  );
+  return { username: normalized, displayName: nextDisplayName };
+}
+
+export async function changeUserPassword(
+  db: NotesExecutor,
+  username: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<AuthUser | null> {
+  const normalized = requireUsername(username);
+  const row = await getUserRow(db, normalized);
+  if (!row || !(await verifyPassword(currentPassword, row))) return null;
+  await setUserPassword(db, normalized, newPassword);
+  return { username: normalized, displayName: row.display_name };
+}
+
+export async function deleteUserAccount(
+  db: NotesExecutor,
+  username: string,
+  password: string
+): Promise<boolean> {
+  const normalized = requireUsername(username);
+  const row = await getUserRow(db, normalized);
+  if (!row || !(await verifyPassword(password, row))) return false;
+  await run(db, 'DELETE FROM users WHERE username = ?', [normalized]);
+  return true;
+}
+
+export async function deleteSessionFromRequest(
+  db: NotesExecutor,
+  request: Request
+): Promise<void> {
+  const token = tokenFromRequest(request);
+  if (!token || tokensMatch(token, getLegacyAuthToken() ?? '')) return;
+  await run(db, 'DELETE FROM auth_sessions WHERE token_hash = ?', [
+    tokenHash(token)
+  ]);
 }
 
 export async function sessionFromRequest(

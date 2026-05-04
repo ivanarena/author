@@ -238,15 +238,18 @@ test('logs in from the settings modal when no session is stored', async ({
   await page.addInitScript(() => {
     localStorage.removeItem('author-notes-token');
     localStorage.removeItem('author-notes-username');
+    localStorage.removeItem('author-notes-display-name');
+    localStorage.removeItem('author-notes-session-expires-at');
     localStorage.removeItem('author-notes-encryption-key-material-v1');
   });
 
   await page.goto('/');
   await page.getByRole('button', { name: 'Profile and settings' }).click();
-  await page.getByRole('button', { name: 'Login' }).click();
-  await page.getByLabel('Username').fill(loginUsername);
-  await page.getByLabel('Password').fill(loginPassword);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('menuitem', { name: 'Sign in to sync' }).click();
+  const settings = page.getByRole('dialog', { name: 'Settings' });
+  await settings.getByLabel('Username').fill(loginUsername);
+  await settings.getByLabel('Password').fill(loginPassword);
+  await settings.getByRole('button', { name: 'Sign in' }).click();
 
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('author-notes-token')))
@@ -254,6 +257,68 @@ test('logs in from the settings modal when no session is stored', async ({
   await expect(
     page.getByRole('button', { name: 'Sync', exact: true })
   ).toBeVisible();
+
+  await settings.getByRole('button', { name: 'Close settings' }).click();
+  await page.getByRole('button', { name: 'Profile and settings' }).click();
+  await page.getByRole('menuitem', { name: 'Log out' }).click();
+
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('author-notes-token')))
+    .toBeNull();
+  await page.getByRole('button', { name: 'Profile and settings' }).click();
+  await expect(
+    page.getByRole('menuitem', { name: 'Sign in to sync' })
+  ).toBeVisible();
+});
+
+test('exports JSON without closing settings and imports JSON from the same modal', async ({
+  page
+}) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Profile and settings' }).click();
+  await page.getByRole('menuitem', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Data' }).click();
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export JSON' }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/^author-notes-.*\.json$/);
+
+  const importButton = page.getByRole('button', { name: 'Import JSON' });
+  await expect(importButton).toBeVisible();
+  await expect(importButton).toBeEnabled();
+
+  const chooserPromise = page.waitForEvent('filechooser');
+  await importButton.click();
+  const chooser = await chooserPromise;
+  await chooser.setFiles({
+    name: 'author-notes-import-smoke.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(
+      JSON.stringify({
+        app: 'author-notes',
+        format: 'author-notes-json',
+        version: 1,
+        exportedAt: '2026-05-04T09:00:00.000Z',
+        notebooks: [{ id: 'smoke-notebook', name: 'Smoke Test' }],
+        notes: [
+          {
+            title: 'Import smoke',
+            body: 'Imported from the e2e archive test.',
+            notebookIds: ['smoke-notebook'],
+            createdAt: '2026-05-04T09:00:00.000Z',
+            updatedAt: '2026-05-04T09:00:00.000Z',
+            trashedAt: null
+          }
+        ]
+      })
+    )
+  });
+
+  await expect(page.getByLabel('Note title')).toHaveValue('Import smoke');
+  await expect(page.getByLabel('Note body')).toHaveValue(
+    'Imported from the e2e archive test.'
+  );
 });
 
 test('keeps edits made during an online sync pending until the latest local version lands', async ({

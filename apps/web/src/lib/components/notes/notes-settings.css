@@ -12,11 +12,13 @@
 
 .settings-modal {
   display: grid;
-  gap: 16px;
-  width: min(640px, 100%);
+  gap: 0;
+  width: min(780px, 100%);
+  max-height: min(760px, calc(100vh - 40px));
+  overflow: hidden;
   border: 1px solid var(--line);
   border-radius: var(--radius-panel);
-  padding: 18px;
+  padding: 0;
   background: var(--panel-transparent);
   box-shadow: var(--shadow-soft);
   -webkit-backdrop-filter: var(--surface-blur);
@@ -31,7 +33,7 @@
   align-items: center;
   min-width: 0;
   border-bottom: 1px solid var(--line);
-  padding-bottom: 12px;
+  padding: 18px 20px;
 }
 
 .settings-title {
@@ -55,9 +57,9 @@
 
 .settings-body {
   display: grid;
-  grid-template-columns: 180px minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: 190px minmax(0, 1fr);
   min-width: 0;
+  overflow: hidden;
 }
 
 .settings-menu,
@@ -68,9 +70,9 @@
 .settings-menu {
   display: grid;
   align-content: start;
-  gap: var(--space-2);
+  gap: 4px;
   border-right: 1px solid var(--line);
-  padding-right: 12px;
+  padding: 16px 12px;
 }
 
 .settings-menu-item {
@@ -80,7 +82,8 @@
   align-items: center;
   min-height: var(--control-height);
   border-color: transparent;
-  padding: 0 10px;
+  border-radius: var(--radius-md);
+  padding: 0 9px;
   color: var(--muted);
   text-align: left;
   transition:
@@ -106,8 +109,15 @@
 .settings-menu-item:focus-visible,
 .settings-menu-item.active {
   border-color: transparent;
-  background: transparent;
+  background: var(--hover);
   color: var(--text);
+}
+
+.settings-menu-action {
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  padding-top: 10px;
 }
 
 .settings-menu-item:hover svg:last-child,
@@ -119,7 +129,11 @@
 .settings-panel {
   display: grid;
   align-content: start;
-  gap: 14px;
+  gap: 16px;
+  max-height: calc(min(760px, 100vh - 40px) - 73px);
+  min-height: 260px;
+  overflow: auto;
+  padding: 16px 20px 20px;
 }
 
 .settings-panel-header {
@@ -127,7 +141,7 @@
   grid-template-columns: auto minmax(0, 1fr);
   gap: 8px;
   align-items: center;
-  min-height: 32px;
+  min-height: 28px;
   color: var(--text);
 }
 
@@ -153,6 +167,7 @@
   align-items: center;
   min-height: var(--control-height);
   border-color: var(--line);
+  border-radius: var(--radius-md);
   padding: 0 11px;
   background: transparent;
   color: var(--muted);
@@ -166,6 +181,72 @@
   border-color: var(--line-strong);
   background: transparent;
   color: var(--text);
+}
+
+.account-summary,
+.account-empty {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 14px;
+}
+
+.account-empty {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 96px;
+}
+
+.signed-out-card {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.account-summary div,
+.account-empty div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.account-summary strong,
+.account-summary span,
+.account-empty strong,
+.account-empty span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-summary strong,
+.account-empty strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.account-summary span,
+.account-empty span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.settings-section-title {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  color: var(--text);
+}
+
+.settings-section-title strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .settings-action-group {
@@ -254,29 +335,95 @@
   text-align: center;
 }
 
-.login-form {
-  gap: var(--space-2);
+.login-form,
+.account-form {
+  gap: 10px;
 }
 
 .login-copy {
   display: grid;
-  gap: 4px;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
   margin-bottom: 2px;
 }
 
+.login-copy div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.login-copy-icon {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  color: var(--text);
+}
+
 .login-copy strong {
+  min-width: 0;
+  overflow: hidden;
   color: var(--text);
   font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .login-copy span,
-.login-form label {
+.login-form label,
+.account-form label {
   color: var(--muted);
   font-size: 12px;
 }
 
-.login-form label {
+.login-form label,
+.account-form label {
   font-weight: 600;
+}
+
+.account-form {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 14px;
+}
+
+.account-form input[readonly] {
+  color: var(--muted);
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.field-row {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.danger-zone {
+  border-bottom: 0;
+}
+
+.danger-action,
+.danger-action:hover,
+.danger-action:focus-visible {
+  color: #c9362f;
+}
+
+.danger-title {
+  color: #c9362f;
+}
+
+.form-success {
+  margin: 0;
+  color: #1f8f4d;
+  font-size: 12px;
 }
 
 .login-actions {
@@ -284,4 +431,11 @@
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   margin-top: 2px;
+}
+
+@media (max-width: 560px) {
+  .auth-field-grid,
+  .login-actions {
+    grid-template-columns: 1fr;
+  }
 }

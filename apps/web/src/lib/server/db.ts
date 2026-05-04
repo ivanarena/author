@@ -27,6 +27,7 @@ const schemaSql = `
 
   CREATE TABLE IF NOT EXISTS users (
     username TEXT PRIMARY KEY,
+    display_name TEXT,
     password_hash TEXT NOT NULL,
     password_salt TEXT NOT NULL,
     password_iterations INTEGER NOT NULL,
@@ -282,6 +283,9 @@ async function migrateNotebookIds(db: NotesDb): Promise<void> {
 
 export async function initializeDatabase(db: NotesDb): Promise<void> {
   await exec(db, schemaSql);
+  if (!(await hasColumn(db, 'users', 'display_name'))) {
+    await run(db, 'ALTER TABLE users ADD COLUMN display_name TEXT');
+  }
   await migrateLegacyMarkdownColumns(db);
   await migrateNotebookIds(db);
 }

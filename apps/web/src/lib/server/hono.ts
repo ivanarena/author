@@ -1,8 +1,11 @@
 import type {
+  AccountUpdateRequest,
   AuthLoginRequest,
   AuthLoginResponse,
   AuthValidateResponse,
+  DeleteAccountRequest,
   HealthResponse,
+  PasswordChangeRequest,
   PullRequest,
   PushRequest
 } from '@author/api-types';
@@ -10,13 +13,17 @@ import type { Note, Notebook, SyncStatus } from '@author/schema';
 import { Hono } from 'hono';
 import {
   authenticateUser,
+  changeUserPassword,
   createAuthSession,
+  deleteSessionFromRequest,
+  deleteUserAccount,
   normalizeUsername,
   requireAuth,
   sessionFromRequest,
+  updateUserProfile,
   unauthorized
 } from './auth';
-import { shouldTrustProxyHeaders } from './config';
+import { shouldSyncRemoteDatabase, shouldTrustProxyHeaders } from './config';
 import { openLocalDatabase, type NotesDb } from './db';
 import {
   cleanupTrash,
@@ -35,6 +42,7 @@ const MAX_FAILED_LOGIN_ATTEMPTS = 8;
 const MAX_LOGIN_ATTEMPT_KEYS = 500;
 const MAX_LOGIN_BODY_BYTES = 16 * 1024;
 const MAX_SYNC_BODY_BYTES = 5 * 1024 * 1024;
+const LOGIN_REMOTE_SYNC_GRACE_MS = 500;
 const SYNC_STATUSES = new Set<SyncStatus>([
   'synced',
   'pending',
@@ -43,15 +51,60 @@ const SYNC_STATUSES = new Set<SyncStatus>([
 ]);
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 
+function reportRemoteSyncError(error: unknown): void {
+  console.warn(
+    'Remote database sync failed:',
+    error instanceof Error ? error.message : error
+  );
+}
+
 async function syncRemoteBestEffort(db: NotesDb): Promise<void> {
   try {
     await syncRemoteDatabase(db);
   } catch (error) {
-    console.warn(
-      'Remote database sync failed:',
-      error instanceof Error ? error.message : error
-    );
+    reportRemoteSyncError(error);
   }
+}
+
+async function syncRemoteWithFreshConnection(): Promise<void> {
+  if (!shouldSyncRemoteDatabase()) return;
+
+  let db: NotesDb | null = null;
+  try {
+    db = await openLocalDatabase();
+    await syncRemoteBestEffort(db);
+  } catch (error) {
+    reportRemoteSyncError(error);
+  } finally {
+    db?.close();
+  }
+}
+
+async function waitForRemoteSync(
+  remoteSync: Promise<void>,
+  timeoutMs: number
+): Promise<boolean> {
+  if (!shouldSyncRemoteDatabase()) return true;
+
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      remoteSync.then(() => true),
+      new Promise<false>((resolve) => {
+        timeout = setTimeout(() => resolve(false), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function queueRemoteSyncAfter(remoteSync?: Promise<void>): void {
+  if (!shouldSyncRemoteDatabase()) return;
+  void (async () => {
+    await remoteSync;
+    await syncRemoteWithFreshConnection();
+  })();
 }
 
 function loginAttemptKey(
@@ -242,9 +295,11 @@ api.post('/api/auth/login', async (c) => {
     );
   }
 
+  const remoteSync = syncRemoteWithFreshConnection();
+  await waitForRemoteSync(remoteSync, LOGIN_REMOTE_SYNC_GRACE_MS);
+
   const db = await openLocalDatabase();
   try {
-    await syncRemoteBestEffort(db);
     const user = await authenticateUser(db, body.username, body.password);
     if (!user) {
       recordFailedLogin(attemptKey);
@@ -254,7 +309,7 @@ api.post('/api/auth/login', async (c) => {
 
     await upsertDevice(db, body.device);
     const session = await createAuthSession(db, user, body.device.id);
-    await syncRemoteBestEffort(db);
+    queueRemoteSyncAfter(remoteSync);
     return c.json({
       token: session.token,
       user,
@@ -278,6 +333,102 @@ api.get('/api/auth/validate', async (c) => {
       user: session.user,
       expiresAt: session.expiresAt
     } satisfies AuthValidateResponse);
+  } finally {
+    db.close();
+  }
+});
+
+api.post('/api/auth/logout', async (c) => {
+  const db = await openLocalDatabase();
+  try {
+    const authError = await requireAuth(db, c.req.raw);
+    if (authError) return authError;
+    await deleteSessionFromRequest(db, c.req.raw);
+    return c.json({ ok: true });
+  } finally {
+    db.close();
+  }
+});
+
+api.get('/api/account', async (c) => {
+  const db = await openLocalDatabase();
+  try {
+    const session = await sessionFromRequest(db, c.req.raw);
+    if (!session) return unauthorized();
+    return c.json({ user: session.user });
+  } finally {
+    db.close();
+  }
+});
+
+api.patch('/api/account', async (c) => {
+  const db = await openLocalDatabase();
+  try {
+    const session = await sessionFromRequest(db, c.req.raw);
+    if (!session) return unauthorized();
+    if (session.legacy) {
+      return c.json({ error: 'Legacy token accounts cannot be edited' }, 400);
+    }
+    const body = (await c.req.json().catch(() => ({}))) as AccountUpdateRequest;
+    return c.json({
+      user: await updateUserProfile(db, session.user.username, body.displayName)
+    });
+  } finally {
+    db.close();
+  }
+});
+
+api.post('/api/account/password', async (c) => {
+  const db = await openLocalDatabase();
+  try {
+    const session = await sessionFromRequest(db, c.req.raw);
+    if (!session) return unauthorized();
+    if (session.legacy) {
+      return c.json({ error: 'Legacy token accounts cannot be edited' }, 400);
+    }
+    const body = (await c.req
+      .json()
+      .catch(() => null)) as PasswordChangeRequest | null;
+    if (
+      typeof body?.currentPassword !== 'string' ||
+      typeof body?.newPassword !== 'string'
+    ) {
+      return c.json({ error: 'Invalid password payload' }, 400);
+    }
+    const user = await changeUserPassword(
+      db,
+      session.user.username,
+      body.currentPassword,
+      body.newPassword
+    );
+    if (!user) return c.json({ error: 'Current password is incorrect' }, 401);
+    return c.json({ user });
+  } finally {
+    db.close();
+  }
+});
+
+api.delete('/api/account', async (c) => {
+  const db = await openLocalDatabase();
+  try {
+    const session = await sessionFromRequest(db, c.req.raw);
+    if (!session) return unauthorized();
+    if (session.legacy) {
+      return c.json({ error: 'Legacy token accounts cannot be deleted' }, 400);
+    }
+    const body = (await c.req
+      .json()
+      .catch(() => null)) as DeleteAccountRequest | null;
+    if (typeof body?.password !== 'string') {
+      return c.json({ error: 'Invalid delete payload' }, 400);
+    }
+    const deleted = await deleteUserAccount(
+      db,
+      session.user.username,
+      body.password
+    );
+    if (!deleted) return c.json({ error: 'Password is incorrect' }, 401);
+    return c.json({ ok: true });
   } finally {
     db.close();
   }

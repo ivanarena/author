@@ -5,18 +5,23 @@
     Cloud,
     Database,
     Download,
+    KeyRound,
     LogIn,
+    LogOut,
     Moon,
     Palette,
     RefreshCw,
     Rows3,
     Settings,
     Sun,
+    Trash2,
     Upload,
+    UserRound,
     X,
     ZoomIn,
     ZoomOut
   } from 'lucide-svelte';
+  import AuthForm from './AuthForm.svelte';
   import type { SettingsModalModel } from './notes-page-controller.svelte.js';
 
   let { model }: { model: SettingsModalModel } = $props();
@@ -51,6 +56,18 @@
       <nav class="settings-menu" aria-label="Settings sections">
         <button
           class="settings-menu-item"
+          class:active={model.settingsSection === 'account'}
+          aria-current={model.settingsSection === 'account'
+            ? 'page'
+            : undefined}
+          onclick={() => model.setSettingsSection('account')}
+        >
+          <UserRound size={15} strokeWidth={1.8} />
+          <span>Account</span>
+          <ChevronRight size={14} strokeWidth={1.8} />
+        </button>
+        <button
+          class="settings-menu-item"
           class:active={model.settingsSection === 'sync'}
           aria-current={model.settingsSection === 'sync' ? 'page' : undefined}
           onclick={() => model.setSettingsSection('sync')}
@@ -81,10 +98,186 @@
           <span>Appearance</span>
           <ChevronRight size={14} strokeWidth={1.8} />
         </button>
+        {#if model.hasToken}
+          <button
+            class="settings-menu-item settings-menu-action"
+            type="button"
+            disabled={model.isAccountBusy}
+            onclick={(event) => {
+              event.stopPropagation();
+              void model.logoutAccount();
+            }}
+          >
+            <LogOut size={15} strokeWidth={1.8} />
+            <span>Log out</span>
+          </button>
+        {/if}
       </nav>
 
       <section class="settings-panel">
-        {#if model.settingsSection === 'sync'}
+        {#if model.settingsSection === 'account'}
+          <header class="settings-panel-header">
+            <UserRound size={16} strokeWidth={1.8} />
+            <h3>Account</h3>
+          </header>
+
+          {#if model.hasToken}
+            <div class="account-summary">
+              <UserRound size={20} strokeWidth={1.7} />
+              <div>
+                <strong
+                  >{model.accountDisplayName || model.accountUsername}</strong
+                >
+                <span>{model.accountUsername}</span>
+              </div>
+            </div>
+
+            <form
+              class="menu-form account-form"
+              aria-label="Profile"
+              onsubmit={(event) => {
+                event.preventDefault();
+                void model.saveAccountProfile();
+              }}
+            >
+              <div class="field-row">
+                <label for="account-username">Username</label>
+                <input
+                  id="account-username"
+                  type="text"
+                  value={model.accountUsername}
+                  readonly
+                />
+              </div>
+              <div class="field-row">
+                <label for="account-display-name">Nickname</label>
+                <input
+                  id="account-display-name"
+                  type="text"
+                  bind:value={model.accountDisplayName}
+                  placeholder="Nickname"
+                  autocomplete="nickname"
+                  oninput={() => {
+                    model.accountError = '';
+                    model.accountMessage = '';
+                  }}
+                />
+              </div>
+              <button
+                class="settings-action login-submit"
+                type="submit"
+                disabled={model.isAccountBusy}
+              >
+                <Check size={15} strokeWidth={1.9} />
+                <span>Save profile</span>
+              </button>
+            </form>
+
+            <form
+              class="menu-form account-form"
+              aria-label="Change password"
+              onsubmit={(event) => {
+                event.preventDefault();
+                void model.changeAccountPassword();
+              }}
+            >
+              <div class="settings-section-title">
+                <KeyRound size={15} strokeWidth={1.8} />
+                <strong>Password</strong>
+              </div>
+              <div class="field-row">
+                <label for="current-password">Current</label>
+                <input
+                  id="current-password"
+                  type="password"
+                  bind:value={model.currentPasswordValue}
+                  autocomplete="current-password"
+                  oninput={() => (model.accountError = '')}
+                />
+              </div>
+              <div class="field-grid">
+                <div class="field-row">
+                  <label for="new-password">New</label>
+                  <input
+                    id="new-password"
+                    type="password"
+                    bind:value={model.newPasswordValue}
+                    autocomplete="new-password"
+                    oninput={() => (model.accountError = '')}
+                  />
+                </div>
+                <div class="field-row">
+                  <label for="confirm-password">Confirm</label>
+                  <input
+                    id="confirm-password"
+                    type="password"
+                    bind:value={model.confirmPasswordValue}
+                    autocomplete="new-password"
+                    oninput={() => (model.accountError = '')}
+                  />
+                </div>
+              </div>
+              <button
+                class="settings-action"
+                type="submit"
+                disabled={model.isAccountBusy}
+              >
+                <KeyRound size={15} strokeWidth={1.8} />
+                <span>Change password</span>
+              </button>
+            </form>
+
+            <form
+              class="menu-form account-form danger-zone"
+              aria-label="Delete account"
+              onsubmit={(event) => {
+                event.preventDefault();
+                void model.deleteAccount();
+              }}
+            >
+              <div class="settings-section-title danger-title">
+                <Trash2 size={15} strokeWidth={1.8} />
+                <strong>Delete account</strong>
+              </div>
+              <div class="field-row">
+                <label for="delete-password">Password</label>
+                <input
+                  id="delete-password"
+                  type="password"
+                  bind:value={model.deletePasswordValue}
+                  autocomplete="current-password"
+                  oninput={() => (model.accountError = '')}
+                />
+              </div>
+              <button
+                class="settings-action danger-action"
+                type="submit"
+                disabled={model.isAccountBusy}
+              >
+                <Trash2 size={15} strokeWidth={1.8} />
+                <span>Delete account</span>
+              </button>
+            </form>
+
+            {#if model.accountError}
+              <p class="form-error" role="alert">{model.accountError}</p>
+            {:else if model.accountMessage}
+              <p class="form-success" role="status">{model.accountMessage}</p>
+            {/if}
+          {:else}
+            <div class="account-empty signed-out-card">
+              <UserRound size={22} strokeWidth={1.7} />
+              <div>
+                <strong>Local workspace</strong>
+                <span>Sync is off for this browser</span>
+              </div>
+            </div>
+            {#if model.accountMessage}
+              <p class="form-success" role="status">{model.accountMessage}</p>
+            {/if}
+            <AuthForm {model} />
+          {/if}
+        {:else if model.settingsSection === 'sync'}
           <header class="settings-panel-header">
             <Cloud size={16} strokeWidth={1.8} />
             <h3>Sync</h3>
@@ -120,62 +313,7 @@
           </div>
 
           {#if model.loginOpen}
-            <form
-              class="menu-form login-form"
-              aria-label="Login menu"
-              onsubmit={(event) => {
-                event.preventDefault();
-                void model.submitLoginMenu();
-              }}
-            >
-              <div class="login-copy">
-                <strong>Sign in to sync</strong>
-                <span
-                  >Connect this browser and keep notes current across devices.</span
-                >
-              </div>
-              <label for="sync-username">Username</label>
-              <input
-                id="sync-username"
-                type="text"
-                bind:value={model.loginUsernameValue}
-                autocomplete="username"
-                placeholder="Username"
-                autocapitalize="none"
-                spellcheck="false"
-                oninput={() => (model.loginError = '')}
-              />
-              <label for="sync-password">Password</label>
-              <input
-                id="sync-password"
-                type="password"
-                bind:value={model.loginPasswordValue}
-                autocomplete="current-password"
-                placeholder="Sync password"
-                oninput={() => (model.loginError = '')}
-              />
-              {#if model.loginError}
-                <p class="form-error">{model.loginError}</p>
-              {/if}
-              <div class="login-actions">
-                <button
-                  class="settings-action login-submit"
-                  type="submit"
-                  disabled={model.isLoggingIn || model.isArchiveBusy}
-                >
-                  <Check size={15} strokeWidth={1.9} />
-                  <span>{model.isLoggingIn ? 'Signing in' : 'Sign in'}</span>
-                </button>
-                <button
-                  class="settings-action"
-                  type="button"
-                  onclick={() => (model.loginOpen = false)}
-                >
-                  <X size={15} strokeWidth={1.9} />
-                  <span>Cancel</span>
-                </button>
-              </div>
-            </form>
+            <AuthForm {model} showCancel />
           {/if}
         {:else if model.settingsSection === 'data'}
           <header class="settings-panel-header">

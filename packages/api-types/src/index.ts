@@ -8,6 +8,7 @@ export interface AuthLoginRequest {
 
 export interface AuthUser {
   username: string;
+  displayName: string | null;
 }
 
 export interface AuthLoginResponse {
@@ -22,6 +23,23 @@ export interface AuthValidateResponse {
   time: string;
   user: AuthUser;
   expiresAt: string | null;
+}
+
+export interface AccountUpdateRequest {
+  displayName?: string | null;
+}
+
+export interface PasswordChangeRequest {
+  currentPassword: string;
+  newPassword: string;
+}
+
+export interface DeleteAccountRequest {
+  password: string;
+}
+
+export interface AccountResponse {
+  user: AuthUser;
 }
 
 export interface HealthResponse {

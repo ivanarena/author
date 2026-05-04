@@ -1,6 +1,3 @@
-import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { Note, Notebook } from '@author/schema';
 import {
@@ -11,13 +8,6 @@ import {
   parseNotesMarkdownImportFiles,
   type MarkdownImportFile
 } from './markdown-archive';
-
-const sampleExportRoot = fileURLToPath(
-  new URL(
-    '../../../../../to_import/nn-export-195-md-frontmatter-1777555130715',
-    import.meta.url
-  )
-);
 
 describe('Markdown archive import and export', () => {
   it('parses frontmatter notes and strips the generated title heading', () => {
@@ -48,13 +38,15 @@ describe('Markdown archive import and export', () => {
     expect(parsed.updatedAt).toBe(parsed.createdAt);
   });
 
-  it('reads the real to_import folder as notebooks and notes', async () => {
-    const files = await markdownFiles(sampleExportRoot);
+  it('parses a Notesnook-style folder export as notebooks and notes', async () => {
+    const files = notesnookExportFiles();
     const parsed = await parseNotesMarkdownImportFiles(files);
     const sampleNote = parsed.notes.find((note) => note.title === 'Code ideas');
 
-    expect(parsed.notes).toHaveLength(195);
+    expect(parsed.notes).toHaveLength(6);
     expect(parsed.notebooks.map((notebook) => notebook.name).sort()).toEqual([
+      'drafts',
+      'ideas',
       'junk',
       'poems',
       'songs'
@@ -65,6 +57,13 @@ describe('Markdown archive import and export', () => {
       updatedAt: expect.any(String)
     });
     expect(sampleNote?.body.startsWith('# Code ideas')).toBe(false);
+    expect(parsed.notes.find((note) => note.title === 'Loose idea')).toEqual(
+      expect.objectContaining({
+        sourceNotebookNames: ['junk', 'ideas'],
+        body: 'Loose idea\n\nA note without frontmatter.'
+      })
+    );
+    expect(parsed.notes.map((note) => note.title)).not.toContain('Readme');
   });
 
   it('falls back to folder paths and file names without frontmatter', async () => {
@@ -161,30 +160,50 @@ describe('Markdown archive import and export', () => {
   });
 });
 
-async function markdownFiles(root: string): Promise<MarkdownImportFile[]> {
-  const entries = await readMarkdownFiles(root);
-  return Promise.all(
-    entries.map(async (path) => {
-      const content = await readFile(path, 'utf8');
-      const relativePath = path.slice(root.length + 1).replaceAll('\\', '/');
-      return markdownFile(`nn-export/${relativePath}`, content);
-    })
-  );
+function notesnookExportFiles(): MarkdownImportFile[] {
+  return [
+    markdownFile(
+      'nn-export/junk/Code ideas.md',
+      frontmatterNote(
+        'Code ideas',
+        '# Code ideas\n\nBuild a tiny parser first.'
+      )
+    ),
+    markdownFile(
+      'nn-export/junk/ideas/Loose idea.md',
+      'Loose idea\n\nA note without frontmatter.'
+    ),
+    markdownFile(
+      'nn-export/poems/Aurora.md',
+      frontmatterNote('Aurora', "# Aurora\n\nun'aurora mi stringe")
+    ),
+    markdownFile(
+      'nn-export/poems/Haiku.md',
+      frontmatterNote('Haiku', 'river in winter')
+    ),
+    markdownFile(
+      'nn-export/songs/Verse.md',
+      frontmatterNote('Verse', '# Verse\n\nmelody fragment')
+    ),
+    markdownFile(
+      'nn-export/songs/drafts/Bridge.md',
+      frontmatterNote('Bridge', 'half-written middle eight')
+    ),
+    markdownFile('nn-export/Readme.txt', 'not a markdown note')
+  ];
 }
 
-async function readMarkdownFiles(root: string): Promise<string[]> {
-  const entries = await readdir(root, { withFileTypes: true });
-  const paths = await Promise.all(
-    entries.map(async (entry) => {
-      const path = join(root, entry.name);
-      return entry.isDirectory()
-        ? readMarkdownFiles(path)
-        : entry.name.endsWith('.md')
-          ? [path]
-          : [];
-    })
-  );
-  return paths.flat().sort();
+function frontmatterNote(title: string, body: string): string {
+  return [
+    '---',
+    `title: "${title}"`,
+    'created_at: 15-12-2023 04:35 PM',
+    'updated_at: 16-12-2023 05:45 PM',
+    'tags: ',
+    '---',
+    '',
+    body
+  ].join('\n');
 }
 
 function markdownFile(path: string, content: string): MarkdownImportFile {

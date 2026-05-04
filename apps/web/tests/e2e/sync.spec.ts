@@ -251,7 +251,9 @@ test('logs in from the settings modal when no session is stored', async ({
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('author-notes-token')))
     .toEqual(expect.any(String));
-  await expect(page.getByRole('button', { name: 'Sync' })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Sync', exact: true })
+  ).toBeVisible();
 });
 
 test('keeps edits made during an online sync pending until the latest local version lands', async ({

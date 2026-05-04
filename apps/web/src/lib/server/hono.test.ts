@@ -15,7 +15,10 @@ let tempDir: string;
 
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'author-notes-api-'));
+  delete process.env.TURSO_DATABASE_URL;
+  delete process.env.TURSO_AUTH_TOKEN;
   process.env.NOTES_DB_PATH = join(tempDir, 'notes.sqlite');
+  process.env.NOTES_REMOTE_SYNC_ENABLED = 'false';
   process.env.NOTES_LOGIN_USERNAME = 'owner';
   process.env.NOTES_LOGIN_PASSWORD = 'test-password';
 });

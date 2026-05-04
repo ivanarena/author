@@ -122,7 +122,7 @@ Create or reset a DB-backed user with:
 aube -F @author/web run user:create -- iarena --random
 ```
 
-Use the printed password once in the web UI. Existing sessions stay valid until their configured expiry; reset a password any time by running the same command with a specific password instead of `--random`.
+Use the printed password once in the web UI. Resetting a password revokes that user's existing sessions; sign in again on each browser after a reset.
 
 ## Cleanup Schedule
 

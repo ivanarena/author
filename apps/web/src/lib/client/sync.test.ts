@@ -1,0 +1,327 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Note, Notebook } from '@author/schema';
+import {
+  AuthError,
+  login,
+  runSync,
+  SyncHttpError,
+  validateSession
+} from './sync';
+import {
+  ensureLocalNotesEncrypted,
+  getOrCreateDevice,
+  markAcceptedChanges,
+  mergeRemoteChanges,
+  saveConflict,
+  saveDevices
+} from './store';
+import { hasStoredEncryptionKeyMaterial } from './encryption';
+import { localDb } from './db';
+
+vi.mock('./encryption', () => ({
+  hasStoredEncryptionKeyMaterial: vi.fn()
+}));
+
+vi.mock('./store', () => ({
+  ensureLocalNotesEncrypted: vi.fn(),
+  getOrCreateDevice: vi.fn(),
+  markAcceptedChanges: vi.fn(),
+  mergeRemoteChanges: vi.fn(),
+  saveConflict: vi.fn(),
+  saveDevices: vi.fn()
+}));
+
+vi.mock('./db', () => ({
+  localDb: {
+    notes: {
+      where: vi.fn()
+    },
+    notebooks: {
+      where: vi.fn()
+    },
+    syncMeta: {
+      put: vi.fn()
+    }
+  }
+}));
+
+const device = { id: 'device-local', name: 'Browser' };
+const note: Note = {
+  id: 'note-1',
+  title: 'Draft',
+  body: 'Body',
+  notebookIds: ['notebook-1'],
+  notebookId: 'notebook-1',
+  createdAt: '2026-05-01T10:00:00.000Z',
+  updatedAt: '2026-05-01T10:05:00.000Z',
+  deletedAt: null,
+  trashedAt: null,
+  deviceId: device.id,
+  version: 2,
+  syncStatus: 'pending'
+};
+const notebook: Notebook = {
+  id: 'notebook-1',
+  name: 'Ideas',
+  createdAt: '2026-05-01T10:00:00.000Z',
+  updatedAt: '2026-05-01T10:05:00.000Z',
+  deletedAt: null,
+  deviceId: device.id,
+  version: 3,
+  syncStatus: 'pending'
+};
+
+function pendingRows<T>(records: T[]) {
+  return {
+    equals: vi.fn(() => ({
+      toArray: vi.fn(async () => records)
+    }))
+  };
+}
+
+function mockPendingNotes(records: unknown[]) {
+  vi.mocked(localDb.notes.where).mockReturnValue(pendingRows(records) as never);
+}
+
+function mockPendingNotebooks(records: unknown[]) {
+  vi.mocked(localDb.notebooks.where).mockReturnValue(
+    pendingRows(records) as never
+  );
+}
+
+function jsonResponse(body: unknown, init: ResponseInit = {}) {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+    ...init
+  });
+}
+
+function mockFetch(...responses: Response[]) {
+  const fetchMock = vi.fn(async () => {
+    const response = responses.shift();
+    if (!response) throw new Error('Unexpected fetch call');
+    return response;
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+}
+
+beforeEach(() => {
+  vi.resetAllMocks();
+  vi.mocked(hasStoredEncryptionKeyMaterial).mockReturnValue(true);
+  vi.mocked(getOrCreateDevice).mockResolvedValue(device);
+  vi.mocked(ensureLocalNotesEncrypted).mockResolvedValue(undefined);
+  vi.mocked(markAcceptedChanges).mockResolvedValue(undefined);
+  vi.mocked(saveConflict).mockResolvedValue(undefined);
+  vi.mocked(saveDevices).mockResolvedValue(undefined);
+  vi.mocked(mergeRemoteChanges).mockResolvedValue(undefined);
+  vi.mocked(localDb.syncMeta.put).mockResolvedValue('lastPulledAt');
+  mockPendingNotes([]);
+  mockPendingNotebooks([]);
+});
+
+describe('client sync orchestration', () => {
+  it('refuses to sync before the encryption key is available', async () => {
+    vi.mocked(hasStoredEncryptionKeyMaterial).mockReturnValue(false);
+    const fetchMock = mockFetch();
+
+    await expect(runSync('session-token')).rejects.toThrow(
+      'Sign in again to sync encrypted notes'
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(ensureLocalNotesEncrypted).not.toHaveBeenCalled();
+  });
+
+  it('pushes pending local changes, stores conflicts, then merges a pull', async () => {
+    const pendingNote = {
+      ...note,
+      lastSyncedVersion: 1,
+      lastSyncedAt: null
+    };
+    const pendingNotebook = {
+      ...notebook,
+      lastSyncedVersion: 2,
+      lastSyncedAt: null
+    };
+    mockPendingNotes([pendingNote]);
+    mockPendingNotebooks([pendingNotebook]);
+    const remoteNote = { ...note, id: 'note-remote', version: 1 };
+    const remoteNotebook = { ...notebook, id: 'notebook-remote', version: 1 };
+    const conflict = {
+      id: 'conflict-1',
+      entityType: 'note' as const,
+      entityId: note.id,
+      reason: 'remote_changed' as const,
+      local: {
+        source: 'local' as const,
+        deviceId: device.id,
+        deviceName: device.name,
+        updatedAt: note.updatedAt,
+        version: note.version,
+        previewText: note.title,
+        record: note
+      },
+      remote: {
+        source: 'remote' as const,
+        deviceId: 'phone',
+        deviceName: 'Phone',
+        updatedAt: note.updatedAt,
+        version: 4,
+        previewText: 'Remote draft',
+        record: { ...note, title: 'Remote draft', version: 4 }
+      }
+    };
+    const fetchMock = mockFetch(
+      jsonResponse({
+        accepted: [
+          {
+            entityType: 'note',
+            id: note.id,
+            version: 4,
+            updatedAt: note.updatedAt
+          },
+          {
+            entityType: 'notebook',
+            id: notebook.id,
+            version: 5,
+            updatedAt: notebook.updatedAt
+          }
+        ],
+        conflicts: [conflict],
+        serverTime: '2026-05-01T10:10:00.000Z'
+      }),
+      jsonResponse({
+        notes: [remoteNote],
+        notebooks: [remoteNotebook],
+        devices: [{ id: 'phone', name: 'Phone' }],
+        serverTime: '2026-05-01T10:11:00.000Z'
+      })
+    );
+
+    await expect(runSync('session-token')).resolves.toEqual({
+      pushed: 2,
+      pulled: 2,
+      conflicts: 1
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/sync/push',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          authorization: 'Bearer session-token',
+          'content-type': 'application/json'
+        }),
+        body: JSON.stringify({
+          device,
+          notes: [{ record: pendingNote, baseVersion: 1 }],
+          notebooks: [{ record: pendingNotebook, baseVersion: 2 }]
+        })
+      })
+    );
+    expect(markAcceptedChanges).toHaveBeenCalledWith(
+      expect.any(Array),
+      '2026-05-01T10:10:00.000Z',
+      [
+        {
+          entityType: 'note',
+          id: note.id,
+          version: note.version,
+          updatedAt: note.updatedAt
+        },
+        {
+          entityType: 'notebook',
+          id: notebook.id,
+          version: notebook.version,
+          updatedAt: notebook.updatedAt
+        }
+      ]
+    );
+    expect(saveConflict).toHaveBeenCalledWith(conflict);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/sync/pull',
+      expect.objectContaining({
+        body: JSON.stringify({ since: null })
+      })
+    );
+    expect(saveDevices).toHaveBeenCalledWith([{ id: 'phone', name: 'Phone' }]);
+    expect(mergeRemoteChanges).toHaveBeenCalledWith(
+      [remoteNote],
+      [remoteNotebook],
+      '2026-05-01T10:11:00.000Z'
+    );
+    expect(localDb.syncMeta.put).toHaveBeenCalledWith({
+      key: 'lastPulledAt',
+      value: '2026-05-01T10:11:00.000Z'
+    });
+  });
+
+  it('skips push when there are no pending changes but still refreshes from pull', async () => {
+    const fetchMock = mockFetch(
+      jsonResponse({
+        notes: [],
+        notebooks: [],
+        devices: [],
+        serverTime: '2026-05-01T10:12:00.000Z'
+      })
+    );
+
+    await expect(runSync('session-token')).resolves.toEqual({
+      pushed: 0,
+      pulled: 0,
+      conflicts: 0
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/sync/pull',
+      expect.objectContaining({
+        body: JSON.stringify({ since: null })
+      })
+    );
+    expect(markAcceptedChanges).not.toHaveBeenCalled();
+    expect(saveConflict).not.toHaveBeenCalled();
+  });
+
+  it('turns unauthorized responses into AuthError', async () => {
+    mockFetch(jsonResponse({ error: 'Expired' }, { status: 401 }));
+
+    await expect(validateSession('expired-token')).rejects.toBeInstanceOf(
+      AuthError
+    );
+  });
+
+  it('preserves server error messages for failed login attempts', async () => {
+    mockFetch(
+      jsonResponse(
+        { error: 'Invalid username or password' },
+        {
+          status: 401
+        }
+      )
+    );
+
+    await expect(login('owner', 'wrong-password')).rejects.toBeInstanceOf(
+      AuthError
+    );
+
+    mockFetch(
+      jsonResponse(
+        { error: 'Database unavailable' },
+        {
+          status: 503
+        }
+      )
+    );
+
+    await expect(login('owner', 'password')).rejects.toMatchObject({
+      name: 'SyncHttpError',
+      status: 503,
+      message: 'Database unavailable'
+    } satisfies Partial<SyncHttpError>);
+  });
+});

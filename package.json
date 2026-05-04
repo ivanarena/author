@@ -16,7 +16,7 @@
     "format:check": "prettier . --check",
     "hooks:install": "git config core.hooksPath .githooks",
     "quality": "aube run format:check && aube run lint && aube run check",
-    "prepare": "git config core.hooksPath .githooks || true",
+    "prepare": "command -v git >/dev/null 2>&1 && git config core.hooksPath .githooks || true",
     "test": "aube -F @author/sync-spec run test && aube -F @author/web run test",
     "test:coverage": "aube -F @author/sync-spec run test:coverage && aube -F @author/web run test:coverage",
     "test:e2e": "aube -F @author/web run test:e2e",

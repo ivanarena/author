@@ -28,10 +28,10 @@ export default defineConfig({
         'src/lib/components/**/*.css'
       ],
       thresholds: {
-        statements: 45,
-        branches: 40,
-        functions: 45,
-        lines: 45
+        statements: 62,
+        branches: 53,
+        functions: 65,
+        lines: 64
       }
     }
   }

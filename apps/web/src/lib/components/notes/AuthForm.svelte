@@ -1,11 +1,13 @@
 <script lang="ts">
-  import { Check, LogIn, X } from 'lucide-svelte';
+  import { Check, Eye, EyeOff, LogIn, X } from 'lucide-svelte';
   import type { SettingsModalModel } from './notes-page-controller.svelte.js';
 
   let {
     model,
     showCancel = false
   }: { model: SettingsModalModel; showCancel?: boolean } = $props();
+  let passwordVisible = $state(false);
+  let confirmPasswordVisible = $state(false);
 </script>
 
 <form
@@ -21,9 +23,40 @@
       <LogIn size={16} strokeWidth={1.8} />
     </span>
     <div>
-      <strong>Sign in to sync</strong>
-      <span>Connect this browser and keep notes current across devices.</span>
+      <strong
+        >{model.authMode === 'signup'
+          ? 'Create account'
+          : 'Sign in to sync'}</strong
+      >
+      <span>
+        {model.authMode === 'signup'
+          ? 'Set up sync for this browser and future devices.'
+          : 'Connect this browser and keep notes current across devices.'}
+      </span>
     </div>
+  </div>
+
+  <div class="auth-mode-tabs" role="tablist" aria-label="Authentication mode">
+    <button
+      type="button"
+      role="tab"
+      aria-selected={model.authMode === 'signin'}
+      class:active={model.authMode === 'signin'}
+      disabled={model.isLoggingIn}
+      onclick={() => model.setAuthMode('signin')}
+    >
+      Sign in
+    </button>
+    <button
+      type="button"
+      role="tab"
+      aria-selected={model.authMode === 'signup'}
+      class:active={model.authMode === 'signup'}
+      disabled={model.isLoggingIn}
+      onclick={() => model.setAuthMode('signup')}
+    >
+      Sign up
+    </button>
   </div>
 
   <div class="field-grid auth-field-grid">
@@ -44,18 +77,84 @@
     </div>
     <div class="field-row">
       <label for="sync-password">Password</label>
-      <input
-        id="sync-password"
-        type="password"
-        bind:value={model.loginPasswordValue}
-        autocomplete="current-password"
-        placeholder="Password"
-        required
-        disabled={model.isLoggingIn}
-        oninput={() => (model.loginError = '')}
-      />
+      <div class="password-field">
+        <input
+          id="sync-password"
+          type={passwordVisible ? 'text' : 'password'}
+          bind:value={model.loginPasswordValue}
+          autocomplete="current-password"
+          placeholder="Password"
+          required
+          disabled={model.isLoggingIn}
+          oninput={() => (model.loginError = '')}
+        />
+        <button
+          class="icon-button mini password-toggle"
+          type="button"
+          title={passwordVisible ? 'Hide password' : 'Show password'}
+          aria-label={passwordVisible ? 'Hide password' : 'Show password'}
+          aria-pressed={passwordVisible}
+          disabled={model.isLoggingIn}
+          onclick={() => (passwordVisible = !passwordVisible)}
+        >
+          {#if passwordVisible}
+            <EyeOff size={14} strokeWidth={1.8} />
+          {:else}
+            <Eye size={14} strokeWidth={1.8} />
+          {/if}
+        </button>
+      </div>
     </div>
   </div>
+
+  {#if model.authMode === 'signup'}
+    <div class="field-grid auth-field-grid">
+      <div class="field-row">
+        <label for="signup-display-name">Nickname</label>
+        <input
+          id="signup-display-name"
+          type="text"
+          bind:value={model.signupDisplayNameValue}
+          autocomplete="nickname"
+          placeholder="Optional"
+          disabled={model.isLoggingIn}
+          oninput={() => (model.loginError = '')}
+        />
+      </div>
+      <div class="field-row">
+        <label for="signup-confirm-password">Confirm password</label>
+        <div class="password-field">
+          <input
+            id="signup-confirm-password"
+            type={confirmPasswordVisible ? 'text' : 'password'}
+            bind:value={model.signupConfirmPasswordValue}
+            autocomplete="new-password"
+            placeholder="Confirm password"
+            required
+            disabled={model.isLoggingIn}
+            oninput={() => (model.loginError = '')}
+          />
+          <button
+            class="icon-button mini password-toggle"
+            type="button"
+            title={confirmPasswordVisible ? 'Hide password' : 'Show password'}
+            aria-label={confirmPasswordVisible
+              ? 'Hide password'
+              : 'Show password'}
+            aria-pressed={confirmPasswordVisible}
+            disabled={model.isLoggingIn}
+            onclick={() => (confirmPasswordVisible = !confirmPasswordVisible)}
+          >
+            {#if confirmPasswordVisible}
+              <EyeOff size={14} strokeWidth={1.8} />
+            {:else}
+              <Eye size={14} strokeWidth={1.8} />
+            {/if}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 
   {#if model.loginError}
     <p class="form-error" role="alert">{model.loginError}</p>
@@ -68,14 +167,22 @@
       disabled={model.isLoggingIn || model.isArchiveBusy}
     >
       <Check size={15} strokeWidth={1.9} />
-      <span>{model.isLoggingIn ? 'Signing in' : 'Sign in'}</span>
+      <span>
+        {model.isLoggingIn
+          ? model.authMode === 'signup'
+            ? 'Creating account'
+            : 'Signing in'
+          : model.authMode === 'signup'
+            ? 'Create account'
+            : 'Sign in'}
+      </span>
     </button>
     {#if showCancel}
       <button
         class="settings-action"
         type="button"
         disabled={model.isLoggingIn}
-        onclick={() => (model.loginOpen = false)}
+        onclick={model.closeLoginModal}
       >
         <X size={15} strokeWidth={1.9} />
         <span>Cancel</span>

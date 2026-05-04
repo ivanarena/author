@@ -2,12 +2,14 @@ import type {
   AccountResponse,
   AccountUpdateRequest,
   AuthLoginResponse,
+  AuthSignupRequest,
   AuthValidateResponse,
   DeleteAccountRequest,
   PasswordChangeRequest,
   PullResponse,
   PushRequest,
-  PushResponse
+  PushResponse,
+  SyncStatusResponse
 } from '@author/api-types';
 import { localDb } from './db';
 import { hasStoredEncryptionKeyMaterial } from './encryption';
@@ -16,9 +18,13 @@ import {
   getOrCreateDevice,
   markAcceptedChanges,
   mergeRemoteChanges,
+  applyRemoteDeletes,
   saveDevices,
   saveConflict
 } from './store';
+
+const PUSH_BATCH_SIZE = 100;
+const PULL_BATCH_SIZE = 500;
 
 export class AuthError extends Error {
   constructor(message = 'Login expired') {
@@ -92,6 +98,23 @@ export async function validateSession(
   return (await response.json()) as AuthValidateResponse;
 }
 
+export async function loadSyncStatus(
+  token: string
+): Promise<SyncStatusResponse> {
+  const response = await fetch('/api/sync/status', {
+    headers: authHeaders(token)
+  });
+
+  if (!response.ok) {
+    throw await responseError(
+      response,
+      `Sync status failed: ${response.status}`
+    );
+  }
+
+  return (await response.json()) as SyncStatusResponse;
+}
+
 export async function runSync(
   token: string
 ): Promise<{ pushed: number; pulled: number; conflicts: number }> {
@@ -106,25 +129,29 @@ export async function runSync(
     localDb.notebooks.where('syncStatus').equals('pending').toArray()
   ]);
 
-  const pushPayload: PushRequest = {
-    device,
-    notes: notes.map((record) => ({
-      record,
-      baseVersion: record.lastSyncedVersion
-    })),
-    notebooks: notebooks.map((record) => ({
-      record,
-      baseVersion: record.lastSyncedVersion
-    }))
-  };
+  const pendingNotes = notes.map((record) => ({
+    record,
+    baseVersion: record.lastSyncedVersion
+  }));
+  const pendingNotebooks = notebooks.map((record) => ({
+    record,
+    baseVersion: record.lastSyncedVersion
+  }));
 
   let conflicts = 0;
-  if (pushPayload.notes.length || pushPayload.notebooks.length) {
+  let pushed = 0;
+  while (pendingNotes.length || pendingNotebooks.length) {
+    const pushPayload: PushRequest = {
+      device,
+      notes: pendingNotes.splice(0, PUSH_BATCH_SIZE),
+      notebooks: pendingNotebooks.splice(0, PUSH_BATCH_SIZE)
+    };
     const pushResponse = await apiPost<PushRequest, PushResponse>(
       '/api/sync/push',
       token,
       pushPayload
     );
+    pushed += pushPayload.notes.length + pushPayload.notebooks.length;
     await markAcceptedChanges(pushResponse.accepted, pushResponse.serverTime, [
       ...pushPayload.notes.map((change) => ({
         entityType: 'note' as const,
@@ -147,27 +174,58 @@ export async function runSync(
 
   const lastPulledAt =
     (await localDb.syncMeta.get('lastPulledAt'))?.value ?? null;
-  const pullResponse = await apiPost<{ since: string | null }, PullResponse>(
-    '/api/sync/pull',
-    token,
-    {
-      since: lastPulledAt
-    }
-  );
-  await saveDevices(pullResponse.devices);
-  await mergeRemoteChanges(
-    pullResponse.notes,
-    pullResponse.notebooks,
-    pullResponse.serverTime
-  );
-  await localDb.syncMeta.put({
-    key: 'lastPulledAt',
-    value: pullResponse.serverTime
-  });
+  const lastPulledRevisionValue = (
+    await localDb.syncMeta.get('lastPulledRevision')
+  )?.value;
+  const storedRevision =
+    lastPulledRevisionValue === undefined ? 0 : Number(lastPulledRevisionValue);
+  const lastPulledRevision =
+    Number.isSafeInteger(storedRevision) && storedRevision >= 0
+      ? storedRevision
+      : 0;
+  let pullCursor = lastPulledRevision;
+  let pulled = 0;
+  let hasMore = true;
+  while (hasMore) {
+    const pullResponse = await apiPost<
+      { since: string | null; sinceRevision: number | null; limit: number },
+      PullResponse
+    >('/api/sync/pull', token, {
+      since: lastPulledAt,
+      sinceRevision: pullCursor,
+      limit: PULL_BATCH_SIZE
+    });
+    await saveDevices(pullResponse.devices);
+    await applyRemoteDeletes(
+      pullResponse.deletedNoteIds,
+      pullResponse.deletedNotebookIds,
+      pullResponse.deletedDeviceIds
+    );
+    await mergeRemoteChanges(
+      pullResponse.notes,
+      pullResponse.notebooks,
+      pullResponse.serverTime
+    );
+    await localDb.syncMeta.put({
+      key: 'lastPulledAt',
+      value: pullResponse.serverTime
+    });
+    await localDb.syncMeta.put({
+      key: 'lastPulledRevision',
+      value: String(pullResponse.serverRevision)
+    });
+    pulled +=
+      pullResponse.notes.length +
+      pullResponse.notebooks.length +
+      pullResponse.deletedNoteIds.length +
+      pullResponse.deletedNotebookIds.length;
+    hasMore = Boolean(pullResponse.hasMore);
+    pullCursor = pullResponse.serverRevision;
+  }
 
   return {
-    pushed: pushPayload.notes.length + pushPayload.notebooks.length,
-    pulled: pullResponse.notes.length + pullResponse.notebooks.length,
+    pushed,
+    pulled,
     conflicts
   };
 }
@@ -187,6 +245,33 @@ export async function login(
 
   if (!response.ok) {
     throw await responseError(response, 'Login failed');
+  }
+
+  return (await response.json()) as AuthLoginResponse;
+}
+
+export async function signup(
+  username: string,
+  password: string,
+  displayName: string | null = null
+): Promise<AuthLoginResponse> {
+  const device = await getOrCreateDevice();
+  const body: AuthSignupRequest = {
+    username,
+    password,
+    displayName,
+    device
+  };
+  const response = await fetch('/api/auth/signup', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    throw await responseError(response, 'Signup failed');
   }
 
   return (await response.json()) as AuthLoginResponse;

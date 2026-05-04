@@ -87,6 +87,16 @@ describe('Hono API', () => {
 
     const validPull = await post('/api/sync/pull', { since: null }, token);
     expect(validPull.status).toBe(200);
+
+    const status = await api.fetch(
+      new Request('http://localhost/api/sync/status', {
+        headers: { authorization: `Bearer ${token}` }
+      })
+    );
+    expect(status.status).toBe(200);
+    await expect(status.json()).resolves.toMatchObject({
+      remote: { enabled: false, state: 'disabled' }
+    });
   });
 
   it('validates active auth tokens without accepting invalid ones', async () => {
@@ -108,6 +118,39 @@ describe('Hono API', () => {
       })
     );
     expect(invalid.status).toBe(401);
+  });
+
+  it('creates new users through signup and rejects duplicate usernames', async () => {
+    const signup = await api.fetch(
+      new Request('http://localhost/api/auth/signup', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'new-user',
+          password: 'new-user-password',
+          displayName: 'New User',
+          device: fixtureDevice
+        })
+      })
+    );
+    expect(signup.status).toBe(200);
+    await expect(signup.json()).resolves.toMatchObject({
+      token: expect.any(String),
+      user: { username: 'new-user', displayName: 'New User' }
+    });
+
+    const duplicate = await api.fetch(
+      new Request('http://localhost/api/auth/signup', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'new-user',
+          password: 'new-user-password',
+          device: fixtureDevice
+        })
+      })
+    );
+    expect(duplicate.status).toBe(409);
   });
 
   it('revokes existing sessions when a password is reset', async () => {
@@ -300,6 +343,29 @@ describe('Hono API', () => {
         device: fixtureDevice,
         notebooks: [{ record: { id: 'bad-notebook' }, baseVersion: 0 }],
         notes: []
+      },
+      token
+    );
+
+    expect(push.status).toBe(400);
+    await expect(push.json()).resolves.toMatchObject({
+      error: 'Invalid push payload'
+    });
+  });
+
+  it('rejects pushes that spoof a different record device id', async () => {
+    const token = await loginToken();
+    const push = await post(
+      '/api/sync/push',
+      {
+        device: fixtureDevice,
+        notebooks: [],
+        notes: [
+          {
+            record: { ...fixtureNote, deviceId: 'not-the-request-device' },
+            baseVersion: 0
+          }
+        ]
       },
       token
     );

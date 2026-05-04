@@ -283,6 +283,7 @@ aside {
 }
 
 .notes {
+  position: relative;
   min-height: 0;
   background: var(--panel-soft-transparent);
   border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
@@ -385,7 +386,11 @@ aside {
 }
 
 .file-input {
-  display: none;
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .search-row {

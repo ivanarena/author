@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Note } from '@author/schema';
 import type { LocalNote } from './db';
-import { markAcceptedChanges, mergeRemoteChanges } from './sync-store';
+import {
+  applyRemoteDeletes,
+  markAcceptedChanges,
+  mergeRemoteChanges
+} from './sync-store';
 import { localDb } from './db';
 
 vi.mock('./db', () => ({
@@ -9,14 +13,18 @@ vi.mock('./db', () => ({
     transaction: vi.fn(async (_mode, _tables, operation) => operation()),
     notes: {
       get: vi.fn(),
-      put: vi.fn()
+      put: vi.fn(),
+      delete: vi.fn()
     },
     notebooks: {
       get: vi.fn(),
-      put: vi.fn()
+      put: vi.fn(),
+      delete: vi.fn()
     },
     devices: {
-      bulkPut: vi.fn()
+      bulkPut: vi.fn(),
+      get: vi.fn(),
+      delete: vi.fn()
     },
     conflicts: {
       put: vi.fn()
@@ -76,6 +84,7 @@ function remoteNote(overrides: Partial<Note> = {}): Note {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(localDb.devices.get).mockResolvedValue(null);
 });
 
 describe('client sync store', () => {
@@ -151,6 +160,10 @@ describe('client sync store', () => {
 
   it('stores a conflict instead of overwriting a divergent pending local note', async () => {
     vi.mocked(localDb.notes.get).mockResolvedValue(baseNote);
+    vi.mocked(localDb.devices.get).mockResolvedValue({
+      id: 'phone-device',
+      name: 'Phone'
+    });
 
     await mergeRemoteChanges([remoteNote()], [], syncedAt);
 
@@ -169,6 +182,7 @@ describe('client sync store', () => {
           }),
           remote: expect.objectContaining({
             source: 'remote',
+            deviceName: 'Phone',
             previewText: 'Remote body',
             record: expect.objectContaining({
               body: 'Remote body',
@@ -182,5 +196,51 @@ describe('client sync store', () => {
       ...baseNote,
       syncStatus: 'conflict'
     });
+  });
+
+  it('applies hard remote deletes to clean local records and devices', async () => {
+    vi.mocked(localDb.notes.get).mockResolvedValue({
+      ...baseNote,
+      syncStatus: 'synced'
+    });
+    vi.mocked(localDb.notebooks.get).mockResolvedValue({
+      id: 'notebook-1',
+      name: 'Ideas',
+      createdAt: '2026-05-01T10:00:00.000Z',
+      updatedAt: '2026-05-01T10:00:00.000Z',
+      deletedAt: null,
+      deviceId: 'browser-device',
+      version: 1,
+      syncStatus: 'synced',
+      lastSyncedVersion: 1,
+      lastSyncedAt: syncedAt
+    });
+
+    await applyRemoteDeletes(['note-1'], ['notebook-1'], ['phone-device']);
+
+    expect(localDb.notes.delete).toHaveBeenCalledWith('note-1');
+    expect(localDb.notebooks.delete).toHaveBeenCalledWith('notebook-1');
+    expect(localDb.devices.delete).toHaveBeenCalledWith('phone-device');
+  });
+
+  it('does not hard-delete pending or conflicted local records', async () => {
+    vi.mocked(localDb.notes.get).mockResolvedValue(baseNote);
+    vi.mocked(localDb.notebooks.get).mockResolvedValue({
+      id: 'notebook-1',
+      name: 'Ideas',
+      createdAt: '2026-05-01T10:00:00.000Z',
+      updatedAt: '2026-05-01T10:00:00.000Z',
+      deletedAt: null,
+      deviceId: 'browser-device',
+      version: 1,
+      syncStatus: 'conflict',
+      lastSyncedVersion: 1,
+      lastSyncedAt: syncedAt
+    });
+
+    await applyRemoteDeletes(['note-1'], ['notebook-1']);
+
+    expect(localDb.notes.delete).not.toHaveBeenCalled();
+    expect(localDb.notebooks.delete).not.toHaveBeenCalled();
   });
 });

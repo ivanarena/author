@@ -5,11 +5,14 @@
     Cloud,
     Database,
     Download,
+    Eye,
+    EyeOff,
     KeyRound,
     LogIn,
     LogOut,
     Moon,
     Palette,
+    Pencil,
     RefreshCw,
     Rows3,
     Settings,
@@ -21,10 +24,13 @@
     ZoomIn,
     ZoomOut
   } from 'lucide-svelte';
-  import AuthForm from './AuthForm.svelte';
   import type { SettingsModalModel } from './notes-page-controller.svelte.js';
 
   let { model }: { model: SettingsModalModel } = $props();
+  let currentPasswordVisible = $state(false);
+  let newPasswordVisible = $state(false);
+  let confirmPasswordVisible = $state(false);
+  let deletePasswordVisible = $state(false);
 </script>
 
 <div class="settings-layer" role="presentation">
@@ -122,7 +128,7 @@
           </header>
 
           {#if model.hasToken}
-            <div class="account-summary">
+            <div class="account-summary account-profile-card">
               <UserRound size={20} strokeWidth={1.7} />
               <div>
                 <strong
@@ -130,134 +136,275 @@
                 >
                 <span>{model.accountUsername}</span>
               </div>
+              <button
+                class="icon-button mini account-hover-action"
+                type="button"
+                title="Edit profile"
+                aria-label="Edit profile"
+                onclick={model.startAccountProfileEdit}
+              >
+                <Pencil size={14} strokeWidth={1.8} />
+              </button>
             </div>
 
-            <form
-              class="menu-form account-form"
-              aria-label="Profile"
-              onsubmit={(event) => {
-                event.preventDefault();
-                void model.saveAccountProfile();
-              }}
-            >
-              <div class="field-row">
-                <label for="account-username">Username</label>
-                <input
-                  id="account-username"
-                  type="text"
-                  value={model.accountUsername}
-                  readonly
-                />
-              </div>
-              <div class="field-row">
-                <label for="account-display-name">Nickname</label>
-                <input
-                  id="account-display-name"
-                  type="text"
-                  bind:value={model.accountDisplayName}
-                  placeholder="Nickname"
-                  autocomplete="nickname"
-                  oninput={() => {
-                    model.accountError = '';
-                    model.accountMessage = '';
-                  }}
-                />
-              </div>
-              <button
-                class="settings-action login-submit"
-                type="submit"
-                disabled={model.isAccountBusy}
+            {#if model.accountProfileEditing}
+              <form
+                class="menu-form account-form"
+                aria-label="Profile"
+                onsubmit={(event) => {
+                  event.preventDefault();
+                  void model.saveAccountProfile();
+                }}
               >
-                <Check size={15} strokeWidth={1.9} />
-                <span>Save profile</span>
-              </button>
-            </form>
+                <div class="field-row">
+                  <label for="account-display-name">Nickname</label>
+                  <input
+                    id="account-display-name"
+                    type="text"
+                    bind:value={model.accountDisplayName}
+                    placeholder="Nickname"
+                    autocomplete="nickname"
+                    oninput={() => {
+                      model.accountError = '';
+                      model.accountMessage = '';
+                    }}
+                  />
+                </div>
+                <div class="login-actions">
+                  <button
+                    class="settings-action login-submit"
+                    type="submit"
+                    disabled={model.isAccountBusy}
+                  >
+                    <Check size={15} strokeWidth={1.9} />
+                    <span>Save profile</span>
+                  </button>
+                  <button
+                    class="settings-action"
+                    type="button"
+                    disabled={model.isAccountBusy}
+                    onclick={model.cancelAccountProfileEdit}
+                  >
+                    <X size={15} strokeWidth={1.9} />
+                    <span>Cancel</span>
+                  </button>
+                </div>
+              </form>
+            {/if}
 
-            <form
-              class="menu-form account-form"
-              aria-label="Change password"
-              onsubmit={(event) => {
-                event.preventDefault();
-                void model.changeAccountPassword();
-              }}
-            >
-              <div class="settings-section-title">
-                <KeyRound size={15} strokeWidth={1.8} />
-                <strong>Password</strong>
-              </div>
-              <div class="field-row">
-                <label for="current-password">Current</label>
-                <input
-                  id="current-password"
-                  type="password"
-                  bind:value={model.currentPasswordValue}
-                  autocomplete="current-password"
-                  oninput={() => (model.accountError = '')}
-                />
-              </div>
-              <div class="field-grid">
-                <div class="field-row">
-                  <label for="new-password">New</label>
-                  <input
-                    id="new-password"
-                    type="password"
-                    bind:value={model.newPasswordValue}
-                    autocomplete="new-password"
-                    oninput={() => (model.accountError = '')}
-                  />
+            {#if model.accountPasswordEditing}
+              <form
+                class="menu-form account-form"
+                aria-label="Change password"
+                onsubmit={(event) => {
+                  event.preventDefault();
+                  void model.changeAccountPassword();
+                }}
+              >
+                <div class="settings-section-title">
+                  <KeyRound size={15} strokeWidth={1.8} />
+                  <strong>Password</strong>
                 </div>
                 <div class="field-row">
-                  <label for="confirm-password">Confirm</label>
-                  <input
-                    id="confirm-password"
-                    type="password"
-                    bind:value={model.confirmPasswordValue}
-                    autocomplete="new-password"
-                    oninput={() => (model.accountError = '')}
-                  />
+                  <label for="current-password">Current</label>
+                  <div class="password-field">
+                    <input
+                      id="current-password"
+                      type={currentPasswordVisible ? 'text' : 'password'}
+                      bind:value={model.currentPasswordValue}
+                      autocomplete="current-password"
+                      oninput={() => (model.accountError = '')}
+                    />
+                    <button
+                      class="icon-button mini password-toggle"
+                      type="button"
+                      title={currentPasswordVisible
+                        ? 'Hide password'
+                        : 'Show password'}
+                      aria-label={currentPasswordVisible
+                        ? 'Hide password'
+                        : 'Show password'}
+                      aria-pressed={currentPasswordVisible}
+                      onclick={() =>
+                        (currentPasswordVisible = !currentPasswordVisible)}
+                    >
+                      {#if currentPasswordVisible}
+                        <EyeOff size={14} strokeWidth={1.8} />
+                      {:else}
+                        <Eye size={14} strokeWidth={1.8} />
+                      {/if}
+                    </button>
+                  </div>
                 </div>
-              </div>
+                <div class="field-grid">
+                  <div class="field-row">
+                    <label for="new-password">New</label>
+                    <div class="password-field">
+                      <input
+                        id="new-password"
+                        type={newPasswordVisible ? 'text' : 'password'}
+                        bind:value={model.newPasswordValue}
+                        autocomplete="new-password"
+                        oninput={() => (model.accountError = '')}
+                      />
+                      <button
+                        class="icon-button mini password-toggle"
+                        type="button"
+                        title={newPasswordVisible
+                          ? 'Hide password'
+                          : 'Show password'}
+                        aria-label={newPasswordVisible
+                          ? 'Hide password'
+                          : 'Show password'}
+                        aria-pressed={newPasswordVisible}
+                        onclick={() =>
+                          (newPasswordVisible = !newPasswordVisible)}
+                      >
+                        {#if newPasswordVisible}
+                          <EyeOff size={14} strokeWidth={1.8} />
+                        {:else}
+                          <Eye size={14} strokeWidth={1.8} />
+                        {/if}
+                      </button>
+                    </div>
+                  </div>
+                  <div class="field-row">
+                    <label for="confirm-password">Confirm</label>
+                    <div class="password-field">
+                      <input
+                        id="confirm-password"
+                        type={confirmPasswordVisible ? 'text' : 'password'}
+                        bind:value={model.confirmPasswordValue}
+                        autocomplete="new-password"
+                        oninput={() => (model.accountError = '')}
+                      />
+                      <button
+                        class="icon-button mini password-toggle"
+                        type="button"
+                        title={confirmPasswordVisible
+                          ? 'Hide password'
+                          : 'Show password'}
+                        aria-label={confirmPasswordVisible
+                          ? 'Hide password'
+                          : 'Show password'}
+                        aria-pressed={confirmPasswordVisible}
+                        onclick={() =>
+                          (confirmPasswordVisible = !confirmPasswordVisible)}
+                      >
+                        {#if confirmPasswordVisible}
+                          <EyeOff size={14} strokeWidth={1.8} />
+                        {:else}
+                          <Eye size={14} strokeWidth={1.8} />
+                        {/if}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div class="login-actions">
+                  <button
+                    class="settings-action"
+                    type="submit"
+                    disabled={model.isAccountBusy}
+                  >
+                    <KeyRound size={15} strokeWidth={1.8} />
+                    <span>Change password</span>
+                  </button>
+                  <button
+                    class="settings-action"
+                    type="button"
+                    disabled={model.isAccountBusy}
+                    onclick={model.cancelAccountPasswordEdit}
+                  >
+                    <X size={15} strokeWidth={1.9} />
+                    <span>Cancel</span>
+                  </button>
+                </div>
+              </form>
+            {:else}
               <button
                 class="settings-action"
-                type="submit"
-                disabled={model.isAccountBusy}
+                type="button"
+                onclick={model.startAccountPasswordEdit}
               >
                 <KeyRound size={15} strokeWidth={1.8} />
                 <span>Change password</span>
               </button>
-            </form>
+            {/if}
 
-            <form
-              class="menu-form account-form danger-zone"
-              aria-label="Delete account"
-              onsubmit={(event) => {
-                event.preventDefault();
-                void model.deleteAccount();
-              }}
-            >
-              <div class="settings-section-title danger-title">
-                <Trash2 size={15} strokeWidth={1.8} />
-                <strong>Delete account</strong>
-              </div>
-              <div class="field-row">
-                <label for="delete-password">Password</label>
-                <input
-                  id="delete-password"
-                  type="password"
-                  bind:value={model.deletePasswordValue}
-                  autocomplete="current-password"
-                  oninput={() => (model.accountError = '')}
-                />
-              </div>
+            {#if model.accountDeleteEditing}
+              <form
+                class="menu-form account-form danger-zone"
+                aria-label="Delete account"
+                onsubmit={(event) => {
+                  event.preventDefault();
+                  void model.deleteAccount();
+                }}
+              >
+                <div class="settings-section-title danger-title">
+                  <Trash2 size={15} strokeWidth={1.8} />
+                  <strong>Delete account</strong>
+                </div>
+                <div class="field-row">
+                  <label for="delete-password">Password</label>
+                  <div class="password-field">
+                    <input
+                      id="delete-password"
+                      type={deletePasswordVisible ? 'text' : 'password'}
+                      bind:value={model.deletePasswordValue}
+                      autocomplete="current-password"
+                      oninput={() => (model.accountError = '')}
+                    />
+                    <button
+                      class="icon-button mini password-toggle"
+                      type="button"
+                      title={deletePasswordVisible
+                        ? 'Hide password'
+                        : 'Show password'}
+                      aria-label={deletePasswordVisible
+                        ? 'Hide password'
+                        : 'Show password'}
+                      aria-pressed={deletePasswordVisible}
+                      onclick={() =>
+                        (deletePasswordVisible = !deletePasswordVisible)}
+                    >
+                      {#if deletePasswordVisible}
+                        <EyeOff size={14} strokeWidth={1.8} />
+                      {:else}
+                        <Eye size={14} strokeWidth={1.8} />
+                      {/if}
+                    </button>
+                  </div>
+                </div>
+                <div class="login-actions">
+                  <button
+                    class="settings-action danger-action"
+                    type="submit"
+                    disabled={model.isAccountBusy}
+                  >
+                    <Trash2 size={15} strokeWidth={1.8} />
+                    <span>Delete account</span>
+                  </button>
+                  <button
+                    class="settings-action"
+                    type="button"
+                    disabled={model.isAccountBusy}
+                    onclick={model.cancelAccountDeleteEdit}
+                  >
+                    <X size={15} strokeWidth={1.9} />
+                    <span>Cancel</span>
+                  </button>
+                </div>
+              </form>
+            {:else}
               <button
                 class="settings-action danger-action"
-                type="submit"
-                disabled={model.isAccountBusy}
+                type="button"
+                onclick={model.startAccountDeleteEdit}
               >
                 <Trash2 size={15} strokeWidth={1.8} />
                 <span>Delete account</span>
               </button>
-            </form>
+            {/if}
 
             {#if model.accountError}
               <p class="form-error" role="alert">{model.accountError}</p>
@@ -272,10 +419,17 @@
                 <span>Sync is off for this browser</span>
               </div>
             </div>
+            <button
+              class="settings-action login-submit"
+              type="button"
+              onclick={model.toggleLoginMenu}
+            >
+              <LogIn size={15} strokeWidth={1.8} />
+              <span>Sign in to sync</span>
+            </button>
             {#if model.accountMessage}
               <p class="form-success" role="status">{model.accountMessage}</p>
             {/if}
-            <AuthForm {model} />
           {/if}
         {:else if model.settingsSection === 'sync'}
           <header class="settings-panel-header">
@@ -302,7 +456,6 @@
             {:else}
               <button
                 class="settings-action"
-                class:active={model.loginOpen}
                 disabled={model.isArchiveBusy}
                 onclick={model.toggleLoginMenu}
               >
@@ -311,10 +464,6 @@
               </button>
             {/if}
           </div>
-
-          {#if model.loginOpen}
-            <AuthForm {model} showCancel />
-          {/if}
         {:else if model.settingsSection === 'data'}
           <header class="settings-panel-header">
             <Database size={16} strokeWidth={1.8} />
@@ -337,12 +486,39 @@
             </div>
           {/if}
 
-          <div class="settings-action-group" aria-label="JSON archive">
-            <span>JSON</span>
+          {#if model.importBanner}
+            <div
+              class={`import-result-banner ${model.importBanner.kind}`}
+              role={model.importBanner.kind === 'error' ? 'alert' : 'status'}
+              aria-live="polite"
+            >
+              {#if model.importBanner.kind === 'success'}
+                <Check size={15} strokeWidth={1.9} />
+              {:else}
+                <X size={15} strokeWidth={1.9} />
+              {/if}
+              <div>
+                <strong>{model.importBanner.title}</strong>
+                <span>{model.importBanner.message}</span>
+              </div>
+            </div>
+          {/if}
+
+          <div
+            class="settings-action-group deprecated"
+            aria-label="Deprecated JSON archive"
+          >
+            <div class="settings-action-group-heading">
+              <span>JSON</span>
+              <span class="settings-badge">Deprecated</span>
+            </div>
+            <p class="settings-group-note">
+              Legacy archive support. Use Markdown for new imports and exports.
+            </p>
             <div class="settings-actions">
               <button
                 class="settings-action"
-                disabled={model.isArchiveBusy || model.isSyncing}
+                disabled={model.isArchiveBusy}
                 onclick={model.exportJson}
               >
                 <Download size={15} strokeWidth={1.8} />
@@ -350,7 +526,7 @@
               </button>
               <button
                 class="settings-action"
-                disabled={model.isArchiveBusy || model.isSyncing}
+                disabled={model.isArchiveBusy}
                 onclick={model.startJsonImport}
               >
                 <Upload size={15} strokeWidth={1.8} />
@@ -360,11 +536,13 @@
           </div>
 
           <div class="settings-action-group" aria-label="Markdown archive">
-            <span>Markdown</span>
+            <div class="settings-action-group-heading">
+              <span>Markdown</span>
+            </div>
             <div class="settings-actions">
               <button
                 class="settings-action"
-                disabled={model.isArchiveBusy || model.isSyncing}
+                disabled={model.isArchiveBusy}
                 onclick={model.exportMarkdown}
               >
                 <Download size={15} strokeWidth={1.8} />
@@ -372,7 +550,7 @@
               </button>
               <button
                 class="settings-action"
-                disabled={model.isArchiveBusy || model.isSyncing}
+                disabled={model.isArchiveBusy}
                 onclick={model.startMarkdownImport}
               >
                 <Upload size={15} strokeWidth={1.8} />

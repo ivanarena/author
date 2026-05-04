@@ -8,13 +8,27 @@ import {
   type Row,
   type Transaction
 } from '@libsql/client';
-import { getLocalDatabaseConfig, type DatabaseConfig } from './config';
+import {
+  getLocalDatabaseConfig,
+  getLoginUsername,
+  type DatabaseConfig
+} from './config';
 
 export type NotesDb = Client;
 export type NotesExecutor = Client | Transaction;
 export type SqlArgs = InArgs;
 
 const initializedDatabases = new Map<string, Promise<void>>();
+const LEGACY_OWNER_USERNAME = 'legacy-token';
+
+function defaultDataOwner(): string {
+  const configured = getLoginUsername()?.trim().toLowerCase();
+  return configured || LEGACY_OWNER_USERNAME;
+}
+
+function sqlString(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
 
 const schemaSql = `
   PRAGMA foreign_keys = ON;
@@ -49,8 +63,35 @@ const schemaSql = `
   CREATE INDEX IF NOT EXISTS auth_sessions_expires_at_idx
     ON auth_sessions(expires_at);
 
+  CREATE INDEX IF NOT EXISTS users_updated_at_idx
+    ON users(updated_at);
+
+  CREATE TABLE IF NOT EXISTS sync_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS entity_changes (
+    revision INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_username TEXT NOT NULL DEFAULT 'legacy-token',
+    entity_type TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS entity_changes_revision_idx
+    ON entity_changes(revision);
+
+  CREATE INDEX IF NOT EXISTS entity_changes_entity_idx
+    ON entity_changes(entity_type, entity_id, revision);
+
+  CREATE INDEX IF NOT EXISTS entity_changes_owner_revision_idx
+    ON entity_changes(owner_username, revision);
+
   CREATE TABLE IF NOT EXISTS notebooks (
     id TEXT PRIMARY KEY,
+    owner_username TEXT NOT NULL DEFAULT 'legacy-token',
     name TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -60,10 +101,19 @@ const schemaSql = `
     sync_status TEXT NOT NULL
   );
 
+  CREATE INDEX IF NOT EXISTS notebooks_updated_at_idx
+    ON notebooks(updated_at);
+
+  CREATE INDEX IF NOT EXISTS notebooks_active_name_idx
+    ON notebooks(owner_username, deleted_at, name);
+
   CREATE TABLE IF NOT EXISTS notes (
     id TEXT PRIMARY KEY,
+    owner_username TEXT NOT NULL DEFAULT 'legacy-token',
     title TEXT NOT NULL,
     body TEXT NOT NULL,
+    title_hash TEXT,
+    body_hash TEXT,
     notebook_ids TEXT NOT NULL DEFAULT '[]',
     notebook_id TEXT,
     created_at TEXT NOT NULL,
@@ -76,11 +126,20 @@ const schemaSql = `
     FOREIGN KEY (notebook_id) REFERENCES notebooks(id) ON DELETE SET NULL
   );
 
+  CREATE INDEX IF NOT EXISTS notes_updated_at_idx
+    ON notes(updated_at);
+
+  CREATE INDEX IF NOT EXISTS notes_trashed_at_idx
+    ON notes(trashed_at);
+
   CREATE TABLE IF NOT EXISTS note_versions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     note_id TEXT NOT NULL,
+    owner_username TEXT NOT NULL DEFAULT 'legacy-token',
     title TEXT NOT NULL,
     body TEXT NOT NULL,
+    title_hash TEXT,
+    body_hash TEXT,
     notebook_ids TEXT NOT NULL DEFAULT '[]',
     notebook_id TEXT,
     created_at TEXT NOT NULL,
@@ -96,6 +155,7 @@ const schemaSql = `
   CREATE TABLE IF NOT EXISTS notebook_versions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     notebook_id TEXT NOT NULL,
+    owner_username TEXT NOT NULL DEFAULT 'legacy-token',
     name TEXT NOT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -105,13 +165,26 @@ const schemaSql = `
     saved_at TEXT NOT NULL,
     reason TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS entity_tombstones (
+    owner_username TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    deleted_at TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    PRIMARY KEY (owner_username, entity_type, entity_id)
+  );
 `;
 
 const createNotesTableSql = `
   CREATE TABLE notes (
     id TEXT PRIMARY KEY,
+    owner_username TEXT NOT NULL DEFAULT 'legacy-token',
     title TEXT NOT NULL,
     body TEXT NOT NULL,
+    title_hash TEXT,
+    body_hash TEXT,
     notebook_ids TEXT NOT NULL DEFAULT '[]',
     notebook_id TEXT,
     created_at TEXT NOT NULL,
@@ -129,8 +202,11 @@ const createNoteVersionsTableSql = `
   CREATE TABLE note_versions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     note_id TEXT NOT NULL,
+    owner_username TEXT NOT NULL DEFAULT 'legacy-token',
     title TEXT NOT NULL,
     body TEXT NOT NULL,
+    title_hash TEXT,
+    body_hash TEXT,
     notebook_ids TEXT NOT NULL DEFAULT '[]',
     notebook_id TEXT,
     created_at TEXT NOT NULL,
@@ -201,20 +277,28 @@ async function migrateLegacyMarkdownColumns(db: NotesDb): Promise<void> {
       ? "COALESCE(NULLIF(body, ''), markdown_body)"
       : 'markdown_body';
     const notesHaveNotebookIds = await hasColumn(db, 'notes', 'notebook_ids');
+    const notesHaveOwner = await hasColumn(db, 'notes', 'owner_username');
+    const notesHaveTitleHash = await hasColumn(db, 'notes', 'title_hash');
+    const notesHaveBodyHash = await hasColumn(db, 'notes', 'body_hash');
     const notebookIdsExpression = notesHaveNotebookIds
       ? "COALESCE(notebook_ids, CASE WHEN notebook_id IS NULL THEN '[]' ELSE json_array(notebook_id) END)"
       : "CASE WHEN notebook_id IS NULL THEN '[]' ELSE json_array(notebook_id) END";
+    const ownerExpression = notesHaveOwner
+      ? `COALESCE(owner_username, ${sqlString(defaultDataOwner())})`
+      : sqlString(defaultDataOwner());
+    const titleHashExpression = notesHaveTitleHash ? 'title_hash' : 'NULL';
+    const bodyHashExpression = notesHaveBodyHash ? 'body_hash' : 'NULL';
     await exec(
       db,
       `PRAGMA foreign_keys = OFF;
        ALTER TABLE notes RENAME TO notes_legacy_markdown;
        ${createNotesTableSql}
        INSERT INTO notes (
-         id, title, body, notebook_ids, notebook_id, created_at, updated_at,
+         id, owner_username, title, body, title_hash, body_hash, notebook_ids, notebook_id, created_at, updated_at,
          deleted_at, trashed_at, device_id, version, sync_status
        )
        SELECT
-         id, title, ${bodyExpression}, ${notebookIdsExpression}, notebook_id, created_at, updated_at,
+         id, ${ownerExpression}, title, ${bodyExpression}, ${titleHashExpression}, ${bodyHashExpression}, ${notebookIdsExpression}, notebook_id, created_at, updated_at,
          deleted_at, trashed_at, device_id, version, sync_status
        FROM notes_legacy_markdown;
        DROP TABLE notes_legacy_markdown;
@@ -237,19 +321,39 @@ async function migrateLegacyMarkdownColumns(db: NotesDb): Promise<void> {
       'note_versions',
       'notebook_ids'
     );
+    const versionsHaveOwner = await hasColumn(
+      db,
+      'note_versions',
+      'owner_username'
+    );
+    const versionsHaveTitleHash = await hasColumn(
+      db,
+      'note_versions',
+      'title_hash'
+    );
+    const versionsHaveBodyHash = await hasColumn(
+      db,
+      'note_versions',
+      'body_hash'
+    );
     const notebookIdsExpression = versionsHaveNotebookIds
       ? "COALESCE(notebook_ids, CASE WHEN notebook_id IS NULL THEN '[]' ELSE json_array(notebook_id) END)"
       : "CASE WHEN notebook_id IS NULL THEN '[]' ELSE json_array(notebook_id) END";
+    const ownerExpression = versionsHaveOwner
+      ? `COALESCE(owner_username, ${sqlString(defaultDataOwner())})`
+      : sqlString(defaultDataOwner());
+    const titleHashExpression = versionsHaveTitleHash ? 'title_hash' : 'NULL';
+    const bodyHashExpression = versionsHaveBodyHash ? 'body_hash' : 'NULL';
     await exec(
       db,
       `ALTER TABLE note_versions RENAME TO note_versions_legacy_markdown;
        ${createNoteVersionsTableSql}
        INSERT INTO note_versions (
-         id, note_id, title, body, notebook_ids, notebook_id, created_at, updated_at,
+         id, note_id, owner_username, title, body, title_hash, body_hash, notebook_ids, notebook_id, created_at, updated_at,
          deleted_at, trashed_at, device_id, version, saved_at, reason
        )
        SELECT
-         id, note_id, title, ${bodyExpression}, ${notebookIdsExpression}, notebook_id, created_at, updated_at,
+         id, note_id, ${ownerExpression}, title, ${bodyExpression}, ${titleHashExpression}, ${bodyHashExpression}, ${notebookIdsExpression}, notebook_id, created_at, updated_at,
          deleted_at, trashed_at, device_id, version, saved_at, reason
        FROM note_versions_legacy_markdown;
        DROP TABLE note_versions_legacy_markdown;`
@@ -281,6 +385,75 @@ async function migrateNotebookIds(db: NotesDb): Promise<void> {
   }
 }
 
+async function migrateSyncOwnershipAndHashes(db: NotesDb): Promise<void> {
+  const owner = defaultDataOwner();
+  const ownerTables = [
+    'notes',
+    'notebooks',
+    'note_versions',
+    'notebook_versions',
+    'entity_changes'
+  ];
+
+  for (const table of ownerTables) {
+    if (!(await hasColumn(db, table, 'owner_username'))) {
+      await run(
+        db,
+        `ALTER TABLE ${table} ADD COLUMN owner_username TEXT NOT NULL DEFAULT ${sqlString(owner)}`
+      );
+    }
+    await run(
+      db,
+      `UPDATE ${table} SET owner_username = ? WHERE owner_username IS NULL OR owner_username = ''`,
+      [owner]
+    );
+  }
+
+  for (const table of ['notes', 'note_versions']) {
+    if (!(await hasColumn(db, table, 'title_hash'))) {
+      await run(db, `ALTER TABLE ${table} ADD COLUMN title_hash TEXT`);
+    }
+    if (!(await hasColumn(db, table, 'body_hash'))) {
+      await run(db, `ALTER TABLE ${table} ADD COLUMN body_hash TEXT`);
+    }
+  }
+
+  await exec(
+    db,
+    `CREATE INDEX IF NOT EXISTS entity_changes_owner_revision_idx
+       ON entity_changes(owner_username, revision);
+     CREATE INDEX IF NOT EXISTS notebooks_active_name_idx
+       ON notebooks(owner_username, deleted_at, name);
+     CREATE TABLE IF NOT EXISTS entity_tombstones (
+       owner_username TEXT NOT NULL,
+       entity_type TEXT NOT NULL,
+       entity_id TEXT NOT NULL,
+       deleted_at TEXT NOT NULL,
+       device_id TEXT NOT NULL,
+       version INTEGER NOT NULL,
+       PRIMARY KEY (owner_username, entity_type, entity_id)
+     );`
+  );
+}
+
+async function seedEntityChanges(db: NotesDb): Promise<void> {
+  const existing = await get(
+    db,
+    'SELECT count(*) AS count FROM entity_changes'
+  );
+  if (Number(existing?.count ?? 0) > 0) return;
+
+  await exec(
+    db,
+    `INSERT INTO entity_changes (owner_username, entity_type, entity_id, operation, updated_at)
+       SELECT ${sqlString(defaultDataOwner())}, 'device', id, 'upsert', last_seen_at FROM devices;
+     INSERT INTO entity_changes (owner_username, entity_type, entity_id, operation, updated_at)
+       SELECT owner_username, 'notebook', id, 'upsert', updated_at FROM notebooks;
+     INSERT INTO entity_changes (owner_username, entity_type, entity_id, operation, updated_at)
+       SELECT owner_username, 'note', id, 'upsert', updated_at FROM notes;`
+  );
+}
+
 export async function initializeDatabase(db: NotesDb): Promise<void> {
   await exec(db, schemaSql);
   if (!(await hasColumn(db, 'users', 'display_name'))) {
@@ -288,6 +461,8 @@ export async function initializeDatabase(db: NotesDb): Promise<void> {
   }
   await migrateLegacyMarkdownColumns(db);
   await migrateNotebookIds(db);
+  await migrateSyncOwnershipAndHashes(db);
+  await seedEntityChanges(db);
 }
 
 async function ensureDatabaseInitialized(

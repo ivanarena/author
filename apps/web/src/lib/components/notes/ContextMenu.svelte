@@ -87,7 +87,7 @@
           role="menuitemcheckbox"
           onclick={(event) => {
             event.stopPropagation();
-            void model.assignNotebookForNote(contextNote, null);
+            void model.contextAssignNotebookForNote(contextNote, null);
           }}
         >
           <Inbox size={14} strokeWidth={1.8} />
@@ -103,7 +103,7 @@
             role="menuitemcheckbox"
             onclick={(event) => {
               event.stopPropagation();
-              void model.assignNotebookForNote(contextNote, notebook.id);
+              void model.contextAssignNotebookForNote(contextNote, notebook.id);
             }}
           >
             <Notebook size={14} strokeWidth={1.8} />

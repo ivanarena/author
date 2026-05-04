@@ -8,6 +8,7 @@ import {
   validateSession
 } from './sync';
 import {
+  applyRemoteDeletes,
   ensureLocalNotesEncrypted,
   getOrCreateDevice,
   markAcceptedChanges,
@@ -23,6 +24,7 @@ vi.mock('./encryption', () => ({
 }));
 
 vi.mock('./store', () => ({
+  applyRemoteDeletes: vi.fn(),
   ensureLocalNotesEncrypted: vi.fn(),
   getOrCreateDevice: vi.fn(),
   markAcceptedChanges: vi.fn(),
@@ -113,6 +115,7 @@ beforeEach(() => {
   vi.mocked(hasStoredEncryptionKeyMaterial).mockReturnValue(true);
   vi.mocked(getOrCreateDevice).mockResolvedValue(device);
   vi.mocked(ensureLocalNotesEncrypted).mockResolvedValue(undefined);
+  vi.mocked(applyRemoteDeletes).mockResolvedValue(undefined);
   vi.mocked(markAcceptedChanges).mockResolvedValue(undefined);
   vi.mocked(saveConflict).mockResolvedValue(undefined);
   vi.mocked(saveDevices).mockResolvedValue(undefined);
@@ -198,13 +201,17 @@ describe('client sync orchestration', () => {
         notes: [remoteNote],
         notebooks: [remoteNotebook],
         devices: [{ id: 'phone', name: 'Phone' }],
-        serverTime: '2026-05-01T10:11:00.000Z'
+        deletedNoteIds: ['old-note'],
+        deletedNotebookIds: ['old-notebook'],
+        deletedDeviceIds: ['old-device'],
+        serverTime: '2026-05-01T10:11:00.000Z',
+        serverRevision: 42
       })
     );
 
     await expect(runSync('session-token')).resolves.toEqual({
       pushed: 2,
-      pulled: 2,
+      pulled: 4,
       conflicts: 1
     });
 
@@ -247,10 +254,15 @@ describe('client sync orchestration', () => {
       2,
       '/api/sync/pull',
       expect.objectContaining({
-        body: JSON.stringify({ since: null })
+        body: JSON.stringify({ since: null, sinceRevision: 0, limit: 500 })
       })
     );
     expect(saveDevices).toHaveBeenCalledWith([{ id: 'phone', name: 'Phone' }]);
+    expect(applyRemoteDeletes).toHaveBeenCalledWith(
+      ['old-note'],
+      ['old-notebook'],
+      ['old-device']
+    );
     expect(mergeRemoteChanges).toHaveBeenCalledWith(
       [remoteNote],
       [remoteNotebook],
@@ -259,6 +271,10 @@ describe('client sync orchestration', () => {
     expect(localDb.syncMeta.put).toHaveBeenCalledWith({
       key: 'lastPulledAt',
       value: '2026-05-01T10:11:00.000Z'
+    });
+    expect(localDb.syncMeta.put).toHaveBeenCalledWith({
+      key: 'lastPulledRevision',
+      value: '42'
     });
   });
 
@@ -272,7 +288,11 @@ describe('client sync orchestration', () => {
         notes: [],
         notebooks: [],
         devices: [],
-        serverTime: '2026-05-01T10:12:00.000Z'
+        deletedNoteIds: [],
+        deletedNotebookIds: [],
+        deletedDeviceIds: [],
+        serverTime: '2026-05-01T10:12:00.000Z',
+        serverRevision: 43
       })
     );
 
@@ -286,11 +306,52 @@ describe('client sync orchestration', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/sync/pull',
       expect.objectContaining({
-        body: JSON.stringify({ since: '2026-05-01T10:00:00.000Z' })
+        body: JSON.stringify({
+          since: '2026-05-01T10:00:00.000Z',
+          sinceRevision: 0,
+          limit: 500
+        })
       })
     );
     expect(markAcceptedChanges).not.toHaveBeenCalled();
     expect(saveConflict).not.toHaveBeenCalled();
+  });
+
+  it('uses the stored revision cursor when one exists', async () => {
+    vi.mocked(localDb.syncMeta.get)
+      .mockResolvedValueOnce({
+        key: 'lastPulledAt',
+        value: '2026-05-01T10:00:00.000Z'
+      })
+      .mockResolvedValueOnce({
+        key: 'lastPulledRevision',
+        value: '41'
+      });
+    const fetchMock = mockFetch(
+      jsonResponse({
+        notes: [],
+        notebooks: [],
+        devices: [],
+        deletedNoteIds: [],
+        deletedNotebookIds: [],
+        deletedDeviceIds: [],
+        serverTime: '2026-05-01T10:12:00.000Z',
+        serverRevision: 43
+      })
+    );
+
+    await runSync('session-token');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/sync/pull',
+      expect.objectContaining({
+        body: JSON.stringify({
+          since: '2026-05-01T10:00:00.000Z',
+          sinceRevision: 41,
+          limit: 500
+        })
+      })
+    );
   });
 
   it('turns unauthorized responses into AuthError', async () => {

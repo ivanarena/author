@@ -15,6 +15,47 @@ export async function saveDevices(devices: Device[]): Promise<void> {
   await localDb.devices.bulkPut(devices);
 }
 
+async function deviceName(deviceId: string): Promise<string> {
+  return (await localDb.devices.get(deviceId))?.name ?? deviceId;
+}
+
+function canApplyRemoteDelete(record: { syncStatus: string }): boolean {
+  return record.syncStatus !== 'pending' && record.syncStatus !== 'conflict';
+}
+
+export async function applyRemoteDeletes(
+  deletedNoteIds: string[] = [],
+  deletedNotebookIds: string[] = [],
+  deletedDeviceIds: string[] = []
+): Promise<void> {
+  const noteIds = [...new Set(deletedNoteIds)].filter(Boolean);
+  const notebookIds = [...new Set(deletedNotebookIds)].filter(Boolean);
+  const deviceIds = [...new Set(deletedDeviceIds)].filter(Boolean);
+  if (!noteIds.length && !notebookIds.length && !deviceIds.length) return;
+
+  await localDb.transaction(
+    'rw',
+    [localDb.notes, localDb.notebooks, localDb.devices],
+    async () => {
+      for (const id of noteIds) {
+        const note = await localDb.notes.get(id);
+        if (note && canApplyRemoteDelete(note)) await localDb.notes.delete(id);
+      }
+
+      for (const id of notebookIds) {
+        const notebook = await localDb.notebooks.get(id);
+        if (notebook && canApplyRemoteDelete(notebook)) {
+          await localDb.notebooks.delete(id);
+        }
+      }
+
+      for (const id of deviceIds) {
+        await localDb.devices.delete(id);
+      }
+    }
+  );
+}
+
 export async function markAcceptedChanges(
   accepted: Array<{
     entityType: 'note' | 'notebook';
@@ -162,7 +203,7 @@ async function mergeRemoteNote(remote: Note, syncedAt: string): Promise<void> {
       remote: {
         source: 'remote',
         deviceId: remote.deviceId,
-        deviceName: remote.deviceId,
+        deviceName: await deviceName(remote.deviceId),
         updatedAt: remote.updatedAt,
         version: remote.version,
         previewText: previewText(remotePlain),
@@ -216,7 +257,7 @@ async function mergeRemoteNotebook(
       remote: {
         source: 'remote',
         deviceId: remote.deviceId,
-        deviceName: remote.deviceId,
+        deviceName: await deviceName(remote.deviceId),
         updatedAt: remote.updatedAt,
         version: remote.version,
         previewText: remote.name,

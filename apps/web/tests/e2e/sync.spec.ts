@@ -162,7 +162,9 @@ test.beforeEach(async ({ page, request }) => {
   );
 });
 
-test('renames and deletes notebooks from hover controls', async ({ page }) => {
+test('renames notebooks and trashes their notes before delete', async ({
+  page
+}) => {
   await page.goto('/');
 
   await hoverMenusThroughBridge(page);
@@ -180,7 +182,16 @@ test('renames and deletes notebooks from hover controls', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Work' })).toBeVisible();
   await expect(page.locator('nav')).toHaveCSS('scrollbar-width', 'none');
 
-  await page.getByRole('button', { name: 'Work' }).hover();
+  const notebookNoteTitle = `Notebook note ${Date.now()}`;
+  await page.getByLabel('Note title').fill(notebookNoteTitle);
+  await page.getByLabel('Note body').fill('This should be recoverable.');
+  await expectBrowserStoredEncryptedNote(
+    page,
+    notebookNoteTitle,
+    'This should be recoverable.'
+  );
+
+  await page.getByRole('button', { name: 'Work', exact: true }).hover();
   await page
     .getByRole('button', { name: 'Delete notebook', exact: true })
     .click();
@@ -188,6 +199,10 @@ test('renames and deletes notebooks from hover controls', async ({ page }) => {
   await page.getByRole('button', { name: 'Confirm delete notebook' }).click();
 
   await expect(page.getByRole('button', { name: 'Work' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Trash' }).click();
+  await expect(
+    page.getByText(notebookNoteTitle, { exact: true })
+  ).toBeVisible();
 });
 
 test('keeps a stored online session synced from local edits', async ({
@@ -232,7 +247,7 @@ test('shows local IndexedDB notes after a browser reload', async ({ page }) => {
   await expect(page.getByLabel('Note body')).toHaveValue(bodyText);
 });
 
-test('logs in from the settings modal when no session is stored', async ({
+test('logs in from the profile menu when no session is stored', async ({
   page
 }) => {
   await page.addInitScript(() => {
@@ -246,20 +261,20 @@ test('logs in from the settings modal when no session is stored', async ({
   await page.goto('/');
   await page.getByRole('button', { name: 'Profile and settings' }).click();
   await page.getByRole('menuitem', { name: 'Sign in to sync' }).click();
-  const settings = page.getByRole('dialog', { name: 'Settings' });
-  await settings.getByLabel('Username').fill(loginUsername);
-  await settings.getByLabel('Password').fill(loginPassword);
-  await settings.getByRole('button', { name: 'Sign in' }).click();
+  const loginDialog = page.getByRole('dialog', { name: 'Sign in' });
+  await loginDialog.getByLabel('Username').fill(loginUsername);
+  await loginDialog.getByLabel('Password', { exact: true }).fill(loginPassword);
+  await loginDialog
+    .getByRole('button', { name: 'Sign in', exact: true })
+    .click();
 
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('author-notes-token')))
     .toEqual(expect.any(String));
-  await expect(
-    page.getByRole('button', { name: 'Sync', exact: true })
-  ).toBeVisible();
+  await expect(loginDialog).toBeHidden();
 
-  await settings.getByRole('button', { name: 'Close settings' }).click();
   await page.getByRole('button', { name: 'Profile and settings' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Log out' })).toBeVisible();
   await page.getByRole('menuitem', { name: 'Log out' }).click();
 
   await expect
@@ -271,13 +286,14 @@ test('logs in from the settings modal when no session is stored', async ({
   ).toBeVisible();
 });
 
-test('exports JSON without closing settings and imports JSON from the same modal', async ({
+test('exports deprecated JSON without closing settings and shows JSON import result banners', async ({
   page
 }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Profile and settings' }).click();
   await page.getByRole('menuitem', { name: 'Settings' }).click();
   await page.getByRole('button', { name: 'Data' }).click();
+  await expect(page.getByText('Deprecated')).toBeVisible();
 
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export JSON' }).click();
@@ -288,9 +304,19 @@ test('exports JSON without closing settings and imports JSON from the same modal
   await expect(importButton).toBeVisible();
   await expect(importButton).toBeEnabled();
 
-  const chooserPromise = page.waitForEvent('filechooser');
+  let chooserPromise = page.waitForEvent('filechooser');
   await importButton.click();
-  const chooser = await chooserPromise;
+  let chooser = await chooserPromise;
+  await chooser.setFiles({
+    name: 'author-notes-broken.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from('{')
+  });
+  await expect(page.getByText('Import failed')).toBeVisible();
+
+  chooserPromise = page.waitForEvent('filechooser');
+  await importButton.click();
+  chooser = await chooserPromise;
   await chooser.setFiles({
     name: 'author-notes-import-smoke.json',
     mimeType: 'application/json',
@@ -315,6 +341,7 @@ test('exports JSON without closing settings and imports JSON from the same modal
     )
   });
 
+  await expect(page.getByText('Import succeeded')).toBeVisible();
   await expect(page.getByLabel('Note title')).toHaveValue('Import smoke');
   await expect(page.getByLabel('Note body')).toHaveValue(
     'Imported from the e2e archive test.'

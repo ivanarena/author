@@ -1,4 +1,5 @@
-.settings-layer {
+.settings-layer,
+.login-layer {
   position: fixed;
   z-index: 70;
   inset: 0;
@@ -10,7 +11,12 @@
   backdrop-filter: var(--surface-blur);
 }
 
-.settings-modal {
+.login-layer {
+  z-index: 90;
+}
+
+.settings-modal,
+.login-modal {
   display: grid;
   gap: 0;
   width: min(780px, 100%);
@@ -24,6 +30,16 @@
   -webkit-backdrop-filter: var(--surface-blur);
   backdrop-filter: var(--surface-blur);
   animation: menu-in 120ms ease-out;
+}
+
+.login-modal {
+  width: min(460px, 100%);
+}
+
+.login-modal-body {
+  min-width: 0;
+  overflow: auto;
+  padding: 20px;
 }
 
 .settings-header {
@@ -194,6 +210,29 @@
   padding-bottom: 14px;
 }
 
+.account-profile-card {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.account-hover-action {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.account-profile-card:hover .account-hover-action,
+.account-profile-card:focus-within .account-hover-action {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (hover: none) {
+  .account-hover-action {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 .account-empty {
   grid-template-columns: auto minmax(0, 1fr) auto;
   min-height: 96px;
@@ -255,7 +294,14 @@
   min-width: 0;
 }
 
-.settings-action-group > span {
+.settings-action-group-heading {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.settings-action-group-heading > span:first-child {
   min-width: 0;
   overflow: hidden;
   color: var(--muted);
@@ -266,6 +312,31 @@
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+.settings-action-group.deprecated {
+  opacity: 0.82;
+}
+
+.settings-badge {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.settings-group-note {
+  margin: -2px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .settings-progress {
@@ -319,6 +390,55 @@
   transition: width 160ms ease;
 }
 
+.import-result-banner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 11px 12px;
+  background: var(--field);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
+}
+
+.import-result-banner.success {
+  border-color: rgba(31, 143, 77, 0.34);
+  color: #1f8f4d;
+}
+
+.import-result-banner.error {
+  border-color: rgba(201, 54, 47, 0.36);
+  color: #c9362f;
+}
+
+.import-result-banner div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.import-result-banner strong,
+.import-result-banner span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-result-banner strong {
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.import-result-banner span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
 .settings-zoom {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -338,6 +458,15 @@
 .login-form,
 .account-form {
   gap: 10px;
+}
+
+.login-modal .login-form {
+  gap: 16px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  animation: none;
 }
 
 .login-copy {
@@ -385,6 +514,39 @@
   font-weight: 600;
 }
 
+.login-form .field-row {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 6px;
+}
+
+.auth-mode-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 4px;
+  background: var(--field);
+}
+
+.auth-mode-tabs button {
+  min-width: 0;
+  min-height: 30px;
+  border-color: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.auth-mode-tabs button:hover,
+.auth-mode-tabs button:focus-visible,
+.auth-mode-tabs button.active {
+  background: var(--hover);
+  color: var(--text);
+}
+
 .account-form {
   border-bottom: 1px solid var(--line);
   padding-bottom: 14px;
@@ -404,6 +566,28 @@
   display: grid;
   gap: 6px;
   min-width: 0;
+}
+
+.login-modal .auth-field-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.password-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+.password-field input {
+  width: 100%;
+}
+
+.password-toggle {
+  align-self: stretch;
+  width: var(--control-height);
+  height: var(--control-height);
 }
 
 .danger-zone {
@@ -433,9 +617,18 @@
   margin-top: 2px;
 }
 
+.login-modal .login-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.login-modal .settings-action {
+  min-width: 0;
+}
+
 @media (max-width: 560px) {
   .auth-field-grid,
-  .login-actions {
+  .login-actions,
+  .login-modal .login-actions {
     grid-template-columns: 1fr;
   }
 }

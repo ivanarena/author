@@ -1,5 +1,6 @@
 import { onMount, tick } from 'svelte';
 import type { Device } from '@author/schema';
+import type { RemoteSyncState } from '@author/api-types';
 import type { LocalConflict, LocalNote, LocalNotebook } from '$lib/client/db';
 import {
   hasStoredEncryptionKeyMaterial,
@@ -42,9 +43,11 @@ import {
   AuthError,
   changePassword,
   deleteAccount,
+  loadSyncStatus,
   login,
   logout,
   runSync,
+  signup,
   updateAccount,
   validateSession
 } from '$lib/client/sync';
@@ -82,6 +85,7 @@ import type {
 
 export type NotesFilterId = 'all' | 'unfiled' | 'trash' | (string & {});
 export type Theme = 'light' | 'dark';
+export type AuthMode = 'signin' | 'signup';
 export type SettingsSection = 'account' | 'sync' | 'data' | 'appearance';
 export type ConflictChoice =
   | 'keep-newer'
@@ -94,6 +98,12 @@ export interface ArchiveOperation {
   label: string;
   detail: string;
   progress: number;
+}
+
+export interface ImportBanner {
+  kind: 'success' | 'error';
+  title: string;
+  message: string;
 }
 
 export interface NotebookSidebarModel {
@@ -126,8 +136,16 @@ export interface NoteListPanelModel {
   visibleNotes: LocalNote[];
   notebooks: LocalNotebook[];
   selectedNote: LocalNote | null;
+  selectedNoteIds: Set<string>;
+  selectedNoteCount: number;
+  selectedVisibleNoteCount: number;
+  allVisibleNotesSelected: boolean;
+  someVisibleNotesSelected: boolean;
+  selectedActiveNoteCount: number;
+  selectedTrashedNoteCount: number;
   compactView: boolean;
   linkingNoteId: string | null;
+  selectedNotebookMenuOpen: boolean;
   noteSort: NoteSort;
   searchValue: string;
   currentTime: Date;
@@ -135,6 +153,16 @@ export interface NoteListPanelModel {
   newNote: () => void | Promise<void>;
   changeSort: (event: Event) => void;
   selectNote: NoteCallback;
+  toggleNoteSelection: (note: LocalNote, selected: boolean) => void;
+  toggleAllVisibleNotes: (selected: boolean) => void;
+  clearSelectedNotes: () => void;
+  toggleSelectedNotebookMenu: () => void;
+  assignNotebookForSelected: (
+    notebookId: string | null
+  ) => void | Promise<void>;
+  selectedNotesHaveNotebook: (notebookId: string | null) => boolean;
+  trashSelectedNotes: () => void | Promise<void>;
+  restoreSelectedNotes: () => void | Promise<void>;
   openNoteContext: (event: MouseEvent, note: LocalNote) => void;
   restoreNoteFromRow: NoteCallback;
   trashNote: NoteCallback;
@@ -155,6 +183,9 @@ export interface NavigationDockModel
   accountDisplayName: string;
   accountMessage: string;
   accountError: string;
+  accountProfileEditing: boolean;
+  accountPasswordEditing: boolean;
+  accountDeleteEditing: boolean;
   currentPasswordValue: string;
   newPasswordValue: string;
   confirmPasswordValue: string;
@@ -166,6 +197,9 @@ export interface NavigationDockModel
   openMenus: () => void;
   scheduleMenusClose: () => void;
   closeMenusOnBlur: (event: FocusEvent) => void;
+  openAccountMenu: () => void;
+  scheduleAccountMenuClose: () => void;
+  closeAccountMenuOnBlur: (event: FocusEvent) => void;
   toggleMenus: () => void;
   toggleAccountMenu: () => void;
   closeAccountMenu: () => void;
@@ -211,6 +245,9 @@ export interface SettingsModalModel {
   accountDisplayName: string;
   accountMessage: string;
   accountError: string;
+  accountProfileEditing: boolean;
+  accountPasswordEditing: boolean;
+  accountDeleteEditing: boolean;
   currentPasswordValue: string;
   newPasswordValue: string;
   confirmPasswordValue: string;
@@ -220,6 +257,7 @@ export interface SettingsModalModel {
   isImporting: boolean;
   isArchiveBusy: boolean;
   archiveOperation: ArchiveOperation | null;
+  importBanner: ImportBanner | null;
   compactView: boolean;
   theme: Theme;
   settingsSection: SettingsSection;
@@ -227,8 +265,11 @@ export interface SettingsModalModel {
   minEditorZoom: number;
   maxEditorZoom: number;
   loginOpen: boolean;
+  authMode: AuthMode;
   loginUsernameValue: string;
   loginPasswordValue: string;
+  signupDisplayNameValue: string;
+  signupConfirmPasswordValue: string;
   loginError: string;
   isLoggingIn: boolean;
   syncNow: () => void | Promise<void>;
@@ -237,6 +278,13 @@ export interface SettingsModalModel {
   logoutAccount: () => void | Promise<void>;
   deleteAccount: () => void | Promise<void>;
   toggleLoginMenu: () => void;
+  closeLoginModal: () => void;
+  startAccountProfileEdit: () => void;
+  cancelAccountProfileEdit: () => void;
+  startAccountPasswordEdit: () => void;
+  cancelAccountPasswordEdit: () => void;
+  startAccountDeleteEdit: () => void;
+  cancelAccountDeleteEdit: () => void;
   setSettingsSection: (section: SettingsSection) => void;
   exportJson: () => void | Promise<void>;
   exportMarkdown: () => void | Promise<void>;
@@ -249,6 +297,7 @@ export interface SettingsModalModel {
   zoomEditor: (direction: -1 | 1) => void;
   zoomPercent: () => string;
   submitLoginMenu: () => void | Promise<void>;
+  setAuthMode: (mode: AuthMode) => void;
   closeSettings: () => void;
 }
 
@@ -266,6 +315,10 @@ export interface ContextMenuModel {
   contextLinkNote: NoteCallback;
   contextTrashNote: NoteCallback;
   contextRestoreNote: NoteCallback;
+  contextAssignNotebookForNote: (
+    note: LocalNote,
+    notebookId: string | null
+  ) => void | Promise<void>;
 }
 
 export interface ConflictDialogModel {
@@ -299,11 +352,16 @@ export class NotesPageController
   conflicts = $state<LocalConflict[]>([]);
   pendingSyncCount = $state(0);
   selectedNote = $state<LocalNote | null>(null);
+  selectedNoteIds = $state<Set<string>>(new Set());
   titleValue = $state('');
   bodyValue = $state('');
   filterId = $state<NotesFilterId>('all');
   linkingNoteId = $state<string | null>(null);
+  selectedNotebookMenuOpen = $state(false);
   syncMessage = $state('Sign in to sync');
+  remoteSyncEnabled = $state(false);
+  remoteSyncState = $state<RemoteSyncState | 'unknown'>('unknown');
+  remoteSyncError = $state('');
   isSyncing = $state(false);
   isLoggingIn = $state(false);
   isAccountBusy = $state(false);
@@ -312,6 +370,9 @@ export class NotesPageController
   accountDisplayName = $state('');
   accountMessage = $state('');
   accountError = $state('');
+  accountProfileEditing = $state(false);
+  accountPasswordEditing = $state(false);
+  accountDeleteEditing = $state(false);
   currentPasswordValue = $state('');
   newPasswordValue = $state('');
   confirmPasswordValue = $state('');
@@ -322,8 +383,11 @@ export class NotesPageController
   notebookNameValue = $state('');
   notebookError = $state('');
   loginOpen = $state(false);
+  authMode = $state<AuthMode>('signin');
   loginUsernameValue = $state('');
   loginPasswordValue = $state('');
+  signupDisplayNameValue = $state('');
+  signupConfirmPasswordValue = $state('');
   loginError = $state('');
   renamingNotebookId = $state<string | null>(null);
   renameNotebookValue = $state('');
@@ -338,6 +402,7 @@ export class NotesPageController
   accountMenuOpen = $state(false);
   isImporting = $state(false);
   archiveOperation = $state<ArchiveOperation | null>(null);
+  importBanner = $state<ImportBanner | null>(null);
   settingsSection = $state<SettingsSection>('account');
   settingsOpen = $state(false);
   contextMenu = $state<ContextMenuState>(null);
@@ -357,6 +422,8 @@ export class NotesPageController
   private retrySyncTimer: ReturnType<typeof setTimeout> | null = null;
   private onlineSessionTimer: ReturnType<typeof setInterval> | null = null;
   private menuCloseTimer: ReturnType<typeof setTimeout> | null = null;
+  private accountMenuCloseTimer: ReturnType<typeof setTimeout> | null = null;
+  private remoteStatusTimer: ReturnType<typeof setTimeout> | null = null;
   private syncQueued = false;
   private lastHistorySnapshot: EditorSnapshot = { title: '', body: '' };
 
@@ -370,6 +437,26 @@ export class NotesPageController
   visibleNoteGroups = $derived(
     groupNotesByDateRange(this.visibleNotes, this.noteSort, this.currentTime)
   );
+  selectedNoteCount = $derived(this.selectedNoteIds.size);
+  selectedVisibleNoteCount = $derived(
+    this.visibleNotes.filter((note) => this.selectedNoteIds.has(note.id)).length
+  );
+  allVisibleNotesSelected = $derived(
+    this.visibleNotes.length > 0 &&
+      this.selectedVisibleNoteCount === this.visibleNotes.length
+  );
+  someVisibleNotesSelected = $derived(this.selectedVisibleNoteCount > 0);
+  selectedNotes = $derived(
+    [...this.notes, ...this.trash].filter((note) =>
+      this.selectedNoteIds.has(note.id)
+    )
+  );
+  selectedActiveNoteCount = $derived(
+    this.selectedNotes.filter((note) => !note.trashedAt).length
+  );
+  selectedTrashedNoteCount = $derived(
+    this.selectedNotes.filter((note) => note.trashedAt).length
+  );
   wordCount = $derived(countWords(`${this.titleValue} ${this.bodyValue}`));
   activeConflict = $derived(this.conflicts[0] ?? null);
   notebookCounts = $derived(countNotesByNotebook(this.notes));
@@ -381,7 +468,10 @@ export class NotesPageController
       isBrowserOnline: this.isBrowserOnline,
       hasSession: this.hasToken,
       pendingSyncCount: this.pendingSyncCount,
-      syncMessage: this.syncMessage
+      syncMessage: this.syncMessage,
+      remoteSyncEnabled: this.remoteSyncEnabled,
+      remoteSyncState: this.remoteSyncState,
+      remoteSyncError: this.remoteSyncError
     })
   );
   contextNote = $derived(this.getContextNote(this.contextMenu));
@@ -430,9 +520,12 @@ export class NotesPageController
         clearInterval(clock);
         this.clearPendingSave();
         if (this.menuCloseTimer) clearTimeout(this.menuCloseTimer);
+        if (this.accountMenuCloseTimer)
+          clearTimeout(this.accountMenuCloseTimer);
         if (this.autoSyncTimer) clearTimeout(this.autoSyncTimer);
         if (this.retrySyncTimer) clearTimeout(this.retrySyncTimer);
         if (this.onlineSessionTimer) clearInterval(this.onlineSessionTimer);
+        if (this.remoteStatusTimer) clearTimeout(this.remoteStatusTimer);
         document.removeEventListener(
           'visibilitychange',
           this.handleVisibilityChange
@@ -513,6 +606,8 @@ export class NotesPageController
     if (!this.settingsOpen) return;
     if (
       event.target.closest('.settings-modal') ||
+      event.target.closest('.login-layer') ||
+      event.target.closest('.login-modal') ||
       event.target.closest('.profile-menu')
     )
       return;
@@ -608,7 +703,21 @@ export class NotesPageController
     this.menusOpen = !this.menusOpen;
   };
 
+  openAccountMenu = () => {
+    if (this.accountMenuCloseTimer) {
+      clearTimeout(this.accountMenuCloseTimer);
+      this.accountMenuCloseTimer = null;
+    }
+    this.accountMenuOpen = true;
+    this.menusOpen = false;
+    this.closeContextMenu();
+  };
+
   toggleAccountMenu = () => {
+    if (this.accountMenuCloseTimer) {
+      clearTimeout(this.accountMenuCloseTimer);
+      this.accountMenuCloseTimer = null;
+    }
     this.accountMenuOpen = !this.accountMenuOpen;
     if (this.accountMenuOpen) {
       this.menusOpen = false;
@@ -617,7 +726,19 @@ export class NotesPageController
   };
 
   closeAccountMenu = () => {
+    if (this.accountMenuCloseTimer) {
+      clearTimeout(this.accountMenuCloseTimer);
+      this.accountMenuCloseTimer = null;
+    }
     this.accountMenuOpen = false;
+  };
+
+  scheduleAccountMenuClose = () => {
+    if (this.accountMenuCloseTimer) clearTimeout(this.accountMenuCloseTimer);
+    this.accountMenuCloseTimer = setTimeout(() => {
+      this.accountMenuOpen = false;
+      this.accountMenuCloseTimer = null;
+    }, 160);
   };
 
   scheduleMenusClose = () => {
@@ -635,6 +756,13 @@ export class NotesPageController
     this.menusOpen = false;
   };
 
+  closeAccountMenuOnBlur = (event: FocusEvent) => {
+    const current = event.currentTarget as HTMLElement;
+    const next = event.relatedTarget as Node | null;
+    if (next && current.contains(next)) return;
+    this.closeAccountMenu();
+  };
+
   toggleSettings = () => {
     this.settingsOpen = !this.settingsOpen;
     if (!this.settingsOpen) {
@@ -647,21 +775,21 @@ export class NotesPageController
   openSettingsModal = (section: SettingsSection = 'account') => {
     this.settingsSection = section;
     this.settingsOpen = true;
-    if (!this.hasToken && section !== 'appearance' && section !== 'data') {
-      this.loginOpen = true;
-      this.loginUsernameValue = getLoginHint();
-    }
     this.closeAccountMenu();
     this.closeContextMenu();
   };
 
   openLoginSettings = () => {
-    this.settingsSection = 'account';
+    this.settingsOpen = false;
     this.loginOpen = true;
+    this.authMode = 'signin';
     this.loginUsernameValue = getLoginHint();
     this.loginPasswordValue = '';
+    this.signupDisplayNameValue = '';
+    this.signupConfirmPasswordValue = '';
     this.loginError = '';
-    this.openSettingsModal();
+    this.closeAccountMenu();
+    this.closeContextMenu();
   };
 
   closeSettings = () => {
@@ -671,20 +799,110 @@ export class NotesPageController
 
   setSettingsSection = (section: SettingsSection) => {
     this.settingsSection = section;
-    if (!this.hasToken && section === 'account') {
-      this.loginOpen = true;
-      this.loginUsernameValue = getLoginHint();
-      this.loginPasswordValue = '';
-      this.loginError = '';
-    } else if (section !== 'sync') {
-      this.loginOpen = false;
-    }
   };
 
   changeSort = (event: Event) => {
     this.noteSort = (event.currentTarget as HTMLSelectElement)
       .value as NoteSort;
     setStoredSort(this.noteSort);
+  };
+
+  toggleNoteSelection = (note: LocalNote, selected: boolean) => {
+    const next = new Set(this.selectedNoteIds);
+    if (selected) {
+      next.add(note.id);
+    } else {
+      next.delete(note.id);
+    }
+    this.selectedNoteIds = next;
+    this.selectedNotebookMenuOpen = false;
+  };
+
+  toggleAllVisibleNotes = (selected: boolean) => {
+    const next = new Set(this.selectedNoteIds);
+    for (const note of this.visibleNotes) {
+      if (selected) {
+        next.add(note.id);
+      } else {
+        next.delete(note.id);
+      }
+    }
+    this.selectedNoteIds = next;
+    this.selectedNotebookMenuOpen = false;
+  };
+
+  clearSelectedNotes = () => {
+    this.selectedNoteIds = new Set();
+    this.selectedNotebookMenuOpen = false;
+  };
+
+  toggleSelectedNotebookMenu = () => {
+    if (!this.selectedActiveNoteCount) return;
+    this.selectedNotebookMenuOpen = !this.selectedNotebookMenuOpen;
+    this.linkingNoteId = null;
+    this.closeContextMenu();
+  };
+
+  assignNotebookForSelected = async (notebookId: string | null) => {
+    const notes = this.selectedNotes.filter((note) => !note.trashedAt);
+    if (!notes.length) return;
+    const assigned =
+      notebookId === null
+        ? false
+        : !notes.every((note) => noteNotebookIds(note).includes(notebookId));
+    for (const note of notes) {
+      await assignNoteToNotebook(note.id, notebookId, assigned);
+    }
+    this.selectedNotebookMenuOpen = false;
+    await this.refresh();
+  };
+
+  selectedNotesHaveNotebook = (notebookId: string | null): boolean => {
+    const notes = this.selectedNotes.filter((note) => !note.trashedAt);
+    if (!notes.length) return false;
+    if (notebookId === null)
+      return notes.every((note) => noteNotebookIds(note).length === 0);
+    return notes.every((note) => noteNotebookIds(note).includes(notebookId));
+  };
+
+  trashSelectedNotes = async () => {
+    const notes = this.selectedNotes.filter((note) => !note.trashedAt);
+    if (!notes.length) return;
+    await this.flushPendingSave();
+    for (const note of notes) {
+      await moveNoteToTrash(note.id);
+    }
+    const selectedNoteWasTrashed = Boolean(
+      this.selectedNote &&
+      notes.some((note) => note.id === this.selectedNote?.id)
+    );
+    this.clearSelectedNotes();
+    await this.refresh();
+
+    if (selectedNoteWasTrashed) {
+      const next = this.notes.find((candidate) => !candidate.trashedAt) ?? null;
+      if (next) {
+        await this.selectNote(next);
+      } else {
+        await this.newNote();
+      }
+    }
+  };
+
+  restoreSelectedNotes = async () => {
+    const notes = this.selectedNotes.filter((note) => note.trashedAt);
+    if (!notes.length) return;
+    for (const note of notes) {
+      await restoreNote(note.id);
+    }
+    const firstRestoredId = notes[0]?.id ?? null;
+    this.filterId = 'all';
+    this.clearSelectedNotes();
+    await this.refresh();
+    const restored = firstRestoredId
+      ? this.notes.find((note) => note.id === firstRestoredId)
+      : null;
+    if (restored) await this.selectNote(restored);
   };
 
   toggleCompactView = () => {
@@ -756,6 +974,14 @@ export class NotesPageController
   contextRestoreNote = async (note: LocalNote) => {
     this.closeContextMenu();
     await this.restoreNoteFromRow(note);
+  };
+
+  contextAssignNotebookForNote = async (
+    note: LocalNote,
+    notebookId: string | null
+  ) => {
+    await this.assignNotebookForNote(note, notebookId);
+    this.closeContextMenu();
   };
 
   assignNotebookForNote = async (
@@ -868,28 +1094,29 @@ export class NotesPageController
   };
 
   confirmDeleteNotebook = async (notebook: LocalNotebook) => {
+    const selectedNoteWasInNotebook = Boolean(
+      this.selectedNote &&
+      !this.selectedNote.trashedAt &&
+      noteNotebookIds(this.selectedNote).includes(notebook.id)
+    );
+
     await deleteNotebook(notebook.id);
 
     if (this.filterId === notebook.id) {
       this.filterId = 'all';
     }
 
-    if (
-      this.selectedNote &&
-      noteNotebookIds(this.selectedNote).includes(notebook.id)
-    ) {
-      const notebookIds = noteNotebookIds(this.selectedNote).filter(
-        (id) => id !== notebook.id
-      );
-      this.selectedNote = {
-        ...this.selectedNote,
-        notebookIds,
-        notebookId: notebookIds[0] ?? null
-      };
-    }
-
     this.deletingNotebookId = null;
     await this.refresh();
+
+    if (selectedNoteWasInNotebook) {
+      const next = this.notes.find((note) => note.id !== this.selectedNote?.id);
+      if (next) {
+        await this.selectNote(next);
+      } else {
+        await this.newNote();
+      }
+    }
   };
 
   trashNote = async (note: LocalNote) => {
@@ -946,15 +1173,17 @@ export class NotesPageController
       this.retrySyncTimer = null;
     }
     this.isSyncing = true;
-    this.syncMessage = 'Saving';
+    this.syncMessage = 'Saving locally';
     let syncCompleted = false;
     try {
       const result = await runSync(token);
       this.syncMessage =
         result.conflicts > 0
           ? `${result.conflicts} conflict${result.conflicts === 1 ? '' : 's'}`
-          : 'All changes saved';
+          : 'Local changes saved';
       await this.refresh();
+      await this.refreshRemoteSyncStatus(token);
+      this.pollRemoteSyncStatusIfBusy();
       syncCompleted = true;
     } catch (error) {
       this.handleSyncError(error);
@@ -970,7 +1199,7 @@ export class NotesPageController
   };
 
   exportJson = async () => {
-    if (this.isSyncing || this.isArchiveBusy) return;
+    if (this.isArchiveBusy) return;
     await this.flushPendingSave();
     this.beginArchiveOperation('Exporting JSON', 'Collecting notes', 18);
     try {
@@ -999,7 +1228,7 @@ export class NotesPageController
   };
 
   exportMarkdown = async () => {
-    if (this.isSyncing || this.isArchiveBusy) return;
+    if (this.isArchiveBusy) return;
     await this.flushPendingSave();
     this.beginArchiveOperation('Exporting Markdown', 'Collecting notes', 16);
     try {
@@ -1022,12 +1251,12 @@ export class NotesPageController
   };
 
   startJsonImport = () => {
-    if (this.isSyncing || this.isArchiveBusy) return;
+    if (this.isArchiveBusy) return;
     this.importInput?.click();
   };
 
   startMarkdownImport = () => {
-    if (this.isSyncing || this.isArchiveBusy) return;
+    if (this.isArchiveBusy) return;
     this.importMarkdownInput?.click();
   };
 
@@ -1035,7 +1264,7 @@ export class NotesPageController
     const input = event.currentTarget as HTMLInputElement;
     const file = input.files?.[0] ?? null;
     input.value = '';
-    if (!file || this.isSyncing || this.isArchiveBusy) return;
+    if (!file || this.isArchiveBusy) return;
 
     await this.flushPendingSave();
     this.beginArchiveOperation('Importing JSON', 'Reading file', 12);
@@ -1055,12 +1284,23 @@ export class NotesPageController
         await this.selectNote(importedNote);
       }
 
-      this.syncMessage = importNotesJsonSummary(result);
+      const message = importNotesJsonSummary(result);
+      this.syncMessage = message;
+      this.importBanner = {
+        kind: 'success',
+        title: 'Import succeeded',
+        message
+      };
       this.updateArchiveOperation('Done', 100);
       await this.yieldToUi();
     } catch (error) {
-      this.syncMessage =
-        error instanceof Error ? error.message : 'Import failed';
+      const message = error instanceof Error ? error.message : 'Import failed';
+      this.syncMessage = message;
+      this.importBanner = {
+        kind: 'error',
+        title: 'Import failed',
+        message
+      };
     } finally {
       this.endArchiveOperation(true);
     }
@@ -1070,7 +1310,7 @@ export class NotesPageController
     const input = event.currentTarget as HTMLInputElement;
     const files = input.files ? [...input.files] : [];
     input.value = '';
-    if (!files.length || this.isSyncing || this.isArchiveBusy) return;
+    if (!files.length || this.isArchiveBusy) return;
 
     await this.flushPendingSave();
     this.beginArchiveOperation('Importing Markdown', 'Reading folder', 8);
@@ -1090,23 +1330,106 @@ export class NotesPageController
         await this.selectNote(importedNote);
       }
 
-      this.syncMessage = importNotesMarkdownSummary(result);
+      const message = importNotesMarkdownSummary(result);
+      this.syncMessage = message;
+      this.importBanner = {
+        kind: 'success',
+        title: 'Import succeeded',
+        message
+      };
       this.updateArchiveOperation('Done', 100);
       await this.yieldToUi();
     } catch (error) {
-      this.syncMessage =
-        error instanceof Error ? error.message : 'Import failed';
+      const message = error instanceof Error ? error.message : 'Import failed';
+      this.syncMessage = message;
+      this.importBanner = {
+        kind: 'error',
+        title: 'Import failed',
+        message
+      };
     } finally {
       this.endArchiveOperation(true);
     }
   };
 
   toggleLoginMenu = () => {
-    this.loginOpen = !this.loginOpen;
+    this.loginOpen = true;
     this.newNotebookOpen = false;
+    this.authMode = 'signin';
     this.loginUsernameValue = getLoginHint();
     this.loginPasswordValue = '';
+    this.signupDisplayNameValue = '';
+    this.signupConfirmPasswordValue = '';
     this.loginError = '';
+    this.closeAccountMenu();
+  };
+
+  closeLoginModal = () => {
+    if (this.isLoggingIn) return;
+    this.loginOpen = false;
+    this.loginPasswordValue = '';
+    this.signupConfirmPasswordValue = '';
+    this.loginError = '';
+  };
+
+  setAuthMode = (mode: AuthMode) => {
+    if (this.isLoggingIn || this.authMode === mode) return;
+    this.authMode = mode;
+    this.loginError = '';
+    this.loginPasswordValue = '';
+    this.signupConfirmPasswordValue = '';
+    if (mode === 'signin') {
+      this.signupDisplayNameValue = '';
+      this.loginUsernameValue = getLoginHint();
+    }
+  };
+
+  startAccountProfileEdit = () => {
+    this.accountProfileEditing = true;
+    this.accountPasswordEditing = false;
+    this.accountDeleteEditing = false;
+    this.accountError = '';
+    this.accountMessage = '';
+  };
+
+  cancelAccountProfileEdit = () => {
+    this.accountProfileEditing = false;
+    this.accountDisplayName = getStoredSession()?.user.displayName ?? '';
+    this.accountError = '';
+  };
+
+  startAccountPasswordEdit = () => {
+    this.accountPasswordEditing = true;
+    this.accountProfileEditing = false;
+    this.accountDeleteEditing = false;
+    this.currentPasswordValue = '';
+    this.newPasswordValue = '';
+    this.confirmPasswordValue = '';
+    this.accountError = '';
+    this.accountMessage = '';
+  };
+
+  cancelAccountPasswordEdit = () => {
+    this.accountPasswordEditing = false;
+    this.currentPasswordValue = '';
+    this.newPasswordValue = '';
+    this.confirmPasswordValue = '';
+    this.accountError = '';
+  };
+
+  startAccountDeleteEdit = () => {
+    this.accountDeleteEditing = true;
+    this.accountProfileEditing = false;
+    this.accountPasswordEditing = false;
+    this.deletePasswordValue = '';
+    this.accountError = '';
+    this.accountMessage = '';
+  };
+
+  cancelAccountDeleteEdit = () => {
+    this.accountDeleteEditing = false;
+    this.deletePasswordValue = '';
+    this.accountError = '';
   };
 
   submitLoginMenu = async () => {
@@ -1121,12 +1444,22 @@ export class NotesPageController
       this.loginError = 'Password required';
       return;
     }
+    if (
+      this.authMode === 'signup' &&
+      password !== this.signupConfirmPasswordValue
+    ) {
+      this.loginError = 'Passwords do not match';
+      return;
+    }
 
     this.isLoggingIn = true;
     this.loginError = '';
     let shouldSync = false;
     try {
-      const session = await login(username, password);
+      const session =
+        this.authMode === 'signup'
+          ? await signup(username, password, this.signupDisplayNameValue)
+          : await login(username, password);
       const encryption = await rememberEncryptionPassword(
         session.user.username,
         password
@@ -1144,10 +1477,14 @@ export class NotesPageController
       this.accountUsername = session.user.username;
       this.accountDisplayName = session.user.displayName ?? '';
       this.accountError = '';
-      this.accountMessage = 'Signed in';
+      this.accountMessage =
+        this.authMode === 'signup' ? 'Account created' : 'Signed in';
       this.loginOpen = false;
+      this.authMode = 'signin';
       this.loginUsernameValue = session.user.username;
       this.loginPasswordValue = '';
+      this.signupDisplayNameValue = '';
+      this.signupConfirmPasswordValue = '';
       this.syncMessage = 'Signed in';
       shouldSync = true;
     } catch (error) {
@@ -1185,6 +1522,7 @@ export class NotesPageController
         expiresAt: storedSession?.expiresAt ?? null
       });
       this.accountMessage = 'Profile saved';
+      this.accountProfileEditing = false;
     } catch (error) {
       this.accountError =
         error instanceof Error ? error.message : 'Could not save profile';
@@ -1230,6 +1568,7 @@ export class NotesPageController
       this.currentPasswordValue = '';
       this.newPasswordValue = '';
       this.confirmPasswordValue = '';
+      this.accountPasswordEditing = false;
       this.clearLocalSession({
         accountMessage: 'Password changed. Sign in again to keep syncing.',
         openLogin: true,
@@ -1273,6 +1612,7 @@ export class NotesPageController
     try {
       await deleteAccount(token, { password: this.deletePasswordValue });
       this.deletePasswordValue = '';
+      this.accountDeleteEditing = false;
       this.clearLocalSession({
         accountMessage: 'Account deleted',
         syncMessage: 'Sign in to sync'
@@ -1370,12 +1710,27 @@ export class NotesPageController
     this.conflicts = conflicts;
     this.devices = devices;
     this.pendingSyncCount = pendingSyncCount;
+    this.pruneSelectedNotes(notes, trash);
   };
 
   private clearPendingSave = () => {
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
       this.saveTimer = null;
+    }
+  };
+
+  private pruneSelectedNotes = (notes: LocalNote[], trash: LocalNote[]) => {
+    if (!this.selectedNoteIds.size) return;
+    const noteIds = new Set([...notes, ...trash].map((note) => note.id));
+    const selectedNoteIds = [...this.selectedNoteIds].filter((noteId) =>
+      noteIds.has(noteId)
+    );
+    if (selectedNoteIds.length !== this.selectedNoteIds.size) {
+      this.selectedNoteIds = new Set(selectedNoteIds);
+    }
+    if (!selectedNoteIds.length) {
+      this.selectedNotebookMenuOpen = false;
     }
   };
 
@@ -1443,7 +1798,7 @@ export class NotesPageController
     document.body.append(anchor);
     anchor.click();
     anchor.remove();
-    URL.revokeObjectURL(url);
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
   private beginArchiveOperation = (
@@ -1454,6 +1809,7 @@ export class NotesPageController
     this.settingsSection = 'data';
     this.isImporting = true;
     this.archiveOperation = { label, detail, progress };
+    this.importBanner = null;
     this.syncMessage = label;
     if (this.autoSyncTimer) {
       clearTimeout(this.autoSyncTimer);
@@ -1548,12 +1904,17 @@ export class NotesPageController
     this.accountDisplayName = '';
     this.accountMessage = accountMessage;
     this.accountError = '';
+    this.accountProfileEditing = false;
+    this.accountPasswordEditing = false;
+    this.accountDeleteEditing = false;
     this.currentPasswordValue = '';
     this.newPasswordValue = '';
     this.confirmPasswordValue = '';
     this.deletePasswordValue = '';
     this.loginUsernameValue = getLoginHint();
     this.loginPasswordValue = '';
+    this.signupDisplayNameValue = '';
+    this.signupConfirmPasswordValue = '';
     this.loginError = '';
     this.loginOpen = openLogin;
     this.accountMenuOpen = false;
@@ -1567,9 +1928,15 @@ export class NotesPageController
       clearTimeout(this.retrySyncTimer);
       this.retrySyncTimer = null;
     }
+    if (this.remoteStatusTimer) {
+      clearTimeout(this.remoteStatusTimer);
+      this.remoteStatusTimer = null;
+    }
+    this.remoteSyncEnabled = false;
+    this.remoteSyncState = 'unknown';
+    this.remoteSyncError = '';
     if (openLogin) {
-      this.settingsSection = 'account';
-      this.settingsOpen = true;
+      this.settingsOpen = false;
     }
   };
 
@@ -1660,6 +2027,47 @@ export class NotesPageController
       this.retrySyncTimer = null;
       this.scheduleSync(0);
     }, SYNC_RETRY_DELAY_MS);
+  };
+
+  private refreshRemoteSyncStatus = async (
+    token = getStoredSession()?.token ?? null
+  ) => {
+    if (!token || !this.isBrowserOnline) return;
+    try {
+      const status = await loadSyncStatus(token);
+      this.remoteSyncEnabled = status.remote.enabled;
+      this.remoteSyncState = status.remote.state;
+      this.remoteSyncError = status.remote.lastError ?? '';
+    } catch (error) {
+      if (error instanceof AuthError) {
+        this.expireSession(error.message);
+        return;
+      }
+      this.remoteSyncEnabled = true;
+      this.remoteSyncState = 'error';
+      this.remoteSyncError =
+        error instanceof Error ? error.message : 'Could not check remote sync';
+    }
+  };
+
+  private pollRemoteSyncStatusIfBusy = () => {
+    if (this.remoteStatusTimer) {
+      clearTimeout(this.remoteStatusTimer);
+      this.remoteStatusTimer = null;
+    }
+    if (
+      !this.hasToken ||
+      !this.remoteSyncEnabled ||
+      (this.remoteSyncState !== 'queued' && this.remoteSyncState !== 'syncing')
+    ) {
+      return;
+    }
+
+    this.remoteStatusTimer = setTimeout(async () => {
+      this.remoteStatusTimer = null;
+      await this.refreshRemoteSyncStatus();
+      this.pollRemoteSyncStatusIfBusy();
+    }, 1500);
   };
 
   private expireSession = (message = 'Login expired') => {

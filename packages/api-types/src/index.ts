@@ -6,6 +6,13 @@ export interface AuthLoginRequest {
   device: Device;
 }
 
+export interface AuthSignupRequest {
+  username: string;
+  password: string;
+  displayName?: string | null;
+  device: Device;
+}
+
 export interface AuthUser {
   username: string;
   displayName: string | null;
@@ -58,13 +65,20 @@ export type NotebookChange = EntityChange<Notebook>;
 
 export interface PullRequest {
   since?: string | null;
+  sinceRevision?: number | null;
+  limit?: number | null;
 }
 
 export interface PullResponse {
   serverTime: string;
+  serverRevision: number;
   notes: Note[];
   notebooks: Notebook[];
   devices: Device[];
+  deletedNoteIds: string[];
+  deletedNotebookIds: string[];
+  deletedDeviceIds: string[];
+  hasMore?: boolean;
 }
 
 export interface PushRequest {
@@ -107,6 +121,24 @@ export interface PushResponse {
   serverTime: string;
   accepted: AcceptedChange[];
   conflicts: Array<SyncConflict<Note> | SyncConflict<Notebook>>;
+}
+
+export type RemoteSyncState =
+  | 'disabled'
+  | 'queued'
+  | 'syncing'
+  | 'synced'
+  | 'error';
+
+export interface SyncStatusResponse {
+  remote: {
+    enabled: boolean;
+    state: RemoteSyncState;
+    pendingSince: string | null;
+    lastStartedAt: string | null;
+    lastSyncedAt: string | null;
+    lastError: string | null;
+  };
 }
 
 export interface CleanupResponse {

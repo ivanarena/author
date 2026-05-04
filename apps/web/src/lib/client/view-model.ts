@@ -1,5 +1,6 @@
 import type { LocalNote } from './db';
 import { noteDisplayTitle, noteNotebookIds } from './note-utils';
+import type { RemoteSyncState } from '@author/api-types';
 
 export type NoteSort = 'date-desc' | 'az' | 'za';
 export type NoteGroup = { label: string; notes: LocalNote[] };
@@ -20,6 +21,9 @@ export interface SyncIndicatorState {
   hasSession: boolean;
   pendingSyncCount: number;
   syncMessage: string;
+  remoteSyncEnabled?: boolean;
+  remoteSyncState?: RemoteSyncState | 'unknown';
+  remoteSyncError?: string;
 }
 
 export interface SyncIndicator {
@@ -34,7 +38,11 @@ const HEALTHY_SYNC_MESSAGES = new Set([
   'Saving',
   'Syncing',
   'Synced',
-  'All changes saved'
+  'All changes saved',
+  'All changes synced',
+  'Local changes saved',
+  'Remote sync queued',
+  'Syncing remote'
 ]);
 
 export function filterNotesForView(
@@ -195,10 +203,18 @@ export function syncIndicatorState(state: SyncIndicatorState): SyncIndicator {
     isBrowserOnline,
     hasSession,
     pendingSyncCount,
-    syncMessage
+    syncMessage,
+    remoteSyncEnabled = false,
+    remoteSyncState = 'disabled',
+    remoteSyncError = ''
   } = state;
 
-  if (isSyncing) return { kind: 'syncing', label: 'Saving', detail: '' };
+  if (isSyncing)
+    return {
+      kind: 'syncing',
+      label: 'Saving locally',
+      detail: remoteSyncEnabled ? 'Remote not synced yet' : ''
+    };
   if (conflictCount > 0) {
     return {
       kind: 'conflict',
@@ -215,11 +231,29 @@ export function syncIndicatorState(state: SyncIndicatorState): SyncIndicator {
       detail: 'Sign in to sync'
     };
   if (pendingSyncCount > 0) {
-    const label = 'Saving';
+    const label = 'Saving locally';
     return { kind: 'pending', label, detail: syncDetail(syncMessage, label) };
   }
 
-  const label = 'All changes saved';
+  if (remoteSyncEnabled) {
+    if (remoteSyncState === 'queued') {
+      const label = 'Remote sync queued';
+      return { kind: 'pending', label, detail: 'Local changes saved' };
+    }
+    if (remoteSyncState === 'syncing' || remoteSyncState === 'unknown') {
+      const label = 'Syncing remote';
+      return { kind: 'syncing', label, detail: 'Local changes saved' };
+    }
+    if (remoteSyncState === 'error') {
+      return {
+        kind: 'conflict',
+        label: 'Remote sync failed',
+        detail: remoteSyncError
+      };
+    }
+  }
+
+  const label = remoteSyncEnabled ? 'All changes synced' : 'All changes saved';
   return { kind: 'synced', label, detail: syncDetail(syncMessage, label) };
 }
 

@@ -19,6 +19,15 @@
   import type { NoteListPanelModel } from './notes-page-controller.svelte.js';
 
   let { model }: { model: NoteListPanelModel } = $props();
+
+  function indeterminate(node: HTMLInputElement, value: boolean) {
+    node.indeterminate = value;
+    return {
+      update(nextValue: boolean) {
+        node.indeterminate = nextValue;
+      }
+    };
+  }
 </script>
 
 <aside class="notes" aria-label="Notes">
@@ -31,6 +40,75 @@
     >
       <FilePlus size={16} strokeWidth={1.8} />
     </button>
+    <label class="select-all-control">
+      <input
+        type="checkbox"
+        checked={model.allVisibleNotesSelected}
+        disabled={!model.visibleNotes.length}
+        aria-label={model.allVisibleNotesSelected
+          ? 'Deselect all visible notes'
+          : 'Select all visible notes'}
+        use:indeterminate={model.someVisibleNotesSelected &&
+          !model.allVisibleNotesSelected}
+        onchange={(event) =>
+          model.toggleAllVisibleNotes(
+            (event.currentTarget as HTMLInputElement).checked
+          )}
+      />
+      <span
+        >{model.allVisibleNotesSelected ? 'Deselect all' : 'Select all'}</span
+      >
+    </label>
+    {#if model.selectedNoteCount}
+      <div
+        class="batch-actions"
+        role="group"
+        aria-label="Selected note actions"
+      >
+        {#if model.selectedActiveNoteCount}
+          <button
+            class="icon-button mini"
+            type="button"
+            title="Move selected to notebook"
+            aria-label="Move selected to notebook"
+            aria-expanded={model.selectedNotebookMenuOpen}
+            onclick={model.toggleSelectedNotebookMenu}
+          >
+            <FolderSymlink size={14} strokeWidth={1.8} />
+          </button>
+          <button
+            class="icon-button mini danger"
+            type="button"
+            title="Move selected to Trash"
+            aria-label="Move selected to Trash"
+            onclick={() => void model.trashSelectedNotes()}
+          >
+            <Trash2 size={14} strokeWidth={1.8} />
+          </button>
+        {/if}
+        {#if model.selectedTrashedNoteCount}
+          <button
+            class="icon-button mini"
+            type="button"
+            title="Restore selected"
+            aria-label="Restore selected"
+            onclick={() => void model.restoreSelectedNotes()}
+          >
+            <ArchiveRestore size={14} strokeWidth={1.8} />
+          </button>
+        {/if}
+      </div>
+      <button
+        class="selection-clear"
+        type="button"
+        title="Clear selected notes"
+        aria-label="Clear selected notes"
+        onclick={model.clearSelectedNotes}
+      >
+        <X size={13} strokeWidth={1.8} />
+        <span>{model.selectedNoteCount} selected</span>
+      </button>
+    {/if}
     <p class="sync-line">
       <span
         class={`sync-state ${model.syncIndicator.kind === 'synced' ? 'ok' : 'error'}`}
@@ -87,14 +165,28 @@
           <div
             class="note-row"
             class:active={model.selectedNote?.id === note.id}
+            class:selected={model.selectedNoteIds.has(note.id)}
             class:pending={note.syncStatus === 'pending'}
             class:conflicted={note.syncStatus === 'conflict'}
+            role="listitem"
+            oncontextmenu={(event) => model.openNoteContext(event, note)}
           >
-            <button
-              class="note-main"
-              onclick={() => model.selectNote(note)}
-              oncontextmenu={(event) => model.openNoteContext(event, note)}
+            <label
+              class="note-select-cell"
+              title="Select note"
+              aria-label={`Select ${noteDisplayTitle(note)}`}
             >
+              <input
+                type="checkbox"
+                checked={model.selectedNoteIds.has(note.id)}
+                onchange={(event) =>
+                  model.toggleNoteSelection(
+                    note,
+                    (event.currentTarget as HTMLInputElement).checked
+                  )}
+              />
+            </label>
+            <button class="note-main" onclick={() => model.selectNote(note)}>
               <span class="note-heading">
                 <span class="note-title">{noteDisplayTitle(note)}</span>
                 {#if model.compactView}
@@ -161,7 +253,13 @@
             </div>
 
             {#if model.linkingNoteId === note.id && !note.trashedAt}
-              <div class="link-popover" role="menu" aria-label="Note notebooks">
+              <div
+                class="link-popover"
+                role="menu"
+                aria-label="Note notebooks"
+                tabindex="-1"
+                oncontextmenu={(event) => event.stopPropagation()}
+              >
                 <button
                   class:active={noteNotebookIds(note).length === 0}
                   aria-checked={noteNotebookIds(note).length === 0}
@@ -206,4 +304,33 @@
       </p>
     {/if}
   </div>
+
+  {#if model.selectedNotebookMenuOpen && model.selectedActiveNoteCount}
+    <div
+      class="batch-popover"
+      role="menu"
+      aria-label="Selected note notebooks"
+      tabindex="-1"
+      oncontextmenu={(event) => event.preventDefault()}
+    >
+      <button
+        role="menuitemcheckbox"
+        aria-checked={model.selectedNotesHaveNotebook(null)}
+        onclick={() => void model.assignNotebookForSelected(null)}
+      >
+        <Inbox size={14} strokeWidth={1.8} />
+        <span>Unfiled</span>
+      </button>
+      {#each model.notebooks as notebook}
+        <button
+          role="menuitemcheckbox"
+          aria-checked={model.selectedNotesHaveNotebook(notebook.id)}
+          onclick={() => void model.assignNotebookForSelected(notebook.id)}
+        >
+          <Notebook size={14} strokeWidth={1.8} />
+          <span>{notebook.name}</span>
+        </button>
+      {/each}
+    </div>
+  {/if}
 </aside>

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Note, Notebook } from '@author/schema';
 import type { PullResponse } from '@author/api-types';
 import { recordsDiffer } from '@author/sync-spec';
@@ -7,14 +8,21 @@ import {
   get as queryOne,
   openConfiguredDatabase,
   run as runSql,
+  withWriteTransaction,
   type NotesDb,
   type NotesExecutor
 } from './db';
 import {
-  getNote,
-  getNotebook,
-  pullChangesSince,
+  deleteDevicesByIds,
+  deleteNotesByIds,
+  deleteNotebooksByIds,
+  getSyncMeta,
+  LEGACY_OWNER_USERNAME,
+  getNotesByIds,
+  getNotebooksByIds,
+  pullMirrorChangesSinceRevision,
   pushChanges,
+  setSyncMeta,
   upsertDevice
 } from './repository';
 
@@ -22,6 +30,9 @@ const MIRROR_DEVICE = {
   id: 'server-db-mirror',
   name: 'Server DB mirror'
 };
+const MIRROR_LOCK_KEY = 'mirror.lock.v1';
+const MIRROR_LOCK_TTL_MS = 15 * 60_000;
+const MIRROR_LOCK_HEARTBEAT_MS = 30_000;
 
 let syncInFlight: Promise<void> | null = null;
 
@@ -37,8 +48,135 @@ type AuthUserRecord = {
   updatedAt: string;
 };
 
+type MirrorLease = {
+  owner: string;
+  expiresAt: string;
+};
+
+class MirrorLockUnavailable extends Error {
+  constructor() {
+    super('Remote mirror sync is already running');
+    this.name = 'MirrorLockUnavailable';
+  }
+}
+
 function asString(value: unknown): string {
   return String(value ?? '');
+}
+
+function parseMirrorLease(value: string | null): MirrorLease | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as Partial<MirrorLease>;
+    if (
+      typeof parsed.owner !== 'string' ||
+      typeof parsed.expiresAt !== 'string'
+    ) {
+      return null;
+    }
+    return {
+      owner: parsed.owner,
+      expiresAt: parsed.expiresAt
+    };
+  } catch {
+    return null;
+  }
+}
+
+function lockExpiresAt(now = Date.now()): string {
+  return new Date(now + MIRROR_LOCK_TTL_MS).toISOString();
+}
+
+function leaseIsActive(lease: MirrorLease, now = Date.now()): boolean {
+  const expiresAt = Date.parse(lease.expiresAt);
+  return Number.isFinite(expiresAt) && expiresAt > now;
+}
+
+async function acquireMirrorLease(
+  db: NotesDb,
+  owner: string,
+  now = Date.now()
+): Promise<boolean> {
+  return await withWriteTransaction(db, async (tx) => {
+    const existing = parseMirrorLease(await getSyncMeta(tx, MIRROR_LOCK_KEY));
+    if (existing && existing.owner !== owner && leaseIsActive(existing, now)) {
+      return false;
+    }
+
+    await setSyncMeta(
+      tx,
+      MIRROR_LOCK_KEY,
+      JSON.stringify({ owner, expiresAt: lockExpiresAt(now) })
+    );
+    return true;
+  });
+}
+
+async function refreshMirrorLease(
+  db: NotesDb,
+  owner: string
+): Promise<boolean> {
+  return await withWriteTransaction(db, async (tx) => {
+    const existing = parseMirrorLease(await getSyncMeta(tx, MIRROR_LOCK_KEY));
+    if (!existing || existing.owner !== owner) return false;
+
+    await setSyncMeta(
+      tx,
+      MIRROR_LOCK_KEY,
+      JSON.stringify({ owner, expiresAt: lockExpiresAt() })
+    );
+    return true;
+  });
+}
+
+async function releaseMirrorLease(db: NotesDb, owner: string): Promise<void> {
+  await withWriteTransaction(db, async (tx) => {
+    const existing = parseMirrorLease(await getSyncMeta(tx, MIRROR_LOCK_KEY));
+    if (existing?.owner === owner) {
+      await runSql(tx, 'DELETE FROM sync_meta WHERE key = ?', [
+        MIRROR_LOCK_KEY
+      ]);
+    }
+  });
+}
+
+async function acquireMirrorLeases(
+  local: NotesDb,
+  remote: NotesDb
+): Promise<{ release: () => Promise<void> }> {
+  const owner = randomUUID();
+  if (!(await acquireMirrorLease(local, owner))) {
+    throw new MirrorLockUnavailable();
+  }
+
+  try {
+    if (!(await acquireMirrorLease(remote, owner))) {
+      throw new MirrorLockUnavailable();
+    }
+  } catch (error) {
+    await releaseMirrorLease(local, owner).catch(() => {});
+    throw error;
+  }
+
+  let heartbeatStopped = false;
+  const heartbeat = setInterval(() => {
+    if (heartbeatStopped) return;
+    void Promise.all([
+      refreshMirrorLease(local, owner),
+      refreshMirrorLease(remote, owner)
+    ]);
+  }, MIRROR_LOCK_HEARTBEAT_MS);
+
+  return {
+    release: async () => {
+      heartbeatStopped = true;
+      clearInterval(heartbeat);
+      await Promise.allSettled([
+        releaseMirrorLease(remote, owner),
+        releaseMirrorLease(local, owner)
+      ]);
+    }
+  };
 }
 
 function toAuthUser(row: Row): AuthUserRecord {
@@ -190,21 +328,28 @@ async function syncUsers(source: NotesDb, target: NotesDb): Promise<void> {
 
 async function syncDevices(
   snapshot: PullResponse,
-  target: NotesDb
+  target: NotesDb,
+  ownerUsername: string
 ): Promise<void> {
   for (const device of snapshot.devices) {
-    await upsertDevice(target, device);
+    await upsertDevice(target, device, undefined, ownerUsername);
   }
 }
 
 async function notebookChanges(
   snapshot: PullResponse,
-  target: NotesDb
+  target: NotesDb,
+  ownerUsername: string
 ): Promise<PushRequestNotebookChange[]> {
   const changes: PushRequestNotebookChange[] = [];
+  const targetNotebooks = await getNotebooksByIds(
+    target,
+    snapshot.notebooks.map((notebook) => notebook.id),
+    ownerUsername
+  );
 
   for (const notebook of snapshot.notebooks) {
-    const targetNotebook = await getNotebook(target, notebook.id);
+    const targetNotebook = targetNotebooks.get(notebook.id) ?? null;
     const shouldMirror =
       !targetNotebook ||
       (recordsDiffer(notebook, targetNotebook) &&
@@ -222,12 +367,18 @@ async function notebookChanges(
 
 async function noteChanges(
   snapshot: PullResponse,
-  target: NotesDb
+  target: NotesDb,
+  ownerUsername: string
 ): Promise<PushRequestNoteChange[]> {
   const changes: PushRequestNoteChange[] = [];
+  const targetNotes = await getNotesByIds(
+    target,
+    snapshot.notes.map((note) => note.id),
+    ownerUsername
+  );
 
   for (const note of snapshot.notes) {
-    const targetNote = await getNote(target, note.id);
+    const targetNote = targetNotes.get(note.id) ?? null;
     const shouldMirror =
       !targetNote ||
       (recordsDiffer(note, targetNote) &&
@@ -243,28 +394,84 @@ async function noteChanges(
 type PushRequestNotebookChange = { record: Notebook; baseVersion: number };
 type PushRequestNoteChange = { record: Note; baseVersion: number };
 
-async function syncOneWay(source: NotesDb, target: NotesDb): Promise<void> {
-  await syncUsers(source, target);
-  const snapshot = await pullChangesSince(source, null);
-  await syncDevices(snapshot, target);
-  const notebooks = await notebookChanges(snapshot, target);
-  const notes = await noteChanges(snapshot, target);
-  if (!notebooks.length && !notes.length) return;
+async function applyMirrorDeletes(
+  snapshot: Awaited<ReturnType<typeof pullMirrorChangesSinceRevision>>,
+  target: NotesDb,
+  ownerUsername: string
+): Promise<void> {
+  await deleteNotesByIds(target, snapshot.deletedNoteIds, ownerUsername);
+  await deleteNotebooksByIds(
+    target,
+    snapshot.deletedNotebookIds,
+    ownerUsername
+  );
+  await deleteDevicesByIds(target, snapshot.deletedDeviceIds, ownerUsername);
+}
 
-  await pushChanges(target, {
-    device: MIRROR_DEVICE,
-    notebooks,
-    notes
-  });
+async function syncEntityOwnerOneWay(
+  source: NotesDb,
+  target: NotesDb,
+  cursorKey: string,
+  ownerUsername: string
+): Promise<void> {
+  const ownerCursorKey = `${cursorKey}.${ownerUsername}`;
+  const cursor = Number((await getSyncMeta(target, ownerCursorKey)) ?? 0);
+  const snapshot = await pullMirrorChangesSinceRevision(
+    source,
+    Number.isSafeInteger(cursor) && cursor >= 0 ? cursor : 0,
+    { ownerUsername }
+  );
+  await applyMirrorDeletes(snapshot, target, ownerUsername);
+  await syncDevices(snapshot, target, ownerUsername);
+  const notebooks = await notebookChanges(snapshot, target, ownerUsername);
+  const notes = await noteChanges(snapshot, target, ownerUsername);
+  if (!notebooks.length && !notes.length) {
+    await setSyncMeta(target, ownerCursorKey, String(snapshot.serverRevision));
+    return;
+  }
+
+  const result = await pushChanges(
+    target,
+    {
+      device: MIRROR_DEVICE,
+      notebooks,
+      notes
+    },
+    ownerUsername
+  );
+  if (result.conflicts.length) {
+    throw new Error(
+      `Remote mirror conflict while applying ${ownerCursorKey}: ${result.conflicts.length}`
+    );
+  }
+  await setSyncMeta(target, ownerCursorKey, String(snapshot.serverRevision));
+}
+
+async function syncOwners(source: NotesDb, target: NotesDb): Promise<string[]> {
+  const owners = new Set<string>([LEGACY_OWNER_USERNAME]);
+  for (const user of await listAuthUsers(source)) owners.add(user.username);
+  for (const user of await listAuthUsers(target)) owners.add(user.username);
+  return [...owners].sort();
+}
+
+async function syncOneWay(
+  source: NotesDb,
+  target: NotesDb,
+  cursorKey: string
+): Promise<void> {
+  await syncUsers(source, target);
+  for (const ownerUsername of await syncOwners(source, target)) {
+    await syncEntityOwnerOneWay(source, target, cursorKey, ownerUsername);
+  }
 }
 
 export async function syncDatabases(
   local: NotesDb,
   remote: NotesDb
 ): Promise<void> {
-  await syncOneWay(remote, local);
-  await syncOneWay(local, remote);
-  await syncOneWay(remote, local);
+  await syncOneWay(remote, local, 'mirror.remote.revision');
+  await syncOneWay(local, remote, 'mirror.local.revision');
+  await syncOneWay(remote, local, 'mirror.remote.revision');
 }
 
 export async function syncRemoteDatabase(local: NotesDb): Promise<void> {
@@ -281,7 +488,14 @@ export async function syncRemoteDatabase(local: NotesDb): Promise<void> {
 
     const remote = await openConfiguredDatabase(remoteConfig);
     try {
-      await syncDatabases(local, remote);
+      let leases: Awaited<ReturnType<typeof acquireMirrorLeases>> | null = null;
+      leases = await acquireMirrorLeases(local, remote);
+
+      try {
+        await syncDatabases(local, remote);
+      } finally {
+        await leases.release();
+      }
     } finally {
       remote.close();
     }

@@ -2,19 +2,24 @@ import type {
   AccountUpdateRequest,
   AuthLoginRequest,
   AuthLoginResponse,
+  AuthSignupRequest,
   AuthValidateResponse,
   DeleteAccountRequest,
   HealthResponse,
   PasswordChangeRequest,
   PullRequest,
-  PushRequest
+  PushRequest,
+  RemoteSyncState,
+  SyncStatusResponse
 } from '@author/api-types';
 import type { Note, Notebook, SyncStatus } from '@author/schema';
 import { Hono } from 'hono';
 import {
+  type AuthSession,
   authenticateUser,
   changeUserPassword,
   createAuthSession,
+  createUserAccount,
   deleteSessionFromRequest,
   deleteUserAccount,
   normalizeUsername,
@@ -27,10 +32,12 @@ import { shouldSyncRemoteDatabase, shouldTrustProxyHeaders } from './config';
 import { openLocalDatabase, type NotesDb } from './db';
 import {
   cleanupTrash,
+  getSyncMeta,
   listNotes,
   listNotebooks,
   pullChangesSince,
   pushChanges,
+  setSyncMeta,
   upsertDevice
 } from './repository';
 import { syncRemoteDatabase } from './remote-sync';
@@ -43,6 +50,9 @@ const MAX_LOGIN_ATTEMPT_KEYS = 500;
 const MAX_LOGIN_BODY_BYTES = 16 * 1024;
 const MAX_SYNC_BODY_BYTES = 5 * 1024 * 1024;
 const LOGIN_REMOTE_SYNC_GRACE_MS = 500;
+const REMOTE_SYNC_RETRY_BASE_MS = 5_000;
+const REMOTE_SYNC_RETRY_MAX_MS = 5 * 60_000;
+const REMOTE_SYNC_PENDING_KEY = 'remote.sync.pending';
 const SYNC_STATUSES = new Set<SyncStatus>([
   'synced',
   'pending',
@@ -50,6 +60,14 @@ const SYNC_STATUSES = new Set<SyncStatus>([
   'deleted'
 ]);
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+let remoteSyncRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let remoteSyncFailureCount = 0;
+let remoteSyncQueueRunning = false;
+let remoteSyncQueued = false;
+
+function syncOwner(session: AuthSession): string {
+  return session.user.username;
+}
 
 function reportRemoteSyncError(error: unknown): void {
   console.warn(
@@ -58,30 +76,113 @@ function reportRemoteSyncError(error: unknown): void {
   );
 }
 
-async function syncRemoteBestEffort(db: NotesDb): Promise<void> {
+const remoteSyncStatus: {
+  state: RemoteSyncState;
+  pendingSince: string | null;
+  lastStartedAt: string | null;
+  lastSyncedAt: string | null;
+  lastError: string | null;
+} = {
+  state: 'synced',
+  pendingSince: null,
+  lastStartedAt: null,
+  lastSyncedAt: null,
+  lastError: null
+};
+
+function remoteSyncSnapshot(): SyncStatusResponse['remote'] {
+  const enabled = shouldSyncRemoteDatabase();
+  return {
+    enabled,
+    state: enabled ? remoteSyncStatus.state : 'disabled',
+    pendingSince: enabled ? remoteSyncStatus.pendingSince : null,
+    lastStartedAt: enabled ? remoteSyncStatus.lastStartedAt : null,
+    lastSyncedAt: enabled ? remoteSyncStatus.lastSyncedAt : null,
+    lastError: enabled ? remoteSyncStatus.lastError : null
+  };
+}
+
+function setRemoteSyncState(
+  state: RemoteSyncState,
+  values: Partial<typeof remoteSyncStatus> = {}
+): void {
+  remoteSyncStatus.state = state;
+  Object.assign(remoteSyncStatus, values);
+}
+
+function clearRemoteSyncRetry(): void {
+  if (!remoteSyncRetryTimer) return;
+  clearTimeout(remoteSyncRetryTimer);
+  remoteSyncRetryTimer = null;
+}
+
+async function setPersistentRemoteSyncPending(pending: boolean): Promise<void> {
+  if (!shouldSyncRemoteDatabase()) return;
+  const db = await openLocalDatabase();
   try {
-    await syncRemoteDatabase(db);
+    await setSyncMeta(db, REMOTE_SYNC_PENDING_KEY, pending ? '1' : '0');
   } catch (error) {
     reportRemoteSyncError(error);
+  } finally {
+    db.close();
   }
 }
 
-async function syncRemoteWithFreshConnection(): Promise<void> {
-  if (!shouldSyncRemoteDatabase()) return;
+async function hasPersistentRemoteSyncPending(): Promise<boolean> {
+  if (!shouldSyncRemoteDatabase()) return false;
+  const db = await openLocalDatabase();
+  try {
+    return (await getSyncMeta(db, REMOTE_SYNC_PENDING_KEY)) === '1';
+  } catch (error) {
+    reportRemoteSyncError(error);
+    return false;
+  } finally {
+    db.close();
+  }
+}
+
+async function revivePersistentRemoteSyncIfPending(): Promise<void> {
+  if (
+    remoteSyncQueueRunning ||
+    remoteSyncQueued ||
+    remoteSyncRetryTimer ||
+    !(await hasPersistentRemoteSyncPending())
+  ) {
+    return;
+  }
+
+  void queueRemoteSyncAfter();
+}
+
+async function syncRemoteBestEffort(db: NotesDb): Promise<boolean> {
+  try {
+    await syncRemoteDatabase(db);
+    await setPersistentRemoteSyncPending(false);
+    return true;
+  } catch (error) {
+    reportRemoteSyncError(error);
+    await setPersistentRemoteSyncPending(true);
+    return false;
+  }
+}
+
+async function syncRemoteWithFreshConnection(): Promise<boolean> {
+  if (!shouldSyncRemoteDatabase()) return true;
 
   let db: NotesDb | null = null;
   try {
     db = await openLocalDatabase();
-    await syncRemoteBestEffort(db);
+    return await syncRemoteBestEffort(db);
   } catch (error) {
     reportRemoteSyncError(error);
+    return false;
   } finally {
     db?.close();
   }
 }
 
 async function waitForRemoteSync(
-  remoteSync: Promise<void>,
+  remoteSync: Promise<boolean>,
   timeoutMs: number
 ): Promise<boolean> {
   if (!shouldSyncRemoteDatabase()) return true;
@@ -89,7 +190,7 @@ async function waitForRemoteSync(
   let timeout: ReturnType<typeof setTimeout> | null = null;
   try {
     return await Promise.race([
-      remoteSync.then(() => true),
+      remoteSync,
       new Promise<false>((resolve) => {
         timeout = setTimeout(() => resolve(false), timeoutMs);
       })
@@ -99,12 +200,80 @@ async function waitForRemoteSync(
   }
 }
 
-function queueRemoteSyncAfter(remoteSync?: Promise<void>): void {
+async function queueRemoteSyncAfter(
+  remoteSync?: Promise<boolean>
+): Promise<void> {
   if (!shouldSyncRemoteDatabase()) return;
+  await setPersistentRemoteSyncPending(true);
+  clearRemoteSyncRetry();
+  remoteSyncQueued = true;
+  setRemoteSyncState('queued', {
+    pendingSince: new Date().toISOString(),
+    lastError: null
+  });
+  if (remoteSyncQueueRunning) return;
+
+  remoteSyncQueueRunning = true;
   void (async () => {
-    await remoteSync;
-    await syncRemoteWithFreshConnection();
+    try {
+      let previousOk = remoteSync ? await remoteSync : true;
+      while (remoteSyncQueued) {
+        remoteSyncQueued = false;
+        if (!previousOk) {
+          scheduleRemoteSyncRetry();
+          setRemoteSyncState('error', {
+            pendingSince: null,
+            lastError: 'Remote database sync failed'
+          });
+          return;
+        }
+
+        const startedAt = new Date().toISOString();
+        setRemoteSyncState('syncing', {
+          lastStartedAt: startedAt,
+          lastError: null
+        });
+        const ok = await syncRemoteWithFreshConnection();
+        if (!ok) {
+          scheduleRemoteSyncRetry();
+          setRemoteSyncState('error', {
+            pendingSince: null,
+            lastError: 'Remote database sync failed'
+          });
+          return;
+        }
+
+        previousOk = true;
+        remoteSyncFailureCount = 0;
+        if (!remoteSyncQueued) {
+          await setPersistentRemoteSyncPending(false);
+        }
+        setRemoteSyncState('synced', {
+          pendingSince: null,
+          lastSyncedAt: new Date().toISOString(),
+          lastError: null
+        });
+      }
+    } finally {
+      remoteSyncQueueRunning = false;
+      if (remoteSyncQueued) {
+        void queueRemoteSyncAfter();
+      }
+    }
   })();
+}
+
+function scheduleRemoteSyncRetry(): void {
+  if (!shouldSyncRemoteDatabase() || remoteSyncRetryTimer) return;
+  remoteSyncFailureCount += 1;
+  const delayMs = Math.min(
+    REMOTE_SYNC_RETRY_BASE_MS * 2 ** (remoteSyncFailureCount - 1),
+    REMOTE_SYNC_RETRY_MAX_MS
+  );
+  remoteSyncRetryTimer = setTimeout(() => {
+    remoteSyncRetryTimer = null;
+    void queueRemoteSyncAfter();
+  }, delayMs);
 }
 
 function loginAttemptKey(
@@ -216,6 +385,8 @@ function hasNoteRecord(record: unknown): record is Note {
     nonEmptyString(note.id) &&
     typeof note.title === 'string' &&
     typeof note.body === 'string' &&
+    isNullableString(note.titleHash ?? null) &&
+    isNullableString(note.bodyHash ?? null) &&
     isStringArray(note.notebookIds) &&
     isNullableString(note.notebookId) &&
     isIsoDate(note.createdAt) &&
@@ -260,9 +431,28 @@ function hasEntityChanges<T>(
   );
 }
 
+function recordsBelongToDevice(body: PushRequest): boolean {
+  return (
+    body.notes.every((change) => change.record.deviceId === body.device.id) &&
+    body.notebooks.every((change) => change.record.deviceId === body.device.id)
+  );
+}
+
 function pullSince(value: unknown): string | null {
   return typeof value === 'string' && !Number.isNaN(Date.parse(value))
     ? value
+    : null;
+}
+
+function pullRevision(value: unknown): number | null {
+  return Number.isSafeInteger(value) && Number(value) >= 0
+    ? Number(value)
+    : null;
+}
+
+function pullLimit(value: unknown): number | null {
+  return Number.isSafeInteger(value) && Number(value) > 0
+    ? Number(value)
     : null;
 }
 
@@ -307,15 +497,61 @@ api.post('/api/auth/login', async (c) => {
     }
     clearFailedLogins(attemptKey);
 
-    await upsertDevice(db, body.device);
+    await upsertDevice(db, body.device, undefined, user.username);
     const session = await createAuthSession(db, user, body.device.id);
-    queueRemoteSyncAfter(remoteSync);
+    await queueRemoteSyncAfter(remoteSync);
     return c.json({
       token: session.token,
       user,
       device: body.device,
       expiresAt: session.expiresAt
     } satisfies AuthLoginResponse);
+  } finally {
+    db.close();
+  }
+});
+
+api.post('/api/auth/signup', async (c) => {
+  if (requestBodyTooLarge(c.req.raw, MAX_LOGIN_BODY_BYTES)) {
+    return c.json({ error: 'Signup payload too large' }, 413);
+  }
+
+  const body = (await c.req
+    .json()
+    .catch(() => null)) as AuthSignupRequest | null;
+
+  if (
+    !hasDevicePayload(body?.device) ||
+    typeof body?.username !== 'string' ||
+    typeof body?.password !== 'string'
+  ) {
+    return c.json({ error: 'Invalid signup payload' }, 400);
+  }
+
+  const db = await openLocalDatabase();
+  try {
+    const user = await createUserAccount(
+      db,
+      body.username,
+      body.password,
+      body.displayName
+    );
+    if (!user) return c.json({ error: 'Username is already taken' }, 409);
+
+    await upsertDevice(db, body.device, undefined, user.username);
+    const session = await createAuthSession(db, user, body.device.id);
+    await queueRemoteSyncAfter();
+    return c.json({
+      token: session.token,
+      user,
+      device: body.device,
+      expiresAt: session.expiresAt
+    } satisfies AuthLoginResponse);
+  } catch (error) {
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Signup failed' },
+      400
+    );
   } finally {
     db.close();
   }
@@ -370,8 +606,14 @@ api.patch('/api/account', async (c) => {
       return c.json({ error: 'Legacy token accounts cannot be edited' }, 400);
     }
     const body = (await c.req.json().catch(() => ({}))) as AccountUpdateRequest;
+    const user = await updateUserProfile(
+      db,
+      session.user.username,
+      body.displayName
+    );
+    await queueRemoteSyncAfter();
     return c.json({
-      user: await updateUserProfile(db, session.user.username, body.displayName)
+      user
     });
   } finally {
     db.close();
@@ -402,6 +644,7 @@ api.post('/api/account/password', async (c) => {
       body.newPassword
     );
     if (!user) return c.json({ error: 'Current password is incorrect' }, 401);
+    await queueRemoteSyncAfter();
     return c.json({ user });
   } finally {
     db.close();
@@ -428,6 +671,7 @@ api.delete('/api/account', async (c) => {
       body.password
     );
     if (!deleted) return c.json({ error: 'Password is incorrect' }, 401);
+    await queueRemoteSyncAfter();
     return c.json({ ok: true });
   } finally {
     db.close();
@@ -437,11 +681,13 @@ api.delete('/api/account', async (c) => {
 api.get('/api/notes', async (c) => {
   const db = await openLocalDatabase();
   try {
-    const authError = await requireAuth(db, c.req.raw);
-    if (authError) return authError;
+    const session = await sessionFromRequest(db, c.req.raw);
+    if (!session) return unauthorized();
 
-    await syncRemoteBestEffort(db);
-    return c.json({ notes: await listNotes(db) });
+    if (!(await syncRemoteBestEffort(db))) {
+      await queueRemoteSyncAfter();
+    }
+    return c.json({ notes: await listNotes(db, syncOwner(session)) });
   } finally {
     db.close();
   }
@@ -450,11 +696,28 @@ api.get('/api/notes', async (c) => {
 api.get('/api/notebooks', async (c) => {
   const db = await openLocalDatabase();
   try {
+    const session = await sessionFromRequest(db, c.req.raw);
+    if (!session) return unauthorized();
+
+    if (!(await syncRemoteBestEffort(db))) {
+      await queueRemoteSyncAfter();
+    }
+    return c.json({ notebooks: await listNotebooks(db, syncOwner(session)) });
+  } finally {
+    db.close();
+  }
+});
+
+api.get('/api/sync/status', async (c) => {
+  const db = await openLocalDatabase();
+  try {
     const authError = await requireAuth(db, c.req.raw);
     if (authError) return authError;
 
-    await syncRemoteBestEffort(db);
-    return c.json({ notebooks: await listNotebooks(db) });
+    await revivePersistentRemoteSyncIfPending();
+    return c.json({
+      remote: remoteSyncSnapshot()
+    } satisfies SyncStatusResponse);
   } finally {
     db.close();
   }
@@ -467,12 +730,21 @@ api.post('/api/sync/pull', async (c) => {
 
   const db = await openLocalDatabase();
   try {
-    const authError = await requireAuth(db, c.req.raw);
-    if (authError) return authError;
+    const session = await sessionFromRequest(db, c.req.raw);
+    if (!session) return unauthorized();
 
-    await syncRemoteBestEffort(db);
+    if (!(await syncRemoteBestEffort(db))) {
+      await queueRemoteSyncAfter();
+    }
     const body = (await c.req.json().catch(() => ({}))) as PullRequest;
-    return c.json(await pullChangesSince(db, pullSince(body.since)));
+    return c.json(
+      await pullChangesSince(
+        db,
+        pullSince(body.since),
+        pullRevision(body.sinceRevision),
+        { ownerUsername: syncOwner(session), limit: pullLimit(body.limit) }
+      )
+    );
   } finally {
     db.close();
   }
@@ -485,21 +757,25 @@ api.post('/api/sync/push', async (c) => {
 
   const db = await openLocalDatabase();
   try {
-    const authError = await requireAuth(db, c.req.raw);
-    if (authError) return authError;
+    const session = await sessionFromRequest(db, c.req.raw);
+    if (!session) return unauthorized();
 
-    await syncRemoteBestEffort(db);
+    if (!(await syncRemoteBestEffort(db))) {
+      await queueRemoteSyncAfter();
+    }
     const body = (await c.req.json().catch(() => null)) as PushRequest | null;
     if (
-      !hasDevicePayload(body?.device) ||
-      !hasEntityChanges(body?.notes, hasNoteRecord) ||
-      !hasEntityChanges(body?.notebooks, hasNotebookRecord)
+      !body ||
+      !hasDevicePayload(body.device) ||
+      !hasEntityChanges(body.notes, hasNoteRecord) ||
+      !hasEntityChanges(body.notebooks, hasNotebookRecord) ||
+      !recordsBelongToDevice(body)
     ) {
       return c.json({ error: 'Invalid push payload' }, 400);
     }
 
-    const response = await pushChanges(db, body);
-    await syncRemoteBestEffort(db);
+    const response = await pushChanges(db, body, syncOwner(session));
+    await queueRemoteSyncAfter();
     return c.json(response);
   } finally {
     db.close();
@@ -509,12 +785,16 @@ api.post('/api/sync/push', async (c) => {
 api.post('/api/cleanup-trash', async (c) => {
   const db = await openLocalDatabase();
   try {
-    const authError = await requireAuth(db, c.req.raw);
-    if (authError) return authError;
+    const session = await sessionFromRequest(db, c.req.raw);
+    if (!session) return unauthorized();
 
-    await syncRemoteBestEffort(db);
-    const response = await cleanupTrash(db);
-    await syncRemoteBestEffort(db);
+    if (!(await syncRemoteBestEffort(db))) {
+      await queueRemoteSyncAfter();
+    }
+    const response = await cleanupTrash(db, new Date(), syncOwner(session));
+    if (!(await syncRemoteBestEffort(db))) {
+      await queueRemoteSyncAfter();
+    }
     return c.json(response);
   } finally {
     db.close();

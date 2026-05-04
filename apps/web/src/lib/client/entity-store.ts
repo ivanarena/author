@@ -119,7 +119,9 @@ export async function deleteNotebook(notebookId: string): Promise<void> {
       const updatedNotes = assignedNotes
         .filter(
           (note) =>
-            !note.deletedAt && noteNotebookIds(note).includes(notebookId)
+            !note.deletedAt &&
+            !note.trashedAt &&
+            noteNotebookIds(note).includes(notebookId)
         )
         .map((note) => {
           const notebookIds = noteNotebookIds(note).filter(
@@ -129,6 +131,7 @@ export async function deleteNotebook(notebookId: string): Promise<void> {
             ...note,
             notebookIds,
             notebookId: primaryNotebookId(notebookIds),
+            trashedAt: now,
             updatedAt: now,
             deviceId: device.id,
             version: note.version + 1,
@@ -297,13 +300,21 @@ export async function loadPendingSyncCount(): Promise<number> {
 
 export async function ensureLocalNotesEncrypted(): Promise<void> {
   const notes = await localDb.notes.toArray();
-  const plaintextNotes = notes.filter(
-    (note) => !isEncryptedText(note.title) || !isEncryptedText(note.body)
+  const notesNeedingEncryption = notes.filter(
+    (note) =>
+      !isEncryptedText(note.title) ||
+      !isEncryptedText(note.body) ||
+      !note.titleHash ||
+      !note.bodyHash
   );
-  if (!plaintextNotes.length) return;
+  if (!notesNeedingEncryption.length) return;
 
   await localDb.notes.bulkPut(
-    await Promise.all(plaintextNotes.map((note) => encryptNoteFields(note)))
+    await Promise.all(
+      notesNeedingEncryption.map(async (note) =>
+        encryptNoteFields(await decryptNoteFields(note))
+      )
+    )
   );
 }
 

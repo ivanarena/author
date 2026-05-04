@@ -205,6 +205,39 @@ export async function setUserPassword(
   return { username: normalized, displayName: null };
 }
 
+export async function createUserAccount(
+  db: NotesExecutor,
+  username: string,
+  password: string,
+  displayName: string | null | undefined
+): Promise<AuthUser | null> {
+  const normalized = requireUsername(username);
+  const safePassword = requirePassword(password);
+  if (await getUserRow(db, normalized)) return null;
+
+  const now = new Date().toISOString();
+  const passwordHash = await hashPassword(safePassword);
+  const nextDisplayName = cleanDisplayName(displayName);
+
+  await run(
+    db,
+    `INSERT INTO users (
+       username, display_name, password_hash, password_salt, password_iterations, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      normalized,
+      nextDisplayName,
+      passwordHash.hash,
+      passwordHash.salt,
+      passwordHash.iterations,
+      now,
+      now
+    ]
+  );
+
+  return { username: normalized, displayName: nextDisplayName };
+}
+
 export async function authenticateUser(
   db: NotesExecutor,
   username: string | null | undefined,

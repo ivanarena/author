@@ -37,7 +37,16 @@
     >
       <Menu size={18} strokeWidth={1.8} />
     </button>
-    <div class="profile-menu" class:open={model.accountMenuOpen}>
+    <div
+      class="profile-menu"
+      class:open={model.accountMenuOpen}
+      role="group"
+      aria-label="Profile menu"
+      onpointerenter={model.openAccountMenu}
+      onpointerleave={model.scheduleAccountMenuClose}
+      onfocusin={model.openAccountMenu}
+      onfocusout={model.closeAccountMenuOnBlur}
+    >
       <button
         class="icon-button profile-trigger"
         class:active={model.accountMenuOpen || model.settingsOpen}
@@ -47,7 +56,7 @@
         aria-haspopup="menu"
         aria-controls="profile-menu"
         aria-expanded={model.accountMenuOpen}
-        onclick={model.toggleAccountMenu}
+        onclick={model.openAccountMenu}
       >
         <CircleUserRound size={18} strokeWidth={1.8} />
       </button>

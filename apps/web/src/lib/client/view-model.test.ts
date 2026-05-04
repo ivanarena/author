@@ -129,7 +129,10 @@ describe('client note view model', () => {
         isBrowserOnline: true,
         hasSession: true,
         pendingSyncCount: 0,
-        syncMessage: 'All changes saved'
+        syncMessage: 'All changes saved',
+        remoteSyncEnabled: false,
+        remoteSyncState: 'disabled',
+        remoteSyncError: ''
       })
     ).toMatchObject({ kind: 'conflict', label: '2 conflicts', detail: '' });
 
@@ -140,12 +143,47 @@ describe('client note view model', () => {
         isBrowserOnline: true,
         hasSession: true,
         pendingSyncCount: 0,
-        syncMessage: 'Login expired'
+        syncMessage: 'Login expired',
+        remoteSyncEnabled: false,
+        remoteSyncState: 'disabled',
+        remoteSyncError: ''
       })
     ).toMatchObject({
       kind: 'synced',
       label: 'All changes saved',
       detail: 'Login expired'
     });
+
+    expect(
+      syncIndicatorState({
+        isSyncing: false,
+        conflictCount: 0,
+        isBrowserOnline: true,
+        hasSession: true,
+        pendingSyncCount: 0,
+        syncMessage: 'Local changes saved',
+        remoteSyncEnabled: true,
+        remoteSyncState: 'queued',
+        remoteSyncError: ''
+      })
+    ).toMatchObject({
+      kind: 'pending',
+      label: 'Remote sync queued',
+      detail: 'Local changes saved'
+    });
+
+    expect(
+      syncIndicatorState({
+        isSyncing: false,
+        conflictCount: 0,
+        isBrowserOnline: true,
+        hasSession: true,
+        pendingSyncCount: 0,
+        syncMessage: 'Local changes saved',
+        remoteSyncEnabled: true,
+        remoteSyncState: 'synced',
+        remoteSyncError: ''
+      })
+    ).toMatchObject({ kind: 'synced', label: 'All changes synced' });
   });
 });

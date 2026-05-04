@@ -63,11 +63,12 @@ export async function rememberEncryptionPassword(
 export async function encryptText(
   value: string,
   keyMaterial = getEncryptionKeyMaterial(),
-  context = 'text'
+  _context = 'text'
 ): Promise<string> {
+  void _context;
   if (isEncryptedText(value)) return value;
 
-  const iv = await encryptionIv(keyMaterial, context, value);
+  const iv = encryptionIv();
   const key = await encryptionKey(keyMaterial);
   const encrypted = await cryptoImpl().subtle.encrypt(
     { name: 'AES-GCM', iv: bufferSource(iv) },
@@ -109,8 +110,17 @@ export async function encryptNoteFields<T extends Note>(
   note: T,
   keyMaterial = getEncryptionKeyMaterial()
 ): Promise<T> {
+  const titleHash = isEncryptedText(note.title)
+    ? (note.titleHash ?? null)
+    : await fieldHash(note.title, keyMaterial, `note:${note.id}:title`);
+  const bodyHash = isEncryptedText(note.body)
+    ? (note.bodyHash ?? null)
+    : await fieldHash(note.body, keyMaterial, `note:${note.id}:body`);
+
   return {
     ...note,
+    titleHash,
+    bodyHash,
     title: await encryptText(note.title, keyMaterial, `note:${note.id}:title`),
     body: await encryptText(note.body, keyMaterial, `note:${note.id}:body`)
   };
@@ -172,16 +182,24 @@ function decryptionKeyMaterials(primary: string): string[] {
   return [...new Set(candidates)];
 }
 
-async function encryptionIv(
+function encryptionIv(): Uint8Array {
+  const iv = new Uint8Array(12);
+  cryptoImpl().getRandomValues(iv);
+  return iv;
+}
+
+async function fieldHash(
+  value: string,
   keyMaterial: string,
-  context: string,
-  value: string
-): Promise<Uint8Array> {
+  context: string
+): Promise<string> {
   const digest = await cryptoImpl().subtle.digest(
     'SHA-256',
-    encoder.encode(`author-notes-iv:${keyMaterial}:${context}\0${value}`)
+    encoder.encode(
+      `author-notes-field-hash:${keyMaterial}:${context}\0${value}`
+    )
   );
-  return new Uint8Array(digest).slice(0, 12);
+  return `hash:v1:${base64UrlEncode(new Uint8Array(digest))}`;
 }
 
 function base64UrlEncode(bytes: Uint8Array): string {

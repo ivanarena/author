@@ -21,9 +21,17 @@ export function previewText(record: SyncEntity): string {
 
 export function recordsDiffer<T extends SyncEntity>(a: T, b: T): boolean {
   if ('body' in a && 'body' in b) {
+    const titleDiffers =
+      a.titleHash || b.titleHash
+        ? (a.titleHash ?? null) !== (b.titleHash ?? null)
+        : a.title !== b.title;
+    const bodyDiffers =
+      a.bodyHash || b.bodyHash
+        ? (a.bodyHash ?? null) !== (b.bodyHash ?? null)
+        : a.body !== b.body;
     return (
-      a.title !== b.title ||
-      a.body !== b.body ||
+      titleDiffers ||
+      bodyDiffers ||
       noteNotebookIds(a).join('\0') !== noteNotebookIds(b).join('\0') ||
       a.notebookId !== b.notebookId ||
       a.deletedAt !== b.deletedAt ||

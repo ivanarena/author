@@ -35,12 +35,14 @@ describe('client note encryption', () => {
     );
   });
 
-  it('keeps note field encryption deterministic for sync comparisons', async () => {
+  it('keeps note field hashes deterministic for sync comparisons', async () => {
     const first = await encryptNoteFields(note, 'sync-key');
     const second = await encryptNoteFields(note, 'sync-key');
 
-    expect(first.title).toBe(second.title);
-    expect(first.body).toBe(second.body);
+    expect(first.titleHash).toBe(second.titleHash);
+    expect(first.bodyHash).toBe(second.bodyHash);
+    expect(first.title).not.toBe(second.title);
+    expect(first.body).not.toBe(second.body);
     expect(first.title).not.toContain(note.title);
     expect(first.body).not.toContain(note.body);
     await expect(decryptNoteFields(first, 'sync-key')).resolves.toMatchObject({

@@ -6,6 +6,8 @@ export interface Note {
   id: string;
   title: string;
   body: string;
+  titleHash?: string | null;
+  bodyHash?: string | null;
   notebookIds: string[];
   notebookId: string | null;
   createdAt: ISODateString;

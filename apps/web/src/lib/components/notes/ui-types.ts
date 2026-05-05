@@ -12,3 +12,7 @@ export type MaybePromise<T = void> = T | Promise<T>;
 
 export type NoteCallback = (note: LocalNote) => MaybePromise;
 export type NotebookCallback = (notebook: LocalNotebook) => MaybePromise;
+export type NotebookAssignmentCallback = (
+  note: LocalNote,
+  notebookId: string | null
+) => MaybePromise;

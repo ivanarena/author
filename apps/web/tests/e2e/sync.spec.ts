@@ -286,66 +286,20 @@ test('logs in from the profile menu when no session is stored', async ({
   ).toBeVisible();
 });
 
-test('exports deprecated JSON without closing settings and shows JSON import result banners', async ({
-  page
-}) => {
+test('exports Markdown without closing settings', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Profile and settings' }).click();
   await page.getByRole('menuitem', { name: 'Settings' }).click();
   await page.getByRole('button', { name: 'Data' }).click();
-  await expect(page.getByText('Deprecated')).toBeVisible();
+  await expect(page.getByText('Markdown')).toBeVisible();
 
   const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export JSON' }).click();
+  await page.getByRole('button', { name: 'Export MD ZIP' }).click();
   const download = await downloadPromise;
-  expect(download.suggestedFilename()).toMatch(/^author-notes-.*\.json$/);
-
-  const importButton = page.getByRole('button', { name: 'Import JSON' });
-  await expect(importButton).toBeVisible();
-  await expect(importButton).toBeEnabled();
-
-  let chooserPromise = page.waitForEvent('filechooser');
-  await importButton.click();
-  let chooser = await chooserPromise;
-  await chooser.setFiles({
-    name: 'author-notes-broken.json',
-    mimeType: 'application/json',
-    buffer: Buffer.from('{')
-  });
-  await expect(page.getByText('Import failed')).toBeVisible();
-
-  chooserPromise = page.waitForEvent('filechooser');
-  await importButton.click();
-  chooser = await chooserPromise;
-  await chooser.setFiles({
-    name: 'author-notes-import-smoke.json',
-    mimeType: 'application/json',
-    buffer: Buffer.from(
-      JSON.stringify({
-        app: 'author-notes',
-        format: 'author-notes-json',
-        version: 1,
-        exportedAt: '2026-05-04T09:00:00.000Z',
-        notebooks: [{ id: 'smoke-notebook', name: 'Smoke Test' }],
-        notes: [
-          {
-            title: 'Import smoke',
-            body: 'Imported from the e2e archive test.',
-            notebookIds: ['smoke-notebook'],
-            createdAt: '2026-05-04T09:00:00.000Z',
-            updatedAt: '2026-05-04T09:00:00.000Z',
-            trashedAt: null
-          }
-        ]
-      })
-    )
-  });
-
-  await expect(page.getByText('Import succeeded')).toBeVisible();
-  await expect(page.getByLabel('Note title')).toHaveValue('Import smoke');
-  await expect(page.getByLabel('Note body')).toHaveValue(
-    'Imported from the e2e archive test.'
+  expect(download.suggestedFilename()).toMatch(
+    /^author-notes-.*-md-frontmatter\.zip$/
   );
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
 });
 
 test('keeps edits made during an online sync pending until the latest local version lands', async ({

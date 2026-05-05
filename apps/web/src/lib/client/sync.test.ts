@@ -354,6 +354,90 @@ describe('client sync orchestration', () => {
     );
   });
 
+  it('continues paged pulls until the server has no more changes', async () => {
+    const firstRemoteNote = { ...note, id: 'note-page-1', version: 1 };
+    const secondRemoteNote = { ...note, id: 'note-page-2', version: 1 };
+    const fetchMock = mockFetch(
+      jsonResponse({
+        notes: [firstRemoteNote],
+        notebooks: [],
+        devices: [],
+        deletedNoteIds: [],
+        deletedNotebookIds: [],
+        deletedDeviceIds: [],
+        serverTime: '2026-05-01T10:12:00.000Z',
+        serverRevision: 42,
+        hasMore: true
+      }),
+      jsonResponse({
+        notes: [secondRemoteNote],
+        notebooks: [],
+        devices: [],
+        deletedNoteIds: [],
+        deletedNotebookIds: [],
+        deletedDeviceIds: [],
+        serverTime: '2026-05-01T10:13:00.000Z',
+        serverRevision: 43,
+        hasMore: false
+      })
+    );
+
+    await expect(runSync('session-token')).resolves.toEqual({
+      pushed: 0,
+      pulled: 2,
+      conflicts: 0
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/sync/pull',
+      expect.objectContaining({
+        body: JSON.stringify({ since: null, sinceRevision: 0, limit: 500 })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/sync/pull',
+      expect.objectContaining({
+        body: JSON.stringify({ since: null, sinceRevision: 42, limit: 500 })
+      })
+    );
+    expect(mergeRemoteChanges).toHaveBeenNthCalledWith(
+      1,
+      [firstRemoteNote],
+      [],
+      '2026-05-01T10:12:00.000Z'
+    );
+    expect(mergeRemoteChanges).toHaveBeenNthCalledWith(
+      2,
+      [secondRemoteNote],
+      [],
+      '2026-05-01T10:13:00.000Z'
+    );
+  });
+
+  it('fails instead of looping when a paged pull cursor does not advance', async () => {
+    mockFetch(
+      jsonResponse({
+        notes: [],
+        notebooks: [],
+        devices: [],
+        deletedNoteIds: [],
+        deletedNotebookIds: [],
+        deletedDeviceIds: [],
+        serverTime: '2026-05-01T10:12:00.000Z',
+        serverRevision: 0,
+        hasMore: true
+      })
+    );
+
+    await expect(runSync('session-token')).rejects.toThrow(
+      'Sync pull cursor did not advance'
+    );
+    expect(saveDevices).not.toHaveBeenCalled();
+    expect(localDb.syncMeta.put).not.toHaveBeenCalled();
+  });
+
   it('turns unauthorized responses into AuthError', async () => {
     mockFetch(jsonResponse({ error: 'Expired' }, { status: 401 }));
 

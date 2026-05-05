@@ -9,10 +9,11 @@ export type SyncIndicatorKind =
   | 'synced'
   | 'pending'
   | 'conflict'
-  | 'deleted'
   | 'offline'
   | 'local-only'
   | 'syncing';
+
+export type SyncIndicatorTone = 'ok' | 'info' | 'warn' | 'error' | 'muted';
 
 export interface SyncIndicatorState {
   isSyncing: boolean;
@@ -28,6 +29,7 @@ export interface SyncIndicatorState {
 
 export interface SyncIndicator {
   kind: SyncIndicatorKind;
+  tone: SyncIndicatorTone;
   label: string;
   detail: string;
 }
@@ -189,13 +191,6 @@ export function countNotesByNotebook(items: LocalNote[]): Map<string, number> {
   return counts;
 }
 
-export function noteStatusLabel(note: LocalNote): string {
-  if (note.syncStatus === 'pending') return 'Pending sync';
-  if (note.syncStatus === 'conflict') return 'Conflict';
-  if (note.syncStatus === 'deleted') return 'Deleted';
-  return 'Synced';
-}
-
 export function syncIndicatorState(state: SyncIndicatorState): SyncIndicator {
   const {
     isSyncing,
@@ -210,55 +205,62 @@ export function syncIndicatorState(state: SyncIndicatorState): SyncIndicator {
   } = state;
 
   if (isSyncing)
-    return {
-      kind: 'syncing',
-      label: 'Saving locally',
-      detail: remoteSyncEnabled ? 'Remote not synced yet' : ''
-    };
+    return syncIndicator(
+      'syncing',
+      'Saving locally',
+      remoteSyncEnabled ? 'Remote not synced yet' : ''
+    );
   if (conflictCount > 0) {
-    return {
-      kind: 'conflict',
-      label: `${conflictCount} conflict${conflictCount === 1 ? '' : 's'}`,
-      detail: ''
-    };
+    return syncIndicator(
+      'conflict',
+      `${conflictCount} conflict${conflictCount === 1 ? '' : 's'}`,
+      ''
+    );
   }
-  if (!isBrowserOnline)
-    return { kind: 'offline', label: 'Offline', detail: '' };
+  if (!isBrowserOnline) return syncIndicator('offline', 'Offline', '');
   if (!hasSession)
-    return {
-      kind: 'local-only',
-      label: 'Local only',
-      detail: 'Sign in to sync'
-    };
+    return syncIndicator('local-only', 'Local only', 'Sign in to sync');
   if (pendingSyncCount > 0) {
     const label = 'Saving locally';
-    return { kind: 'pending', label, detail: syncDetail(syncMessage, label) };
+    return syncIndicator('pending', label, syncDetail(syncMessage, label));
   }
 
   if (remoteSyncEnabled) {
     if (remoteSyncState === 'queued') {
       const label = 'Remote sync queued';
-      return { kind: 'pending', label, detail: 'Local changes saved' };
+      return syncIndicator('pending', label, 'Local changes saved');
     }
     if (remoteSyncState === 'syncing' || remoteSyncState === 'unknown') {
       const label = 'Syncing remote';
-      return { kind: 'syncing', label, detail: 'Local changes saved' };
+      return syncIndicator('syncing', label, 'Local changes saved');
     }
     if (remoteSyncState === 'error') {
-      return {
-        kind: 'conflict',
-        label: 'Remote sync failed',
-        detail: remoteSyncError
-      };
+      return syncIndicator('conflict', 'Remote sync failed', remoteSyncError);
     }
   }
 
   const label = remoteSyncEnabled ? 'All changes synced' : 'All changes saved';
-  return { kind: 'synced', label, detail: syncDetail(syncMessage, label) };
+  return syncIndicator('synced', label, syncDetail(syncMessage, label));
 }
 
 function startOfDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function syncIndicator(
+  kind: SyncIndicatorKind,
+  label: string,
+  detail: string
+): SyncIndicator {
+  return { kind, tone: syncIndicatorTone(kind), label, detail };
+}
+
+function syncIndicatorTone(kind: SyncIndicatorKind): SyncIndicatorTone {
+  if (kind === 'synced') return 'ok';
+  if (kind === 'pending' || kind === 'syncing') return 'info';
+  if (kind === 'offline') return 'warn';
+  if (kind === 'local-only') return 'muted';
+  return 'error';
 }
 
 function syncDetail(syncMessage: string, label: string): string {

@@ -14,11 +14,8 @@ import {
   createNotebook,
   deleteNotebook,
   ensureLocalNotesEncrypted,
-  exportNotesJson,
   exportNotesMarkdownZip,
   getTheme,
-  importNotesJson,
-  importNotesJsonSummary,
   importNotesMarkdownFiles,
   importNotesMarkdownSummary,
   loadDevices,
@@ -80,6 +77,7 @@ import type {
   ContextMenuState,
   EditorSnapshot,
   NoteCallback,
+  NotebookAssignmentCallback,
   NotebookCallback
 } from './ui-types';
 
@@ -157,6 +155,7 @@ export interface NoteListPanelModel {
   toggleAllVisibleNotes: (selected: boolean) => void;
   clearSelectedNotes: () => void;
   toggleSelectedNotebookMenu: () => void;
+  toggleNotebookMenuForNote: NoteCallback;
   assignNotebookForSelected: (
     notebookId: string | null
   ) => void | Promise<void>;
@@ -166,10 +165,7 @@ export interface NoteListPanelModel {
   openNoteContext: (event: MouseEvent, note: LocalNote) => void;
   restoreNoteFromRow: NoteCallback;
   trashNote: NoteCallback;
-  assignNotebookForNote: (
-    note: LocalNote,
-    notebookId: string | null
-  ) => void | Promise<void>;
+  assignNotebookForNote: NotebookAssignmentCallback;
   notebookNamesForNote: (note: LocalNote) => string[];
 }
 
@@ -201,9 +197,7 @@ export interface NavigationDockModel
   scheduleAccountMenuClose: () => void;
   closeAccountMenuOnBlur: (event: FocusEvent) => void;
   toggleMenus: () => void;
-  toggleAccountMenu: () => void;
   closeAccountMenu: () => void;
-  toggleSettings: () => void;
   syncNow: () => void | Promise<void>;
   saveAccountProfile: () => void | Promise<void>;
   changeAccountPassword: () => void | Promise<void>;
@@ -238,7 +232,6 @@ export interface EditorPaneModel {
 
 export interface SettingsModalModel {
   settingsModal: HTMLElement | null;
-  importInput: HTMLInputElement | null;
   importMarkdownInput: HTMLInputElement | null;
   hasToken: boolean;
   accountUsername: string;
@@ -286,11 +279,8 @@ export interface SettingsModalModel {
   startAccountDeleteEdit: () => void;
   cancelAccountDeleteEdit: () => void;
   setSettingsSection: (section: SettingsSection) => void;
-  exportJson: () => void | Promise<void>;
   exportMarkdown: () => void | Promise<void>;
-  startJsonImport: () => void;
   startMarkdownImport: () => void;
-  handleJsonImport: (event: Event) => void | Promise<void>;
   handleMarkdownImport: (event: Event) => void | Promise<void>;
   toggleCompactView: () => void;
   toggleTheme: () => void;
@@ -306,19 +296,11 @@ export interface ContextMenuModel {
   contextNote: LocalNote | null;
   contextNotebook: LocalNotebook | null;
   notebooks: LocalNotebook[];
-  assignNotebookForNote: (
-    note: LocalNote,
-    notebookId: string | null
-  ) => void | Promise<void>;
   contextRenameNotebook: NotebookCallback;
   contextDeleteNotebook: NotebookCallback;
-  contextLinkNote: NoteCallback;
   contextTrashNote: NoteCallback;
   contextRestoreNote: NoteCallback;
-  contextAssignNotebookForNote: (
-    note: LocalNote,
-    notebookId: string | null
-  ) => void | Promise<void>;
+  contextAssignNotebookForNote: NotebookAssignmentCallback;
 }
 
 export interface ConflictDialogModel {
@@ -411,7 +393,6 @@ export class NotesPageController
 
   titleInput: HTMLInputElement | null = null;
   bodyTextarea: HTMLTextAreaElement | null = null;
-  importInput: HTMLInputElement | null = null;
   importMarkdownInput: HTMLInputElement | null = null;
   settingsModal: HTMLElement | null = null;
   readonly minEditorZoom = MIN_EDITOR_ZOOM;
@@ -536,9 +517,7 @@ export class NotesPageController
 
   handleOnline = () => {
     this.isBrowserOnline = true;
-    this.syncMessage = this.hasSyncSession()
-      ? 'All changes saved'
-      : 'Sign in to sync';
+    this.syncMessage = this.hasToken ? 'All changes saved' : 'Sign in to sync';
     void this.resumeOnlineSession();
   };
 
@@ -594,12 +573,19 @@ export class NotesPageController
     this.closeContextMenu();
     this.closeAccountMenu();
     this.closeSettings();
-    this.linkingNoteId = null;
+    this.closeNotebookMenus();
   };
 
   handleWindowClick = (event: MouseEvent) => {
     this.closeContextMenu();
     if (!(event.target instanceof Element)) return;
+    if (
+      !event.target.closest(
+        '.batch-actions, .batch-popover, .link-popover, .row-actions'
+      )
+    ) {
+      this.closeNotebookMenus();
+    }
     if (!event.target.closest('.profile-menu')) {
       this.closeAccountMenu();
     }
@@ -617,7 +603,7 @@ export class NotesPageController
   selectNote = async (note: LocalNote) => {
     await this.flushPendingSave();
     this.selectedNote = note;
-    this.linkingNoteId = null;
+    this.closeNotebookMenus();
     this.titleValue = note.title;
     this.bodyValue = note.body;
     this.resetEditorHistory();
@@ -713,18 +699,6 @@ export class NotesPageController
     this.closeContextMenu();
   };
 
-  toggleAccountMenu = () => {
-    if (this.accountMenuCloseTimer) {
-      clearTimeout(this.accountMenuCloseTimer);
-      this.accountMenuCloseTimer = null;
-    }
-    this.accountMenuOpen = !this.accountMenuOpen;
-    if (this.accountMenuOpen) {
-      this.menusOpen = false;
-      this.closeContextMenu();
-    }
-  };
-
   closeAccountMenu = () => {
     if (this.accountMenuCloseTimer) {
       clearTimeout(this.accountMenuCloseTimer);
@@ -761,15 +735,6 @@ export class NotesPageController
     const next = event.relatedTarget as Node | null;
     if (next && current.contains(next)) return;
     this.closeAccountMenu();
-  };
-
-  toggleSettings = () => {
-    this.settingsOpen = !this.settingsOpen;
-    if (!this.settingsOpen) {
-      this.loginOpen = false;
-    }
-    this.closeAccountMenu();
-    this.closeContextMenu();
   };
 
   openSettingsModal = (section: SettingsSection = 'account') => {
@@ -840,6 +805,13 @@ export class NotesPageController
     if (!this.selectedActiveNoteCount) return;
     this.selectedNotebookMenuOpen = !this.selectedNotebookMenuOpen;
     this.linkingNoteId = null;
+    this.closeContextMenu();
+  };
+
+  toggleNotebookMenuForNote = (note: LocalNote) => {
+    if (note.trashedAt) return;
+    this.linkingNoteId = this.linkingNoteId === note.id ? null : note.id;
+    this.selectedNotebookMenuOpen = false;
     this.closeContextMenu();
   };
 
@@ -958,11 +930,6 @@ export class NotesPageController
 
   contextDeleteNotebook = (notebook: LocalNotebook) => {
     this.askDeleteNotebook(notebook);
-    this.closeContextMenu();
-  };
-
-  contextLinkNote = (note: LocalNote) => {
-    this.linkingNoteId = note.id;
     this.closeContextMenu();
   };
 
@@ -1198,35 +1165,6 @@ export class NotesPageController
     }
   };
 
-  exportJson = async () => {
-    if (this.isArchiveBusy) return;
-    await this.flushPendingSave();
-    this.beginArchiveOperation('Exporting JSON', 'Collecting notes', 18);
-    try {
-      await this.yieldToUi();
-      const archive = await exportNotesJson();
-      this.updateArchiveOperation('Preparing download', 72);
-      await this.yieldToUi();
-      const blob = new Blob([JSON.stringify(archive, null, 2)], {
-        type: 'application/json'
-      });
-      this.downloadBlob(
-        blob,
-        `author-notes-${new Date().toISOString().slice(0, 10)}.json`
-      );
-      this.updateArchiveOperation('Done', 100);
-      this.syncMessage = `Exported ${archive.notes.length} ${
-        archive.notes.length === 1 ? 'note' : 'notes'
-      }`;
-      await this.yieldToUi();
-    } catch (error) {
-      this.syncMessage =
-        error instanceof Error ? error.message : 'Export failed';
-    } finally {
-      this.endArchiveOperation();
-    }
-  };
-
   exportMarkdown = async () => {
     if (this.isArchiveBusy) return;
     await this.flushPendingSave();
@@ -1250,60 +1188,9 @@ export class NotesPageController
     }
   };
 
-  startJsonImport = () => {
-    if (this.isArchiveBusy) return;
-    this.importInput?.click();
-  };
-
   startMarkdownImport = () => {
     if (this.isArchiveBusy) return;
     this.importMarkdownInput?.click();
-  };
-
-  handleJsonImport = async (event: Event) => {
-    const input = event.currentTarget as HTMLInputElement;
-    const file = input.files?.[0] ?? null;
-    input.value = '';
-    if (!file || this.isArchiveBusy) return;
-
-    await this.flushPendingSave();
-    this.beginArchiveOperation('Importing JSON', 'Reading file', 12);
-    try {
-      await this.yieldToUi();
-      const payload = JSON.parse(await file.text()) as unknown;
-      this.updateArchiveOperation('Adding notes', 42);
-      await this.yieldToUi();
-      const result = await importNotesJson(payload);
-      this.updateArchiveOperation('Refreshing library', 82);
-      await this.refresh();
-
-      const importedNote = this.notes.find(
-        (note) => note.id === result.noteIds[0]
-      );
-      if (importedNote) {
-        await this.selectNote(importedNote);
-      }
-
-      const message = importNotesJsonSummary(result);
-      this.syncMessage = message;
-      this.importBanner = {
-        kind: 'success',
-        title: 'Import succeeded',
-        message
-      };
-      this.updateArchiveOperation('Done', 100);
-      await this.yieldToUi();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Import failed';
-      this.syncMessage = message;
-      this.importBanner = {
-        kind: 'error',
-        title: 'Import failed',
-        message
-      };
-    } finally {
-      this.endArchiveOperation(true);
-    }
   };
 
   handleMarkdownImport = async (event: Event) => {
@@ -1720,6 +1607,11 @@ export class NotesPageController
     }
   };
 
+  private closeNotebookMenus = () => {
+    this.linkingNoteId = null;
+    this.selectedNotebookMenuOpen = false;
+  };
+
   private pruneSelectedNotes = (notes: LocalNote[], trash: LocalNote[]) => {
     if (!this.selectedNoteIds.size) return;
     const noteIds = new Set([...notes, ...trash].map((note) => note.id));
@@ -1743,7 +1635,7 @@ export class NotesPageController
   private openDraftNote = () => {
     this.clearPendingSave();
     this.selectedNote = null;
-    this.linkingNoteId = null;
+    this.closeNotebookMenus();
     this.titleValue = '';
     this.bodyValue = '';
     this.resetEditorHistory();
@@ -1886,8 +1778,6 @@ export class NotesPageController
 
   private draftNotebookId = (): string | null =>
     EMPTY_NOTEBOOK_FILTERS.has(this.filterId) ? null : this.filterId;
-
-  private hasSyncSession = (): boolean => this.hasToken;
 
   private clearLocalSession = ({
     accountMessage = '',

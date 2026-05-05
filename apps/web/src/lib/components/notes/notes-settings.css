@@ -314,31 +314,6 @@
   white-space: nowrap;
 }
 
-.settings-action-group.deprecated {
-  opacity: 0.82;
-}
-
-.settings-badge {
-  min-width: 0;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 2px 6px;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0;
-  line-height: 1;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.settings-group-note {
-  margin: -2px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.35;
-}
-
 .settings-progress {
   display: grid;
   gap: 10px;
@@ -405,13 +380,13 @@
 }
 
 .import-result-banner.success {
-  border-color: rgba(31, 143, 77, 0.34);
-  color: #1f8f4d;
+  border-color: color-mix(in srgb, var(--status-ok) 34%, transparent);
+  color: var(--status-ok);
 }
 
 .import-result-banner.error {
-  border-color: rgba(201, 54, 47, 0.36);
-  color: #c9362f;
+  border-color: color-mix(in srgb, var(--status-error) 36%, transparent);
+  color: var(--status-error);
 }
 
 .import-result-banner div {
@@ -597,16 +572,16 @@
 .danger-action,
 .danger-action:hover,
 .danger-action:focus-visible {
-  color: #c9362f;
+  color: var(--status-error);
 }
 
 .danger-title {
-  color: #c9362f;
+  color: var(--status-error);
 }
 
 .form-success {
   margin: 0;
-  color: #1f8f4d;
+  color: var(--status-ok);
   font-size: 12px;
 }
 

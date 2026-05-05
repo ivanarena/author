@@ -80,7 +80,7 @@
               <span class="profile-username">{model.accountUsername}</span>
             {/if}
             <span
-              class={`sync-state ${model.syncIndicator.kind === 'synced' ? 'ok' : 'error'}`}
+              class={`sync-state ${model.syncIndicator.tone}`}
               aria-label={`Sync status: ${model.syncIndicator.label}`}
               >{model.syncIndicator.label}</span
             >

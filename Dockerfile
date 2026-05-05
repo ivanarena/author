@@ -8,9 +8,8 @@ COPY package.json aube-workspace.yaml aube-lock.yaml ./
 COPY apps ./apps
 COPY packages ./packages
 COPY docs ./docs
-COPY tests ./tests
 
-RUN aube install && aube -F @author/web run build
+RUN aube install --frozen-lockfile && aube -F @author/web run build
 
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0

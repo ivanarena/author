@@ -33,7 +33,8 @@ export function recordsDiffer<T extends SyncEntity>(a: T, b: T): boolean {
       titleDiffers ||
       bodyDiffers ||
       noteNotebookIds(a).join('\0') !== noteNotebookIds(b).join('\0') ||
-      a.notebookId !== b.notebookId ||
+      normalizedNotebookId(a.notebookId) !==
+        normalizedNotebookId(b.notebookId) ||
       a.deletedAt !== b.deletedAt ||
       a.trashedAt !== b.trashedAt
     );
@@ -47,15 +48,21 @@ export function recordsDiffer<T extends SyncEntity>(a: T, b: T): boolean {
 }
 
 function noteNotebookIds(note: Note): string[] {
-  return [
-    ...new Set(
-      note.notebookIds?.length
-        ? note.notebookIds
-        : note.notebookId
-          ? [note.notebookId]
-          : []
-    )
-  ].sort();
+  const ids = note.notebookIds?.length
+    ? note.notebookIds
+    : note.notebookId
+      ? [note.notebookId]
+      : [];
+  return normalizedNotebookIds(ids).sort();
+}
+
+function normalizedNotebookId(id: string | null): string | null {
+  const trimmed = id?.trim() ?? '';
+  return trimmed || null;
+}
+
+function normalizedNotebookIds(ids: string[]): string[] {
+  return [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
 }
 
 export function shouldConflict<T extends SyncEntity>(
@@ -75,18 +82,58 @@ export function chooseConflictVersion<T extends SyncEntity>(
   if (choice === 'keep-local') return conflict.local;
   if (choice === 'keep-remote') return conflict.remote;
 
-  const localTime = Date.parse(conflict.local.updatedAt);
-  const remoteTime = Date.parse(conflict.remote.updatedAt);
+  const order = compareConflictVersions(conflict.local, conflict.remote);
 
   if (choice === 'keep-newer') {
-    return localTime >= remoteTime ? conflict.local : conflict.remote;
+    return order >= 0 ? conflict.local : conflict.remote;
   }
 
-  return localTime <= remoteTime ? conflict.local : conflict.remote;
+  return order <= 0 ? conflict.local : conflict.remote;
+}
+
+function compareConflictVersions<T extends SyncEntity>(
+  local: ConflictVersion<T>,
+  remote: ConflictVersion<T>
+): number {
+  const localTime = Date.parse(local.updatedAt);
+  const remoteTime = Date.parse(remote.updatedAt);
+  const localTimeValid = Number.isFinite(localTime);
+  const remoteTimeValid = Number.isFinite(remoteTime);
+
+  if (localTimeValid && remoteTimeValid && localTime !== remoteTime) {
+    return localTime - remoteTime;
+  }
+  if (localTimeValid !== remoteTimeValid) return localTimeValid ? 1 : -1;
+  if (local.version !== remote.version) return local.version - remote.version;
+  return 0;
 }
 
 export function nextVersionAfter(remoteVersion: number): number {
   return remoteVersion + 1;
+}
+
+export function safeRevisionCursor(
+  serverRevision: number,
+  previousRevision: number,
+  hasMore: boolean,
+  context = 'Sync pull'
+): number {
+  if (!Number.isSafeInteger(previousRevision) || previousRevision < 0) {
+    throw new Error(`Invalid ${context.toLowerCase()} previous revision`);
+  }
+
+  if (!Number.isSafeInteger(serverRevision) || serverRevision < 0) {
+    throw new Error(`Invalid ${context.toLowerCase()} revision from server`);
+  }
+
+  if (
+    serverRevision < previousRevision ||
+    (hasMore && serverRevision === previousRevision)
+  ) {
+    throw new Error(`${context} cursor did not advance`);
+  }
+
+  return serverRevision;
 }
 
 export function retentionCutoff(now: Date, retentionDays: number): string {

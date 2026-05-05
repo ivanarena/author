@@ -8,7 +8,7 @@ import {
   fixtureNotebook
 } from '@author/test-fixtures';
 import { authenticateUser, setUserPassword } from './auth';
-import { openMemoryDatabase } from './db';
+import { openMemoryDatabase, run as runSql } from './db';
 import {
   cleanupTrash,
   currentRevision,
@@ -117,6 +117,171 @@ describe('server repository', () => {
       expect(result.conflicts).toHaveLength(1);
       expect(result.conflicts[0].reason).toBe('duplicate_name');
       expect(await listNotebooks(db)).toHaveLength(1);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('accepts notes from a batch whose notebook was rejected by removing the unsyncable assignment', async () => {
+    const db = await openMemoryDatabase();
+    try {
+      await pushChanges(db, {
+        device: fixtureDevice,
+        notebooks: [{ record: fixtureNotebook, baseVersion: 0 }],
+        notes: []
+      });
+
+      const duplicateNotebook = {
+        ...fixtureNotebook,
+        id: 'duplicate-notebook',
+        name: 'inbox',
+        updatedAt: '2026-01-01T01:00:00.000Z',
+        syncStatus: 'pending' as const
+      };
+      const assignedNote = {
+        ...fixtureNote,
+        id: 'note-assigned-to-rejected-notebook',
+        notebookIds: [duplicateNotebook.id],
+        notebookId: duplicateNotebook.id,
+        syncStatus: 'pending' as const
+      };
+
+      const result = await pushChanges(db, {
+        device: fixtureDevice,
+        notebooks: [{ record: duplicateNotebook, baseVersion: 0 }],
+        notes: [{ record: assignedNote, baseVersion: 0 }]
+      });
+
+      expect(result.conflicts).toHaveLength(1);
+      expect(result.conflicts[0].entityType).toBe('notebook');
+      expect(result.accepted).toEqual([
+        expect.objectContaining({
+          entityType: 'note',
+          id: assignedNote.id
+        })
+      ]);
+      await expect(getNote(db, assignedNote.id)).resolves.toMatchObject({
+        notebookIds: [],
+        notebookId: null
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('normalizes rejected notebook assignments before stale note conflict checks', async () => {
+    const db = await openMemoryDatabase();
+    try {
+      const unassignedNote = {
+        ...fixtureNote,
+        notebookIds: [],
+        notebookId: null
+      };
+      await pushChanges(db, {
+        device: fixtureDevice,
+        notebooks: [{ record: fixtureNotebook, baseVersion: 0 }],
+        notes: [{ record: unassignedNote, baseVersion: 0 }]
+      });
+
+      const duplicateNotebook = {
+        ...fixtureNotebook,
+        id: 'duplicate-notebook',
+        name: 'inbox',
+        updatedAt: '2026-01-01T01:00:00.000Z',
+        syncStatus: 'pending' as const
+      };
+      const locallyAssignedNote = {
+        ...unassignedNote,
+        notebookIds: [duplicateNotebook.id],
+        notebookId: duplicateNotebook.id,
+        updatedAt: '2026-01-01T01:01:00.000Z',
+        version: 2,
+        syncStatus: 'pending' as const
+      };
+
+      const result = await pushChanges(db, {
+        device: fixtureDevice,
+        notebooks: [{ record: duplicateNotebook, baseVersion: 0 }],
+        notes: [{ record: locallyAssignedNote, baseVersion: 0 }]
+      });
+
+      expect(result.conflicts).toEqual([
+        expect.objectContaining({ entityType: 'notebook' })
+      ]);
+      expect(result.accepted).toEqual([
+        expect.objectContaining({
+          entityType: 'note',
+          id: locallyAssignedNote.id
+        })
+      ]);
+      await expect(getNote(db, locallyAssignedNote.id)).resolves.toMatchObject({
+        notebookIds: [],
+        notebookId: null,
+        version: 2
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('accepts stale notes whose only changes are normalized notebook references', async () => {
+    const db = await openMemoryDatabase();
+    try {
+      await pushChanges(db, {
+        device: fixtureDevice,
+        notebooks: [{ record: fixtureNotebook, baseVersion: 0 }],
+        notes: [{ record: fixtureNote, baseVersion: 0 }]
+      });
+
+      const paddedNote = {
+        ...fixtureNote,
+        notebookIds: [` ${fixtureNotebook.id} `, fixtureNotebook.id],
+        notebookId: ` ${fixtureNotebook.id} `,
+        version: 2,
+        syncStatus: 'pending' as const
+      };
+
+      const result = await pushChanges(db, {
+        device: fixtureDevice,
+        notebooks: [],
+        notes: [{ record: paddedNote, baseVersion: 0 }]
+      });
+
+      expect(result.conflicts).toHaveLength(0);
+      expect(result.accepted).toEqual([
+        expect.objectContaining({
+          entityType: 'note',
+          id: fixtureNote.id,
+          version: 2
+        })
+      ]);
+      await expect(getNote(db, fixtureNote.id)).resolves.toMatchObject({
+        notebookIds: [fixtureNotebook.id],
+        notebookId: fixtureNotebook.id
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('falls back to legacy note notebook ids when the array column is empty', async () => {
+    const db = await openMemoryDatabase();
+    try {
+      await pushChanges(db, {
+        device: fixtureDevice,
+        notebooks: [{ record: fixtureNotebook, baseVersion: 0 }],
+        notes: [{ record: fixtureNote, baseVersion: 0 }]
+      });
+      await runSql(
+        db,
+        'UPDATE notes SET notebook_ids = ?, notebook_id = ? WHERE id = ?',
+        ['[]', fixtureNotebook.id, fixtureNote.id]
+      );
+
+      await expect(getNote(db, fixtureNote.id)).resolves.toMatchObject({
+        notebookIds: [fixtureNotebook.id],
+        notebookId: fixtureNotebook.id
+      });
     } finally {
       db.close();
     }
@@ -332,6 +497,38 @@ describe('server repository', () => {
       expect((await getNote(local, remoteOnlyNote.id))?.body).toBe(
         remoteOnlyNote.body
       );
+    } finally {
+      local.close();
+      remote.close();
+    }
+  });
+
+  it('mirrors every page of a large revision backlog in one run', async () => {
+    const local = await openMemoryDatabase();
+    const remote = await openMemoryDatabase();
+    try {
+      const noteCount = 505;
+      const notes = Array.from({ length: noteCount }, (_, index) => ({
+        ...fixtureNote,
+        id: `bulk-note-${index}`,
+        title: `Bulk note ${index}`,
+        body: `Bulk body ${index}`,
+        updatedAt: new Date(Date.UTC(2026, 4, 1, 0, 0, index)).toISOString()
+      }));
+
+      await pushChanges(local, {
+        device: fixtureDevice,
+        notebooks: [{ record: fixtureNotebook, baseVersion: 0 }],
+        notes: notes.map((record) => ({ record, baseVersion: 0 }))
+      });
+
+      await syncDatabases(local, remote);
+
+      await expect(getNote(remote, 'bulk-note-504')).resolves.toMatchObject({
+        body: 'Bulk body 504'
+      });
+      const mirrored = await pullChangesSince(remote, null, 0, { limit: 1000 });
+      expect(mirrored.notes).toHaveLength(noteCount);
     } finally {
       local.close();
       remote.close();

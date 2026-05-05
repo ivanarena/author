@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LocalNote, LocalNotebook } from './db';
-import { exportNotesJson, importNotesJson } from './archive-store';
+import {
+  exportNotesMarkdownZip,
+  importNotesMarkdownFiles
+} from './archive-store';
 import { localDb } from './db';
 
 vi.mock('./db', () => ({
@@ -73,48 +76,37 @@ beforeEach(() => {
 });
 
 describe('archive store import and export', () => {
-  it('exports JSON archives with notebook names and note links', async () => {
-    await expect(exportNotesJson()).resolves.toMatchObject({
-      app: 'author-notes',
-      format: 'author-notes-json',
-      version: 1,
-      notebooks: [
-        {
-          id: 'notebook-1',
-          name: 'Ideas'
-        }
-      ],
-      notes: [
-        {
-          id: 'note-1',
-          title: 'Roadmap',
-          body: 'Launch plan',
-          notebookIds: ['notebook-1'],
-          notebookNames: ['Ideas'],
-          notebookId: 'notebook-1',
-          notebookName: 'Ideas'
-        }
-      ]
-    });
+  it('exports Markdown archives with notebook folders and note files', async () => {
+    const archive = await exportNotesMarkdownZip();
+    const content = new TextDecoder().decode(await archive.blob.arrayBuffer());
+
+    expect(archive.fileName).toBe('author-notes-2026-05-04-md-frontmatter.zip');
+    expect(archive.noteCount).toBe(1);
+    expect(content).toContain(
+      'author-notes-2026-05-04-md-frontmatter/Ideas/Roadmap.md'
+    );
   });
 
-  it('imports JSON archives into pending local notebook and note records', async () => {
+  it('imports Markdown folders into pending local notebook and note records', async () => {
     vi.mocked(localDb.notebooks.toArray).mockResolvedValue([]);
 
     await expect(
-      importNotesJson({
-        notebooks: [{ id: 'source-notebook', name: 'Ideas' }],
-        notes: [
-          {
-            title: 'Roadmap',
-            body: 'Launch plan',
-            notebookIds: ['source-notebook'],
-            createdAt: '2026-05-01T10:00:00.000Z',
-            updatedAt: '2026-05-02T10:00:00.000Z',
-            trashedAt: null
-          }
-        ]
-      })
+      importNotesMarkdownFiles([
+        {
+          name: 'Roadmap.md',
+          webkitRelativePath: 'Export/Ideas/Roadmap.md',
+          text: async () =>
+            [
+              '---',
+              'title: "Roadmap"',
+              'created_at: 2026-05-01T10:00:00.000Z',
+              'updated_at: 2026-05-02T10:00:00.000Z',
+              '---',
+              '',
+              'Launch plan'
+            ].join('\n')
+        }
+      ])
     ).resolves.toEqual({
       importedNotes: 1,
       importedNotebooks: 1,

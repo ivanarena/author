@@ -80,7 +80,7 @@ No blocks, toolbars, slash commands, public sharing, collaboration, Markdown ren
 
 ## Import and Export
 
-The note toolbar can import a Markdown folder where folders are notebooks and `.md` files are notes with frontmatter, then export the same Markdown/frontmatter layout as a ZIP. Legacy JSON import/export remains available for old local archives, but is deprecated for new backups. Imported records are added as pending local changes so the normal sync flow can publish them.
+The note toolbar can import a Markdown folder where folders are notebooks and `.md` files are notes with frontmatter, then export the same Markdown/frontmatter layout as a ZIP. Imported records are added as pending local changes so the normal sync flow can publish them.
 
 ## Visual Mock Data
 

@@ -63,39 +63,53 @@ function asNullableString(value: unknown): string | null {
   return value === null || value === undefined ? null : String(value);
 }
 
+function normalizedNotebookId(id: string | null): string | null {
+  const trimmed = id?.trim() ?? '';
+  return trimmed || null;
+}
+
+function normalizedNotebookIds(ids: unknown[]): string[] {
+  return [
+    ...new Set(
+      ids.map((id) => (typeof id === 'string' ? id.trim() : '')).filter(Boolean)
+    )
+  ];
+}
+
 function noteNotebookIdsFromRow(row: Row): string[] {
   const raw = asNullableString(row.notebook_ids);
   if (raw) {
     try {
       const parsed = JSON.parse(raw) as unknown;
       if (Array.isArray(parsed)) {
-        return [
-          ...new Set(
-            parsed.filter(
-              (id): id is string => typeof id === 'string' && Boolean(id)
-            )
-          )
-        ];
+        const ids = normalizedNotebookIds(parsed);
+        if (ids.length) return ids;
       }
     } catch {
       // Fall through to legacy notebook_id.
     }
   }
 
-  const legacyId = asNullableString(row.notebook_id);
+  const legacyId = normalizedNotebookId(asNullableString(row.notebook_id));
   return legacyId ? [legacyId] : [];
 }
 
 function noteNotebookIds(note: Note): string[] {
-  return [
-    ...new Set(
-      note.notebookIds?.length
-        ? note.notebookIds
-        : note.notebookId
-          ? [note.notebookId]
-          : []
-    )
-  ];
+  const ids = note.notebookIds?.length
+    ? note.notebookIds
+    : note.notebookId
+      ? [note.notebookId]
+      : [];
+  return normalizedNotebookIds(ids);
+}
+
+function noteNotebookRefsChanged(original: Note, normalized: Note): boolean {
+  const originalIds = original.notebookIds ?? [];
+  return (
+    original.notebookId !== normalized.notebookId ||
+    originalIds.length !== normalized.notebookIds.length ||
+    originalIds.some((id, index) => id !== normalized.notebookIds[index])
+  );
 }
 
 function toNote(row: Row): Note {
@@ -107,7 +121,8 @@ function toNote(row: Row): Note {
     titleHash: asNullableString(row.title_hash),
     bodyHash: asNullableString(row.body_hash),
     notebookIds,
-    notebookId: notebookIds[0] ?? asNullableString(row.notebook_id),
+    notebookId:
+      notebookIds[0] ?? normalizedNotebookId(asNullableString(row.notebook_id)),
     createdAt: asString(row.created_at),
     updatedAt: asString(row.updated_at),
     deletedAt: asNullableString(row.deleted_at),
@@ -976,9 +991,10 @@ async function acceptNoteChange(
   db: NotesExecutor,
   local: Note,
   remote: Note | null,
-  ownerUsername = LEGACY_OWNER_USERNAME
+  ownerUsername = LEGACY_OWNER_USERNAME,
+  forceWrite = false
 ): Promise<Note> {
-  if (remote && !recordsDiffer(local, remote)) {
+  if (!forceWrite && remote && !recordsDiffer(local, remote)) {
     return remote;
   }
 
@@ -1051,6 +1067,31 @@ function deletedRemoteNotebook(
     deviceId: tombstone.deviceId,
     version: tombstone.version,
     syncStatus: 'synced'
+  };
+}
+
+async function noteWithSyncableNotebookRefs(
+  db: NotesExecutor,
+  note: Note,
+  ownerUsername: string
+): Promise<{ note: Note; changed: boolean }> {
+  const ids = noteNotebookIds(note);
+  const notebooks = ids.length
+    ? await getNotebooksByIds(db, ids, ownerUsername)
+    : new Map<string, Notebook>();
+  const syncableIds = ids.filter((id) => {
+    const notebook = notebooks.get(id);
+    return notebook && !notebook.deletedAt;
+  });
+
+  const normalized = {
+    ...note,
+    notebookIds: syncableIds,
+    notebookId: syncableIds[0] ?? null
+  };
+  return {
+    note: normalized,
+    changed: noteNotebookRefsChanged(note, normalized)
   };
 }
 
@@ -1177,6 +1218,11 @@ export async function pushChanges(
 
     for (const change of request.notes) {
       const remote = await getNote(tx, change.record.id, ownerUsername);
+      const syncableNote = await noteWithSyncableNotebookRefs(
+        tx,
+        change.record,
+        ownerUsername
+      );
       const tombstone = remote
         ? null
         : await getEntityTombstone(tx, ownerUsername, 'note', change.record.id);
@@ -1208,10 +1254,13 @@ export async function pushChanges(
         );
         continue;
       }
-      if (remote && shouldConflict(change.record, remote, change.baseVersion)) {
+      if (
+        remote &&
+        shouldConflict(syncableNote.note, remote, change.baseVersion)
+      ) {
         await saveNoteSnapshot(
           tx,
-          change.record,
+          syncableNote.note,
           'conflict',
           undefined,
           ownerUsername
@@ -1227,7 +1276,7 @@ export async function pushChanges(
           await makeConflict<Note>(
             tx,
             'note',
-            change.record,
+            syncableNote.note,
             remote,
             request.device.name
           )
@@ -1238,7 +1287,13 @@ export async function pushChanges(
       acceptedChanges.push(
         accepted(
           'note',
-          await acceptNoteChange(tx, change.record, remote, ownerUsername)
+          await acceptNoteChange(
+            tx,
+            syncableNote.note,
+            remote,
+            ownerUsername,
+            syncableNote.changed
+          )
         )
       );
     }

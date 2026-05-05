@@ -134,7 +134,12 @@ describe('client note view model', () => {
         remoteSyncState: 'disabled',
         remoteSyncError: ''
       })
-    ).toMatchObject({ kind: 'conflict', label: '2 conflicts', detail: '' });
+    ).toMatchObject({
+      kind: 'conflict',
+      tone: 'error',
+      label: '2 conflicts',
+      detail: ''
+    });
 
     expect(
       syncIndicatorState({
@@ -168,6 +173,7 @@ describe('client note view model', () => {
       })
     ).toMatchObject({
       kind: 'pending',
+      tone: 'info',
       label: 'Remote sync queued',
       detail: 'Local changes saved'
     });
@@ -184,6 +190,10 @@ describe('client note view model', () => {
         remoteSyncState: 'synced',
         remoteSyncError: ''
       })
-    ).toMatchObject({ kind: 'synced', label: 'All changes synced' });
+    ).toMatchObject({
+      kind: 'synced',
+      tone: 'ok',
+      label: 'All changes synced'
+    });
   });
 });

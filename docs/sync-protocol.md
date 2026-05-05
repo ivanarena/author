@@ -56,3 +56,4 @@ The server owns accepted remote versions. When a pushed edit is accepted against
 ## Notebook Names
 
 Active notebook names are unique case-insensitively after trimming whitespace. The client blocks duplicates immediately, and the server reports a `duplicate_name` conflict if another device tries to push one.
+When accepting notes, the server trims and deduplicates notebook references, then keeps only references that point to active notebooks owned by the same account, so a rejected or deleted notebook cannot make the note push fail.

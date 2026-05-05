@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Note, Notebook } from '@author/schema';
 import type { PullResponse } from '@author/api-types';
-import { recordsDiffer } from '@author/sync-spec';
+import { recordsDiffer, safeRevisionCursor } from '@author/sync-spec';
 import { getRemoteDatabaseConfig, shouldSyncRemoteDatabase } from './config';
 import {
   all as queryAll,
@@ -161,7 +161,7 @@ async function acquireMirrorLeases(
   let heartbeatStopped = false;
   const heartbeat = setInterval(() => {
     if (heartbeatStopped) return;
-    void Promise.all([
+    void Promise.allSettled([
       refreshMirrorLease(local, owner),
       refreshMirrorLease(remote, owner)
     ]);
@@ -415,36 +415,47 @@ async function syncEntityOwnerOneWay(
   ownerUsername: string
 ): Promise<void> {
   const ownerCursorKey = `${cursorKey}.${ownerUsername}`;
-  const cursor = Number((await getSyncMeta(target, ownerCursorKey)) ?? 0);
-  const snapshot = await pullMirrorChangesSinceRevision(
-    source,
-    Number.isSafeInteger(cursor) && cursor >= 0 ? cursor : 0,
-    { ownerUsername }
-  );
-  await applyMirrorDeletes(snapshot, target, ownerUsername);
-  await syncDevices(snapshot, target, ownerUsername);
-  const notebooks = await notebookChanges(snapshot, target, ownerUsername);
-  const notes = await noteChanges(snapshot, target, ownerUsername);
-  if (!notebooks.length && !notes.length) {
-    await setSyncMeta(target, ownerCursorKey, String(snapshot.serverRevision));
-    return;
-  }
+  const storedCursor = Number((await getSyncMeta(target, ownerCursorKey)) ?? 0);
+  let cursor =
+    Number.isSafeInteger(storedCursor) && storedCursor >= 0 ? storedCursor : 0;
+  let hasMore = true;
 
-  const result = await pushChanges(
-    target,
-    {
-      device: MIRROR_DEVICE,
-      notebooks,
-      notes
-    },
-    ownerUsername
-  );
-  if (result.conflicts.length) {
-    throw new Error(
-      `Remote mirror conflict while applying ${ownerCursorKey}: ${result.conflicts.length}`
+  while (hasMore) {
+    const snapshot = await pullMirrorChangesSinceRevision(source, cursor, {
+      ownerUsername
+    });
+    const nextCursor = safeRevisionCursor(
+      snapshot.serverRevision,
+      cursor,
+      Boolean(snapshot.hasMore),
+      `Remote mirror ${ownerCursorKey}`
     );
+
+    await applyMirrorDeletes(snapshot, target, ownerUsername);
+    await syncDevices(snapshot, target, ownerUsername);
+    const notebooks = await notebookChanges(snapshot, target, ownerUsername);
+    const notes = await noteChanges(snapshot, target, ownerUsername);
+    if (notebooks.length || notes.length) {
+      const result = await pushChanges(
+        target,
+        {
+          device: MIRROR_DEVICE,
+          notebooks,
+          notes
+        },
+        ownerUsername
+      );
+      if (result.conflicts.length) {
+        throw new Error(
+          `Remote mirror conflict while applying ${ownerCursorKey}: ${result.conflicts.length}`
+        );
+      }
+    }
+
+    await setSyncMeta(target, ownerCursorKey, String(nextCursor));
+    hasMore = Boolean(snapshot.hasMore);
+    cursor = nextCursor;
   }
-  await setSyncMeta(target, ownerCursorKey, String(snapshot.serverRevision));
 }
 
 async function syncOwners(source: NotesDb, target: NotesDb): Promise<string[]> {

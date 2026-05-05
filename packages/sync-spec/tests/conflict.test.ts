@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { SyncConflict } from '@author/api-types';
-import type { Note } from '@author/schema';
+import type { Note, Notebook } from '@author/schema';
 import {
   chooseConflictVersion,
   previewText,
   recordsDiffer,
   retentionCutoff,
+  safeRevisionCursor,
+  type SyncEntity,
   shouldConflict
 } from '../src/index';
 
@@ -19,6 +21,17 @@ const baseNote: Note = {
   updatedAt: '2026-01-01T01:00:00.000Z',
   deletedAt: null,
   trashedAt: null,
+  deviceId: 'device-a',
+  version: 2,
+  syncStatus: 'pending'
+};
+
+const baseNotebook: Notebook = {
+  id: 'notebook-1',
+  name: 'Inbox',
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T01:00:00.000Z',
+  deletedAt: null,
   deviceId: 'device-a',
   version: 2,
   syncStatus: 'pending'
@@ -73,12 +86,97 @@ describe('sync conflict rules', () => {
 
     expect(chooseConflictVersion(conflict, 'keep-newer').source).toBe('remote');
     expect(chooseConflictVersion(conflict, 'keep-older').source).toBe('local');
+    expect(chooseConflictVersion(conflict, 'keep-local').source).toBe('local');
+    expect(chooseConflictVersion(conflict, 'keep-remote').source).toBe(
+      'remote'
+    );
+
+    const sameTimestampConflict: SyncConflict<Note> = {
+      ...conflict,
+      local: { ...conflict.local, updatedAt: 'not-a-date', version: 2 },
+      remote: { ...conflict.remote, updatedAt: 'not-a-date', version: 3 }
+    };
+    expect(
+      chooseConflictVersion(sameTimestampConflict, 'keep-newer').source
+    ).toBe('remote');
+    expect(
+      chooseConflictVersion(sameTimestampConflict, 'keep-older').source
+    ).toBe('local');
+  });
+
+  it('compares encrypted note hashes and notebook id fallbacks', () => {
+    const encryptedLocal: Note = {
+      ...baseNote,
+      title: 'enc:v1:local-title',
+      body: 'enc:v1:local-body',
+      titleHash: 'title-hash',
+      bodyHash: 'body-hash',
+      notebookIds: [],
+      notebookId: ' notebook-1 '
+    };
+    const sameEncryptedRemote: Note = {
+      ...encryptedLocal,
+      title: 'enc:v1:remote-title',
+      body: 'enc:v1:remote-body',
+      notebookIds: ['notebook-1'],
+      notebookId: 'notebook-1'
+    };
+
+    expect(recordsDiffer(encryptedLocal, sameEncryptedRemote)).toBe(false);
+    expect(
+      recordsDiffer(encryptedLocal, {
+        ...sameEncryptedRemote,
+        bodyHash: 'other-body-hash'
+      })
+    ).toBe(true);
+    expect(
+      recordsDiffer(encryptedLocal, {
+        ...sameEncryptedRemote,
+        notebookIds: ['notebook-2'],
+        notebookId: 'notebook-2'
+      })
+    ).toBe(true);
+  });
+
+  it('compares notebook records and treats mismatched entity kinds as different', () => {
+    expect(previewText({ ...baseNotebook, name: '' })).toBe(
+      'Untitled notebook'
+    );
+    expect(
+      recordsDiffer(baseNotebook, { ...baseNotebook, name: 'Archive' })
+    ).toBe(true);
+    expect(
+      recordsDiffer(baseNotebook, {
+        ...baseNotebook,
+        deletedAt: '2026-01-02T00:00:00.000Z'
+      })
+    ).toBe(true);
+    expect(
+      recordsDiffer(baseNotebook as SyncEntity, baseNote as SyncEntity)
+    ).toBe(true);
   });
 
   it('creates short note previews and a 90 day cutoff', () => {
     expect(previewText(baseNote)).toBe('Local body');
     expect(retentionCutoff(new Date('2026-04-29T00:00:00.000Z'), 90)).toBe(
       '2026-01-29T00:00:00.000Z'
+    );
+  });
+
+  it('validates paged revision cursors', () => {
+    expect(safeRevisionCursor(42, 41, true)).toBe(42);
+    expect(safeRevisionCursor(42, 42, false)).toBe(42);
+    expect(() => safeRevisionCursor(42, Number.NaN, false)).toThrow(
+      'Invalid sync pull previous revision'
+    );
+    expect(() => safeRevisionCursor(-1, 0, false)).toThrow(
+      'Invalid sync pull revision from server'
+    );
+    expect(() => safeRevisionCursor(41, 42, false)).toThrow(
+      'Sync pull cursor did not advance'
+    );
+    expect(() => safeRevisionCursor(42, 42, true, 'Remote mirror')).toThrow(
+      'Remote mirror cursor did not advance'
     );
   });
 });

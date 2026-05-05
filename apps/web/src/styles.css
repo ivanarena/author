@@ -24,6 +24,11 @@
   --line-strong: rgba(32, 32, 32, 0.2);
   --accent: #4f4f4f;
   --danger: #4f4f4f;
+  --status-ok: #1f8f4d;
+  --status-info: #2f6f9f;
+  --status-warn: #936b17;
+  --status-error: #c9362f;
+  --status-muted: var(--muted);
   --field: rgba(255, 255, 255, 0.2);
   --hover: rgba(32, 32, 32, 0.055);
   --active: rgba(32, 32, 32, 0.085);
@@ -65,6 +70,11 @@
   --line-strong: rgba(242, 242, 242, 0.23);
   --accent: #e8e8e8;
   --danger: #d8d8d8;
+  --status-ok: #6fd996;
+  --status-info: #7eb6ff;
+  --status-warn: #e3bd62;
+  --status-error: #ff8b82;
+  --status-muted: var(--muted);
   --field: rgba(24, 24, 28, 0.22);
   --hover: rgba(242, 242, 242, 0.075);
   --active: rgba(242, 242, 242, 0.12);

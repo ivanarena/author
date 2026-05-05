@@ -11,6 +11,7 @@ import type {
   PushResponse,
   SyncStatusResponse
 } from '@author/api-types';
+import { safeRevisionCursor } from '@author/sync-spec';
 import { localDb } from './db';
 import { hasStoredEncryptionKeyMaterial } from './encryption';
 import {
@@ -195,6 +196,12 @@ export async function runSync(
       sinceRevision: pullCursor,
       limit: PULL_BATCH_SIZE
     });
+    const nextPullCursor = safeRevisionCursor(
+      pullResponse.serverRevision,
+      pullCursor,
+      Boolean(pullResponse.hasMore)
+    );
+
     await saveDevices(pullResponse.devices);
     await applyRemoteDeletes(
       pullResponse.deletedNoteIds,
@@ -212,7 +219,7 @@ export async function runSync(
     });
     await localDb.syncMeta.put({
       key: 'lastPulledRevision',
-      value: String(pullResponse.serverRevision)
+      value: String(nextPullCursor)
     });
     pulled +=
       pullResponse.notes.length +
@@ -220,7 +227,7 @@ export async function runSync(
       pullResponse.deletedNoteIds.length +
       pullResponse.deletedNotebookIds.length;
     hasMore = Boolean(pullResponse.hasMore);
-    pullCursor = pullResponse.serverRevision;
+    pullCursor = nextPullCursor;
   }
 
   return {

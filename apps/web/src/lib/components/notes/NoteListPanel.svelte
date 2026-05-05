@@ -1,7 +1,6 @@
 <script lang="ts">
   import {
     ArchiveRestore,
-    Check,
     FilePlus,
     FolderSymlink,
     Inbox,
@@ -10,12 +9,13 @@
     Trash2,
     X
   } from 'lucide-svelte';
-  import { noteDisplayTitle, noteNotebookIds } from '$lib/client/note-utils';
+  import { noteDisplayTitle } from '$lib/client/note-utils';
   import {
     formatListDate,
     notePreview,
     relativeAge
   } from '$lib/client/view-model';
+  import NotebookLinkMenu from './NotebookLinkMenu.svelte';
   import type { NoteListPanelModel } from './notes-page-controller.svelte.js';
 
   let { model }: { model: NoteListPanelModel } = $props();
@@ -111,7 +111,7 @@
     {/if}
     <p class="sync-line">
       <span
-        class={`sync-state ${model.syncIndicator.kind === 'synced' ? 'ok' : 'error'}`}
+        class={`sync-state ${model.syncIndicator.tone}`}
         aria-label={`Sync status: ${model.syncIndicator.label}`}
         >{model.syncIndicator.label}</span
       >
@@ -232,8 +232,7 @@
                   aria-label="Notebooks"
                   onclick={(event) => {
                     event.stopPropagation();
-                    model.linkingNoteId =
-                      model.linkingNoteId === note.id ? null : note.id;
+                    model.toggleNotebookMenuForNote(note);
                   }}
                 >
                   <FolderSymlink size={14} strokeWidth={1.8} />
@@ -253,46 +252,11 @@
             </div>
 
             {#if model.linkingNoteId === note.id && !note.trashedAt}
-              <div
-                class="link-popover"
-                role="menu"
-                aria-label="Note notebooks"
-                tabindex="-1"
-                oncontextmenu={(event) => event.stopPropagation()}
-              >
-                <button
-                  class:active={noteNotebookIds(note).length === 0}
-                  aria-checked={noteNotebookIds(note).length === 0}
-                  role="menuitemcheckbox"
-                  onclick={(event) => {
-                    event.stopPropagation();
-                    void model.assignNotebookForNote(note, null);
-                  }}
-                >
-                  <Inbox size={14} strokeWidth={1.8} />
-                  <span>Unfiled</span>
-                  {#if noteNotebookIds(note).length === 0}
-                    <Check size={13} strokeWidth={1.9} />
-                  {/if}
-                </button>
-                {#each model.notebooks as notebook}
-                  <button
-                    class:active={noteNotebookIds(note).includes(notebook.id)}
-                    aria-checked={noteNotebookIds(note).includes(notebook.id)}
-                    role="menuitemcheckbox"
-                    onclick={(event) => {
-                      event.stopPropagation();
-                      void model.assignNotebookForNote(note, notebook.id);
-                    }}
-                  >
-                    <Notebook size={14} strokeWidth={1.8} />
-                    <span>{notebook.name}</span>
-                    {#if noteNotebookIds(note).includes(notebook.id)}
-                      <Check size={13} strokeWidth={1.9} />
-                    {/if}
-                  </button>
-                {/each}
-              </div>
+              <NotebookLinkMenu
+                {note}
+                notebooks={model.notebooks}
+                onAssign={model.assignNotebookForNote}
+              />
             {/if}
           </div>
         {/each}

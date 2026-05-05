@@ -171,11 +171,23 @@
 }
 
 .sync-state.ok {
-  color: #1f8f4d;
+  color: var(--status-ok);
+}
+
+.sync-state.info {
+  color: var(--status-info);
+}
+
+.sync-state.warn {
+  color: var(--status-warn);
 }
 
 .sync-state.error {
-  color: #c9362f;
+  color: var(--status-error);
+}
+
+.sync-state.muted {
+  color: var(--status-muted);
 }
 
 .profile-card-actions {

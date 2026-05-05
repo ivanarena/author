@@ -1,8 +1,5 @@
 import { localDb, type LocalNote } from './db';
-import {
-  parseNotesJsonImportPayload,
-  type ParsedImportPayload
-} from './archive-parser';
+import type { ParsedImportPayload } from './archive-parser';
 import { decryptNoteFields, encryptNoteFields } from './encryption';
 import {
   buildNotesMarkdownArchive,
@@ -10,43 +7,10 @@ import {
   parseNotesMarkdownImportFiles,
   type MarkdownImportFile
 } from './markdown-archive';
-import {
-  normalizeNotebookName,
-  noteNotebookIds,
-  primaryNotebookId
-} from './note-utils';
+import { normalizeNotebookName, primaryNotebookId } from './note-utils';
 import { getOrCreateDevice, newId, nowIso } from './local-state';
 
-export interface NotesJsonNotebook {
-  id?: string;
-  name: string;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-export interface NotesJsonNote {
-  id?: string;
-  title: string;
-  body: string;
-  notebookIds?: string[];
-  notebookNames?: string[];
-  notebookId: string | null;
-  notebookName: string | null;
-  createdAt: string;
-  updatedAt: string;
-  trashedAt: string | null;
-}
-
-export interface NotesJsonArchive {
-  app: 'author-notes';
-  format: 'author-notes-json';
-  version: 1;
-  exportedAt: string;
-  notebooks: NotesJsonNotebook[];
-  notes: NotesJsonNote[];
-}
-
-export interface ImportNotesJsonResult {
+export interface ImportNotesResult {
   importedNotes: number;
   importedNotebooks: number;
   reusedNotebooks: number;
@@ -54,9 +18,9 @@ export interface ImportNotesJsonResult {
   noteIds: string[];
 }
 
-export function importNotesJsonSummary(
+export function importNotesSummary(
   result: Pick<
-    ImportNotesJsonResult,
+    ImportNotesResult,
     'importedNotes' | 'importedNotebooks' | 'skippedNotes'
   >
 ): string {
@@ -70,57 +34,7 @@ export function importNotesJsonSummary(
   return `Imported ${noteText}${notebookText}${skippedText}`;
 }
 
-export const importNotesMarkdownSummary = importNotesJsonSummary;
-
-export async function exportNotesJson(): Promise<NotesJsonArchive> {
-  const [noteRows, notebookRows] = await Promise.all([
-    localDb.notes.toArray(),
-    localDb.notebooks.toArray()
-  ]);
-  const decryptedNoteRows = await Promise.all(
-    noteRows.map((note) => decryptNoteFields(note))
-  );
-  const notebooks = notebookRows
-    .filter((notebook) => !notebook.deletedAt)
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map((notebook) => ({
-      id: notebook.id,
-      name: notebook.name,
-      createdAt: notebook.createdAt,
-      updatedAt: notebook.updatedAt
-    }));
-  const notebookNameById = new Map(
-    notebooks.map((notebook) => [notebook.id, notebook.name])
-  );
-  const notes = decryptedNoteRows
-    .filter((note) => !note.deletedAt)
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-    .map((note) => ({
-      id: note.id,
-      title: note.title,
-      body: note.body,
-      notebookIds: noteNotebookIds(note),
-      notebookNames: noteNotebookIds(note)
-        .map((id) => notebookNameById.get(id))
-        .filter((name): name is string => Boolean(name)),
-      notebookId: note.notebookId,
-      notebookName: note.notebookId
-        ? (notebookNameById.get(note.notebookId) ?? null)
-        : null,
-      createdAt: note.createdAt,
-      updatedAt: note.updatedAt,
-      trashedAt: note.trashedAt
-    }));
-
-  return {
-    app: 'author-notes',
-    format: 'author-notes-json',
-    version: 1,
-    exportedAt: nowIso(),
-    notebooks,
-    notes
-  };
-}
+export const importNotesMarkdownSummary = importNotesSummary;
 
 export async function exportNotesMarkdownZip(): Promise<{
   blob: Blob;
@@ -148,16 +62,9 @@ export async function exportNotesMarkdownZip(): Promise<{
   };
 }
 
-export async function importNotesJson(
-  payload: unknown
-): Promise<ImportNotesJsonResult> {
-  const { notebooks, notes } = parseNotesJsonImportPayload(payload);
-  return importParsedNotes({ notebooks, notes }, 'JSON file');
-}
-
 export async function importNotesMarkdownFiles(
   files: Iterable<MarkdownImportFile>
-): Promise<ImportNotesJsonResult> {
+): Promise<ImportNotesResult> {
   const payload = await parseNotesMarkdownImportFiles(files);
   return importParsedNotes(payload, 'Markdown folder');
 }
@@ -165,7 +72,7 @@ export async function importNotesMarkdownFiles(
 async function importParsedNotes(
   { notebooks, notes }: ParsedImportPayload,
   sourceName: string
-): Promise<ImportNotesJsonResult> {
+): Promise<ImportNotesResult> {
   if (!notebooks.length && !notes.length) {
     throw new Error(`${sourceName} does not contain notes or notebooks`);
   }

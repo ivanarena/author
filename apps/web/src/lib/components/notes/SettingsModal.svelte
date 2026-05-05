@@ -504,37 +504,6 @@
             </div>
           {/if}
 
-          <div
-            class="settings-action-group deprecated"
-            aria-label="Deprecated JSON archive"
-          >
-            <div class="settings-action-group-heading">
-              <span>JSON</span>
-              <span class="settings-badge">Deprecated</span>
-            </div>
-            <p class="settings-group-note">
-              Legacy archive support. Use Markdown for new imports and exports.
-            </p>
-            <div class="settings-actions">
-              <button
-                class="settings-action"
-                disabled={model.isArchiveBusy}
-                onclick={model.exportJson}
-              >
-                <Download size={15} strokeWidth={1.8} />
-                <span>Export JSON</span>
-              </button>
-              <button
-                class="settings-action"
-                disabled={model.isArchiveBusy}
-                onclick={model.startJsonImport}
-              >
-                <Upload size={15} strokeWidth={1.8} />
-                <span>Import JSON</span>
-              </button>
-            </div>
-          </div>
-
           <div class="settings-action-group" aria-label="Markdown archive">
             <div class="settings-action-group-heading">
               <span>Markdown</span>
@@ -610,14 +579,6 @@
       </section>
     </div>
 
-    <input
-      bind:this={model.importInput}
-      class="file-input"
-      type="file"
-      accept="application/json,.json"
-      aria-label="Choose JSON notes file"
-      onchange={model.handleJsonImport}
-    />
     <input
       bind:this={model.importMarkdownInput}
       class="file-input"

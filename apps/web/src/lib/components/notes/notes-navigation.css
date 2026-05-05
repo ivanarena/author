@@ -545,12 +545,12 @@ textarea::-webkit-scrollbar {
   animation: menu-in 120ms ease-out;
 }
 
-.link-popover {
+.notebook-link-menu {
   display: grid;
   gap: 10px;
 }
 
-.link-popover button {
+.notebook-link-menu button {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) 14px;
   gap: 12px;
@@ -561,18 +561,18 @@ textarea::-webkit-scrollbar {
   text-align: left;
 }
 
-.link-popover button:hover,
-.link-popover button:focus-visible {
+.notebook-link-menu button:hover,
+.notebook-link-menu button:focus-visible {
   border-color: var(--line);
   background: var(--hover);
 }
 
-.link-popover button.active {
+.notebook-link-menu button.active {
   color: var(--text);
   font-weight: 600;
 }
 
-.link-popover button span {
+.notebook-link-menu button span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -33,11 +33,7 @@ textarea {
 .title-input {
   min-height: 46px;
   margin-bottom: 30px;
-  font-size: clamp(
-    calc(28px * var(--editor-zoom, 1)),
-    calc(4.5vw * var(--editor-zoom, 1)),
-    calc(46px * var(--editor-zoom, 1))
-  );
+  font-size: calc(42px * var(--editor-zoom, 1));
   font-weight: 700;
   line-height: 1.12;
 }

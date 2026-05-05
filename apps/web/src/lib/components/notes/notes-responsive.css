@@ -15,7 +15,10 @@
   .profile-hover-card,
   .profile-quick-action,
   .menu-panels,
+  .menu-form,
   .settings-modal,
+  .login-modal,
+  .context-menu,
   .settings-action,
   .settings-menu-item,
   .settings-progress-track span,
@@ -33,6 +36,9 @@
 
   .menu-form,
   .settings-modal,
+  .login-modal,
+  .context-menu,
+  .batch-popover,
   .link-popover {
     animation: none;
   }
@@ -177,6 +183,15 @@
 
   .row-actions {
     opacity: 1;
+  }
+
+  .notebook-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .notebook-trailing .nav-count {
+    opacity: 0;
   }
 
   .editor-wrap,

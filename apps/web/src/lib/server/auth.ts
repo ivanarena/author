@@ -6,7 +6,13 @@ import {
   getLoginPassword,
   getLoginUsername
 } from './config';
-import { get, run, type NotesExecutor } from './db';
+import {
+  get,
+  run,
+  withWriteTransaction,
+  type NotesDb,
+  type NotesExecutor
+} from './db';
 
 const pbkdf2Async = promisify(pbkdf2);
 const PASSWORD_ITERATIONS = 210_000;
@@ -365,15 +371,36 @@ export async function changeUserPassword(
 }
 
 export async function deleteUserAccount(
-  db: NotesExecutor,
+  db: NotesDb,
   username: string,
   password: string
 ): Promise<boolean> {
   const normalized = requireUsername(username);
-  const row = await getUserRow(db, normalized);
-  if (!row || !(await verifyPassword(password, row))) return false;
-  await run(db, 'DELETE FROM users WHERE username = ?', [normalized]);
-  return true;
+  return await withWriteTransaction(db, async (tx) => {
+    const row = await getUserRow(tx, normalized);
+    if (!row || !(await verifyPassword(password, row))) return false;
+
+    await run(tx, 'DELETE FROM auth_sessions WHERE username = ?', [normalized]);
+    await run(tx, 'DELETE FROM note_versions WHERE owner_username = ?', [
+      normalized
+    ]);
+    await run(tx, 'DELETE FROM notebook_versions WHERE owner_username = ?', [
+      normalized
+    ]);
+    await run(tx, 'DELETE FROM entity_tombstones WHERE owner_username = ?', [
+      normalized
+    ]);
+    await run(tx, 'DELETE FROM entity_changes WHERE owner_username = ?', [
+      normalized
+    ]);
+    await run(tx, 'DELETE FROM notes WHERE owner_username = ?', [normalized]);
+    await run(tx, 'DELETE FROM notebooks WHERE owner_username = ?', [
+      normalized
+    ]);
+    await run(tx, 'DELETE FROM users WHERE username = ?', [normalized]);
+
+    return true;
+  });
 }
 
 export async function deleteSessionFromRequest(

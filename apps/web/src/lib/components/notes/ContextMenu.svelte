@@ -1,16 +1,57 @@
 <script lang="ts">
-  import { ArchiveRestore, Pencil, Trash2 } from 'lucide-svelte';
+  import {
+    ArchiveRestore,
+    Check,
+    FolderPlus,
+    Pencil,
+    Trash2,
+    X
+  } from 'lucide-svelte';
   import { noteDisplayTitle } from '$lib/client/note-utils';
   import NotebookLinkMenu from './NotebookLinkMenu.svelte';
   import type { ContextMenuModel } from './notes-page-controller.svelte.js';
 
   let { model }: { model: ContextMenuModel } = $props();
+  let newNotebookOpen = $state(false);
+  let newNotebookName = $state('');
+  let newNotebookError = $state('');
+  let activeContextNoteId = $state<string | null>(null);
 
   const menuStyle = $derived(
     model.contextMenu
       ? `left: ${model.contextMenu.x}px; top: ${model.contextMenu.y}px;`
       : ''
   );
+
+  $effect(() => {
+    const noteId = model.contextNote?.id ?? null;
+    if (noteId === activeContextNoteId) return;
+    activeContextNoteId = noteId;
+    newNotebookOpen = false;
+    newNotebookName = '';
+    newNotebookError = '';
+  });
+
+  async function createContextNotebook(
+    note: NonNullable<ContextMenuModel['contextNote']>
+  ) {
+    const error = await model.contextCreateNotebookForNote(
+      note,
+      newNotebookName
+    );
+    if (error) {
+      newNotebookError = error;
+      return;
+    }
+    newNotebookOpen = false;
+    newNotebookName = '';
+    newNotebookError = '';
+  }
+
+  function focusOnMount(node: HTMLInputElement) {
+    queueMicrotask(() => node.focus());
+    return {};
+  }
 </script>
 
 {#if model.contextMenu?.type === 'notebook' && model.contextNotebook}
@@ -77,6 +118,67 @@
         variant="context"
         onAssign={model.contextAssignNotebookForNote}
       />
+      <div class="context-new-notebook">
+        {#if newNotebookOpen}
+          <form
+            class="context-new-notebook-form"
+            aria-label="Create notebook"
+            onsubmit={(event) => {
+              event.preventDefault();
+              void createContextNotebook(contextNote);
+            }}
+          >
+            <label class="sr-only" for={`context-notebook-${contextNote.id}`}>
+              Notebook name
+            </label>
+            <FolderPlus size={14} strokeWidth={1.8} />
+            <input
+              id={`context-notebook-${contextNote.id}`}
+              bind:value={newNotebookName}
+              autocomplete="off"
+              placeholder="Notebook name"
+              use:focusOnMount
+              oninput={() => (newNotebookError = '')}
+            />
+            <button
+              class="icon-button mini"
+              type="submit"
+              title="Create notebook"
+              aria-label="Create notebook"
+            >
+              <Check size={14} strokeWidth={1.9} />
+            </button>
+            <button
+              class="icon-button mini"
+              type="button"
+              title="Cancel"
+              aria-label="Cancel new notebook"
+              onclick={(event) => {
+                event.stopPropagation();
+                newNotebookOpen = false;
+                newNotebookName = '';
+                newNotebookError = '';
+              }}
+            >
+              <X size={14} strokeWidth={1.9} />
+            </button>
+            {#if newNotebookError}
+              <p class="form-error">{newNotebookError}</p>
+            {/if}
+          </form>
+        {:else}
+          <button
+            role="menuitem"
+            onclick={(event) => {
+              event.stopPropagation();
+              newNotebookOpen = true;
+            }}
+          >
+            <FolderPlus size={14} strokeWidth={1.8} />
+            <span>New notebook</span>
+          </button>
+        {/if}
+      </div>
       <button
         class="danger"
         role="menuitem"

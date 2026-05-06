@@ -8,7 +8,10 @@ import {
 } from '$lib/client/encryption';
 import { noteNotebookIds, normalizeNotebookName } from '$lib/client/note-utils';
 import {
+  adoptLocalWorkspaceForAccount,
   assignNoteToNotebook,
+  assertLocalWorkspaceCanUseAccount,
+  clearLocalWorkspace,
   clearStoredSession,
   createBlankNote,
   createNotebook,
@@ -26,6 +29,7 @@ import {
   loadTrash,
   moveNoteToTrash,
   notebookNameExists,
+  rememberLocalWorkspaceAccount,
   renameNotebook,
   reencryptLocalNotes,
   restoreNote,
@@ -100,6 +104,13 @@ export interface ArchiveOperation {
 
 export interface ImportBanner {
   kind: 'success' | 'error';
+  title: string;
+  message: string;
+}
+
+export interface AppNotification {
+  id: string;
+  kind: 'success' | 'error' | 'info';
   title: string;
   message: string;
 }
@@ -301,12 +312,21 @@ export interface ContextMenuModel {
   contextTrashNote: NoteCallback;
   contextRestoreNote: NoteCallback;
   contextAssignNotebookForNote: NotebookAssignmentCallback;
+  contextCreateNotebookForNote: (
+    note: LocalNote,
+    name: string
+  ) => Promise<string | null>;
 }
 
 export interface ConflictDialogModel {
   activeConflict: LocalConflict | null;
   conflictMessage: (conflict: LocalConflict) => string;
   resolveActiveConflict: (choice: ConflictChoice) => void | Promise<void>;
+}
+
+export interface NotificationStackModel {
+  notifications: AppNotification[];
+  dismissNotification: (id: string) => void;
 }
 
 const EMPTY_NOTEBOOK_FILTERS = new Set<NotesFilterId>([
@@ -325,7 +345,8 @@ export class NotesPageController
     EditorPaneModel,
     SettingsModalModel,
     ContextMenuModel,
-    ConflictDialogModel
+    ConflictDialogModel,
+    NotificationStackModel
 {
   notes = $state<LocalNote[]>([]);
   notebooks = $state<LocalNotebook[]>([]);
@@ -385,6 +406,7 @@ export class NotesPageController
   isImporting = $state(false);
   archiveOperation = $state<ArchiveOperation | null>(null);
   importBanner = $state<ImportBanner | null>(null);
+  notifications = $state<AppNotification[]>([]);
   settingsSection = $state<SettingsSection>('account');
   settingsOpen = $state(false);
   contextMenu = $state<ContextMenuState>(null);
@@ -405,6 +427,7 @@ export class NotesPageController
   private menuCloseTimer: ReturnType<typeof setTimeout> | null = null;
   private accountMenuCloseTimer: ReturnType<typeof setTimeout> | null = null;
   private remoteStatusTimer: ReturnType<typeof setTimeout> | null = null;
+  private notificationTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private syncQueued = false;
   private lastHistorySnapshot: EditorSnapshot = { title: '', body: '' };
 
@@ -507,6 +530,10 @@ export class NotesPageController
         if (this.retrySyncTimer) clearTimeout(this.retrySyncTimer);
         if (this.onlineSessionTimer) clearInterval(this.onlineSessionTimer);
         if (this.remoteStatusTimer) clearTimeout(this.remoteStatusTimer);
+        for (const timer of this.notificationTimers.values()) {
+          clearTimeout(timer);
+        }
+        this.notificationTimers.clear();
         document.removeEventListener(
           'visibilitychange',
           this.handleVisibilityChange
@@ -951,6 +978,32 @@ export class NotesPageController
     this.closeContextMenu();
   };
 
+  contextCreateNotebookForNote = async (
+    note: LocalNote,
+    rawName: string
+  ): Promise<string | null> => {
+    const name = rawName.trim();
+    if (!name) return 'Name required';
+    if (
+      this.localNotebookNameExists(name) ||
+      (await notebookNameExists(name))
+    ) {
+      return 'Notebook already exists';
+    }
+
+    const notebook = await createNotebook(name);
+    if (!notebook) return 'Notebook already exists';
+
+    const updated = await assignNoteToNotebook(note.id, notebook.id, true);
+    if (updated && this.selectedNote?.id === note.id) {
+      this.selectedNote = updated;
+    }
+    this.filterId = notebook.id;
+    await this.refresh();
+    this.closeContextMenu();
+    return null;
+  };
+
   assignNotebookForNote = async (
     note: LocalNote,
     notebookId: string | null
@@ -1131,6 +1184,8 @@ export class NotesPageController
       return;
     }
 
+    await this.flushPendingSave();
+
     if (this.autoSyncTimer) {
       clearTimeout(this.autoSyncTimer);
       this.autoSyncTimer = null;
@@ -1179,10 +1234,12 @@ export class NotesPageController
       this.syncMessage = `Exported ${archive.noteCount} ${
         archive.noteCount === 1 ? 'note' : 'notes'
       }`;
+      this.notify('success', 'Export complete', this.syncMessage);
       await this.yieldToUi();
     } catch (error) {
       this.syncMessage =
         error instanceof Error ? error.message : 'Export failed';
+      this.notify('error', 'Export failed', this.syncMessage);
     } finally {
       this.endArchiveOperation();
     }
@@ -1224,6 +1281,7 @@ export class NotesPageController
         title: 'Import succeeded',
         message
       };
+      this.notify('success', 'Import succeeded', message);
       this.updateArchiveOperation('Done', 100);
       await this.yieldToUi();
     } catch (error) {
@@ -1234,6 +1292,7 @@ export class NotesPageController
         title: 'Import failed',
         message
       };
+      this.notify('error', 'Import failed', message);
     } finally {
       this.endArchiveOperation(true);
     }
@@ -1343,6 +1402,10 @@ export class NotesPageController
     this.loginError = '';
     let shouldSync = false;
     try {
+      const storedUsername = getStoredSession()?.user.username ?? '';
+      const previousUsername =
+        storedUsername.trim() || getLoginHint().trim() || null;
+      await assertLocalWorkspaceCanUseAccount(username, previousUsername);
       const session =
         this.authMode === 'signup'
           ? await signup(username, password, this.signupDisplayNameValue)
@@ -1351,15 +1414,17 @@ export class NotesPageController
         session.user.username,
         password
       );
+      await adoptLocalWorkspaceForAccount({
+        username: session.user.username,
+        fallbackOwnerUsername: previousUsername,
+        previousMaterial: encryption.previousMaterial,
+        nextMaterial: encryption.nextMaterial
+      });
       setStoredSession({
         token: session.token,
         user: session.user,
         expiresAt: session.expiresAt
       });
-      await reencryptLocalNotes(
-        encryption.previousMaterial,
-        encryption.nextMaterial
-      );
       this.hasToken = true;
       this.accountUsername = session.user.username;
       this.accountDisplayName = session.user.displayName ?? '';
@@ -1373,11 +1438,18 @@ export class NotesPageController
       this.signupDisplayNameValue = '';
       this.signupConfirmPasswordValue = '';
       this.syncMessage = 'Signed in';
+      this.notify(
+        'success',
+        this.accountMessage,
+        'Syncing local and remote notes.'
+      );
+      await this.refresh();
       shouldSync = true;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Login failed';
       this.loginError = message;
       this.syncMessage = message;
+      this.notify('error', 'Sign-in failed', message);
     } finally {
       this.isLoggingIn = false;
     }
@@ -1410,9 +1482,11 @@ export class NotesPageController
       });
       this.accountMessage = 'Profile saved';
       this.accountProfileEditing = false;
+      this.notify('success', 'Profile saved');
     } catch (error) {
       this.accountError =
         error instanceof Error ? error.message : 'Could not save profile';
+      this.notify('error', 'Profile update failed', this.accountError);
     } finally {
       this.isAccountBusy = false;
     }
@@ -1462,9 +1536,15 @@ export class NotesPageController
         syncMessage: 'Sign in to sync'
       });
       this.loginUsernameValue = response.user.username;
+      this.notify(
+        'success',
+        'Password changed',
+        'Sign in again to keep syncing.'
+      );
     } catch (error) {
       this.accountError =
         error instanceof Error ? error.message : 'Could not change password';
+      this.notify('error', 'Password change failed', this.accountError);
     } finally {
       this.isAccountBusy = false;
     }
@@ -1481,6 +1561,7 @@ export class NotesPageController
         accountMessage: 'Signed out',
         syncMessage: 'Sign in to sync'
       });
+      this.notify('info', 'Signed out', 'This browser is no longer syncing.');
     } finally {
       this.isAccountBusy = false;
     }
@@ -1497,16 +1578,22 @@ export class NotesPageController
     this.accountError = '';
     this.accountMessage = '';
     try {
+      await this.flushPendingSave();
       await deleteAccount(token, { password: this.deletePasswordValue });
+      await clearLocalWorkspace();
+      await this.refresh();
+      this.openDraftNote();
       this.deletePasswordValue = '';
       this.accountDeleteEditing = false;
       this.clearLocalSession({
         accountMessage: 'Account deleted',
         syncMessage: 'Sign in to sync'
       });
+      this.notify('info', 'Account deleted');
     } catch (error) {
       this.accountError =
         error instanceof Error ? error.message : 'Could not delete account';
+      this.notify('error', 'Delete account failed', this.accountError);
     } finally {
       this.isAccountBusy = false;
     }
@@ -1570,6 +1657,7 @@ export class NotesPageController
         user: session.user,
         expiresAt: session.expiresAt
       });
+      await rememberLocalWorkspaceAccount(session.user.username);
       if (!this.isBrowserOnline) {
         this.syncMessage = 'Offline';
         return;
@@ -1830,6 +1918,32 @@ export class NotesPageController
     }
   };
 
+  dismissNotification = (id: string) => {
+    const timer = this.notificationTimers.get(id);
+    if (timer) clearTimeout(timer);
+    this.notificationTimers.delete(id);
+    this.notifications = this.notifications.filter(
+      (notification) => notification.id !== id
+    );
+  };
+
+  private notify = (
+    kind: AppNotification['kind'],
+    title: string,
+    message = ''
+  ) => {
+    const id = crypto.randomUUID();
+    this.notifications = [
+      ...this.notifications.slice(-2),
+      { id, kind, title, message }
+    ];
+    const duration = kind === 'error' ? 7000 : 4200;
+    const timer = setTimeout(() => {
+      this.dismissNotification(id);
+    }, duration);
+    this.notificationTimers.set(id, timer);
+  };
+
   private notebookName = (notebookId: string | null): string | null => {
     if (!notebookId) return null;
     return (
@@ -1968,6 +2082,7 @@ export class NotesPageController
       openLogin: true,
       syncMessage: displayMessage
     });
+    this.notify('error', 'Session ended', displayMessage);
   };
 
   private handleSyncError = (error: unknown) => {
@@ -1983,6 +2098,7 @@ export class NotesPageController
     }
 
     this.syncMessage = error instanceof Error ? error.message : 'Sync failed';
+    this.notify('error', 'Sync failed', this.syncMessage);
     this.scheduleSyncRetry();
   };
 }

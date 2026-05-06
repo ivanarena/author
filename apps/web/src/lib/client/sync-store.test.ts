@@ -198,6 +198,31 @@ describe('client sync store', () => {
     });
   });
 
+  it('does not overwrite a pending local note when a pull replays its last synced remote version', async () => {
+    vi.mocked(localDb.notes.get).mockResolvedValue({
+      ...baseNote,
+      body: 'Typed locally after the previous push was accepted',
+      updatedAt: '2026-05-01T10:12:00.000Z',
+      version: 3,
+      lastSyncedVersion: 4
+    });
+
+    await mergeRemoteChanges(
+      [
+        remoteNote({
+          body: 'Previous remote version from the pull feed',
+          updatedAt: '2026-05-01T10:10:00.000Z',
+          version: 4
+        })
+      ],
+      [],
+      syncedAt
+    );
+
+    expect(localDb.notes.put).not.toHaveBeenCalled();
+    expect(localDb.conflicts.put).not.toHaveBeenCalled();
+  });
+
   it('applies hard remote deletes to clean local records and devices', async () => {
     vi.mocked(localDb.notes.get).mockResolvedValue({
       ...baseNote,

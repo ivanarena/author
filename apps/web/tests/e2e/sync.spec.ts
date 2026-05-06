@@ -286,6 +286,51 @@ test('logs in from the profile menu when no session is stored', async ({
   ).toBeVisible();
 });
 
+test('keeps local drafts when signing in and then syncs them remote', async ({
+  page,
+  request
+}) => {
+  await page.addInitScript(() => {
+    localStorage.removeItem('author-notes-token');
+    localStorage.removeItem('author-notes-username');
+    localStorage.removeItem('author-notes-display-name');
+    localStorage.removeItem('author-notes-session-expires-at');
+    localStorage.removeItem('author-notes-encryption-key-material-v1');
+  });
+
+  await page.goto('/');
+
+  const titleText = `Local before login ${Date.now()}`;
+  const bodyText = 'This local draft must survive account sign-in';
+  await page.getByLabel('Note title').fill(titleText);
+  await page.getByLabel('Note body').fill(bodyText);
+  await expectBrowserStoredEncryptedNote(page, titleText, bodyText);
+
+  await page.getByRole('button', { name: 'Profile and settings' }).click();
+  await page.getByRole('menuitem', { name: 'Sign in to sync' }).click();
+  const loginDialog = page.getByRole('dialog', { name: 'Sign in' });
+  await loginDialog.getByLabel('Username').fill(loginUsername);
+  await loginDialog.getByLabel('Password', { exact: true }).fill(loginPassword);
+  await loginDialog
+    .getByRole('button', { name: 'Sign in', exact: true })
+    .click();
+
+  await expect(loginDialog).toBeHidden();
+  await hoverMenusThroughBridge(page);
+  await expect(page.getByText(titleText, { exact: true })).toBeVisible();
+  await expectBrowserStoredEncryptedNote(page, titleText, bodyText);
+
+  await expect
+    .poll(
+      async () =>
+        (await pullRemoteNotes(request)).find(
+          (note) => note.title === titleText
+        )?.body ?? null,
+      { timeout: 15_000 }
+    )
+    .toBe(bodyText);
+});
+
 test('exports Markdown without closing settings', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Profile and settings' }).click();

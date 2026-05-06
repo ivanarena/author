@@ -92,3 +92,25 @@ export class NotesLocalDatabase extends Dexie {
 }
 
 export const localDb = new NotesLocalDatabase();
+
+export async function clearLocalWorkspace(): Promise<void> {
+  await localDb.transaction(
+    'rw',
+    [
+      localDb.notes,
+      localDb.notebooks,
+      localDb.devices,
+      localDb.syncMeta,
+      localDb.conflicts
+    ],
+    async () => {
+      await Promise.all([
+        localDb.notes.clear(),
+        localDb.notebooks.clear(),
+        localDb.devices.clear(),
+        localDb.syncMeta.clear(),
+        localDb.conflicts.clear()
+      ]);
+    }
+  );
+}

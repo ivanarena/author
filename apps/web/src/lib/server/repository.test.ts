@@ -13,8 +13,11 @@ import {
   cleanupTrash,
   currentRevision,
   deleteDevicesByIds,
+  deleteNotesByIds,
   getDevicesByIds,
   getNote,
+  getNotebook,
+  LEGACY_OWNER_USERNAME,
   listNotebooks,
   pullChangesSince,
   pushChanges,
@@ -368,6 +371,56 @@ describe('server repository', () => {
     }
   });
 
+  it('does not resurrect a hard-deleted note when the client lost its base version', async () => {
+    const db = await openMemoryDatabase();
+    try {
+      const ownerUsername = 'alice';
+      const oldTrashedNote = {
+        ...fixtureNote,
+        trashedAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z'
+      };
+      await pushChanges(
+        db,
+        {
+          device: fixtureDevice,
+          notebooks: [{ record: fixtureNotebook, baseVersion: 0 }],
+          notes: [{ record: oldTrashedNote, baseVersion: 0 }]
+        },
+        ownerUsername
+      );
+      await cleanupTrash(
+        db,
+        new Date('2026-04-29T00:00:00.000Z'),
+        ownerUsername
+      );
+
+      const clientWithLostCursor = {
+        ...fixtureNote,
+        body: 'Client forgot its base version',
+        updatedAt: '2026-04-30T00:00:00.000Z',
+        version: 1,
+        syncStatus: 'pending' as const
+      };
+      const result = await pushChanges(
+        db,
+        {
+          device: fixtureDevice,
+          notebooks: [],
+          notes: [{ record: clientWithLostCursor, baseVersion: 0 }]
+        },
+        ownerUsername
+      );
+
+      expect(result.accepted).toHaveLength(0);
+      expect(result.conflicts).toHaveLength(1);
+      expect(result.conflicts[0].reason).toBe('deleted_remotely');
+      expect(await getNote(db, fixtureNote.id, ownerUsername)).toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+
   it('paginates revision pulls without advancing past undispatched changes', async () => {
     const db = await openMemoryDatabase();
     try {
@@ -503,6 +556,146 @@ describe('server repository', () => {
     }
   });
 
+  it('lets newer local edits win over older remote mirror edits for the same records', async () => {
+    const local = await openMemoryDatabase();
+    const remote = await openMemoryDatabase();
+    try {
+      const localNotebook = {
+        ...fixtureNotebook,
+        name: 'Newer local notebook',
+        updatedAt: '2026-05-03T00:00:00.000Z',
+        version: 3,
+        syncStatus: 'pending' as const
+      };
+      const localNote = {
+        ...fixtureNote,
+        body: 'Newer local body',
+        updatedAt: '2026-05-03T00:00:00.000Z',
+        version: 3,
+        syncStatus: 'pending' as const
+      };
+      const remoteNotebook = {
+        ...fixtureNotebook,
+        name: 'Older remote notebook',
+        updatedAt: '2026-05-02T00:00:00.000Z',
+        deviceId: 'remote-device',
+        version: 2,
+        syncStatus: 'pending' as const
+      };
+      const remoteNote = {
+        ...fixtureNote,
+        body: 'Older remote body',
+        updatedAt: '2026-05-02T00:00:00.000Z',
+        deviceId: 'remote-device',
+        version: 2,
+        syncStatus: 'pending' as const
+      };
+
+      await pushChanges(local, {
+        device: fixtureDevice,
+        notebooks: [{ record: localNotebook, baseVersion: 0 }],
+        notes: [{ record: localNote, baseVersion: 0 }]
+      });
+      await pushChanges(remote, {
+        device: { id: 'remote-device', name: 'Remote device' },
+        notebooks: [{ record: remoteNotebook, baseVersion: 0 }],
+        notes: [{ record: remoteNote, baseVersion: 0 }]
+      });
+
+      await syncDatabases(local, remote);
+
+      await expect(
+        getNotebook(local, fixtureNotebook.id)
+      ).resolves.toMatchObject({
+        name: localNotebook.name
+      });
+      await expect(
+        getNotebook(remote, fixtureNotebook.id)
+      ).resolves.toMatchObject({
+        name: localNotebook.name
+      });
+      await expect(getNote(local, fixtureNote.id)).resolves.toMatchObject({
+        body: localNote.body
+      });
+      await expect(getNote(remote, fixtureNote.id)).resolves.toMatchObject({
+        body: localNote.body
+      });
+    } finally {
+      local.close();
+      remote.close();
+    }
+  });
+
+  it('lets newer remote edits win over older local mirror edits for the same records', async () => {
+    const local = await openMemoryDatabase();
+    const remote = await openMemoryDatabase();
+    try {
+      const localNotebook = {
+        ...fixtureNotebook,
+        name: 'Older local notebook',
+        updatedAt: '2026-05-02T00:00:00.000Z',
+        version: 2,
+        syncStatus: 'pending' as const
+      };
+      const localNote = {
+        ...fixtureNote,
+        body: 'Older local body',
+        updatedAt: '2026-05-02T00:00:00.000Z',
+        version: 2,
+        syncStatus: 'pending' as const
+      };
+      const remoteNotebook = {
+        ...fixtureNotebook,
+        name: 'Newer remote notebook',
+        updatedAt: '2026-05-03T00:00:00.000Z',
+        deviceId: 'remote-device',
+        version: 3,
+        syncStatus: 'pending' as const
+      };
+      const remoteNote = {
+        ...fixtureNote,
+        body: 'Newer remote body',
+        updatedAt: '2026-05-03T00:00:00.000Z',
+        deviceId: 'remote-device',
+        version: 3,
+        syncStatus: 'pending' as const
+      };
+
+      await pushChanges(local, {
+        device: fixtureDevice,
+        notebooks: [{ record: localNotebook, baseVersion: 0 }],
+        notes: [{ record: localNote, baseVersion: 0 }]
+      });
+      await pushChanges(remote, {
+        device: { id: 'remote-device', name: 'Remote device' },
+        notebooks: [{ record: remoteNotebook, baseVersion: 0 }],
+        notes: [{ record: remoteNote, baseVersion: 0 }]
+      });
+
+      await syncDatabases(local, remote);
+
+      await expect(
+        getNotebook(local, fixtureNotebook.id)
+      ).resolves.toMatchObject({
+        name: remoteNotebook.name
+      });
+      await expect(
+        getNotebook(remote, fixtureNotebook.id)
+      ).resolves.toMatchObject({
+        name: remoteNotebook.name
+      });
+      await expect(getNote(local, fixtureNote.id)).resolves.toMatchObject({
+        body: remoteNote.body
+      });
+      await expect(getNote(remote, fixtureNote.id)).resolves.toMatchObject({
+        body: remoteNote.body
+      });
+    } finally {
+      local.close();
+      remote.close();
+    }
+  });
+
   it('mirrors every page of a large revision backlog in one run', async () => {
     const local = await openMemoryDatabase();
     const remote = await openMemoryDatabase();
@@ -594,6 +787,133 @@ describe('server repository', () => {
     }
   });
 
+  it('keeps a newer local note when the remote mirror has an older hard delete', async () => {
+    const local = await openMemoryDatabase();
+    const remote = await openMemoryDatabase();
+    try {
+      const localNewerNote = {
+        ...fixtureNote,
+        body: 'Newer local body survives the remote delete',
+        updatedAt: '2026-05-03T00:00:00.000Z',
+        version: 3,
+        syncStatus: 'pending' as const
+      };
+      await pushChanges(local, {
+        device: fixtureDevice,
+        notebooks: [{ record: fixtureNotebook, baseVersion: 0 }],
+        notes: [{ record: localNewerNote, baseVersion: 0 }]
+      });
+
+      await pushChanges(remote, {
+        device: { id: 'remote-device', name: 'Remote device' },
+        notebooks: [{ record: fixtureNotebook, baseVersion: 0 }],
+        notes: [
+          {
+            record: {
+              ...fixtureNote,
+              body: 'Older remote body',
+              updatedAt: '2026-05-01T00:00:00.000Z',
+              deviceId: 'remote-device',
+              version: 2,
+              syncStatus: 'pending' as const
+            },
+            baseVersion: 0
+          }
+        ]
+      });
+      await deleteNotesByIds(remote, [fixtureNote.id]);
+      await runSql(
+        remote,
+        `UPDATE entity_tombstones
+         SET deleted_at = ?, device_id = ?, version = ?
+         WHERE owner_username = ? AND entity_type = ? AND entity_id = ?`,
+        [
+          '2026-05-02T00:00:00.000Z',
+          'remote-device',
+          2,
+          LEGACY_OWNER_USERNAME,
+          'note',
+          fixtureNote.id
+        ]
+      );
+
+      await syncDatabases(local, remote);
+
+      await expect(getNote(local, fixtureNote.id)).resolves.toMatchObject({
+        body: localNewerNote.body
+      });
+      await expect(getNote(remote, fixtureNote.id)).resolves.toMatchObject({
+        body: localNewerNote.body
+      });
+    } finally {
+      local.close();
+      remote.close();
+    }
+  });
+
+  it('applies a newer remote hard delete over an older local note', async () => {
+    const local = await openMemoryDatabase();
+    const remote = await openMemoryDatabase();
+    try {
+      await pushChanges(local, {
+        device: fixtureDevice,
+        notebooks: [{ record: fixtureNotebook, baseVersion: 0 }],
+        notes: [
+          {
+            record: {
+              ...fixtureNote,
+              body: 'Older local body',
+              updatedAt: '2026-05-01T00:00:00.000Z',
+              version: 2,
+              syncStatus: 'pending' as const
+            },
+            baseVersion: 0
+          }
+        ]
+      });
+      await pushChanges(remote, {
+        device: { id: 'remote-device', name: 'Remote device' },
+        notebooks: [{ record: fixtureNotebook, baseVersion: 0 }],
+        notes: [
+          {
+            record: {
+              ...fixtureNote,
+              body: 'Remote body before delete',
+              updatedAt: '2026-05-02T00:00:00.000Z',
+              deviceId: 'remote-device',
+              version: 3,
+              syncStatus: 'pending' as const
+            },
+            baseVersion: 0
+          }
+        ]
+      });
+      await deleteNotesByIds(remote, [fixtureNote.id]);
+      await runSql(
+        remote,
+        `UPDATE entity_tombstones
+         SET deleted_at = ?, device_id = ?, version = ?
+         WHERE owner_username = ? AND entity_type = ? AND entity_id = ?`,
+        [
+          '2026-05-03T00:00:00.000Z',
+          'remote-device',
+          4,
+          LEGACY_OWNER_USERNAME,
+          'note',
+          fixtureNote.id
+        ]
+      );
+
+      await syncDatabases(local, remote);
+
+      await expect(getNote(local, fixtureNote.id)).resolves.toBeNull();
+      await expect(getNote(remote, fixtureNote.id)).resolves.toBeNull();
+    } finally {
+      local.close();
+      remote.close();
+    }
+  });
+
   it('keeps globally referenced devices when applying one owner device delete', async () => {
     const db = await openMemoryDatabase();
     try {
@@ -633,7 +953,7 @@ describe('server repository', () => {
     }
   });
 
-  it('mirrors DB-backed users between databases', async () => {
+  it('treats remote DB-backed users as authoritative', async () => {
     const local = await openMemoryDatabase();
     const remote = await openMemoryDatabase();
     try {
@@ -644,15 +964,81 @@ describe('server repository', () => {
 
       await expect(
         authenticateUser(remote, 'local-user', 'local-password')
-      ).resolves.toEqual({
-        username: 'local-user',
-        displayName: null
-      });
+      ).resolves.toBeNull();
+      await expect(
+        authenticateUser(local, 'local-user', 'local-password')
+      ).resolves.toBeNull();
       await expect(
         authenticateUser(local, 'remote-user', 'remote-password')
       ).resolves.toEqual({
         username: 'remote-user',
         displayName: null
+      });
+    } finally {
+      local.close();
+      remote.close();
+    }
+  });
+
+  it('does not let newer local account rows overwrite remote account state', async () => {
+    const local = await openMemoryDatabase();
+    const remote = await openMemoryDatabase();
+    try {
+      await setUserPassword(remote, 'owner', 'remote-password');
+      await setUserPassword(local, 'owner', 'local-password');
+      await runSql(
+        local,
+        'UPDATE users SET updated_at = ? WHERE username = ?',
+        ['2030-01-01T00:00:00.000Z', 'owner']
+      );
+
+      await syncDatabases(local, remote);
+
+      await expect(
+        authenticateUser(remote, 'owner', 'local-password')
+      ).resolves.toBeNull();
+      await expect(
+        authenticateUser(remote, 'owner', 'remote-password')
+      ).resolves.toEqual({
+        username: 'owner',
+        displayName: null
+      });
+      await expect(
+        authenticateUser(local, 'owner', 'remote-password')
+      ).resolves.toEqual({
+        username: 'owner',
+        displayName: null
+      });
+    } finally {
+      local.close();
+      remote.close();
+    }
+  });
+
+  it('prunes remote data for missing DB-backed users before mirroring', async () => {
+    const local = await openMemoryDatabase();
+    const remote = await openMemoryDatabase();
+    try {
+      await pushChanges(
+        remote,
+        {
+          device: fixtureDevice,
+          notebooks: [{ record: fixtureNotebook, baseVersion: 0 }],
+          notes: [{ record: fixtureNote, baseVersion: 0 }]
+        },
+        'deleted-user'
+      );
+
+      await syncDatabases(local, remote);
+
+      await expect(
+        getNote(remote, fixtureNote.id, 'deleted-user')
+      ).resolves.toBeNull();
+      await expect(
+        pullChangesSince(local, null, 0, { ownerUsername: 'deleted-user' })
+      ).resolves.toMatchObject({
+        notes: [],
+        notebooks: []
       });
     } finally {
       local.close();

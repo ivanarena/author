@@ -22,7 +22,7 @@
   width: min(780px, 100%);
   max-height: min(760px, calc(100vh - 40px));
   overflow: hidden;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: var(--radius-panel);
   padding: 0;
   background: var(--panel-transparent);
@@ -48,7 +48,6 @@
   gap: var(--space-3);
   align-items: center;
   min-width: 0;
-  border-bottom: 1px solid var(--line);
   padding: 18px 20px;
 }
 
@@ -87,7 +86,6 @@
   display: grid;
   align-content: start;
   gap: 4px;
-  border-right: 1px solid var(--line);
   padding: 16px 12px;
 }
 
@@ -131,7 +129,6 @@
 
 .settings-menu-action {
   margin-top: 10px;
-  border-top: 1px solid var(--line);
   border-radius: 0;
   padding-top: 10px;
 }
@@ -182,7 +179,7 @@
   gap: 8px;
   align-items: center;
   min-height: var(--control-height);
-  border-color: var(--line);
+  border-color: transparent;
   border-radius: var(--radius-md);
   padding: 0 11px;
   background: transparent;
@@ -194,7 +191,7 @@
 .settings-action:focus-visible,
 .settings-action.active,
 .settings-action.login-submit {
-  border-color: var(--line-strong);
+  border-color: transparent;
   background: transparent;
   color: var(--text);
 }
@@ -206,7 +203,6 @@
   gap: 12px;
   align-items: center;
   min-width: 0;
-  border-bottom: 1px solid var(--line);
   padding-bottom: 14px;
 }
 
@@ -317,7 +313,7 @@
 .settings-progress {
   display: grid;
   gap: 10px;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: var(--radius-md);
   padding: 12px;
   background: var(--field);
@@ -371,7 +367,7 @@
   gap: 10px;
   align-items: start;
   min-width: 0;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: var(--radius-md);
   padding: 11px 12px;
   background: var(--field);
@@ -380,12 +376,10 @@
 }
 
 .import-result-banner.success {
-  border-color: color-mix(in srgb, var(--status-ok) 34%, transparent);
   color: var(--status-ok);
 }
 
 .import-result-banner.error {
-  border-color: color-mix(in srgb, var(--status-error) 36%, transparent);
   color: var(--status-error);
 }
 
@@ -419,7 +413,6 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 16px;
   align-items: center;
-  border-top: 1px solid var(--line);
   padding-top: 10px;
 }
 
@@ -433,6 +426,17 @@
 .login-form,
 .account-form {
   gap: 10px;
+}
+
+.settings-panel .menu-form {
+  border: 0;
+  box-shadow: none;
+}
+
+.settings-panel .menu-form input,
+.login-modal .login-form input,
+.auth-mode-tabs {
+  border: 0;
 }
 
 .login-modal .login-form {
@@ -463,8 +467,9 @@
   width: 30px;
   height: 30px;
   place-items: center;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: var(--radius-md);
+  background: var(--field);
   color: var(--text);
 }
 
@@ -500,7 +505,7 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
   min-width: 0;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: var(--radius-md);
   padding: 4px;
   background: var(--field);
@@ -523,7 +528,6 @@
 }
 
 .account-form {
-  border-bottom: 1px solid var(--line);
   padding-bottom: 14px;
 }
 

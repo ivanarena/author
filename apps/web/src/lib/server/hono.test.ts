@@ -8,8 +8,9 @@ import {
   fixtureNotebook
 } from '@author/test-fixtures';
 import { setUserPassword } from './auth';
-import { openDatabase } from './db';
+import { openConfiguredDatabase, openDatabase } from './db';
 import { api } from './hono';
+import { getNote, pushChanges } from './repository';
 
 let tempDir: string;
 
@@ -68,6 +69,10 @@ async function post(
   );
 }
 
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 describe('Hono API', () => {
   it('serves health and rejects unauthorized sync requests', async () => {
     const health = await api.fetch(new Request('http://localhost/api/health'));
@@ -121,6 +126,11 @@ describe('Hono API', () => {
   });
 
   it('creates new users through signup and rejects duplicate usernames', async () => {
+    const remotePath = join(tempDir, 'remote.sqlite');
+    process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
+    process.env.TURSO_AUTH_TOKEN = 'test-token';
+    process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
+
     const signup = await api.fetch(
       new Request('http://localhost/api/auth/signup', {
         method: 'POST',
@@ -139,6 +149,23 @@ describe('Hono API', () => {
       user: { username: 'new-user', displayName: 'New User' }
     });
 
+    const remote = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${remotePath}`, authToken: 'test-token' }
+    });
+    try {
+      const user = await remote.execute({
+        sql: 'SELECT username, display_name FROM users WHERE username = ?',
+        args: ['new-user']
+      });
+      expect(user.rows[0]).toMatchObject({
+        username: 'new-user',
+        display_name: 'New User'
+      });
+    } finally {
+      remote.close();
+    }
+
     const duplicate = await api.fetch(
       new Request('http://localhost/api/auth/signup', {
         method: 'POST',
@@ -151,6 +178,25 @@ describe('Hono API', () => {
       })
     );
     expect(duplicate.status).toBe(409);
+  });
+
+  it('requires remote database access for signup', async () => {
+    const signup = await api.fetch(
+      new Request('http://localhost/api/auth/signup', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'new-user',
+          password: 'new-user-password',
+          device: fixtureDevice
+        })
+      })
+    );
+
+    expect(signup.status).toBe(503);
+    await expect(signup.json()).resolves.toMatchObject({
+      error: 'Signup requires remote database access'
+    });
   });
 
   it('revokes existing sessions when a password is reset', async () => {
@@ -188,7 +234,62 @@ describe('Hono API', () => {
     );
   });
 
+  it('rejects account mutations when remote sync revokes the local session', async () => {
+    const remotePath = join(tempDir, 'revoked-session-remote.sqlite');
+    process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
+    process.env.TURSO_AUTH_TOKEN = 'test-token';
+    process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
+
+    const remote = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${remotePath}`, authToken: 'test-token' }
+    });
+    try {
+      await setUserPassword(remote, 'owner', 'test-password');
+    } finally {
+      remote.close();
+    }
+
+    const token = await loginToken();
+
+    const updatedRemote = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${remotePath}`, authToken: 'test-token' }
+    });
+    try {
+      await setUserPassword(updatedRemote, 'owner', 'new-test-password');
+    } finally {
+      updatedRemote.close();
+    }
+
+    const profile = await api.fetch(
+      new Request('http://localhost/api/account', {
+        method: 'PATCH',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({ displayName: 'Stale session edit' })
+      })
+    );
+    expect(profile.status).toBe(401);
+  });
+
   it('updates profile, logs out, changes password, and deletes account', async () => {
+    const remotePath = join(tempDir, 'account-remote.sqlite');
+    process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
+    process.env.TURSO_AUTH_TOKEN = 'test-token';
+    process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
+    const remote = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${remotePath}`, authToken: 'test-token' }
+    });
+    try {
+      await setUserPassword(remote, 'owner', 'test-password');
+    } finally {
+      remote.close();
+    }
+
     let token = await loginToken();
 
     const profile = await api.fetch(
@@ -229,6 +330,24 @@ describe('Hono API', () => {
       expect.any(String)
     );
 
+    const remoteWithData = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${remotePath}`, authToken: 'test-token' }
+    });
+    try {
+      await pushChanges(
+        remoteWithData,
+        {
+          device: fixtureDevice,
+          notebooks: [{ record: fixtureNotebook, baseVersion: 0 }],
+          notes: [{ record: fixtureNote, baseVersion: 0 }]
+        },
+        'owner'
+      );
+    } finally {
+      remoteWithData.close();
+    }
+
     token = await loginToken('owner', 'new-test-password');
     const deleted = await api.fetch(
       new Request('http://localhost/api/account', {
@@ -241,6 +360,55 @@ describe('Hono API', () => {
       })
     );
     expect(deleted.status).toBe(200);
+
+    const countSql = `
+      SELECT
+        (SELECT count(*) FROM users WHERE username = ?) AS users,
+        (SELECT count(*) FROM notes WHERE owner_username = ?) AS notes,
+        (SELECT count(*) FROM notebooks WHERE owner_username = ?) AS notebooks,
+        (SELECT count(*) FROM entity_changes WHERE owner_username = ?) AS entity_changes,
+        (SELECT count(*) FROM entity_tombstones WHERE owner_username = ?) AS tombstones,
+        (SELECT count(*) FROM note_versions WHERE owner_username = ?) AS note_versions,
+        (SELECT count(*) FROM notebook_versions WHERE owner_username = ?) AS notebook_versions
+    `;
+    const countArgs = Array(7).fill('owner');
+    const deletedRemote = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${remotePath}`, authToken: 'test-token' }
+    });
+    try {
+      const counts = await deletedRemote.execute({
+        sql: countSql,
+        args: countArgs
+      });
+      expect(counts.rows[0]).toMatchObject({
+        users: 0,
+        notes: 0,
+        notebooks: 0,
+        entity_changes: 0,
+        tombstones: 0,
+        note_versions: 0,
+        notebook_versions: 0
+      });
+    } finally {
+      deletedRemote.close();
+    }
+
+    const local = await openDatabase();
+    try {
+      const counts = await local.execute({ sql: countSql, args: countArgs });
+      expect(counts.rows[0]).toMatchObject({
+        users: 0,
+        notes: 0,
+        notebooks: 0,
+        entity_changes: 0,
+        tombstones: 0,
+        note_versions: 0,
+        notebook_versions: 0
+      });
+    } finally {
+      local.close();
+    }
 
     const missing = await api.fetch(
       new Request('http://localhost/api/auth/login', {
@@ -333,6 +501,120 @@ describe('Hono API', () => {
     const pull = await post('/api/sync/pull', { since: null }, token);
     expect(pull.status).toBe(200);
     expect((await pull.json()).notes[0].body).toBe(fixtureNote.body);
+  });
+
+  it('queues authenticated local pushes to the configured remote database', async () => {
+    const remotePath = join(tempDir, 'queued-push-remote.sqlite');
+    process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
+    process.env.TURSO_AUTH_TOKEN = 'test-token';
+    process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
+
+    const remote = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${remotePath}`, authToken: 'test-token' }
+    });
+    try {
+      await setUserPassword(remote, 'owner', 'test-password');
+    } finally {
+      remote.close();
+    }
+
+    const token = await loginToken();
+    const push = await post(
+      '/api/sync/push',
+      {
+        device: fixtureDevice,
+        notebooks: [{ record: fixtureNotebook, baseVersion: 0 }],
+        notes: [{ record: fixtureNote, baseVersion: 0 }]
+      },
+      token
+    );
+    expect(push.status).toBe(200);
+
+    const syncedRemote = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${remotePath}`, authToken: 'test-token' }
+    });
+    try {
+      let mirroredBody: string | null = null;
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        mirroredBody =
+          (await getNote(syncedRemote, fixtureNote.id, 'owner'))?.body ?? null;
+        if (mirroredBody === fixtureNote.body) break;
+        await sleep(50);
+      }
+
+      expect(mirroredBody).toBe(fixtureNote.body);
+    } finally {
+      syncedRemote.close();
+    }
+  });
+
+  it('pulls configured remote database changes before responding to client pulls', async () => {
+    const remotePath = join(tempDir, 'pull-before-response-remote.sqlite');
+    process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
+    process.env.TURSO_AUTH_TOKEN = 'test-token';
+    process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
+
+    const remote = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${remotePath}`, authToken: 'test-token' }
+    });
+    try {
+      await setUserPassword(remote, 'owner', 'test-password');
+    } finally {
+      remote.close();
+    }
+
+    const token = await loginToken();
+    const changedRemote = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${remotePath}`, authToken: 'test-token' }
+    });
+    try {
+      await pushChanges(
+        changedRemote,
+        {
+          device: { id: 'remote-device', name: 'Remote device' },
+          notebooks: [],
+          notes: [
+            {
+              record: {
+                ...fixtureNote,
+                id: 'remote-after-login-note',
+                title: 'Remote after login',
+                body: 'Pulled before client response',
+                deviceId: 'remote-device',
+                updatedAt: '2026-05-06T12:00:00.000Z',
+                syncStatus: 'pending' as const
+              },
+              baseVersion: 0
+            }
+          ]
+        },
+        'owner'
+      );
+    } finally {
+      changedRemote.close();
+    }
+
+    const pull = await post(
+      '/api/sync/pull',
+      { since: null, sinceRevision: 0 },
+      token
+    );
+    expect(pull.status).toBe(200);
+    const body = (await pull.json()) as {
+      notes: Array<{ id: string; body: string }>;
+    };
+    expect(body.notes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'remote-after-login-note',
+          body: 'Pulled before client response'
+        })
+      ])
+    );
   });
 
   it('rejects malformed authenticated push payloads with a client error', async () => {

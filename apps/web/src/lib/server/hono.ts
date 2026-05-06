@@ -28,8 +28,12 @@ import {
   updateUserProfile,
   unauthorized
 } from './auth';
-import { shouldSyncRemoteDatabase, shouldTrustProxyHeaders } from './config';
-import { openLocalDatabase, type NotesDb } from './db';
+import {
+  getRemoteDatabaseConfig,
+  shouldSyncRemoteDatabase,
+  shouldTrustProxyHeaders
+} from './config';
+import { openConfiguredDatabase, openLocalDatabase, type NotesDb } from './db';
 import {
   cleanupTrash,
   getSyncMeta,
@@ -528,15 +532,42 @@ api.post('/api/auth/signup', async (c) => {
     return c.json({ error: 'Invalid signup payload' }, 400);
   }
 
-  const db = await openLocalDatabase();
+  const remoteConfig = getRemoteDatabaseConfig();
+  if (!remoteConfig) {
+    return c.json({ error: 'Signup requires remote database access' }, 503);
+  }
+
+  const remote = await openConfiguredDatabase(remoteConfig);
+  let user: Awaited<ReturnType<typeof createUserAccount>>;
   try {
-    const user = await createUserAccount(
-      db,
+    const createdUser = await createUserAccount(
+      remote,
       body.username,
       body.password,
       body.displayName
     );
-    if (!user) return c.json({ error: 'Username is already taken' }, 409);
+    if (!createdUser) {
+      return c.json({ error: 'Username is already taken' }, 409);
+    }
+    user = createdUser;
+  } catch (error) {
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Signup failed' },
+      400
+    );
+  } finally {
+    remote.close();
+  }
+
+  const db = await openLocalDatabase();
+  try {
+    const synced = await syncRemoteBestEffort(db);
+    if (!synced) {
+      return c.json(
+        { error: 'Account created, but local offline setup failed' },
+        503
+      );
+    }
 
     await upsertDevice(db, body.device, undefined, user.username);
     const session = await createAuthSession(db, user, body.device.id);
@@ -600,17 +631,44 @@ api.get('/api/account', async (c) => {
 api.patch('/api/account', async (c) => {
   const db = await openLocalDatabase();
   try {
-    const session = await sessionFromRequest(db, c.req.raw);
+    let session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
     if (session.legacy) {
       return c.json({ error: 'Legacy token accounts cannot be edited' }, 400);
     }
     const body = (await c.req.json().catch(() => ({}))) as AccountUpdateRequest;
-    const user = await updateUserProfile(
-      db,
-      session.user.username,
-      body.displayName
-    );
+    const remoteConfig = getRemoteDatabaseConfig();
+    if (!remoteConfig) {
+      return c.json({ error: 'Account updates require remote access' }, 503);
+    }
+    if (!(await syncRemoteBestEffort(db))) {
+      return c.json({ error: 'Could not sync before profile update' }, 503);
+    }
+    session = await sessionFromRequest(db, c.req.raw);
+    if (!session) return unauthorized();
+    if (session.legacy) {
+      return c.json({ error: 'Legacy token accounts cannot be edited' }, 400);
+    }
+
+    const remote = await openConfiguredDatabase(remoteConfig);
+    let user: Awaited<ReturnType<typeof updateUserProfile>>;
+    try {
+      user = await updateUserProfile(
+        remote,
+        session.user.username,
+        body.displayName
+      );
+    } finally {
+      remote.close();
+    }
+
+    if (!(await syncRemoteBestEffort(db))) {
+      return c.json(
+        { error: 'Profile saved remotely, but local offline setup failed' },
+        503
+      );
+    }
+
     await queueRemoteSyncAfter();
     return c.json({
       user
@@ -623,7 +681,7 @@ api.patch('/api/account', async (c) => {
 api.post('/api/account/password', async (c) => {
   const db = await openLocalDatabase();
   try {
-    const session = await sessionFromRequest(db, c.req.raw);
+    let session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
     if (session.legacy) {
       return c.json({ error: 'Legacy token accounts cannot be edited' }, 400);
@@ -637,13 +695,41 @@ api.post('/api/account/password', async (c) => {
     ) {
       return c.json({ error: 'Invalid password payload' }, 400);
     }
-    const user = await changeUserPassword(
-      db,
-      session.user.username,
-      body.currentPassword,
-      body.newPassword
-    );
+
+    const remoteConfig = getRemoteDatabaseConfig();
+    if (!remoteConfig) {
+      return c.json({ error: 'Password changes require remote access' }, 503);
+    }
+    if (!(await syncRemoteBestEffort(db))) {
+      return c.json({ error: 'Could not sync before password change' }, 503);
+    }
+    session = await sessionFromRequest(db, c.req.raw);
+    if (!session) return unauthorized();
+    if (session.legacy) {
+      return c.json({ error: 'Legacy token accounts cannot be edited' }, 400);
+    }
+
+    const remote = await openConfiguredDatabase(remoteConfig);
+    let user: Awaited<ReturnType<typeof changeUserPassword>>;
+    try {
+      user = await changeUserPassword(
+        remote,
+        session.user.username,
+        body.currentPassword,
+        body.newPassword
+      );
+    } finally {
+      remote.close();
+    }
     if (!user) return c.json({ error: 'Current password is incorrect' }, 401);
+
+    if (!(await syncRemoteBestEffort(db))) {
+      return c.json(
+        { error: 'Password changed remotely, but local offline setup failed' },
+        503
+      );
+    }
+
     await queueRemoteSyncAfter();
     return c.json({ user });
   } finally {
@@ -654,7 +740,7 @@ api.post('/api/account/password', async (c) => {
 api.delete('/api/account', async (c) => {
   const db = await openLocalDatabase();
   try {
-    const session = await sessionFromRequest(db, c.req.raw);
+    let session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
     if (session.legacy) {
       return c.json({ error: 'Legacy token accounts cannot be deleted' }, 400);
@@ -665,13 +751,40 @@ api.delete('/api/account', async (c) => {
     if (typeof body?.password !== 'string') {
       return c.json({ error: 'Invalid delete payload' }, 400);
     }
-    const deleted = await deleteUserAccount(
-      db,
-      session.user.username,
-      body.password
-    );
+
+    const remoteConfig = getRemoteDatabaseConfig();
+    if (!remoteConfig) {
+      return c.json({ error: 'Account deletion requires remote access' }, 503);
+    }
+    if (!(await syncRemoteBestEffort(db))) {
+      return c.json({ error: 'Could not sync before account deletion' }, 503);
+    }
+    session = await sessionFromRequest(db, c.req.raw);
+    if (!session) return unauthorized();
+    if (session.legacy) {
+      return c.json({ error: 'Legacy token accounts cannot be deleted' }, 400);
+    }
+
+    const remote = await openConfiguredDatabase(remoteConfig);
+    let deleted = false;
+    try {
+      deleted = await deleteUserAccount(
+        remote,
+        session.user.username,
+        body.password
+      );
+    } finally {
+      remote.close();
+    }
     if (!deleted) return c.json({ error: 'Password is incorrect' }, 401);
-    await queueRemoteSyncAfter();
+
+    if (!(await syncRemoteBestEffort(db))) {
+      return c.json(
+        { error: 'Account deleted remotely, but local cleanup failed' },
+        503
+      );
+    }
+
     return c.json({ ok: true });
   } finally {
     db.close();
@@ -681,11 +794,14 @@ api.delete('/api/account', async (c) => {
 api.get('/api/notes', async (c) => {
   const db = await openLocalDatabase();
   try {
-    const session = await sessionFromRequest(db, c.req.raw);
+    let session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
 
     if (!(await syncRemoteBestEffort(db))) {
       await queueRemoteSyncAfter();
+    } else {
+      session = await sessionFromRequest(db, c.req.raw);
+      if (!session) return unauthorized();
     }
     return c.json({ notes: await listNotes(db, syncOwner(session)) });
   } finally {
@@ -696,11 +812,14 @@ api.get('/api/notes', async (c) => {
 api.get('/api/notebooks', async (c) => {
   const db = await openLocalDatabase();
   try {
-    const session = await sessionFromRequest(db, c.req.raw);
+    let session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
 
     if (!(await syncRemoteBestEffort(db))) {
       await queueRemoteSyncAfter();
+    } else {
+      session = await sessionFromRequest(db, c.req.raw);
+      if (!session) return unauthorized();
     }
     return c.json({ notebooks: await listNotebooks(db, syncOwner(session)) });
   } finally {
@@ -730,11 +849,14 @@ api.post('/api/sync/pull', async (c) => {
 
   const db = await openLocalDatabase();
   try {
-    const session = await sessionFromRequest(db, c.req.raw);
+    let session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
 
     if (!(await syncRemoteBestEffort(db))) {
       await queueRemoteSyncAfter();
+    } else {
+      session = await sessionFromRequest(db, c.req.raw);
+      if (!session) return unauthorized();
     }
     const body = (await c.req.json().catch(() => ({}))) as PullRequest;
     return c.json(
@@ -757,11 +879,14 @@ api.post('/api/sync/push', async (c) => {
 
   const db = await openLocalDatabase();
   try {
-    const session = await sessionFromRequest(db, c.req.raw);
+    let session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
 
     if (!(await syncRemoteBestEffort(db))) {
       await queueRemoteSyncAfter();
+    } else {
+      session = await sessionFromRequest(db, c.req.raw);
+      if (!session) return unauthorized();
     }
     const body = (await c.req.json().catch(() => null)) as PushRequest | null;
     if (
@@ -785,11 +910,14 @@ api.post('/api/sync/push', async (c) => {
 api.post('/api/cleanup-trash', async (c) => {
   const db = await openLocalDatabase();
   try {
-    const session = await sessionFromRequest(db, c.req.raw);
+    let session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
 
     if (!(await syncRemoteBestEffort(db))) {
       await queueRemoteSyncAfter();
+    } else {
+      session = await sessionFromRequest(db, c.req.raw);
+      if (!session) return unauthorized();
     }
     const response = await cleanupTrash(db, new Date(), syncOwner(session));
     if (!(await syncRemoteBestEffort(db))) {

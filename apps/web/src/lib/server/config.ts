@@ -1,4 +1,5 @@
-import { resolve } from 'node:path';
+import { accessSync, constants } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 
 export type DatabaseConfig =
   | {
@@ -11,8 +12,28 @@ export type DatabaseConfig =
       client: { url: string; authToken: string };
     };
 
+function dataRootIsWritable(): boolean {
+  try {
+    accessSync('/data', constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function resolveDatabasePath(
+  configuredPath: string,
+  canWriteDataRoot = dataRootIsWritable()
+): string {
+  if (configuredPath.startsWith('/data/') && !canWriteDataRoot) {
+    return resolvePath('.data', configuredPath.slice('/data/'.length));
+  }
+
+  return resolvePath(configuredPath);
+}
+
 export function getDatabasePath(): string {
-  return resolve(process.env.NOTES_DB_PATH ?? '.data/notes.sqlite');
+  return resolveDatabasePath(process.env.NOTES_DB_PATH ?? '.data/notes.sqlite');
 }
 
 export function getLocalDatabaseConfig(): Extract<
@@ -23,7 +44,7 @@ export function getLocalDatabaseConfig(): Extract<
   return {
     provider: 'local',
     filePath,
-    client: { url: `file:${resolve(filePath)}` }
+    client: { url: `file:${resolvePath(filePath)}` }
   };
 }
 

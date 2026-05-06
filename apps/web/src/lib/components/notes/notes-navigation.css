@@ -47,7 +47,8 @@ textarea::-webkit-scrollbar {
 .notebook-row:hover,
 .notebook-row:focus-within {
   border-color: transparent;
-  background: transparent;
+  background: var(--hover);
+  color: var(--text);
 }
 
 .nav-main span,
@@ -100,14 +101,10 @@ textarea::-webkit-scrollbar {
   transition: opacity 120ms ease;
 }
 
-.nav-row.active::before,
-.nav-row:hover::before,
-.nav-row:focus-within::before {
-  opacity: 0.45;
-}
-
 .nav-row.active {
   border-color: transparent;
+  background: var(--hover);
+  color: var(--text);
 }
 
 .nav-trailing,
@@ -230,6 +227,7 @@ textarea::-webkit-scrollbar {
 .select-all-control:focus-within,
 .selection-clear:hover,
 .selection-clear:focus-visible {
+  background: var(--hover);
   color: var(--text);
 }
 
@@ -295,10 +293,14 @@ textarea::-webkit-scrollbar {
   border-color: transparent;
   padding: 0 10px;
   text-align: left;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
 }
 
 .batch-popover button:hover,
 .batch-popover button:focus-visible {
+  background: var(--hover);
   color: var(--text);
 }
 
@@ -347,7 +349,8 @@ textarea::-webkit-scrollbar {
 .note-row:hover,
 .note-row:focus-within {
   border-color: transparent;
-  background: transparent;
+  background: var(--hover);
+  color: var(--text);
 }
 
 .note-row.active::after,
@@ -358,7 +361,8 @@ textarea::-webkit-scrollbar {
 
 .note-row.active {
   border-color: transparent;
-  border-left-color: var(--line-strong);
+  background: var(--hover);
+  color: var(--text);
 }
 
 .note-row.selected {
@@ -559,12 +563,16 @@ textarea::-webkit-scrollbar {
   border-color: transparent;
   padding: 0 12px;
   text-align: left;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
 }
 
 .notebook-link-menu button:hover,
 .notebook-link-menu button:focus-visible {
-  border-color: var(--line);
+  border-color: transparent;
   background: var(--hover);
+  color: var(--text);
 }
 
 .notebook-link-menu button.active {

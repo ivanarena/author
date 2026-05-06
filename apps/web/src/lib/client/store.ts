@@ -1,3 +1,4 @@
+export * from './db';
 export * from './archive-store';
 export * from './entity-store';
 export * from './local-state';

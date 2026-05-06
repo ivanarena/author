@@ -18,6 +18,12 @@ import {
 } from './note-utils';
 import { getOrCreateDevice, newId, nowIso } from './local-state';
 
+const LOCAL_WORKSPACE_OWNER_KEY = 'localWorkspaceOwner';
+
+function normalizeAccountUsername(username: string): string {
+  return username.trim().toLowerCase();
+}
+
 export async function createBlankNote(
   initial: { title?: string; body?: string; notebookId?: string | null } = {}
 ): Promise<LocalNote> {
@@ -296,6 +302,81 @@ export async function loadPendingSyncCount(): Promise<number> {
     localDb.notebooks.where('syncStatus').equals('pending').count()
   ]);
   return notes + notebooks;
+}
+
+export async function localWorkspaceHasUserData(): Promise<boolean> {
+  const [notes, notebooks, conflicts] = await Promise.all([
+    localDb.notes.count(),
+    localDb.notebooks.count(),
+    localDb.conflicts.count()
+  ]);
+  return notes + notebooks + conflicts > 0;
+}
+
+export async function rememberLocalWorkspaceAccount(
+  username: string
+): Promise<void> {
+  const normalized = normalizeAccountUsername(username);
+  if (!normalized) return;
+  await localDb.syncMeta.put({
+    key: LOCAL_WORKSPACE_OWNER_KEY,
+    value: normalized
+  });
+}
+
+async function localWorkspaceOwnerConflict(
+  username: string,
+  fallbackOwnerUsername?: string | null
+): Promise<string | null> {
+  const normalizedUsername = normalizeAccountUsername(username);
+  const storedOwner =
+    (await localDb.syncMeta.get(LOCAL_WORKSPACE_OWNER_KEY))?.value ?? null;
+  const fallbackOwner = fallbackOwnerUsername
+    ? normalizeAccountUsername(fallbackOwnerUsername)
+    : null;
+  const currentOwner = storedOwner ?? fallbackOwner;
+
+  if (
+    currentOwner &&
+    currentOwner !== normalizedUsername &&
+    (await localWorkspaceHasUserData())
+  ) {
+    return currentOwner;
+  }
+
+  return null;
+}
+
+export async function assertLocalWorkspaceCanUseAccount(
+  username: string,
+  fallbackOwnerUsername?: string | null
+): Promise<void> {
+  const conflictingOwner = await localWorkspaceOwnerConflict(
+    username,
+    fallbackOwnerUsername
+  );
+  if (!conflictingOwner) return;
+
+  throw new Error(
+    `This browser has local notes for ${conflictingOwner}. Sign in as ${conflictingOwner} before switching accounts.`
+  );
+}
+
+export async function adoptLocalWorkspaceForAccount({
+  username,
+  fallbackOwnerUsername,
+  previousMaterial,
+  nextMaterial
+}: {
+  username: string;
+  fallbackOwnerUsername?: string | null;
+  previousMaterial: string;
+  nextMaterial: string;
+}): Promise<void> {
+  const normalizedUsername = normalizeAccountUsername(username);
+  await assertLocalWorkspaceCanUseAccount(username, fallbackOwnerUsername);
+  await reencryptLocalNotes(previousMaterial, nextMaterial);
+  await rememberLocalWorkspaceAccount(normalizedUsername);
 }
 
 export async function ensureLocalNotesEncrypted(): Promise<void> {

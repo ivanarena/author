@@ -100,7 +100,7 @@
   visibility: hidden;
   opacity: 0;
   pointer-events: none;
-  transform: translateX(-50%) translateY(-8px) scale(0.98);
+  transform: translateX(-50%) translateY(-4px);
   transform-origin: top center;
   transition:
     opacity 120ms ease,
@@ -112,7 +112,7 @@
   visibility: visible;
   opacity: 1;
   pointer-events: auto;
-  transform: translateX(-50%) translateY(0) scale(1);
+  transform: translateX(-50%) translateY(0);
 }
 
 .profile-card-header {
@@ -205,6 +205,9 @@
   padding: 0 12px;
   color: var(--muted);
   text-align: left;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
 }
 
 .profile-quick-action span {
@@ -217,8 +220,8 @@
 .profile-quick-action:hover,
 .profile-quick-action:focus-visible,
 .profile-quick-action.primary {
-  border-color: var(--line);
-  background: transparent;
+  border-color: transparent;
+  background: var(--hover);
   color: var(--text);
 }
 
@@ -244,7 +247,7 @@
   visibility: hidden;
   opacity: 0;
   pointer-events: none;
-  transform: translateY(-8px) scale(0.98);
+  transform: translateY(-4px);
   transform-origin: top center;
   transition:
     opacity 120ms ease,
@@ -258,14 +261,14 @@
   visibility: visible;
   opacity: 1;
   pointer-events: auto;
-  transform: translateY(0) scale(1);
+  transform: translateY(0);
 }
 
 .menu-dock:has(.profile-menu.open) .menu-panels {
   visibility: hidden;
   opacity: 0;
   pointer-events: none;
-  transform: translateY(-8px) scale(0.98);
+  transform: translateY(-4px);
 }
 
 aside {
@@ -379,7 +382,7 @@ aside {
 .sort-select:hover,
 .sort-select:focus-visible {
   color: var(--text);
-  border-color: var(--line-strong);
+  border-color: transparent;
   background: var(--hover);
 }
 
@@ -479,8 +482,8 @@ aside {
 }
 
 .active {
-  border-color: var(--line-strong);
-  background: transparent;
+  border-color: transparent;
+  background: var(--hover);
   box-shadow: none;
 }
 

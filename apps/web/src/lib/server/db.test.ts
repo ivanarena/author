@@ -1,12 +1,14 @@
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { resolveDatabasePath } from './config';
 import { openDatabase, run } from './db';
 
 const ENV_KEYS = [
   'NOTES_DB_PROVIDER',
   'NOTES_DB_PATH',
+  'NODE_ENV',
   'TURSO_DATABASE_URL',
   'TURSO_AUTH_TOKEN'
 ] as const;
@@ -52,5 +54,17 @@ describe('server database config', () => {
       restoreEnv(previous);
       rmSync(tempDir, { recursive: true, force: true });
     }
+  });
+
+  it('uses the local workspace data directory when /data is not writable', () => {
+    expect(resolveDatabasePath('/data/notes.sqlite', false)).toBe(
+      resolve('.data/notes.sqlite')
+    );
+  });
+
+  it('keeps the container data directory when it is writable', () => {
+    expect(resolveDatabasePath('/data/notes.sqlite', true)).toBe(
+      resolve('/data/notes.sqlite')
+    );
   });
 });

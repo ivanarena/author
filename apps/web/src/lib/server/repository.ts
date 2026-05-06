@@ -34,6 +34,18 @@ type EntityType = 'device' | 'note' | 'notebook';
 type EntityOperation = 'upsert' | 'delete';
 export const LEGACY_OWNER_USERNAME = 'legacy-token';
 
+export interface EntityTombstone {
+  entityType: 'note' | 'notebook';
+  entityId: string;
+  deletedAt: string;
+  deviceId: string;
+  version: number;
+}
+
+export interface PushChangesOptions {
+  allowTombstoneOverwrite?: boolean;
+}
+
 type PullOptions = {
   ownerUsername?: string;
   limit?: number | null;
@@ -207,11 +219,7 @@ async function getEntityTombstone(
   ownerUsername: string,
   entityType: 'note' | 'notebook',
   entityId: string
-): Promise<{
-  deletedAt: string;
-  deviceId: string;
-  version: number;
-} | null> {
+): Promise<EntityTombstone | null> {
   const row = (await queryOne(
     db,
     `SELECT deleted_at, device_id, version
@@ -221,11 +229,48 @@ async function getEntityTombstone(
   )) as Row | null;
   return row
     ? {
+        entityType,
+        entityId,
         deletedAt: asString(row.deleted_at),
         deviceId: asString(row.device_id),
         version: Number(row.version)
       }
     : null;
+}
+
+export async function getEntityTombstonesByIds(
+  db: NotesExecutor,
+  ownerUsername: string,
+  entityType: 'note' | 'notebook',
+  entityIds: string[]
+): Promise<Map<string, EntityTombstone>> {
+  const uniqueIds = [...new Set(entityIds)].filter(Boolean);
+  const tombstones = new Map<string, EntityTombstone>();
+
+  for (const chunk of chunks(uniqueIds, 200)) {
+    const rows = (await queryAll(
+      db,
+      `SELECT entity_id, deleted_at, device_id, version
+       FROM entity_tombstones
+       WHERE owner_username = ?
+         AND entity_type = ?
+         AND entity_id IN (${placeholders(chunk.length)})`,
+      [ownerUsername, entityType, ...chunk]
+    )) as Row[];
+
+    for (const row of rows) {
+      const entityId = asString(row.entity_id);
+      tombstones.set(entityId, {
+        entityType,
+        entityId,
+        deletedAt: asString(row.deleted_at),
+        deviceId: asString(row.device_id),
+        version: Number(row.version)
+      });
+    }
+  }
+
+  return tombstones;
 }
 
 async function putEntityTombstone(
@@ -1070,6 +1115,30 @@ function deletedRemoteNotebook(
   };
 }
 
+function tombstoneOverwriteAllowed(
+  record: Note | Notebook,
+  tombstone: EntityTombstone,
+  options: PushChangesOptions
+): boolean {
+  if (!options.allowTombstoneOverwrite) return false;
+
+  const recordTime = Date.parse(record.updatedAt);
+  const tombstoneTime = Date.parse(tombstone.deletedAt);
+  if (
+    Number.isFinite(recordTime) &&
+    Number.isFinite(tombstoneTime) &&
+    recordTime !== tombstoneTime
+  ) {
+    return recordTime > tombstoneTime;
+  }
+
+  if (record.version !== tombstone.version) {
+    return record.version > tombstone.version;
+  }
+
+  return record.deviceId.localeCompare(tombstone.deviceId) >= 0;
+}
+
 async function noteWithSyncableNotebookRefs(
   db: NotesExecutor,
   note: Note,
@@ -1098,7 +1167,8 @@ async function noteWithSyncableNotebookRefs(
 export async function pushChanges(
   db: NotesDb,
   request: PushRequest,
-  ownerUsername = LEGACY_OWNER_USERNAME
+  ownerUsername = LEGACY_OWNER_USERNAME,
+  options: PushChangesOptions = {}
 ): Promise<PushResponse> {
   const now = new Date().toISOString();
   const acceptedChanges: AcceptedChange[] = [];
@@ -1117,7 +1187,10 @@ export async function pushChanges(
             'notebook',
             change.record.id
           );
-      if (tombstone && change.baseVersion > 0) {
+      if (
+        tombstone &&
+        !tombstoneOverwriteAllowed(change.record, tombstone, options)
+      ) {
         const deletedRemote = deletedRemoteNotebook(change.record, tombstone);
         await saveNotebookSnapshot(
           tx,
@@ -1226,7 +1299,10 @@ export async function pushChanges(
       const tombstone = remote
         ? null
         : await getEntityTombstone(tx, ownerUsername, 'note', change.record.id);
-      if (tombstone && change.baseVersion > 0) {
+      if (
+        tombstone &&
+        !tombstoneOverwriteAllowed(syncableNote.note, tombstone, options)
+      ) {
         const deletedRemote = deletedRemoteNote(change.record, tombstone);
         await saveNoteSnapshot(
           tx,

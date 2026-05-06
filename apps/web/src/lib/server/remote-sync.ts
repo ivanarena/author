@@ -16,6 +16,7 @@ import {
   deleteDevicesByIds,
   deleteNotesByIds,
   deleteNotebooksByIds,
+  getEntityTombstonesByIds,
   getSyncMeta,
   LEGACY_OWNER_USERNAME,
   getNotesByIds,
@@ -25,6 +26,7 @@ import {
   setSyncMeta,
   upsertDevice
 } from './repository';
+import type { EntityTombstone } from './repository';
 
 const MIRROR_DEVICE = {
   id: 'server-db-mirror',
@@ -194,9 +196,15 @@ function toAuthUser(row: Row): AuthUserRecord {
   };
 }
 
-function newerOrTieBreakingSource<T extends Note | Notebook>(
-  source: T,
-  target: T
+type ChangeStamp = {
+  updatedAt: string;
+  version: number;
+  deviceId: string;
+};
+
+function newerOrTieBreakingStamp(
+  source: ChangeStamp,
+  target: ChangeStamp
 ): boolean {
   const sourceTime = Date.parse(source.updatedAt);
   const targetTime = Date.parse(target.updatedAt);
@@ -210,6 +218,49 @@ function newerOrTieBreakingSource<T extends Note | Notebook>(
 
   if (source.version !== target.version) return source.version > target.version;
   return source.deviceId.localeCompare(target.deviceId) >= 0;
+}
+
+function recordStamp(record: Note | Notebook): ChangeStamp {
+  return {
+    updatedAt: record.updatedAt,
+    version: record.version,
+    deviceId: record.deviceId
+  };
+}
+
+function tombstoneStamp(tombstone: EntityTombstone): ChangeStamp {
+  return {
+    updatedAt: tombstone.deletedAt,
+    version: tombstone.version,
+    deviceId: tombstone.deviceId
+  };
+}
+
+function newerOrTieBreakingSource<T extends Note | Notebook>(
+  source: T,
+  target: T
+): boolean {
+  return newerOrTieBreakingStamp(recordStamp(source), recordStamp(target));
+}
+
+function recordWinsOverTombstone(
+  record: Note | Notebook,
+  tombstone: EntityTombstone
+): boolean {
+  return newerOrTieBreakingStamp(
+    recordStamp(record),
+    tombstoneStamp(tombstone)
+  );
+}
+
+function tombstoneWinsOverRecord(
+  tombstone: EntityTombstone,
+  record: Note | Notebook
+): boolean {
+  return newerOrTieBreakingStamp(
+    tombstoneStamp(tombstone),
+    recordStamp(record)
+  );
 }
 
 function authCredentialsDiffer(
@@ -233,29 +284,6 @@ function authUsersDiffer(
     source.createdAt !== target.createdAt ||
     source.updatedAt !== target.updatedAt
   );
-}
-
-function newerAuthUser(
-  source: AuthUserRecord,
-  target: AuthUserRecord
-): boolean {
-  const sourceTime = Date.parse(source.updatedAt);
-  const targetTime = Date.parse(target.updatedAt);
-  if (
-    Number.isFinite(sourceTime) &&
-    Number.isFinite(targetTime) &&
-    sourceTime !== targetTime
-  ) {
-    return sourceTime > targetTime;
-  }
-
-  if (source.updatedAt !== target.updatedAt) {
-    return source.updatedAt > target.updatedAt;
-  }
-
-  const sourceKey = `${source.passwordHash}:${source.passwordSalt}:${source.passwordIterations}`;
-  const targetKey = `${target.passwordHash}:${target.passwordSalt}:${target.passwordIterations}`;
-  return sourceKey.localeCompare(targetKey) >= 0;
 }
 
 async function listAuthUsers(db: NotesExecutor): Promise<AuthUserRecord[]> {
@@ -311,17 +339,96 @@ async function putAuthUser(
   );
 }
 
-async function syncUsers(source: NotesDb, target: NotesDb): Promise<void> {
-  const users = await listAuthUsers(source);
-  for (const user of users) {
-    const targetUser = await getAuthUser(target, user.username);
-    if (!targetUser) {
-      await putAuthUser(target, user, false);
-      continue;
-    }
+async function deleteAuthUserData(
+  db: NotesExecutor,
+  username: string
+): Promise<void> {
+  await runSql(db, 'DELETE FROM auth_sessions WHERE username = ?', [username]);
+  await runSql(db, 'DELETE FROM users WHERE username = ?', [username]);
+  await runSql(db, 'DELETE FROM entity_changes WHERE owner_username = ?', [
+    username
+  ]);
+  await runSql(db, 'DELETE FROM entity_tombstones WHERE owner_username = ?', [
+    username
+  ]);
+  await runSql(db, 'DELETE FROM note_versions WHERE owner_username = ?', [
+    username
+  ]);
+  await runSql(db, 'DELETE FROM notebook_versions WHERE owner_username = ?', [
+    username
+  ]);
+  await runSql(db, 'DELETE FROM notes WHERE owner_username = ?', [username]);
+  await runSql(db, 'DELETE FROM notebooks WHERE owner_username = ?', [
+    username
+  ]);
+}
 
-    if (authUsersDiffer(user, targetUser) && newerAuthUser(user, targetUser)) {
-      await putAuthUser(target, user, authCredentialsDiffer(user, targetUser));
+async function orphanedOwnerUsernames(db: NotesExecutor): Promise<string[]> {
+  const ownerTables = [
+    'notes',
+    'notebooks',
+    'entity_changes',
+    'entity_tombstones',
+    'note_versions',
+    'notebook_versions'
+  ];
+  const usernames = new Set<string>();
+
+  for (const table of ownerTables) {
+    const rows = (await queryAll(
+      db,
+      `SELECT DISTINCT owner_username FROM ${table} WHERE owner_username <> ?`,
+      [LEGACY_OWNER_USERNAME]
+    )) as Row[];
+    for (const row of rows) {
+      const username = asString(row.owner_username);
+      if (username) usernames.add(username);
+    }
+  }
+
+  const orphaned: string[] = [];
+  for (const username of usernames) {
+    if (!(await getAuthUser(db, username))) orphaned.push(username);
+  }
+  return orphaned;
+}
+
+async function pruneOrphanedAuthUserData(db: NotesDb): Promise<void> {
+  for (const username of await orphanedOwnerUsernames(db)) {
+    await deleteAuthUserData(db, username);
+  }
+}
+
+async function syncUsers(
+  source: NotesDb,
+  target: NotesDb,
+  { copyUsers, pruneMissing }: { copyUsers: boolean; pruneMissing: boolean }
+): Promise<void> {
+  const users = await listAuthUsers(source);
+  const sourceUsernames = new Set(users.map((user) => user.username));
+  if (copyUsers) {
+    for (const user of users) {
+      const targetUser = await getAuthUser(target, user.username);
+      if (!targetUser) {
+        await putAuthUser(target, user, false);
+        continue;
+      }
+
+      if (authUsersDiffer(user, targetUser)) {
+        await putAuthUser(
+          target,
+          user,
+          authCredentialsDiffer(user, targetUser)
+        );
+      }
+    }
+  }
+
+  if (!pruneMissing) return;
+
+  for (const targetUser of await listAuthUsers(target)) {
+    if (!sourceUsernames.has(targetUser.username)) {
+      await deleteAuthUserData(target, targetUser.username);
     }
   }
 }
@@ -336,76 +443,233 @@ async function syncDevices(
   }
 }
 
+type MirrorChange<T extends Note | Notebook> = {
+  record: T;
+  baseVersion: number;
+};
+
+type MirrorUpsertPlan<T extends Note | Notebook> = {
+  copySourceToTarget: MirrorChange<T>[];
+  copyTargetToSource: MirrorChange<T>[];
+  deleteSourceIds: string[];
+};
+
+type MirrorDeletePlan<T extends Note | Notebook> = {
+  deleteTargetIds: string[];
+  copyTargetToSource: MirrorChange<T>[];
+};
+
 async function notebookChanges(
   snapshot: PullResponse,
   target: NotesDb,
   ownerUsername: string
-): Promise<PushRequestNotebookChange[]> {
-  const changes: PushRequestNotebookChange[] = [];
+): Promise<MirrorUpsertPlan<Notebook>> {
+  const copySourceToTarget: MirrorChange<Notebook>[] = [];
+  const copyTargetToSource: MirrorChange<Notebook>[] = [];
+  const deleteSourceIds: string[] = [];
+  const notebookIds = snapshot.notebooks.map((notebook) => notebook.id);
   const targetNotebooks = await getNotebooksByIds(
     target,
-    snapshot.notebooks.map((notebook) => notebook.id),
+    notebookIds,
     ownerUsername
+  );
+  const targetTombstones = await getEntityTombstonesByIds(
+    target,
+    ownerUsername,
+    'notebook',
+    notebookIds
   );
 
   for (const notebook of snapshot.notebooks) {
     const targetNotebook = targetNotebooks.get(notebook.id) ?? null;
-    const shouldMirror =
-      !targetNotebook ||
-      (recordsDiffer(notebook, targetNotebook) &&
-        newerOrTieBreakingSource(notebook, targetNotebook));
-    if (shouldMirror) {
-      changes.push({
+    if (targetNotebook) {
+      if (!recordsDiffer(notebook, targetNotebook)) continue;
+      if (newerOrTieBreakingSource(notebook, targetNotebook)) {
+        copySourceToTarget.push({
+          record: notebook,
+          baseVersion: targetNotebook.version
+        });
+      } else {
+        copyTargetToSource.push({
+          record: targetNotebook,
+          baseVersion: notebook.version
+        });
+      }
+      continue;
+    }
+
+    const targetTombstone = targetTombstones.get(notebook.id) ?? null;
+    if (
+      !targetTombstone ||
+      recordWinsOverTombstone(notebook, targetTombstone)
+    ) {
+      copySourceToTarget.push({
         record: notebook,
-        baseVersion: targetNotebook?.version ?? 0
+        baseVersion: targetTombstone?.version ?? 0
       });
+    } else {
+      deleteSourceIds.push(notebook.id);
     }
   }
 
-  return changes;
+  return { copySourceToTarget, copyTargetToSource, deleteSourceIds };
 }
 
 async function noteChanges(
   snapshot: PullResponse,
   target: NotesDb,
   ownerUsername: string
-): Promise<PushRequestNoteChange[]> {
-  const changes: PushRequestNoteChange[] = [];
-  const targetNotes = await getNotesByIds(
+): Promise<MirrorUpsertPlan<Note>> {
+  const copySourceToTarget: MirrorChange<Note>[] = [];
+  const copyTargetToSource: MirrorChange<Note>[] = [];
+  const deleteSourceIds: string[] = [];
+  const noteIds = snapshot.notes.map((note) => note.id);
+  const targetNotes = await getNotesByIds(target, noteIds, ownerUsername);
+  const targetTombstones = await getEntityTombstonesByIds(
     target,
-    snapshot.notes.map((note) => note.id),
-    ownerUsername
+    ownerUsername,
+    'note',
+    noteIds
   );
 
   for (const note of snapshot.notes) {
     const targetNote = targetNotes.get(note.id) ?? null;
-    const shouldMirror =
-      !targetNote ||
-      (recordsDiffer(note, targetNote) &&
-        newerOrTieBreakingSource(note, targetNote));
-    if (shouldMirror) {
-      changes.push({ record: note, baseVersion: targetNote?.version ?? 0 });
+    if (targetNote) {
+      if (!recordsDiffer(note, targetNote)) continue;
+      if (newerOrTieBreakingSource(note, targetNote)) {
+        copySourceToTarget.push({
+          record: note,
+          baseVersion: targetNote.version
+        });
+      } else {
+        copyTargetToSource.push({
+          record: targetNote,
+          baseVersion: note.version
+        });
+      }
+      continue;
+    }
+
+    const targetTombstone = targetTombstones.get(note.id) ?? null;
+    if (!targetTombstone || recordWinsOverTombstone(note, targetTombstone)) {
+      copySourceToTarget.push({
+        record: note,
+        baseVersion: targetTombstone?.version ?? 0
+      });
+    } else {
+      deleteSourceIds.push(note.id);
     }
   }
 
-  return changes;
+  return { copySourceToTarget, copyTargetToSource, deleteSourceIds };
 }
 
-type PushRequestNotebookChange = { record: Notebook; baseVersion: number };
-type PushRequestNoteChange = { record: Note; baseVersion: number };
-
-async function applyMirrorDeletes(
-  snapshot: Awaited<ReturnType<typeof pullMirrorChangesSinceRevision>>,
+async function notebookDeleteChanges(
+  source: NotesDb,
+  snapshot: PullResponse,
   target: NotesDb,
   ownerUsername: string
+): Promise<MirrorDeletePlan<Notebook>> {
+  const notebookIds = [...new Set(snapshot.deletedNotebookIds)].filter(Boolean);
+  const deleteTargetIds: string[] = [];
+  const copyTargetToSource: MirrorChange<Notebook>[] = [];
+  if (!notebookIds.length) return { deleteTargetIds, copyTargetToSource };
+
+  const [sourceTombstones, targetNotebooks] = await Promise.all([
+    getEntityTombstonesByIds(source, ownerUsername, 'notebook', notebookIds),
+    getNotebooksByIds(target, notebookIds, ownerUsername)
+  ]);
+
+  for (const notebookId of notebookIds) {
+    const sourceTombstone = sourceTombstones.get(notebookId) ?? null;
+    const targetNotebook = targetNotebooks.get(notebookId) ?? null;
+
+    if (!targetNotebook) {
+      deleteTargetIds.push(notebookId);
+      continue;
+    }
+
+    if (
+      sourceTombstone &&
+      tombstoneWinsOverRecord(sourceTombstone, targetNotebook)
+    ) {
+      deleteTargetIds.push(notebookId);
+    } else {
+      copyTargetToSource.push({
+        record: targetNotebook,
+        baseVersion: sourceTombstone?.version ?? 0
+      });
+    }
+  }
+
+  return { deleteTargetIds, copyTargetToSource };
+}
+
+async function noteDeleteChanges(
+  source: NotesDb,
+  snapshot: PullResponse,
+  target: NotesDb,
+  ownerUsername: string
+): Promise<MirrorDeletePlan<Note>> {
+  const noteIds = [...new Set(snapshot.deletedNoteIds)].filter(Boolean);
+  const deleteTargetIds: string[] = [];
+  const copyTargetToSource: MirrorChange<Note>[] = [];
+  if (!noteIds.length) return { deleteTargetIds, copyTargetToSource };
+
+  const [sourceTombstones, targetNotes] = await Promise.all([
+    getEntityTombstonesByIds(source, ownerUsername, 'note', noteIds),
+    getNotesByIds(target, noteIds, ownerUsername)
+  ]);
+
+  for (const noteId of noteIds) {
+    const sourceTombstone = sourceTombstones.get(noteId) ?? null;
+    const targetNote = targetNotes.get(noteId) ?? null;
+
+    if (!targetNote) {
+      deleteTargetIds.push(noteId);
+      continue;
+    }
+
+    if (
+      sourceTombstone &&
+      tombstoneWinsOverRecord(sourceTombstone, targetNote)
+    ) {
+      deleteTargetIds.push(noteId);
+    } else {
+      copyTargetToSource.push({
+        record: targetNote,
+        baseVersion: sourceTombstone?.version ?? 0
+      });
+    }
+  }
+
+  return { deleteTargetIds, copyTargetToSource };
+}
+
+async function pushMirrorChanges(
+  target: NotesDb,
+  ownerUsername: string,
+  notebooks: MirrorChange<Notebook>[],
+  notes: MirrorChange<Note>[],
+  cursorKey: string
 ): Promise<void> {
-  await deleteNotesByIds(target, snapshot.deletedNoteIds, ownerUsername);
-  await deleteNotebooksByIds(
+  if (!notebooks.length && !notes.length) return;
+
+  const result = await pushChanges(
     target,
-    snapshot.deletedNotebookIds,
-    ownerUsername
+    {
+      device: MIRROR_DEVICE,
+      notebooks,
+      notes
+    },
+    ownerUsername,
+    { allowTombstoneOverwrite: true }
   );
-  await deleteDevicesByIds(target, snapshot.deletedDeviceIds, ownerUsername);
+  if (result.conflicts.length) {
+    throw new Error(
+      `Remote mirror conflict while applying ${cursorKey}: ${result.conflicts.length}`
+    );
+  }
 }
 
 async function syncEntityOwnerOneWay(
@@ -431,26 +695,47 @@ async function syncEntityOwnerOneWay(
       `Remote mirror ${ownerCursorKey}`
     );
 
-    await applyMirrorDeletes(snapshot, target, ownerUsername);
     await syncDevices(snapshot, target, ownerUsername);
-    const notebooks = await notebookChanges(snapshot, target, ownerUsername);
-    const notes = await noteChanges(snapshot, target, ownerUsername);
-    if (notebooks.length || notes.length) {
-      const result = await pushChanges(
-        target,
-        {
-          device: MIRROR_DEVICE,
-          notebooks,
-          notes
-        },
-        ownerUsername
-      );
-      if (result.conflicts.length) {
-        throw new Error(
-          `Remote mirror conflict while applying ${ownerCursorKey}: ${result.conflicts.length}`
-        );
-      }
-    }
+    await deleteDevicesByIds(target, snapshot.deletedDeviceIds, ownerUsername);
+
+    const [notebookUpserts, noteUpserts, notebookDeletes, noteDeletes] =
+      await Promise.all([
+        notebookChanges(snapshot, target, ownerUsername),
+        noteChanges(snapshot, target, ownerUsername),
+        notebookDeleteChanges(source, snapshot, target, ownerUsername),
+        noteDeleteChanges(source, snapshot, target, ownerUsername)
+      ]);
+
+    await deleteNotebooksByIds(
+      source,
+      notebookUpserts.deleteSourceIds,
+      ownerUsername
+    );
+    await deleteNotesByIds(source, noteUpserts.deleteSourceIds, ownerUsername);
+    await deleteNotebooksByIds(
+      target,
+      notebookDeletes.deleteTargetIds,
+      ownerUsername
+    );
+    await deleteNotesByIds(target, noteDeletes.deleteTargetIds, ownerUsername);
+
+    await pushMirrorChanges(
+      target,
+      ownerUsername,
+      notebookUpserts.copySourceToTarget,
+      noteUpserts.copySourceToTarget,
+      ownerCursorKey
+    );
+    await pushMirrorChanges(
+      source,
+      ownerUsername,
+      [
+        ...notebookUpserts.copyTargetToSource,
+        ...notebookDeletes.copyTargetToSource
+      ],
+      [...noteUpserts.copyTargetToSource, ...noteDeletes.copyTargetToSource],
+      ownerCursorKey
+    );
 
     await setSyncMeta(target, ownerCursorKey, String(nextCursor));
     hasMore = Boolean(snapshot.hasMore);
@@ -468,9 +753,16 @@ async function syncOwners(source: NotesDb, target: NotesDb): Promise<string[]> {
 async function syncOneWay(
   source: NotesDb,
   target: NotesDb,
-  cursorKey: string
+  cursorKey: string,
+  {
+    copyUsers = false,
+    pruneMissingUsers = false
+  }: { copyUsers?: boolean; pruneMissingUsers?: boolean } = {}
 ): Promise<void> {
-  await syncUsers(source, target);
+  await syncUsers(source, target, {
+    copyUsers,
+    pruneMissing: pruneMissingUsers
+  });
   for (const ownerUsername of await syncOwners(source, target)) {
     await syncEntityOwnerOneWay(source, target, cursorKey, ownerUsername);
   }
@@ -480,9 +772,16 @@ export async function syncDatabases(
   local: NotesDb,
   remote: NotesDb
 ): Promise<void> {
-  await syncOneWay(remote, local, 'mirror.remote.revision');
+  await pruneOrphanedAuthUserData(remote);
+  await syncOneWay(remote, local, 'mirror.remote.revision', {
+    copyUsers: true,
+    pruneMissingUsers: true
+  });
   await syncOneWay(local, remote, 'mirror.local.revision');
-  await syncOneWay(remote, local, 'mirror.remote.revision');
+  await syncOneWay(remote, local, 'mirror.remote.revision', {
+    copyUsers: true,
+    pruneMissingUsers: true
+  });
 }
 
 export async function syncRemoteDatabase(local: NotesDb): Promise<void> {

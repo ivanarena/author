@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "aube -F @author/web run dev",
     "build": "aube -F @author/web run build",
+    "preview": "aube -F @author/web run preview",
     "check": "aube -F @author/web run check",
     "lint": "eslint . --max-warnings=0",
     "lint:fix": "eslint . --fix",

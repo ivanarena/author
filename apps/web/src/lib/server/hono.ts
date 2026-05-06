@@ -12,6 +12,7 @@ import type {
   RemoteSyncState,
   SyncStatusResponse
 } from '@author/api-types';
+import { API_PATHS } from '@author/api-types';
 import type { Note, Notebook, SyncStatus } from '@author/schema';
 import { Hono } from 'hono';
 import {
@@ -555,7 +556,7 @@ function pullLimit(value: unknown): number | null {
     : null;
 }
 
-api.get('/api/health', (c) =>
+api.get(API_PATHS.health, (c) =>
   c.json({
     ok: true,
     service: 'author-notes',
@@ -563,7 +564,7 @@ api.get('/api/health', (c) =>
   } satisfies HealthResponse)
 );
 
-api.post('/api/auth/login', async (c) => {
+api.post(API_PATHS.authLogin, async (c) => {
   const parsed = await jsonOrSizeError<AuthLoginRequest>(
     c.req.raw,
     MAX_LOGIN_BODY_BYTES,
@@ -610,7 +611,7 @@ api.post('/api/auth/login', async (c) => {
   }
 });
 
-api.post('/api/auth/signup', async (c) => {
+api.post(API_PATHS.authSignup, async (c) => {
   const parsed = await jsonOrSizeError<AuthSignupRequest>(
     c.req.raw,
     MAX_LOGIN_BODY_BYTES,
@@ -683,7 +684,7 @@ api.post('/api/auth/signup', async (c) => {
   }
 });
 
-api.get('/api/auth/validate', async (c) => {
+api.get(API_PATHS.authValidate, async (c) => {
   const db = await openLocalDatabase();
   try {
     const session = await sessionFromRequest(db, c.req.raw);
@@ -700,7 +701,7 @@ api.get('/api/auth/validate', async (c) => {
   }
 });
 
-api.post('/api/auth/logout', async (c) => {
+api.post(API_PATHS.authLogout, async (c) => {
   const db = await openLocalDatabase();
   try {
     const authError = await requireAuth(db, c.req.raw);
@@ -712,7 +713,7 @@ api.post('/api/auth/logout', async (c) => {
   }
 });
 
-api.get('/api/account', async (c) => {
+api.get(API_PATHS.account, async (c) => {
   const db = await openLocalDatabase();
   try {
     const session = await sessionFromRequest(db, c.req.raw);
@@ -723,7 +724,7 @@ api.get('/api/account', async (c) => {
   }
 });
 
-api.patch('/api/account', async (c) => {
+api.patch(API_PATHS.account, async (c) => {
   const db = await openLocalDatabase();
   try {
     let session = await sessionFromRequest(db, c.req.raw);
@@ -779,7 +780,7 @@ api.patch('/api/account', async (c) => {
   }
 });
 
-api.post('/api/account/password', async (c) => {
+api.post(API_PATHS.accountPassword, async (c) => {
   const db = await openLocalDatabase();
   try {
     let session = await sessionFromRequest(db, c.req.raw);
@@ -842,7 +843,7 @@ api.post('/api/account/password', async (c) => {
   }
 });
 
-api.delete('/api/account', async (c) => {
+api.delete(API_PATHS.account, async (c) => {
   const db = await openLocalDatabase();
   try {
     let session = await sessionFromRequest(db, c.req.raw);
@@ -900,7 +901,7 @@ api.delete('/api/account', async (c) => {
   }
 });
 
-api.get('/api/notes', async (c) => {
+api.get(API_PATHS.notes, async (c) => {
   const db = await openLocalDatabase();
   try {
     let session = await sessionFromRequest(db, c.req.raw);
@@ -918,7 +919,7 @@ api.get('/api/notes', async (c) => {
   }
 });
 
-api.get('/api/notebooks', async (c) => {
+api.get(API_PATHS.notebooks, async (c) => {
   const db = await openLocalDatabase();
   try {
     let session = await sessionFromRequest(db, c.req.raw);
@@ -936,7 +937,7 @@ api.get('/api/notebooks', async (c) => {
   }
 });
 
-api.get('/api/sync/status', async (c) => {
+api.get(API_PATHS.syncStatus, async (c) => {
   const db = await openLocalDatabase();
   try {
     const authError = await requireAuth(db, c.req.raw);
@@ -951,7 +952,7 @@ api.get('/api/sync/status', async (c) => {
   }
 });
 
-api.post('/api/sync/pull', async (c) => {
+api.post(API_PATHS.syncPull, async (c) => {
   const db = await openLocalDatabase();
   try {
     let session = await sessionFromRequest(db, c.req.raw);
@@ -984,7 +985,7 @@ api.post('/api/sync/pull', async (c) => {
   }
 });
 
-api.post('/api/sync/push', async (c) => {
+api.post(API_PATHS.syncPush, async (c) => {
   const db = await openLocalDatabase();
   try {
     let session = await sessionFromRequest(db, c.req.raw);
@@ -1021,7 +1022,7 @@ api.post('/api/sync/push', async (c) => {
   }
 });
 
-api.post('/api/cleanup-trash', async (c) => {
+api.post(API_PATHS.cleanupTrash, async (c) => {
   const db = await openLocalDatabase();
   try {
     let session = await sessionFromRequest(db, c.req.raw);

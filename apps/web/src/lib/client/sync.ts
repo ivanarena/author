@@ -1,17 +1,16 @@
 import type {
-  AccountResponse,
-  AccountUpdateRequest,
   AuthLoginResponse,
   AuthSignupRequest,
-  AuthValidateResponse,
-  DeleteAccountRequest,
-  PasswordChangeRequest,
-  PullResponse,
-  PushRequest,
-  PushResponse,
-  SyncStatusResponse
+  PullRequest,
+  PushRequest
 } from '@author/api-types';
 import { safeRevisionCursor } from '@author/sync-spec';
+import {
+  loginWithDevice,
+  pullSyncChanges,
+  pushSyncChanges,
+  signupWithDevice
+} from './api-client';
 import { localDb } from './db';
 import { hasStoredEncryptionKeyMaterial } from './encryption';
 import {
@@ -27,94 +26,17 @@ import {
 const PUSH_BATCH_SIZE = 100;
 const PULL_BATCH_SIZE = 500;
 
-export class AuthError extends Error {
-  constructor(message = 'Login expired') {
-    super(message);
-    this.name = 'AuthError';
-  }
-}
-
-export class SyncHttpError extends Error {
-  constructor(
-    readonly status: number,
-    message = `Sync failed: ${status}`
-  ) {
-    super(message);
-    this.name = 'SyncHttpError';
-  }
-}
-
-function authHeaders(token: string): HeadersInit {
-  return {
-    authorization: `Bearer ${token}`
-  };
-}
-
-async function responseError(
-  response: Response,
-  fallback: string
-): Promise<Error> {
-  const body = (await response.json().catch(() => null)) as {
-    error?: string;
-  } | null;
-  if (response.status === 401) return new AuthError(body?.error ?? undefined);
-  return new SyncHttpError(response.status, body?.error ?? fallback);
-}
-
-async function apiPost<TRequest, TResponse>(
-  path: string,
-  token: string,
-  body: TRequest
-): Promise<TResponse> {
-  const response = await fetch(path, {
-    method: 'POST',
-    headers: {
-      ...authHeaders(token),
-      'content-type': 'application/json'
-    },
-    body: JSON.stringify(body)
-  });
-
-  if (!response.ok) {
-    throw await responseError(response, `Sync failed: ${response.status}`);
-  }
-
-  return (await response.json()) as TResponse;
-}
-
-export async function validateSession(
-  token: string
-): Promise<AuthValidateResponse> {
-  const response = await fetch('/api/auth/validate', {
-    headers: authHeaders(token)
-  });
-
-  if (!response.ok) {
-    throw await responseError(
-      response,
-      `Session check failed: ${response.status}`
-    );
-  }
-
-  return (await response.json()) as AuthValidateResponse;
-}
-
-export async function loadSyncStatus(
-  token: string
-): Promise<SyncStatusResponse> {
-  const response = await fetch('/api/sync/status', {
-    headers: authHeaders(token)
-  });
-
-  if (!response.ok) {
-    throw await responseError(
-      response,
-      `Sync status failed: ${response.status}`
-    );
-  }
-
-  return (await response.json()) as SyncStatusResponse;
-}
+export {
+  AuthError,
+  SyncHttpError,
+  changePassword,
+  deleteAccount,
+  loadAccount,
+  loadSyncStatus,
+  logout,
+  updateAccount,
+  validateSession
+} from './api-client';
 
 export async function runSync(
   token: string
@@ -147,11 +69,7 @@ export async function runSync(
       notes: pendingNotes.splice(0, PUSH_BATCH_SIZE),
       notebooks: pendingNotebooks.splice(0, PUSH_BATCH_SIZE)
     };
-    const pushResponse = await apiPost<PushRequest, PushResponse>(
-      '/api/sync/push',
-      token,
-      pushPayload
-    );
+    const pushResponse = await pushSyncChanges(token, pushPayload);
     pushed += pushPayload.notes.length + pushPayload.notebooks.length;
     await markAcceptedChanges(pushResponse.accepted, pushResponse.serverTime, [
       ...pushPayload.notes.map((change) => ({
@@ -188,14 +106,12 @@ export async function runSync(
   let pulled = 0;
   let hasMore = true;
   while (hasMore) {
-    const pullResponse = await apiPost<
-      { since: string | null; sinceRevision: number | null; limit: number },
-      PullResponse
-    >('/api/sync/pull', token, {
+    const pullPayload: PullRequest = {
       since: lastPulledAt,
       sinceRevision: pullCursor,
       limit: PULL_BATCH_SIZE
-    });
+    };
+    const pullResponse = await pullSyncChanges(token, pullPayload);
     const nextPullCursor = safeRevisionCursor(
       pullResponse.serverRevision,
       pullCursor,
@@ -242,19 +158,7 @@ export async function login(
   password: string
 ): Promise<AuthLoginResponse> {
   const device = await getOrCreateDevice();
-  const response = await fetch('/api/auth/login', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json'
-    },
-    body: JSON.stringify({ username, password, device })
-  });
-
-  if (!response.ok) {
-    throw await responseError(response, 'Login failed');
-  }
-
-  return (await response.json()) as AuthLoginResponse;
+  return await loginWithDevice({ username, password, device });
 }
 
 export async function signup(
@@ -269,89 +173,5 @@ export async function signup(
     displayName,
     device
   };
-  const response = await fetch('/api/auth/signup', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json'
-    },
-    body: JSON.stringify(body)
-  });
-
-  if (!response.ok) {
-    throw await responseError(response, 'Signup failed');
-  }
-
-  return (await response.json()) as AuthLoginResponse;
-}
-
-export async function loadAccount(token: string): Promise<AccountResponse> {
-  const response = await fetch('/api/account', {
-    headers: authHeaders(token)
-  });
-
-  if (!response.ok) {
-    throw await responseError(response, `Account failed: ${response.status}`);
-  }
-
-  return (await response.json()) as AccountResponse;
-}
-
-export async function updateAccount(
-  token: string,
-  body: AccountUpdateRequest
-): Promise<AccountResponse> {
-  const response = await fetch('/api/account', {
-    method: 'PATCH',
-    headers: {
-      ...authHeaders(token),
-      'content-type': 'application/json'
-    },
-    body: JSON.stringify(body)
-  });
-
-  if (!response.ok) {
-    throw await responseError(response, `Account failed: ${response.status}`);
-  }
-
-  return (await response.json()) as AccountResponse;
-}
-
-export async function changePassword(
-  token: string,
-  body: PasswordChangeRequest
-): Promise<AccountResponse> {
-  return await apiPost<PasswordChangeRequest, AccountResponse>(
-    '/api/account/password',
-    token,
-    body
-  );
-}
-
-export async function logout(token: string): Promise<void> {
-  await apiPost<Record<string, never>, { ok: true }>(
-    '/api/auth/logout',
-    token,
-    {}
-  );
-}
-
-export async function deleteAccount(
-  token: string,
-  body: DeleteAccountRequest
-): Promise<void> {
-  const response = await fetch('/api/account', {
-    method: 'DELETE',
-    headers: {
-      ...authHeaders(token),
-      'content-type': 'application/json'
-    },
-    body: JSON.stringify(body)
-  });
-
-  if (!response.ok) {
-    throw await responseError(
-      response,
-      `Delete account failed: ${response.status}`
-    );
-  }
+  return await signupWithDevice(body);
 }

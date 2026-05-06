@@ -1,5 +1,23 @@
 import type { Device, Note, Notebook } from '@author/schema';
 
+export const API_PATHS = {
+  health: '/api/health',
+  authLogin: '/api/auth/login',
+  authSignup: '/api/auth/signup',
+  authValidate: '/api/auth/validate',
+  authLogout: '/api/auth/logout',
+  account: '/api/account',
+  accountPassword: '/api/account/password',
+  notes: '/api/notes',
+  notebooks: '/api/notebooks',
+  syncStatus: '/api/sync/status',
+  syncPull: '/api/sync/pull',
+  syncPush: '/api/sync/push',
+  cleanupTrash: '/api/cleanup-trash'
+} as const;
+
+export type ApiPath = (typeof API_PATHS)[keyof typeof API_PATHS];
+
 export interface AuthLoginRequest {
   username?: string;
   password: string;

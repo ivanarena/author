@@ -48,13 +48,11 @@ import {
   changePassword,
   deleteAccount,
   loadSyncStatus,
-  login,
   logout,
-  runSync,
-  signup,
   updateAccount,
   validateSession
-} from '$lib/client/sync';
+} from '$lib/client/api-client';
+import { login, runSync, signup } from '$lib/client/sync';
 import {
   countNotesByNotebook,
   countWords,

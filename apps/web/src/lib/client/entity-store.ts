@@ -1,10 +1,16 @@
-import type { Device } from '@author/schema';
+import type { SyncConflict } from '@author/api-types';
+import type { Device, Note } from '@author/schema';
 import {
   localDb,
   type LocalConflict,
   type LocalNote,
   type LocalNotebook
 } from './db';
+import {
+  decryptConflictForDisplay,
+  encryptConflictForStorage,
+  reencryptConflictForStorage
+} from './conflict-crypto';
 import {
   decryptNoteFields,
   encryptNoteFields,
@@ -343,10 +349,16 @@ export async function loadNotebooks(): Promise<LocalNotebook[]> {
 }
 
 export async function loadPendingConflicts(): Promise<LocalConflict[]> {
-  return localDb.conflicts
+  const conflicts = await localDb.conflicts
     .where('status')
     .equals('pending')
     .sortBy('createdAt');
+  return await Promise.all(
+    conflicts.map(async (conflict) => ({
+      ...conflict,
+      conflict: await decryptConflictForDisplay(conflict.conflict)
+    }))
+  );
 }
 
 export async function loadDevices(): Promise<Device[]> {
@@ -445,15 +457,18 @@ export async function ensureLocalNotesEncrypted(): Promise<void> {
       !note.titleHash ||
       !note.bodyHash
   );
-  if (!notesNeedingEncryption.length) return;
-
-  await localDb.notes.bulkPut(
-    await Promise.all(
-      notesNeedingEncryption.map(async (note) =>
-        encryptNoteFields(await decryptNoteFields(note))
+  if (notesNeedingEncryption.length) {
+    await saveEncryptionChanges(
+      await Promise.all(
+        notesNeedingEncryption.map(async (note) => ({
+          before: note,
+          after: await encryptNoteFields(await decryptNoteFields(note))
+        }))
       )
-    )
-  );
+    );
+  }
+
+  await ensureLocalConflictsEncrypted();
 }
 
 export async function reencryptLocalNotes(
@@ -463,13 +478,154 @@ export async function reencryptLocalNotes(
   if (previousMaterial === nextMaterial) return;
 
   const notes = await localDb.notes.toArray();
-  if (!notes.length) return;
-
-  await localDb.notes.bulkPut(
-    await Promise.all(
-      notes.map((note) =>
-        reencryptNoteFields(note, previousMaterial, nextMaterial)
+  if (notes.length) {
+    await saveEncryptionChanges(
+      await Promise.all(
+        notes.map(async (note) => ({
+          before: note,
+          after: await reencryptNoteFields(note, previousMaterial, nextMaterial)
+        }))
       )
+    );
+  }
+
+  await reencryptLocalConflicts(previousMaterial, nextMaterial);
+}
+
+function encryptedFieldsChanged(before: LocalNote, after: LocalNote): boolean {
+  return (
+    before.title !== after.title ||
+    before.body !== after.body ||
+    (before.titleHash ?? null) !== (after.titleHash ?? null) ||
+    (before.bodyHash ?? null) !== (after.bodyHash ?? null)
+  );
+}
+
+async function saveEncryptionChanges(
+  changes: Array<{ before: LocalNote; after: LocalNote }>
+): Promise<void> {
+  const changed = changes.filter(({ before, after }) =>
+    encryptedFieldsChanged(before, after)
+  );
+  if (!changed.length) return;
+
+  const device = await getOrCreateDevice();
+  await localDb.notes.bulkPut(
+    changed.map(({ before, after }) => ({
+      ...after,
+      deviceId: device.id,
+      version: before.version + 1,
+      syncStatus:
+        before.syncStatus === 'conflict' || before.syncStatus === 'deleted'
+          ? before.syncStatus
+          : 'pending'
+    }))
+  );
+}
+
+function isNoteConflict(
+  conflict: LocalConflict
+): conflict is LocalConflict & { conflict: SyncConflict<Note> } {
+  return (
+    conflict.entityType === 'note' && conflict.conflict.entityType === 'note'
+  );
+}
+
+function noteConflictNeedsEncryption(conflict: SyncConflict<Note>): boolean {
+  const local = conflict.local.record;
+  const remote = conflict.remote.record;
+  return (
+    conflict.local.previewText !== '' ||
+    conflict.remote.previewText !== '' ||
+    !isEncryptedText(local.title) ||
+    !isEncryptedText(local.body) ||
+    !local.titleHash ||
+    !local.bodyHash ||
+    !isEncryptedText(remote.title) ||
+    !isEncryptedText(remote.body) ||
+    !remote.titleHash ||
+    !remote.bodyHash
+  );
+}
+
+function conflictEncryptedFieldsChanged(
+  before: LocalConflict,
+  after: LocalConflict['conflict']
+): boolean {
+  if (
+    before.entityType !== 'note' ||
+    before.conflict.entityType !== 'note' ||
+    after.entityType !== 'note'
+  ) {
+    return false;
+  }
+  const beforeConflict = before.conflict as SyncConflict<Note>;
+  const afterConflict = after as SyncConflict<Note>;
+  return (
+    beforeConflict.local.previewText !== afterConflict.local.previewText ||
+    beforeConflict.remote.previewText !== afterConflict.remote.previewText ||
+    encryptedFieldsChanged(
+      beforeConflict.local.record as LocalNote,
+      afterConflict.local.record as LocalNote
+    ) ||
+    encryptedFieldsChanged(
+      beforeConflict.remote.record as LocalNote,
+      afterConflict.remote.record as LocalNote
+    )
+  );
+}
+
+async function saveConflictEncryptionChanges(
+  changes: Array<{ before: LocalConflict; after: LocalConflict['conflict'] }>
+): Promise<void> {
+  const changed = changes.filter(({ before, after }) =>
+    conflictEncryptedFieldsChanged(before, after)
+  );
+  if (!changed.length) return;
+
+  await localDb.conflicts.bulkPut(
+    changed.map(({ before, after }) => ({
+      ...before,
+      conflict: after
+    }))
+  );
+}
+
+async function ensureLocalConflictsEncrypted(): Promise<void> {
+  const conflicts = await localDb.conflicts.toArray();
+  const noteConflicts = conflicts.filter(
+    (conflict) =>
+      isNoteConflict(conflict) && noteConflictNeedsEncryption(conflict.conflict)
+  );
+  if (!noteConflicts.length) return;
+
+  await saveConflictEncryptionChanges(
+    await Promise.all(
+      noteConflicts.map(async (conflict) => ({
+        before: conflict,
+        after: await encryptConflictForStorage(conflict.conflict)
+      }))
+    )
+  );
+}
+
+async function reencryptLocalConflicts(
+  previousMaterial: string,
+  nextMaterial: string
+): Promise<void> {
+  const conflicts = (await localDb.conflicts.toArray()).filter(isNoteConflict);
+  if (!conflicts.length) return;
+
+  await saveConflictEncryptionChanges(
+    await Promise.all(
+      conflicts.map(async (conflict) => ({
+        before: conflict,
+        after: await reencryptConflictForStorage(
+          conflict.conflict,
+          previousMaterial,
+          nextMaterial
+        )
+      }))
     )
   );
 }

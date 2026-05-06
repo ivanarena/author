@@ -69,6 +69,13 @@ let remoteSyncFailureCount = 0;
 let remoteSyncQueueRunning = false;
 let remoteSyncQueued = false;
 
+class RequestBodyTooLargeError extends Error {
+  constructor() {
+    super('Request body too large');
+    this.name = 'RequestBodyTooLargeError';
+  }
+}
+
 function syncOwner(session: AuthSession): string {
   return session.user.username;
 }
@@ -383,6 +390,64 @@ function requestBodyTooLarge(request: Request, maxBytes: number): boolean {
   return Number.isFinite(bytes) && bytes > maxBytes;
 }
 
+async function readJsonBody<T>(
+  request: Request,
+  maxBytes: number
+): Promise<T | null> {
+  if (requestBodyTooLarge(request, maxBytes)) {
+    throw new RequestBodyTooLargeError();
+  }
+
+  if (!request.body) return null;
+
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder();
+  const chunks: string[] = [];
+  let bytes = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytes += value.byteLength;
+    if (bytes > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new RequestBodyTooLargeError();
+    }
+    chunks.push(decoder.decode(value, { stream: true }));
+  }
+  chunks.push(decoder.decode());
+
+  const text = chunks.join('');
+  if (!text.trim()) return null;
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function jsonOrSizeError<T>(
+  request: Request,
+  maxBytes: number,
+  message: string
+): Promise<{ ok: true; body: T | null } | { ok: false; response: Response }> {
+  try {
+    return { ok: true, body: await readJsonBody<T>(request, maxBytes) };
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return {
+        ok: false,
+        response: new Response(JSON.stringify({ error: message }), {
+          status: 413,
+          headers: { 'content-type': 'application/json' }
+        })
+      };
+    }
+    throw error;
+  }
+}
+
 function nonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
@@ -499,13 +564,13 @@ api.get('/api/health', (c) =>
 );
 
 api.post('/api/auth/login', async (c) => {
-  if (requestBodyTooLarge(c.req.raw, MAX_LOGIN_BODY_BYTES)) {
-    return c.json({ error: 'Login payload too large' }, 413);
-  }
-
-  const body = (await c.req
-    .json()
-    .catch(() => null)) as AuthLoginRequest | null;
+  const parsed = await jsonOrSizeError<AuthLoginRequest>(
+    c.req.raw,
+    MAX_LOGIN_BODY_BYTES,
+    'Login payload too large'
+  );
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
 
   if (!hasDevicePayload(body?.device) || typeof body?.password !== 'string') {
     return c.json({ error: 'Invalid login payload' }, 400);
@@ -546,13 +611,13 @@ api.post('/api/auth/login', async (c) => {
 });
 
 api.post('/api/auth/signup', async (c) => {
-  if (requestBodyTooLarge(c.req.raw, MAX_LOGIN_BODY_BYTES)) {
-    return c.json({ error: 'Signup payload too large' }, 413);
-  }
-
-  const body = (await c.req
-    .json()
-    .catch(() => null)) as AuthSignupRequest | null;
+  const parsed = await jsonOrSizeError<AuthSignupRequest>(
+    c.req.raw,
+    MAX_LOGIN_BODY_BYTES,
+    'Signup payload too large'
+  );
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
 
   if (
     !hasDevicePayload(body?.device) ||
@@ -666,7 +731,13 @@ api.patch('/api/account', async (c) => {
     if (session.legacy) {
       return c.json({ error: 'Legacy token accounts cannot be edited' }, 400);
     }
-    const body = (await c.req.json().catch(() => ({}))) as AccountUpdateRequest;
+    const parsed = await jsonOrSizeError<AccountUpdateRequest>(
+      c.req.raw,
+      MAX_LOGIN_BODY_BYTES,
+      'Account payload too large'
+    );
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body ?? {};
     const remoteConfig = getRemoteDatabaseConfig();
     if (!remoteConfig) {
       return c.json({ error: 'Account updates require remote access' }, 503);
@@ -716,9 +787,13 @@ api.post('/api/account/password', async (c) => {
     if (session.legacy) {
       return c.json({ error: 'Legacy token accounts cannot be edited' }, 400);
     }
-    const body = (await c.req
-      .json()
-      .catch(() => null)) as PasswordChangeRequest | null;
+    const parsed = await jsonOrSizeError<PasswordChangeRequest>(
+      c.req.raw,
+      MAX_LOGIN_BODY_BYTES,
+      'Password payload too large'
+    );
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
     if (
       typeof body?.currentPassword !== 'string' ||
       typeof body?.newPassword !== 'string'
@@ -775,9 +850,13 @@ api.delete('/api/account', async (c) => {
     if (session.legacy) {
       return c.json({ error: 'Legacy token accounts cannot be deleted' }, 400);
     }
-    const body = (await c.req
-      .json()
-      .catch(() => null)) as DeleteAccountRequest | null;
+    const parsed = await jsonOrSizeError<DeleteAccountRequest>(
+      c.req.raw,
+      MAX_LOGIN_BODY_BYTES,
+      'Delete payload too large'
+    );
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
     if (typeof body?.password !== 'string') {
       return c.json({ error: 'Invalid delete payload' }, 400);
     }
@@ -873,14 +952,18 @@ api.get('/api/sync/status', async (c) => {
 });
 
 api.post('/api/sync/pull', async (c) => {
-  if (requestBodyTooLarge(c.req.raw, MAX_LOGIN_BODY_BYTES)) {
-    return c.json({ error: 'Pull payload too large' }, 413);
-  }
-
   const db = await openLocalDatabase();
   try {
     let session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
+
+    const parsed = await jsonOrSizeError<PullRequest>(
+      c.req.raw,
+      MAX_LOGIN_BODY_BYTES,
+      'Pull payload too large'
+    );
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body ?? {};
 
     if (!(await syncRemoteBestEffort(db))) {
       await queueRemoteSyncAfter();
@@ -888,7 +971,6 @@ api.post('/api/sync/pull', async (c) => {
       session = await sessionFromRequest(db, c.req.raw);
       if (!session) return unauthorized();
     }
-    const body = (await c.req.json().catch(() => ({}))) as PullRequest;
     return c.json(
       await pullChangesSince(
         db,
@@ -903,22 +985,18 @@ api.post('/api/sync/pull', async (c) => {
 });
 
 api.post('/api/sync/push', async (c) => {
-  if (requestBodyTooLarge(c.req.raw, MAX_SYNC_BODY_BYTES)) {
-    return c.json({ error: 'Push payload too large' }, 413);
-  }
-
   const db = await openLocalDatabase();
   try {
     let session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
 
-    if (!(await syncRemoteBestEffort(db))) {
-      await queueRemoteSyncAfter();
-    } else {
-      session = await sessionFromRequest(db, c.req.raw);
-      if (!session) return unauthorized();
-    }
-    const body = (await c.req.json().catch(() => null)) as PushRequest | null;
+    const parsed = await jsonOrSizeError<PushRequest>(
+      c.req.raw,
+      MAX_SYNC_BODY_BYTES,
+      'Push payload too large'
+    );
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
     if (
       !body ||
       !hasDevicePayload(body.device) ||
@@ -929,6 +1007,12 @@ api.post('/api/sync/push', async (c) => {
       return c.json({ error: 'Invalid push payload' }, 400);
     }
 
+    if (!(await syncRemoteBestEffort(db))) {
+      await queueRemoteSyncAfter();
+    } else {
+      session = await sessionFromRequest(db, c.req.raw);
+      if (!session) return unauthorized();
+    }
     const response = await pushChanges(db, body, syncOwner(session));
     await queueRemoteSyncAfter();
     return c.json(response);

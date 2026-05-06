@@ -6,6 +6,8 @@ export const ENCRYPTION_KEY_MATERIAL_STORAGE_KEY =
 
 const USERNAME_KEY = 'author-notes-username';
 const FALLBACK_KEY_MATERIAL = 'author-notes:local:v1';
+const PASSWORD_KDF_ITERATIONS = 210_000;
+const PASSWORD_KDF_SALT_PREFIX = 'author-notes:password-key:v2';
 
 const keyCache = new Map<string, Promise<CryptoKey>>();
 const encoder = new TextEncoder();
@@ -39,15 +41,38 @@ export function hasStoredEncryptionKeyMaterial(): boolean {
   return Boolean(storage()?.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY));
 }
 
+export function clearStoredEncryptionKeyMaterial(): void {
+  storage()?.removeItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY);
+}
+
 export async function keyMaterialFromPassword(
   username: string,
   password: string
 ): Promise<string> {
-  const digest = await cryptoImpl().subtle.digest(
+  const normalized = normalizedUsername(username);
+  const legacyDigest = await cryptoImpl().subtle.digest(
     'SHA-256',
-    encoder.encode(`${normalizedUsername(username)}\0${password}`)
+    encoder.encode(`${normalized}\0${password}`)
   );
-  return `password:${base64UrlEncode(new Uint8Array(digest))}`;
+  const legacy = base64UrlEncode(new Uint8Array(legacyDigest));
+  const passwordKey = await cryptoImpl().subtle.importKey(
+    'raw',
+    encoder.encode(password),
+    'PBKDF2',
+    false,
+    ['deriveBits']
+  );
+  const derived = await cryptoImpl().subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      hash: 'SHA-256',
+      iterations: PASSWORD_KDF_ITERATIONS,
+      salt: encoder.encode(`${PASSWORD_KDF_SALT_PREFIX}:${normalized}`)
+    },
+    passwordKey,
+    256
+  );
+  return `password:v2:${PASSWORD_KDF_ITERATIONS}:${base64UrlEncode(new Uint8Array(derived))}:legacy:${legacy}`;
 }
 
 export async function rememberEncryptionPassword(
@@ -171,6 +196,8 @@ function encryptionKey(keyMaterial: string): Promise<CryptoKey> {
 
 function decryptionKeyMaterials(primary: string): string[] {
   const candidates = [primary];
+  const legacy = legacyKeyMaterial(primary);
+  if (legacy) candidates.push(legacy);
   const currentStorage = storage();
   const username = currentStorage?.getItem(USERNAME_KEY);
 
@@ -180,6 +207,12 @@ function decryptionKeyMaterials(primary: string): string[] {
   candidates.push(FALLBACK_KEY_MATERIAL);
 
   return [...new Set(candidates)];
+}
+
+function legacyKeyMaterial(material: string): string | null {
+  if (!material.startsWith('password:v2:')) return null;
+  const legacy = material.split(':legacy:')[1];
+  return legacy ? `password:${legacy}` : null;
 }
 
 function encryptionIv(): Uint8Array {

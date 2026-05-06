@@ -7,6 +7,7 @@ import {
   mergeRemoteChanges
 } from './sync-store';
 import { localDb } from './db';
+import { encryptNoteFields, isEncryptedText } from './encryption';
 
 vi.mock('./db', () => ({
   localDb: {
@@ -34,7 +35,8 @@ vi.mock('./db', () => ({
 
 vi.mock('./encryption', () => ({
   decryptNoteFields: vi.fn(async (note) => note),
-  encryptNoteFields: vi.fn(async (note) => note)
+  encryptNoteFields: vi.fn(async (note) => note),
+  isEncryptedText: vi.fn(() => true)
 }));
 
 vi.mock('./local-state', () => ({
@@ -111,7 +113,11 @@ function remoteNotebook(overrides: Partial<Notebook> = {}): Notebook {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(localDb.notes.get).mockResolvedValue(null);
+  vi.mocked(localDb.notebooks.get).mockResolvedValue(null);
   vi.mocked(localDb.devices.get).mockResolvedValue(null);
+  vi.mocked(encryptNoteFields).mockImplementation(async (note) => note);
+  vi.mocked(isEncryptedText).mockReturnValue(true);
 });
 
 describe('client sync store', () => {
@@ -191,6 +197,11 @@ describe('client sync store', () => {
       id: 'phone-device',
       name: 'Phone'
     });
+    vi.mocked(encryptNoteFields).mockImplementation(async (note) => ({
+      ...note,
+      title: `enc:${note.title}`,
+      body: `enc:${note.body}`
+    }));
 
     await mergeRemoteChanges([remoteNote()], [], syncedAt);
 
@@ -204,15 +215,19 @@ describe('client sync store', () => {
           reason: 'remote_changed',
           local: expect.objectContaining({
             source: 'local',
-            previewText: baseNote.body,
-            record: baseNote
+            previewText: '',
+            record: expect.objectContaining({
+              title: `enc:${baseNote.title}`,
+              body: `enc:${baseNote.body}`
+            })
           }),
           remote: expect.objectContaining({
             source: 'remote',
             deviceName: 'Phone',
-            previewText: 'Remote body',
+            previewText: '',
             record: expect.objectContaining({
-              body: 'Remote body',
+              title: `enc:${baseNote.title}`,
+              body: 'enc:Remote body',
               version: 3
             })
           })
@@ -248,6 +263,31 @@ describe('client sync store', () => {
 
     expect(localDb.notes.put).not.toHaveBeenCalled();
     expect(localDb.conflicts.put).not.toHaveBeenCalled();
+  });
+
+  it('queues pulled plaintext notes for encrypted republish', async () => {
+    vi.mocked(isEncryptedText).mockReturnValue(false);
+    vi.mocked(encryptNoteFields).mockImplementation(async (note) => ({
+      ...note,
+      title: `enc:${note.title}`,
+      body: `enc:${note.body}`,
+      titleHash: 'hash-title',
+      bodyHash: 'hash-body'
+    }));
+
+    await mergeRemoteChanges([remoteNote()], [], syncedAt);
+
+    expect(localDb.notes.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: `enc:${baseNote.title}`,
+        body: 'enc:Remote body',
+        titleHash: 'hash-title',
+        bodyHash: 'hash-body',
+        syncStatus: 'pending',
+        lastSyncedVersion: 3,
+        lastSyncedAt: syncedAt
+      })
+    );
   });
 
   it('does not conflict a pending note with a same-browser remote echo', async () => {

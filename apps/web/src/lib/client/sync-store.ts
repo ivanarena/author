@@ -6,8 +6,16 @@ import {
   previewText,
   recordsDiffer
 } from '@author/sync-spec';
+import {
+  decryptConflictForDisplay,
+  encryptConflictForStorage
+} from './conflict-crypto';
 import { localDb, type LocalNote, type LocalNotebook } from './db';
-import { decryptNoteFields, encryptNoteFields } from './encryption';
+import {
+  decryptNoteFields,
+  encryptNoteFields,
+  isEncryptedText
+} from './encryption';
 import { getOrCreateDevice, newId, nowIso } from './local-state';
 
 export async function saveDevices(devices: Device[]): Promise<void> {
@@ -128,7 +136,7 @@ export async function saveConflict(
   conflict: SyncConflict<Note> | SyncConflict<Notebook>
 ): Promise<void> {
   const createdAt = nowIso();
-  const storedConflict = await decryptConflict(conflict);
+  const storedConflict = await encryptConflictForStorage(conflict);
   await localDb.conflicts.put({
     id: conflict.id,
     entityType: conflict.entityType,
@@ -148,35 +156,17 @@ export async function saveConflict(
   }
 }
 
-async function decryptConflict(
-  conflict: SyncConflict<Note> | SyncConflict<Notebook>
-): Promise<SyncConflict<Note> | SyncConflict<Notebook>> {
-  if (conflict.entityType !== 'note') return conflict;
-
-  const localRecord = await decryptNoteFields(conflict.local.record as Note);
-  const remoteRecord = await decryptNoteFields(conflict.remote.record as Note);
-  return {
-    ...conflict,
-    local: {
-      ...conflict.local,
-      previewText: previewText(localRecord),
-      record: localRecord
-    },
-    remote: {
-      ...conflict.remote,
-      previewText: previewText(remoteRecord),
-      record: remoteRecord
-    }
-  } satisfies SyncConflict<Note>;
-}
-
 async function mergeRemoteNote(remote: Note, syncedAt: string): Promise<void> {
   const local = await localDb.notes.get(remote.id);
   const remotePlain = await decryptNoteFields(remote);
   const remoteStored = await encryptNoteFields(remotePlain);
+  const shouldRepublishEncryption = noteNeedsEncryptionRepublish(
+    remote,
+    remoteStored
+  );
   const remoteLocal: LocalNote = {
     ...remoteStored,
-    syncStatus: 'synced',
+    syncStatus: shouldRepublishEncryption ? 'pending' : 'synced',
     lastSyncedVersion: remote.version,
     lastSyncedAt: syncedAt
   };
@@ -233,6 +223,15 @@ async function mergeRemoteNote(remote: Note, syncedAt: string): Promise<void> {
   if (local.syncStatus !== 'pending' && local.syncStatus !== 'conflict') {
     await localDb.notes.put(remoteLocal);
   }
+}
+
+function noteNeedsEncryptionRepublish(remote: Note, stored: Note): boolean {
+  return (
+    !isEncryptedText(remote.title) ||
+    !isEncryptedText(remote.body) ||
+    (remote.titleHash ?? null) !== (stored.titleHash ?? null) ||
+    (remote.bodyHash ?? null) !== (stored.bodyHash ?? null)
+  );
 }
 
 async function mergeRemoteNotebook(
@@ -326,7 +325,7 @@ export async function resolveConflict(
   const localConflict = await localDb.conflicts.get(conflictId);
   if (!localConflict || localConflict.status === 'resolved') return;
 
-  const conflict = localConflict.conflict;
+  const conflict = await decryptConflictForDisplay(localConflict.conflict);
   const device = await getOrCreateDevice();
   const now = nowIso();
 

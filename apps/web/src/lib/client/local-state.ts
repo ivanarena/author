@@ -1,5 +1,6 @@
 import type { Device } from '@author/schema';
 import { localDb } from './db';
+import { clearStoredEncryptionKeyMaterial } from './encryption';
 
 const DEVICE_KEY = 'author-notes-device-id';
 const TOKEN_KEY = 'author-notes-token';
@@ -89,6 +90,7 @@ export function setStoredSession(session: StoredSession): void {
 export function clearStoredSession(): void {
   clearToken();
   clearUsername();
+  clearStoredEncryptionKeyMaterial();
 }
 
 export function getUsername(): string | null {

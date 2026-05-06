@@ -6,6 +6,7 @@ import {
   encryptNoteFields,
   encryptText,
   isEncryptedText,
+  keyMaterialFromPassword,
   reencryptNoteFields
 } from './encryption';
 
@@ -68,6 +69,18 @@ describe('client note encryption', () => {
     });
     expect(await decryptText(nextEncrypted.body, 'old-key')).toBe(
       nextEncrypted.body
+    );
+  });
+
+  it('derives password key material that can still read legacy password notes', async () => {
+    const legacyMaterial =
+      'password:abSPzwfsxk9bY3O09rjIx28-3mo4XMf4kCbea9af9M0';
+    const encrypted = await encryptText('legacy secret', legacyMaterial);
+    const nextMaterial = await keyMaterialFromPassword('Owner', 'password');
+
+    expect(nextMaterial).toContain(':legacy:');
+    await expect(decryptText(encrypted, nextMaterial)).resolves.toBe(
+      'legacy secret'
     );
   });
 });

@@ -125,6 +125,25 @@ describe('Hono API', () => {
     expect(invalid.status).toBe(401);
   });
 
+  it('rejects oversized JSON bodies even without content-length', async () => {
+    const response = await api.fetch(
+      new Request('http://localhost/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'owner',
+          password: 'x'.repeat(20_000),
+          device: fixtureDevice
+        })
+      })
+    );
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Login payload too large'
+    });
+  });
+
   it('creates new users through signup and rejects duplicate usernames', async () => {
     const remotePath = join(tempDir, 'remote.sqlite');
     process.env.TURSO_DATABASE_URL = `file:${remotePath}`;

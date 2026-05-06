@@ -26,6 +26,11 @@ and push, then decrypts them after pull. Encryption uses random AES-GCM IVs; sta
 field hashes (`titleHash` and `bodyHash`) let sync compare encrypted fields without reusing
 nonces. Sync metadata, notebook assignment, and notebook names remain plain so versioning
 and notebook conflict checks stay small.
+Password-derived note key material uses PBKDF2-SHA-256 and is stored in `localStorage`
+for offline use. New key material can still decrypt older SHA-256-derived envelopes so
+browsers can re-encrypt and republish notes during normal sync. This avoids storing note
+plaintext remotely, but it is not a hardened zero-knowledge design for weak passwords or
+compromised browsers.
 Browsers with an old session token but no stored encryption key material must sign in again before
 syncing encrypted notes.
 

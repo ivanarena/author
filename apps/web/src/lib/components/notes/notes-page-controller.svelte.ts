@@ -1864,6 +1864,7 @@ export class NotesPageController
     this.devices = devices;
     this.pendingSyncCount = pendingSyncCount;
     this.lastSyncPass = lastSyncPass;
+    this.refreshSelectedNote(notes, trash);
     this.pruneSelectedNotes(notes, trash);
   };
 
@@ -1890,6 +1891,16 @@ export class NotesPageController
     }
     if (!selectedNoteIds.length) {
       this.selectedNotebookMenuOpen = false;
+    }
+  };
+
+  private refreshSelectedNote = (notes: LocalNote[], trash: LocalNote[]) => {
+    if (!this.selectedNote) return;
+    const current = [...notes, ...trash].find(
+      (note) => note.id === this.selectedNote?.id
+    );
+    if (current) {
+      this.selectedNote = current;
     }
   };
 

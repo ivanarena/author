@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Note } from '@author/schema';
-import type { LocalNote } from './db';
+import type { Note, Notebook } from '@author/schema';
+import type { LocalNote, LocalNotebook } from './db';
 import {
   applyRemoteDeletes,
   markAcceptedChanges,
@@ -64,6 +64,19 @@ const baseNote: LocalNote = {
   lastSyncedAt: null
 };
 
+const baseNotebook: LocalNotebook = {
+  id: 'notebook-1',
+  name: 'Local notebook',
+  createdAt: '2026-05-01T10:00:00.000Z',
+  updatedAt: '2026-05-01T10:00:00.000Z',
+  deletedAt: null,
+  deviceId: 'browser-device',
+  version: 2,
+  syncStatus: 'pending',
+  lastSyncedVersion: 1,
+  lastSyncedAt: null
+};
+
 function remoteNote(overrides: Partial<Note> = {}): Note {
   return {
     id: baseNote.id,
@@ -77,6 +90,20 @@ function remoteNote(overrides: Partial<Note> = {}): Note {
     deviceId: 'phone-device',
     version: 3,
     updatedAt: '2026-05-01T10:10:00.000Z',
+    syncStatus: 'synced',
+    ...overrides
+  };
+}
+
+function remoteNotebook(overrides: Partial<Notebook> = {}): Notebook {
+  return {
+    id: baseNotebook.id,
+    name: 'Remote notebook',
+    createdAt: baseNotebook.createdAt,
+    updatedAt: '2026-05-01T10:10:00.000Z',
+    deletedAt: null,
+    deviceId: 'phone-device',
+    version: 3,
     syncStatus: 'synced',
     ...overrides
   };
@@ -221,6 +248,68 @@ describe('client sync store', () => {
 
     expect(localDb.notes.put).not.toHaveBeenCalled();
     expect(localDb.conflicts.put).not.toHaveBeenCalled();
+  });
+
+  it('does not conflict a pending note with a same-browser remote echo', async () => {
+    vi.mocked(localDb.notes.get).mockResolvedValue({
+      ...baseNote,
+      body: 'Newer local typing',
+      updatedAt: '2026-05-01T10:12:00.000Z',
+      version: 3
+    });
+
+    await mergeRemoteChanges(
+      [
+        remoteNote({
+          body: 'Earlier version from this browser',
+          deviceId: 'browser-device',
+          version: 4
+        })
+      ],
+      [],
+      syncedAt
+    );
+
+    expect(localDb.conflicts.put).not.toHaveBeenCalled();
+    expect(localDb.notes.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: 'Newer local typing',
+        syncStatus: 'pending',
+        lastSyncedVersion: 4,
+        lastSyncedAt: syncedAt
+      })
+    );
+  });
+
+  it('does not conflict a pending notebook with a same-browser remote echo', async () => {
+    vi.mocked(localDb.notebooks.get).mockResolvedValue({
+      ...baseNotebook,
+      name: 'Newer local notebook name',
+      updatedAt: '2026-05-01T10:12:00.000Z',
+      version: 3
+    });
+
+    await mergeRemoteChanges(
+      [],
+      [
+        remoteNotebook({
+          name: 'Earlier notebook name from this browser',
+          deviceId: 'browser-device',
+          version: 4
+        })
+      ],
+      syncedAt
+    );
+
+    expect(localDb.conflicts.put).not.toHaveBeenCalled();
+    expect(localDb.notebooks.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Newer local notebook name',
+        syncStatus: 'pending',
+        lastSyncedVersion: 4,
+        lastSyncedAt: syncedAt
+      })
+    );
   });
 
   it('applies hard remote deletes to clean local records and devices', async () => {

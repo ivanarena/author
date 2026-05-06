@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { Redo2, Undo2 } from 'lucide-svelte';
-  import { formatClock, formatDateTime } from '$lib/client/view-model';
+  import { Redo2, Undo2, ZoomIn, ZoomOut } from 'lucide-svelte';
   import type { EditorPaneModel } from './notes-page-controller.svelte.js';
 
   let { model }: { model: EditorPaneModel } = $props();
@@ -16,11 +15,17 @@
     aria-label="Plain text editor"
     style={`--editor-zoom: ${model.editorZoom};`}
   >
+    <div class="editor-meta-strip" aria-label="Note metadata">
+      {#each model.editorMetadataRows as row}
+        <span>{row.value}</span>
+      {/each}
+    </div>
     <input
       class="title-input"
       aria-label="Note title"
       bind:this={model.titleInput}
       bind:value={model.titleValue}
+      placeholder="Title"
       readonly={Boolean(model.selectedNote?.trashedAt)}
       spellcheck="true"
       onkeydown={model.handleTitleKeydown}
@@ -30,45 +35,64 @@
       aria-label="Note body"
       bind:this={model.bodyTextarea}
       bind:value={model.bodyValue}
+      placeholder="Body"
       readonly={Boolean(model.selectedNote?.trashedAt)}
       spellcheck="true"
       oninput={(event) => model.handleEditorInput(event, 'body')}
     ></textarea>
-    <footer class="editor-status" aria-label="Note details">
-      <div class="history-controls" aria-label="Editor history">
-        <button
-          class="icon-button mini"
-          title="Undo"
-          aria-label="Undo"
-          disabled={!model.canUndoEditor}
-          onmousedown={(event) => event.preventDefault()}
-          onclick={model.undoEditorHistory}
+    <footer class="editor-status" aria-label="Editor controls">
+      <div class="editor-tool-group history-tool" aria-label="Editor history">
+        <div class="tool-buttons">
+          <button
+            class="icon-button mini"
+            title="Undo"
+            aria-label="Undo"
+            disabled={!model.canUndoEditor}
+            onmousedown={(event) => event.preventDefault()}
+            onclick={model.undoEditorHistory}
+          >
+            <Undo2 size={14} strokeWidth={1.8} />
+          </button>
+          <button
+            class="icon-button mini"
+            title="Redo"
+            aria-label="Redo"
+            disabled={!model.canRedoEditor}
+            onmousedown={(event) => event.preventDefault()}
+            onclick={model.redoEditorHistory}
+          >
+            <Redo2 size={14} strokeWidth={1.8} />
+          </button>
+        </div>
+        <span class="tool-detail"
+          >{model.undoStack.length} undo, {model.redoStack.length} redo</span
         >
-          <Undo2 size={14} strokeWidth={1.8} />
-        </button>
-        <button
-          class="icon-button mini"
-          title="Redo"
-          aria-label="Redo"
-          disabled={!model.canRedoEditor}
-          onmousedown={(event) => event.preventDefault()}
-          onclick={model.redoEditorHistory}
-        >
-          <Redo2 size={14} strokeWidth={1.8} />
-        </button>
       </div>
-      <span>{formatClock(model.currentTime)}</span>
-      <span>{model.wordCount} {model.wordCount === 1 ? 'word' : 'words'}</span>
-      <span>History {model.undoStack.length}/{model.redoStack.length}</span>
-      <span>Zoom {model.zoomPercent()}</span>
-      {#if model.selectedNote}
-        <span>Created {formatDateTime(model.selectedNote.createdAt)}</span>
-        <span
-          >Modified {formatDateTime(model.selectedNote.updatedAt)} by {model.selectedDeviceName}</span
-        >
-      {:else}
-        <span>Unsaved draft</span>
-      {/if}
+      <div class="editor-tool-group zoom-tool" aria-label="Editor zoom">
+        <div class="tool-buttons">
+          <button
+            class="icon-button mini"
+            title="Zoom out"
+            aria-label="Zoom out"
+            disabled={model.editorZoom <= model.minEditorZoom}
+            onmousedown={(event) => event.preventDefault()}
+            onclick={() => model.zoomEditor(-1)}
+          >
+            <ZoomOut size={14} strokeWidth={1.8} />
+          </button>
+          <span class="zoom-readout">{model.zoomPercent()}</span>
+          <button
+            class="icon-button mini"
+            title="Zoom in"
+            aria-label="Zoom in"
+            disabled={model.editorZoom >= model.maxEditorZoom}
+            onmousedown={(event) => event.preventDefault()}
+            onclick={() => model.zoomEditor(1)}
+          >
+            <ZoomIn size={14} strokeWidth={1.8} />
+          </button>
+        </div>
+      </div>
     </footer>
   </section>
 </section>

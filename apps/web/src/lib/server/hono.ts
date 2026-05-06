@@ -74,9 +74,18 @@ function syncOwner(session: AuthSession): string {
 }
 
 function reportRemoteSyncError(error: unknown): void {
+  if (isRemoteMirrorSyncAlreadyRunning(error)) return;
   console.warn(
     'Remote database sync failed:',
     error instanceof Error ? error.message : error
+  );
+}
+
+function isRemoteMirrorSyncAlreadyRunning(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === 'MirrorLockUnavailable' ||
+      error.message === 'Remote mirror sync is already running')
   );
 }
 
@@ -164,6 +173,15 @@ async function syncRemoteBestEffort(db: NotesDb): Promise<boolean> {
     await setPersistentRemoteSyncPending(false);
     return true;
   } catch (error) {
+    if (isRemoteMirrorSyncAlreadyRunning(error)) {
+      await setPersistentRemoteSyncPending(true);
+      setRemoteSyncState('queued', {
+        pendingSince: new Date().toISOString(),
+        lastError: null
+      });
+      scheduleRemoteSyncRetry();
+      return false;
+    }
     reportRemoteSyncError(error);
     await setPersistentRemoteSyncPending(true);
     return false;
@@ -225,6 +243,12 @@ async function queueRemoteSyncAfter(
         remoteSyncQueued = false;
         if (!previousOk) {
           scheduleRemoteSyncRetry();
+          if (
+            remoteSyncStatus.state === 'queued' &&
+            remoteSyncStatus.lastError === null
+          ) {
+            return;
+          }
           setRemoteSyncState('error', {
             pendingSince: null,
             lastError: 'Remote database sync failed'
@@ -240,6 +264,12 @@ async function queueRemoteSyncAfter(
         const ok = await syncRemoteWithFreshConnection();
         if (!ok) {
           scheduleRemoteSyncRetry();
+          if (
+            remoteSyncStatus.state === 'queued' &&
+            remoteSyncStatus.lastError === null
+          ) {
+            return;
+          }
           setRemoteSyncState('error', {
             pendingSince: null,
             lastError: 'Remote database sync failed'

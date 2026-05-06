@@ -98,6 +98,14 @@
     aria-label={`${noteDisplayTitle(contextNote)} actions`}
     oncontextmenu={(event) => event.preventDefault()}
   >
+    <div class="context-metadata" aria-label="Note metadata">
+      {#each model.contextNoteMetadataRows(contextNote) as row}
+        <span>
+          <strong>{row.label}</strong>
+          <small>{row.value}</small>
+        </span>
+      {/each}
+    </div>
     {#if contextNote.trashedAt}
       <button
         role="menuitem"
@@ -108,6 +116,17 @@
       >
         <ArchiveRestore size={14} strokeWidth={1.8} />
         <span>Restore</span>
+      </button>
+      <button
+        class="danger"
+        role="menuitem"
+        onclick={(event) => {
+          event.stopPropagation();
+          void model.contextDeleteNotePermanently(contextNote);
+        }}
+      >
+        <Trash2 size={14} strokeWidth={1.8} />
+        <span>Delete permanently</span>
       </button>
     {:else}
       <NotebookLinkMenu

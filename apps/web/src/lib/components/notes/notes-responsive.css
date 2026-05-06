@@ -116,12 +116,12 @@
     visibility: hidden;
     opacity: 0;
     pointer-events: none;
-    transform: translateY(-4px);
+    transform: translateY(-10px) scale(0.98);
     transform-origin: top center;
     transition:
-      opacity 120ms ease,
-      transform 120ms ease,
-      visibility 120ms ease;
+      opacity 180ms ease,
+      transform 190ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      visibility 180ms ease;
   }
 
   .menu-dock.open .menu-panels,
@@ -137,7 +137,7 @@
     visibility: hidden;
     opacity: 0;
     pointer-events: none;
-    transform: translateY(-4px);
+    transform: translateY(-10px) scale(0.98);
   }
 
   .settings-layer {
@@ -202,11 +202,13 @@
   }
 
   .writer {
-    padding: 190px 30px 38px;
+    padding: 170px 30px 38px;
   }
 
   .title-input {
-    font-size: calc(30px * var(--editor-zoom, 1));
+    min-height: 54px;
+    margin-bottom: 44px;
+    font-size: calc(42px * var(--editor-zoom, 1));
   }
 
   .versions {

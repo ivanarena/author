@@ -258,6 +258,63 @@ export async function restoreNote(noteId: string): Promise<void> {
   });
 }
 
+export async function deleteNotePermanently(noteId: string): Promise<void> {
+  const note = await localDb.notes.get(noteId);
+  if (!note || note.deletedAt) return;
+
+  const device = await getOrCreateDevice();
+  const now = nowIso();
+  await localDb.notes.put({
+    ...note,
+    deletedAt: now,
+    trashedAt: note.trashedAt ?? now,
+    updatedAt: now,
+    deviceId: device.id,
+    version: note.version + 1,
+    syncStatus: 'pending'
+  });
+}
+
+export interface LastSyncPass {
+  completedAt: string | null;
+  pushed: number;
+  pulled: number;
+  conflicts: number;
+}
+
+export async function recordLastSyncPass(
+  stats: Omit<LastSyncPass, 'completedAt'>,
+  completedAt = nowIso()
+): Promise<void> {
+  await localDb.syncMeta.bulkPut([
+    { key: 'lastSyncPassAt', value: completedAt },
+    { key: 'lastSyncPassPushed', value: String(stats.pushed) },
+    { key: 'lastSyncPassPulled', value: String(stats.pulled) },
+    { key: 'lastSyncPassConflicts', value: String(stats.conflicts) }
+  ]);
+}
+
+function syncMetaNumber(value: string | undefined): number {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export async function loadLastSyncPass(): Promise<LastSyncPass> {
+  const [completedAt, pushed, pulled, conflicts] = await Promise.all([
+    localDb.syncMeta.get('lastSyncPassAt'),
+    localDb.syncMeta.get('lastSyncPassPushed'),
+    localDb.syncMeta.get('lastSyncPassPulled'),
+    localDb.syncMeta.get('lastSyncPassConflicts')
+  ]);
+
+  return {
+    completedAt: completedAt?.value ?? null,
+    pushed: syncMetaNumber(pushed?.value),
+    pulled: syncMetaNumber(pulled?.value),
+    conflicts: syncMetaNumber(conflicts?.value)
+  };
+}
+
 export async function loadNotes(): Promise<LocalNote[]> {
   const notes = await localDb.notes.toArray();
   const decrypted = await Promise.all(

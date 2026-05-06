@@ -437,6 +437,41 @@
             <h3>Sync</h3>
           </header>
 
+          <div class="sync-overview" aria-live="polite">
+            <div class="sync-overview-card">
+              <span>Status</span>
+              <strong>{model.syncIndicator.label}</strong>
+              {#if model.syncIndicator.detail}
+                <small>{model.syncIndicator.detail}</small>
+              {/if}
+            </div>
+            <div class="sync-overview-card">
+              <span>Pending local changes</span>
+              <strong>{model.pendingSyncCount}</strong>
+              <small>
+                {model.pendingSyncCount === 1
+                  ? '1 item waiting to sync'
+                  : `${model.pendingSyncCount} items waiting to sync`}
+              </small>
+            </div>
+            <div class="sync-overview-card wide">
+              <span>Last sync pass</span>
+              <strong>{model.lastSyncPassTitle}</strong>
+              <small>{model.lastSyncPassDetail}</small>
+            </div>
+            {#if model.remoteSyncEnabled || model.remoteSyncError}
+              <div class="sync-overview-card wide">
+                <span>Remote sync</span>
+                <strong>{model.remoteSyncState}</strong>
+                {#if model.remoteSyncError}
+                  <small>{model.remoteSyncError}</small>
+                {:else}
+                  <small>Remote worker status from the last check</small>
+                {/if}
+              </div>
+            {/if}
+          </div>
+
           <div class="settings-actions">
             {#if model.hasToken}
               <button
@@ -460,7 +495,7 @@
                 onclick={model.toggleLoginMenu}
               >
                 <LogIn size={15} strokeWidth={1.8} />
-                <span>Login</span>
+                <span>Sign in to sync</span>
               </button>
             {/if}
           </div>

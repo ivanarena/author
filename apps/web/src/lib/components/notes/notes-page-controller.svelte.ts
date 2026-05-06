@@ -16,12 +16,14 @@ import {
   createBlankNote,
   createNotebook,
   deleteNotebook,
+  deleteNotePermanently,
   ensureLocalNotesEncrypted,
   exportNotesMarkdownZip,
   getTheme,
   importNotesMarkdownFiles,
   importNotesMarkdownSummary,
   loadDevices,
+  loadLastSyncPass,
   loadNotes,
   loadNotebooks,
   loadPendingConflicts,
@@ -32,6 +34,7 @@ import {
   rememberLocalWorkspaceAccount,
   renameNotebook,
   reencryptLocalNotes,
+  recordLastSyncPass,
   restoreNote,
   resolveConflict,
   getLoginHint,
@@ -173,8 +176,10 @@ export interface NoteListPanelModel {
   selectedNotesHaveNotebook: (notebookId: string | null) => boolean;
   trashSelectedNotes: () => void | Promise<void>;
   restoreSelectedNotes: () => void | Promise<void>;
+  deleteSelectedNotesPermanently: () => void | Promise<void>;
   openNoteContext: (event: MouseEvent, note: LocalNote) => void;
   restoreNoteFromRow: NoteCallback;
+  deleteNotePermanentlyFromRow: NoteCallback;
   trashNote: NoteCallback;
   assignNotebookForNote: NotebookAssignmentCallback;
   notebookNamesForNote: (note: LocalNote) => string[];
@@ -233,7 +238,11 @@ export interface EditorPaneModel {
   canUndoEditor: boolean;
   canRedoEditor: boolean;
   selectedDeviceName: string;
+  editorMetadataRows: MetadataRow[];
+  minEditorZoom: number;
+  maxEditorZoom: number;
   zoomPercent: () => string;
+  zoomEditor: (direction: -1 | 1) => void;
   handleTitleKeydown: (event: KeyboardEvent) => void;
   handleEditorInput: (event: Event, field: 'title' | 'body') => void;
   undoEditorHistory: () => void;
@@ -276,6 +285,13 @@ export interface SettingsModalModel {
   signupConfirmPasswordValue: string;
   loginError: string;
   isLoggingIn: boolean;
+  pendingSyncCount: number;
+  syncIndicator: SyncIndicator;
+  lastSyncPassTitle: string;
+  lastSyncPassDetail: string;
+  remoteSyncEnabled: boolean;
+  remoteSyncState: RemoteSyncState | 'unknown';
+  remoteSyncError: string;
   syncNow: () => void | Promise<void>;
   saveAccountProfile: () => void | Promise<void>;
   changeAccountPassword: () => void | Promise<void>;
@@ -311,6 +327,8 @@ export interface ContextMenuModel {
   contextDeleteNotebook: NotebookCallback;
   contextTrashNote: NoteCallback;
   contextRestoreNote: NoteCallback;
+  contextDeleteNotePermanently: NoteCallback;
+  contextNoteMetadataRows: (note: LocalNote) => MetadataRow[];
   contextAssignNotebookForNote: NotebookAssignmentCallback;
   contextCreateNotebookForNote: (
     note: LocalNote,
@@ -338,6 +356,79 @@ const MAX_EDITOR_HISTORY = 120;
 const AUTO_SYNC_DELAY_MS = 600;
 const SYNC_RETRY_DELAY_MS = 12_000;
 const ONLINE_SESSION_SYNC_MS = 60_000;
+
+export interface MetadataRow {
+  label: string;
+  value: string;
+}
+
+function formatSyncPassTime(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  });
+}
+
+function formatSyncCount(value: number, label: string): string {
+  const count = Number.isFinite(value) ? value : 0;
+  return `${count} ${label}${count === 1 ? '' : 's'}`;
+}
+
+function formatSyncPassDetail(pass: {
+  completedAt: string | null;
+  pushed: number;
+  pulled: number;
+  conflicts: number;
+}): string {
+  if (!pass.completedAt) return 'Sync has not completed in this browser.';
+  return [
+    formatSyncCount(pass.pushed, 'pushed change'),
+    formatSyncCount(pass.pulled, 'pulled change'),
+    formatSyncCount(pass.conflicts, 'conflict')
+  ].join(', ');
+}
+
+function formatMetadataDate(iso: string | null): string {
+  if (!iso) return 'Not synced yet';
+  return new Date(iso).toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  });
+}
+
+function noteSyncStatusLabel(note: LocalNote): string {
+  if (note.syncStatus === 'synced') return 'Synced';
+  if (note.syncStatus === 'conflict') return 'Conflict';
+  if (note.syncStatus === 'deleted') return 'Deleted';
+  return 'Pending sync';
+}
+
+function metadataRowsForNote(
+  note: LocalNote,
+  wordCount = countWords(`${note.title} ${note.body}`)
+): MetadataRow[] {
+  return [
+    { label: 'Status', value: noteSyncStatusLabel(note) },
+    { label: 'Last synced', value: formatMetadataDate(note.lastSyncedAt) },
+    { label: 'Last updated', value: formatMetadataDate(note.updatedAt) },
+    { label: 'Created', value: formatMetadataDate(note.createdAt) },
+    {
+      label: 'Words',
+      value: `${wordCount} ${wordCount === 1 ? 'word' : 'words'}`
+    }
+  ];
+}
+
+function editorMetadataRowsForNote(note: LocalNote): MetadataRow[] {
+  return [
+    { label: 'Status', value: noteSyncStatusLabel(note) },
+    {
+      label: 'Last updated',
+      value: `Updated ${formatMetadataDate(note.updatedAt)}`
+    },
+    { label: 'Created', value: `Created ${formatMetadataDate(note.createdAt)}` }
+  ];
+}
 
 export class NotesPageController
   implements
@@ -412,6 +503,12 @@ export class NotesPageController
   contextMenu = $state<ContextMenuState>(null);
   undoStack = $state<EditorSnapshot[]>([]);
   redoStack = $state<EditorSnapshot[]>([]);
+  lastSyncPass = $state({
+    completedAt: null as string | null,
+    pushed: 0,
+    pulled: 0,
+    conflicts: 0
+  });
 
   titleInput: HTMLInputElement | null = null;
   bodyTextarea: HTMLTextAreaElement | null = null;
@@ -478,10 +575,21 @@ export class NotesPageController
       remoteSyncError: this.remoteSyncError
     })
   );
+  lastSyncPassTitle = $derived(
+    this.lastSyncPass.completedAt
+      ? formatSyncPassTime(this.lastSyncPass.completedAt)
+      : 'No completed pass yet'
+  );
+  lastSyncPassDetail = $derived(formatSyncPassDetail(this.lastSyncPass));
   contextNote = $derived(this.getContextNote(this.contextMenu));
   contextNotebook = $derived(this.getContextNotebook(this.contextMenu));
   selectedDeviceName = $derived(
     this.selectedNote ? this.deviceName(this.selectedNote.deviceId) : ''
+  );
+  editorMetadataRows = $derived(
+    this.selectedNote
+      ? editorMetadataRowsForNote(this.selectedNote)
+      : [{ label: 'Status', value: 'Unsaved draft' }]
   );
   isArchiveBusy = $derived(Boolean(this.archiveOperation) || this.isImporting);
   canUndoEditor = $derived(
@@ -904,6 +1012,33 @@ export class NotesPageController
     if (restored) await this.selectNote(restored);
   };
 
+  deleteSelectedNotesPermanently = async () => {
+    const notes = this.selectedNotes.filter((note) => note.trashedAt);
+    if (!notes.length) return;
+    await this.flushPendingSave();
+    for (const note of notes) {
+      await deleteNotePermanently(note.id);
+    }
+    const selectedNoteWasDeleted = Boolean(
+      this.selectedNote &&
+      notes.some((note) => note.id === this.selectedNote?.id)
+    );
+    this.clearSelectedNotes();
+    await this.refresh();
+
+    if (selectedNoteWasDeleted) {
+      const next =
+        this.filterId === 'trash'
+          ? (this.trash[0] ?? null)
+          : (this.notes[0] ?? null);
+      if (next) {
+        await this.selectNote(next);
+      } else {
+        await this.newNote();
+      }
+    }
+  };
+
   toggleCompactView = () => {
     this.compactView = !this.compactView;
     setStoredCompactView(this.compactView);
@@ -969,6 +1104,14 @@ export class NotesPageController
     this.closeContextMenu();
     await this.restoreNoteFromRow(note);
   };
+
+  contextDeleteNotePermanently = async (note: LocalNote) => {
+    this.closeContextMenu();
+    await this.deleteNotePermanentlyFromRow(note);
+  };
+
+  contextNoteMetadataRows = (note: LocalNote): MetadataRow[] =>
+    metadataRowsForNote(note);
 
   contextAssignNotebookForNote = async (
     note: LocalNote,
@@ -1162,6 +1305,28 @@ export class NotesPageController
     if (restored) await this.selectNote(restored);
   };
 
+  deleteNotePermanentlyFromRow = async (note: LocalNote) => {
+    if (!note.trashedAt) return;
+    await this.flushPendingSave();
+    await deleteNotePermanently(note.id);
+    const selectedNoteWasDeleted = this.selectedNote?.id === note.id;
+    this.selectedNoteIds.delete(note.id);
+    this.selectedNoteIds = new Set(this.selectedNoteIds);
+    await this.refresh();
+
+    if (selectedNoteWasDeleted) {
+      const next =
+        this.filterId === 'trash'
+          ? (this.trash.find((candidate) => candidate.id !== note.id) ?? null)
+          : (this.notes[0] ?? null);
+      if (next) {
+        await this.selectNote(next);
+      } else {
+        await this.newNote();
+      }
+    }
+  };
+
   syncNow = async () => {
     if (this.isArchiveBusy) {
       this.syncQueued = true;
@@ -1203,6 +1368,13 @@ export class NotesPageController
         result.conflicts > 0
           ? `${result.conflicts} conflict${result.conflicts === 1 ? '' : 's'}`
           : 'Local changes saved';
+      this.lastSyncPass = {
+        completedAt: new Date().toISOString(),
+        pushed: result.pushed,
+        pulled: result.pulled,
+        conflicts: result.conflicts
+      };
+      await recordLastSyncPass(this.lastSyncPass);
       await this.refresh();
       await this.refreshRemoteSyncStatus(token);
       this.pollRemoteSyncStatusIfBusy();
@@ -1669,15 +1841,23 @@ export class NotesPageController
   };
 
   private refresh = async () => {
-    const [notes, notebooks, trash, conflicts, devices, pendingSyncCount] =
-      await Promise.all([
-        loadNotes(),
-        loadNotebooks(),
-        loadTrash(),
-        loadPendingConflicts(),
-        loadDevices(),
-        loadPendingSyncCount()
-      ]);
+    const [
+      notes,
+      notebooks,
+      trash,
+      conflicts,
+      devices,
+      pendingSyncCount,
+      lastSyncPass
+    ] = await Promise.all([
+      loadNotes(),
+      loadNotebooks(),
+      loadTrash(),
+      loadPendingConflicts(),
+      loadDevices(),
+      loadPendingSyncCount(),
+      loadLastSyncPass()
+    ]);
 
     this.notes = notes;
     this.notebooks = notebooks;
@@ -1685,6 +1865,7 @@ export class NotesPageController
     this.conflicts = conflicts;
     this.devices = devices;
     this.pendingSyncCount = pendingSyncCount;
+    this.lastSyncPass = lastSyncPass;
     this.pruneSelectedNotes(notes, trash);
   };
 

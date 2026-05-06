@@ -23,6 +23,12 @@ function canApplyRemoteDelete(record: { syncStatus: string }): boolean {
   return record.syncStatus !== 'pending' && record.syncStatus !== 'conflict';
 }
 
+async function remoteCameFromThisDevice(record: {
+  deviceId: string;
+}): Promise<boolean> {
+  return record.deviceId === (await getOrCreateDevice()).id;
+}
+
 export async function applyRemoteDeletes(
   deletedNoteIds: string[] = [],
   deletedNotebookIds: string[] = [],
@@ -186,6 +192,17 @@ async function mergeRemoteNote(remote: Note, syncedAt: string): Promise<void> {
     local.lastSyncedVersion !== remote.version &&
     recordsDiffer(localPlain, remotePlain)
   ) {
+    if (await remoteCameFromThisDevice(remote)) {
+      if (remote.version > local.lastSyncedVersion) {
+        await localDb.notes.put({
+          ...local,
+          lastSyncedVersion: remote.version,
+          lastSyncedAt: syncedAt
+        });
+      }
+      return;
+    }
+
     await saveConflict({
       id: newId(),
       entityType: 'note',
@@ -240,6 +257,17 @@ async function mergeRemoteNotebook(
     local.lastSyncedVersion !== remote.version &&
     recordsDiffer(local, remote)
   ) {
+    if (await remoteCameFromThisDevice(remote)) {
+      if (remote.version > local.lastSyncedVersion) {
+        await localDb.notebooks.put({
+          ...local,
+          lastSyncedVersion: remote.version,
+          lastSyncedAt: syncedAt
+        });
+      }
+      return;
+    }
+
     await saveConflict({
       id: newId(),
       entityType: 'notebook',

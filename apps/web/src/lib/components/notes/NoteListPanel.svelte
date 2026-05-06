@@ -96,6 +96,15 @@
           >
             <ArchiveRestore size={14} strokeWidth={1.8} />
           </button>
+          <button
+            class="icon-button mini danger"
+            type="button"
+            title="Delete selected permanently"
+            aria-label="Delete selected permanently"
+            onclick={() => void model.deleteSelectedNotesPermanently()}
+          >
+            <Trash2 size={14} strokeWidth={1.8} />
+          </button>
         {/if}
       </div>
       <button
@@ -224,6 +233,17 @@
                   }}
                 >
                   <ArchiveRestore size={14} strokeWidth={1.8} />
+                </button>
+                <button
+                  class="icon-button mini danger"
+                  title="Delete permanently"
+                  aria-label="Delete permanently"
+                  onclick={(event) => {
+                    event.stopPropagation();
+                    void model.deleteNotePermanentlyFromRow(note);
+                  }}
+                >
+                  <Trash2 size={14} strokeWidth={1.8} />
                 </button>
               {:else}
                 <button

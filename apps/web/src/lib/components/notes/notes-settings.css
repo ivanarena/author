@@ -87,6 +87,9 @@
   align-content: start;
   gap: 4px;
   padding: 16px 12px;
+  background: var(--panel-soft-transparent);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
 }
 
 .settings-menu-item {
@@ -128,9 +131,7 @@
 }
 
 .settings-menu-action {
-  margin-top: 10px;
-  border-radius: 0;
-  padding-top: 10px;
+  margin-top: 6px;
 }
 
 .settings-menu-item:hover svg:last-child,
@@ -171,6 +172,57 @@
 .settings-actions {
   display: grid;
   gap: var(--space-2);
+}
+
+.sync-overview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.sync-overview-card {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  border-radius: var(--radius-md);
+  padding: 12px;
+  background: var(--field);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
+}
+
+.sync-overview-card.wide {
+  grid-column: 1 / -1;
+}
+
+.sync-overview-card span,
+.sync-overview-card strong,
+.sync-overview-card small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sync-overview-card span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.sync-overview-card strong {
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.sync-overview-card small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .settings-action {
@@ -607,7 +659,12 @@
 @media (max-width: 560px) {
   .auth-field-grid,
   .login-actions,
-  .login-modal .login-actions {
+  .login-modal .login-actions,
+  .sync-overview {
     grid-template-columns: 1fr;
+  }
+
+  .sync-overview-card.wide {
+    grid-column: auto;
   }
 }

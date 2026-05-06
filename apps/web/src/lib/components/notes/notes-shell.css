@@ -43,7 +43,8 @@
   transition:
     background-color 120ms ease,
     border-color 120ms ease,
-    color 120ms ease;
+    color 120ms ease,
+    transform 160ms ease;
 }
 
 .profile-trigger {
@@ -53,7 +54,15 @@
   transition:
     background-color 120ms ease,
     border-color 120ms ease,
-    color 120ms ease;
+    color 120ms ease,
+    transform 160ms ease;
+}
+
+.menu-trigger svg,
+.profile-trigger svg {
+  transition:
+    opacity 160ms ease,
+    transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .profile-menu {
@@ -100,12 +109,12 @@
   visibility: hidden;
   opacity: 0;
   pointer-events: none;
-  transform: translateX(-50%) translateY(-4px);
+  transform: translateX(-50%) translateY(-10px) scale(0.98);
   transform-origin: top center;
   transition:
-    opacity 120ms ease,
-    transform 120ms ease,
-    visibility 120ms ease;
+    opacity 180ms ease,
+    transform 190ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    visibility 180ms ease;
 }
 
 .profile-menu.open .profile-hover-card {
@@ -247,12 +256,12 @@
   visibility: hidden;
   opacity: 0;
   pointer-events: none;
-  transform: translateY(-4px);
+  transform: translateY(-10px) scale(0.98);
   transform-origin: top center;
   transition:
-    opacity 120ms ease,
-    transform 120ms ease,
-    visibility 120ms ease;
+    opacity 180ms ease,
+    transform 190ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    visibility 180ms ease;
 }
 
 .menu-dock.open .menu-panels,
@@ -268,7 +277,7 @@
   visibility: hidden;
   opacity: 0;
   pointer-events: none;
-  transform: translateY(-4px);
+  transform: translateY(-10px) scale(0.98);
 }
 
 aside {
@@ -323,7 +332,9 @@ aside {
   padding: 0;
   background: transparent;
   color: var(--muted);
-  transition: color 120ms ease;
+  transition:
+    color 120ms ease,
+    transform 160ms ease;
 }
 
 .icon-button:hover,
@@ -352,8 +363,26 @@ aside {
   background: transparent;
 }
 
+.menu-trigger:hover,
+.menu-trigger:focus-visible,
+.profile-trigger:hover,
+.profile-trigger:focus-visible,
+.profile-trigger.active {
+  transform: translateY(-1px);
+}
+
+.menu-trigger:hover svg,
+.menu-trigger:focus-visible svg,
+.menu-dock.open .menu-trigger svg,
+.profile-trigger:hover svg,
+.profile-trigger:focus-visible svg,
+.profile-trigger.active svg {
+  opacity: 1;
+  transform: scale(1.08);
+}
+
 .icon-button:not(:disabled):hover {
-  transform: none;
+  transform: translateY(-1px);
 }
 
 .mini {

@@ -8,3 +8,8 @@ aube() {
 aube exec lint-staged
 aube run format
 aube run lint
+
+(
+  cd apps/android
+  ./gradlew :app:compileDebugKotlin :app:lintDebug :app:testDebugUnitTest
+)

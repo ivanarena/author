@@ -1,12 +1,13 @@
-# Android Placeholder
+# Author Notes Android
 
-Android is intentionally not implemented in v1.
+Native Android client for the Author Notes local-first notes app.
 
-Planned stack:
+## Build
 
-- Kotlin
-- Jetpack Compose
-- Room/SQLite
-- WorkManager sync
+```sh
+./gradlew :app:assembleDebug
+```
 
-The future app should implement the same local-first repository pattern as the web app: local writes first, push/pull sync later, and explicit conflict prompts.
+The app is implemented with Kotlin and Jetpack Compose. Local changes are saved
+first in the on-device SQLite database, then pushed/pulled through the same sync
+protocol as the web app.

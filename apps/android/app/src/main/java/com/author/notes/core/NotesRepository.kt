@@ -90,15 +90,13 @@ class NotesRepository(context: Context) {
     prefs.edit().putString(EDITOR_FONT_KEY, if (value in FONTS) value else "kedebideri").apply()
   }
 
-  fun getEditorTextSize(): Float =
-    prefs.getFloat(EDITOR_TEXT_SIZE_KEY, 16f).coerceIn(14f, 22f)
+  fun getEditorTextSize(): Float = prefs.getFloat(EDITOR_TEXT_SIZE_KEY, 16f).coerceIn(14f, 22f)
 
   fun setEditorTextSize(value: Float) {
     prefs.edit().putFloat(EDITOR_TEXT_SIZE_KEY, value.coerceIn(14f, 22f)).apply()
   }
 
-  fun getEditorLineHeight(): Float =
-    prefs.getFloat(EDITOR_LINE_HEIGHT_KEY, 1.75f).coerceIn(1.35f, 2.1f)
+  fun getEditorLineHeight(): Float = prefs.getFloat(EDITOR_LINE_HEIGHT_KEY, 1.75f).coerceIn(1.35f, 2.1f)
 
   fun setEditorLineHeight(value: Float) {
     prefs.edit().putFloat(EDITOR_LINE_HEIGHT_KEY, value.coerceIn(1.35f, 2.1f)).apply()

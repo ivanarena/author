@@ -41,7 +41,11 @@ export function recordsDiffer<T extends SyncEntity>(a: T, b: T): boolean {
   }
 
   if (!('body' in a) && !('body' in b)) {
-    return a.name !== b.name || a.deletedAt !== b.deletedAt;
+    const nameDiffers =
+      a.nameHash || b.nameHash
+        ? (a.nameHash ?? null) !== (b.nameHash ?? null)
+        : a.name !== b.name;
+    return nameDiffers || a.deletedAt !== b.deletedAt;
   }
 
   return true;

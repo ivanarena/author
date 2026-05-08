@@ -1,4 +1,5 @@
-import type { Note } from '@author/schema';
+import type { Note, Notebook } from '@author/schema';
+import { normalizeNotebookName } from './note-utils';
 
 export const ENCRYPTION_PREFIX = 'enc:v1:';
 export const ENCRYPTION_KEY_MATERIAL_STORAGE_KEY =
@@ -169,6 +170,44 @@ export async function reencryptNoteFields<T extends Note>(
 ): Promise<T> {
   const decrypted = await decryptNoteFields(note, previousMaterial);
   return encryptNoteFields(decrypted, nextMaterial);
+}
+
+export async function encryptNotebookFields<T extends Notebook>(
+  notebook: T,
+  keyMaterial = getEncryptionKeyMaterial()
+): Promise<T> {
+  const nameHash = isEncryptedText(notebook.name)
+    ? (notebook.nameHash ?? null)
+    : await fieldHash(
+        normalizeNotebookName(notebook.name),
+        keyMaterial,
+        'notebook:name'
+      );
+
+  return {
+    ...notebook,
+    nameHash,
+    name: await encryptText(notebook.name, keyMaterial, 'notebook:name')
+  };
+}
+
+export async function decryptNotebookFields<T extends Notebook>(
+  notebook: T,
+  keyMaterial = getEncryptionKeyMaterial()
+): Promise<T> {
+  return {
+    ...notebook,
+    name: await decryptText(notebook.name, keyMaterial)
+  };
+}
+
+export async function reencryptNotebookFields<T extends Notebook>(
+  notebook: T,
+  previousMaterial: string,
+  nextMaterial: string
+): Promise<T> {
+  const decrypted = await decryptNotebookFields(notebook, previousMaterial);
+  return encryptNotebookFields(decrypted, nextMaterial);
 }
 
 function cryptoImpl(): Crypto {

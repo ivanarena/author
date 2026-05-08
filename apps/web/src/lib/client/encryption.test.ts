@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { Note } from '@author/schema';
+import type { Note, Notebook } from '@author/schema';
 import {
+  decryptNotebookFields,
   decryptNoteFields,
   decryptText,
+  encryptNotebookFields,
   encryptNoteFields,
   encryptText,
   isEncryptedText,
@@ -20,6 +22,17 @@ const note: Note = {
   updatedAt: '2026-04-30T10:00:00.000Z',
   deletedAt: null,
   trashedAt: null,
+  deviceId: 'device-1',
+  version: 1,
+  syncStatus: 'pending'
+};
+
+const notebook: Notebook = {
+  id: 'notebook-1',
+  name: 'Ideas',
+  createdAt: '2026-04-30T10:00:00.000Z',
+  updatedAt: '2026-04-30T10:00:00.000Z',
+  deletedAt: null,
   deviceId: 'device-1',
   version: 1,
   syncStatus: 'pending'
@@ -49,6 +62,28 @@ describe('client note encryption', () => {
     await expect(decryptNoteFields(first, 'sync-key')).resolves.toMatchObject({
       title: note.title,
       body: note.body
+    });
+  });
+
+  it('encrypts notebook names with deterministic hashes for duplicate checks', async () => {
+    const first = await encryptNotebookFields(notebook, 'sync-key');
+    const second = await encryptNotebookFields(
+      { ...notebook, id: 'notebook-2' },
+      'sync-key'
+    );
+    const normalizedDuplicate = await encryptNotebookFields(
+      { ...notebook, id: 'notebook-3', name: ' ideas ' },
+      'sync-key'
+    );
+
+    expect(first.nameHash).toBe(second.nameHash);
+    expect(first.nameHash).toBe(normalizedDuplicate.nameHash);
+    expect(first.name).not.toBe(second.name);
+    expect(first.name).not.toContain(notebook.name);
+    await expect(
+      decryptNotebookFields(first, 'sync-key')
+    ).resolves.toMatchObject({
+      name: notebook.name
     });
   });
 

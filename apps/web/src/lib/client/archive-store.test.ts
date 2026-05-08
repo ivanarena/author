@@ -22,7 +22,9 @@ vi.mock('./db', () => ({
 
 vi.mock('./encryption', () => ({
   decryptNoteFields: vi.fn(async (note) => note),
-  encryptNoteFields: vi.fn(async (note) => note)
+  decryptNotebookFields: vi.fn(async (notebook) => notebook),
+  encryptNoteFields: vi.fn(async (note) => note),
+  encryptNotebookFields: vi.fn(async (notebook) => notebook)
 }));
 
 vi.mock('./local-state', () => ({

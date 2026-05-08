@@ -100,6 +100,7 @@ const schemaSql = `
     id TEXT PRIMARY KEY,
     owner_username TEXT NOT NULL DEFAULT 'legacy-token',
     name TEXT NOT NULL,
+    name_hash TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     deleted_at TEXT,
@@ -164,6 +165,7 @@ const schemaSql = `
     notebook_id TEXT NOT NULL,
     owner_username TEXT NOT NULL DEFAULT 'legacy-token',
     name TEXT NOT NULL,
+    name_hash TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     deleted_at TEXT,
@@ -480,6 +482,16 @@ export async function initializeDatabase(db: NotesDb): Promise<void> {
   await migrateLegacyMarkdownColumns(db);
   await migrateNotebookIds(db);
   await migrateSyncOwnershipAndHashes(db);
+  for (const table of ['notebooks', 'notebook_versions']) {
+    if (!(await hasColumn(db, table, 'name_hash'))) {
+      await run(db, `ALTER TABLE ${table} ADD COLUMN name_hash TEXT`);
+    }
+  }
+  await run(
+    db,
+    `CREATE INDEX IF NOT EXISTS notebooks_active_name_hash_idx
+       ON notebooks(owner_username, deleted_at, name_hash)`
+  );
   await seedEntityChanges(db);
 }
 

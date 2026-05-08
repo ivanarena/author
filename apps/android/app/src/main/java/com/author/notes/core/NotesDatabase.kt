@@ -7,7 +7,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import org.json.JSONArray
 
-class NotesDatabase(context: Context) : SQLiteOpenHelper(context, "author-notes.db", null, 1) {
+class NotesDatabase(context: Context) : SQLiteOpenHelper(context, "author-notes.db", null, 2) {
   override fun onCreate(db: SQLiteDatabase) {
     db.execSQL(
       """
@@ -36,6 +36,7 @@ class NotesDatabase(context: Context) : SQLiteOpenHelper(context, "author-notes.
       CREATE TABLE notebooks (
         id TEXT PRIMARY KEY NOT NULL,
         name TEXT NOT NULL,
+        name_hash TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         deleted_at TEXT,
@@ -66,7 +67,11 @@ class NotesDatabase(context: Context) : SQLiteOpenHelper(context, "author-notes.
     db.execSQL("CREATE INDEX conflicts_status ON conflicts(status)")
   }
 
-  override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+  override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+    if (oldVersion < 2) {
+      db.execSQL("ALTER TABLE notebooks ADD COLUMN name_hash TEXT")
+    }
+  }
 
   fun putNote(note: LocalNote) = writableDatabase.insertWithOnConflict(
     "notes",
@@ -247,6 +252,7 @@ private fun noteValues(note: LocalNote) = ContentValues().apply {
 private fun notebookValues(notebook: LocalNotebook) = ContentValues().apply {
   put("id", notebook.id)
   put("name", notebook.name)
+  put("name_hash", notebook.nameHash)
   put("created_at", notebook.createdAt)
   put("updated_at", notebook.updatedAt)
   put("deleted_at", notebook.deletedAt)
@@ -279,6 +285,7 @@ private fun Cursor.toNote() = LocalNote(
 private fun Cursor.toNotebook() = LocalNotebook(
   id = getString("id"),
   name = getString("name"),
+  nameHash = getNullableString("name_hash"),
   createdAt = getString("created_at"),
   updatedAt = getString("updated_at"),
   deletedAt = getNullableString("deleted_at"),

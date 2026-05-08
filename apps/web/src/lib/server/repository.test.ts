@@ -126,6 +126,52 @@ describe('server repository', () => {
     }
   });
 
+  it('rejects duplicate encrypted notebook name hashes without reading names', async () => {
+    const db = await openMemoryDatabase();
+    try {
+      await pushChanges(db, {
+        device: fixtureDevice,
+        notebooks: [
+          {
+            record: {
+              ...fixtureNotebook,
+              name: 'enc:v1:first',
+              nameHash: 'hash:v1:notebook-name'
+            },
+            baseVersion: 0
+          }
+        ],
+        notes: []
+      });
+
+      const result = await pushChanges(db, {
+        device: { id: 'device-b', name: 'Phone' },
+        notebooks: [
+          {
+            record: {
+              ...fixtureNotebook,
+              id: 'fixture-notebook-copy',
+              name: 'enc:v1:second',
+              nameHash: 'hash:v1:notebook-name',
+              updatedAt: '2026-01-01T01:00:00.000Z',
+              deviceId: 'device-b',
+              syncStatus: 'pending'
+            },
+            baseVersion: 0
+          }
+        ],
+        notes: []
+      });
+
+      expect(result.accepted).toHaveLength(0);
+      expect(result.conflicts).toHaveLength(1);
+      expect(result.conflicts[0].reason).toBe('duplicate_name');
+      expect(await listNotebooks(db)).toHaveLength(1);
+    } finally {
+      db.close();
+    }
+  });
+
   it('accepts notes from a batch whose notebook was rejected by removing the unsyncable assignment', async () => {
     const db = await openMemoryDatabase();
     try {

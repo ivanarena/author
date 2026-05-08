@@ -22,6 +22,7 @@ export interface Note {
 export interface Notebook {
   id: string;
   name: string;
+  nameHash?: string | null;
   createdAt: ISODateString;
   updatedAt: ISODateString;
   deletedAt: ISODateString | null;

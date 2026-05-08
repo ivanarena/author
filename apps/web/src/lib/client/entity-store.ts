@@ -1,5 +1,5 @@
 import type { SyncConflict } from '@author/api-types';
-import type { Device, Note } from '@author/schema';
+import type { Device, Note, Notebook } from '@author/schema';
 import {
   localDb,
   type LocalConflict,
@@ -13,9 +13,12 @@ import {
 } from './conflict-crypto';
 import {
   decryptNoteFields,
+  decryptNotebookFields,
   encryptNoteFields,
+  encryptNotebookFields,
   isEncryptedText,
-  reencryptNoteFields
+  reencryptNoteFields,
+  reencryptNotebookFields
 } from './encryption';
 import {
   normalizeNotebookName,
@@ -25,7 +28,7 @@ import {
 import { getOrCreateDevice, newId, nowIso } from './local-state';
 
 const ENCRYPTION_AUDIT_META_KEY = 'localEncryptionAuditVersion';
-const ENCRYPTION_AUDIT_VERSION = 'notes-conflicts:v1';
+const ENCRYPTION_AUDIT_VERSION = 'content-conflicts:v2';
 
 const LOCAL_WORKSPACE_OWNER_KEY = 'localWorkspaceOwner';
 
@@ -82,7 +85,7 @@ export async function createNotebook(
     lastSyncedAt: null
   };
 
-  await localDb.notebooks.put(notebook);
+  await localDb.notebooks.put(await encryptNotebookFields(notebook));
   return notebook;
 }
 
@@ -95,11 +98,12 @@ export async function renameNotebook(
 
   const notebook = await localDb.notebooks.get(notebookId);
   if (!notebook || notebook.deletedAt) return null;
-  if (notebook.name === trimmed) return notebook;
+  const plainNotebook = await decryptNotebookFields(notebook);
+  if (plainNotebook.name === trimmed) return plainNotebook;
 
   const device = await getOrCreateDevice();
   const updated: LocalNotebook = {
-    ...notebook,
+    ...plainNotebook,
     name: trimmed,
     updatedAt: nowIso(),
     deviceId: device.id,
@@ -107,7 +111,7 @@ export async function renameNotebook(
     syncStatus: 'pending'
   };
 
-  await localDb.notebooks.put(updated);
+  await localDb.notebooks.put(await encryptNotebookFields(updated));
   return updated;
 }
 
@@ -168,7 +172,11 @@ export async function notebookNameExists(
   const normalized = normalizeNotebookName(name);
   if (!normalized) return false;
 
-  const notebooks = await localDb.notebooks.toArray();
+  const notebooks = await Promise.all(
+    (await localDb.notebooks.toArray()).map((notebook) =>
+      decryptNotebookFields(notebook)
+    )
+  );
   return notebooks.some(
     (notebook) =>
       !notebook.deletedAt &&
@@ -402,7 +410,10 @@ export async function loadTrash(): Promise<LocalNote[]> {
 
 export async function loadNotebooks(): Promise<LocalNotebook[]> {
   const notebooks = await localDb.notebooks.toArray();
-  return notebooks
+  const decrypted = await Promise.all(
+    notebooks.map((notebook) => decryptNotebookFields(notebook))
+  );
+  return decrypted
     .filter((notebook) => !notebook.deletedAt)
     .sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -520,11 +531,28 @@ export async function ensureLocalNotesEncrypted(): Promise<void> {
       !note.bodyHash
   );
   if (notesNeedingEncryption.length) {
-    await saveEncryptionChanges(
+    await saveNoteEncryptionChanges(
       await Promise.all(
         notesNeedingEncryption.map(async (note) => ({
           before: note,
           after: await encryptNoteFields(await decryptNoteFields(note))
+        }))
+      )
+    );
+  }
+
+  const notebooks = await localDb.notebooks.toArray();
+  const notebooksNeedingEncryption = notebooks.filter(
+    (notebook) => !isEncryptedText(notebook.name) || !notebook.nameHash
+  );
+  if (notebooksNeedingEncryption.length) {
+    await saveNotebookEncryptionChanges(
+      await Promise.all(
+        notebooksNeedingEncryption.map(async (notebook) => ({
+          before: notebook,
+          after: await encryptNotebookFields(
+            await decryptNotebookFields(notebook)
+          )
         }))
       )
     );
@@ -542,11 +570,27 @@ export async function reencryptLocalNotes(
 
   const notes = await localDb.notes.toArray();
   if (notes.length) {
-    await saveEncryptionChanges(
+    await saveNoteEncryptionChanges(
       await Promise.all(
         notes.map(async (note) => ({
           before: note,
           after: await reencryptNoteFields(note, previousMaterial, nextMaterial)
+        }))
+      )
+    );
+  }
+
+  const notebooks = await localDb.notebooks.toArray();
+  if (notebooks.length) {
+    await saveNotebookEncryptionChanges(
+      await Promise.all(
+        notebooks.map(async (notebook) => ({
+          before: notebook,
+          after: await reencryptNotebookFields(
+            notebook,
+            previousMaterial,
+            nextMaterial
+          )
         }))
       )
     );
@@ -563,7 +607,10 @@ async function markEncryptionAuditCurrent(): Promise<void> {
   });
 }
 
-function encryptedFieldsChanged(before: LocalNote, after: LocalNote): boolean {
+function noteEncryptedFieldsChanged(
+  before: LocalNote,
+  after: LocalNote
+): boolean {
   return (
     before.title !== after.title ||
     before.body !== after.body ||
@@ -572,16 +619,48 @@ function encryptedFieldsChanged(before: LocalNote, after: LocalNote): boolean {
   );
 }
 
-async function saveEncryptionChanges(
+function notebookEncryptedFieldsChanged(
+  before: LocalNotebook,
+  after: LocalNotebook
+): boolean {
+  return (
+    before.name !== after.name ||
+    (before.nameHash ?? null) !== (after.nameHash ?? null)
+  );
+}
+
+async function saveNoteEncryptionChanges(
   changes: Array<{ before: LocalNote; after: LocalNote }>
 ): Promise<void> {
   const changed = changes.filter(({ before, after }) =>
-    encryptedFieldsChanged(before, after)
+    noteEncryptedFieldsChanged(before, after)
   );
   if (!changed.length) return;
 
   const device = await getOrCreateDevice();
   await localDb.notes.bulkPut(
+    changed.map(({ before, after }) => ({
+      ...after,
+      deviceId: device.id,
+      version: before.version + 1,
+      syncStatus:
+        before.syncStatus === 'conflict' || before.syncStatus === 'deleted'
+          ? before.syncStatus
+          : 'pending'
+    }))
+  );
+}
+
+async function saveNotebookEncryptionChanges(
+  changes: Array<{ before: LocalNotebook; after: LocalNotebook }>
+): Promise<void> {
+  const changed = changes.filter(({ before, after }) =>
+    notebookEncryptedFieldsChanged(before, after)
+  );
+  if (!changed.length) return;
+
+  const device = await getOrCreateDevice();
+  await localDb.notebooks.bulkPut(
     changed.map(({ before, after }) => ({
       ...after,
       deviceId: device.id,
@@ -602,6 +681,15 @@ function isNoteConflict(
   );
 }
 
+function isNotebookConflict(
+  conflict: LocalConflict
+): conflict is LocalConflict & { conflict: SyncConflict<Notebook> } {
+  return (
+    conflict.entityType === 'notebook' &&
+    conflict.conflict.entityType === 'notebook'
+  );
+}
+
 function noteConflictNeedsEncryption(conflict: SyncConflict<Note>): boolean {
   const local = conflict.local.record;
   const remote = conflict.remote.record;
@@ -619,31 +707,69 @@ function noteConflictNeedsEncryption(conflict: SyncConflict<Note>): boolean {
   );
 }
 
+function notebookConflictNeedsEncryption(
+  conflict: SyncConflict<Notebook>
+): boolean {
+  const local = conflict.local.record;
+  const remote = conflict.remote.record;
+  return (
+    conflict.local.previewText !== '' ||
+    conflict.remote.previewText !== '' ||
+    !isEncryptedText(local.name) ||
+    !local.nameHash ||
+    !isEncryptedText(remote.name) ||
+    !remote.nameHash
+  );
+}
+
 function conflictEncryptedFieldsChanged(
   before: LocalConflict,
   after: LocalConflict['conflict']
 ): boolean {
-  if (
-    before.entityType !== 'note' ||
-    before.conflict.entityType !== 'note' ||
-    after.entityType !== 'note'
-  ) {
-    return false;
+  if (before.entityType === 'note') {
+    if (before.conflict.entityType !== 'note' || after.entityType !== 'note') {
+      return false;
+    }
+    const beforeConflict = before.conflict as SyncConflict<Note>;
+    const afterConflict = after as SyncConflict<Note>;
+    return (
+      beforeConflict.local.previewText !== afterConflict.local.previewText ||
+      beforeConflict.remote.previewText !== afterConflict.remote.previewText ||
+      noteEncryptedFieldsChanged(
+        beforeConflict.local.record as LocalNote,
+        afterConflict.local.record as LocalNote
+      ) ||
+      noteEncryptedFieldsChanged(
+        beforeConflict.remote.record as LocalNote,
+        afterConflict.remote.record as LocalNote
+      )
+    );
   }
-  const beforeConflict = before.conflict as SyncConflict<Note>;
-  const afterConflict = after as SyncConflict<Note>;
-  return (
-    beforeConflict.local.previewText !== afterConflict.local.previewText ||
-    beforeConflict.remote.previewText !== afterConflict.remote.previewText ||
-    encryptedFieldsChanged(
-      beforeConflict.local.record as LocalNote,
-      afterConflict.local.record as LocalNote
-    ) ||
-    encryptedFieldsChanged(
-      beforeConflict.remote.record as LocalNote,
-      afterConflict.remote.record as LocalNote
-    )
-  );
+
+  if (before.entityType === 'notebook') {
+    if (
+      before.conflict.entityType !== 'notebook' ||
+      after.entityType !== 'notebook'
+    ) {
+      return false;
+    }
+    const beforeConflict = before.conflict as SyncConflict<Notebook>;
+    const afterConflict = after as SyncConflict<Notebook>;
+    return (
+      beforeConflict.local.previewText !== afterConflict.local.previewText ||
+      beforeConflict.remote.previewText !== afterConflict.remote.previewText ||
+      notebookEncryptedFieldsChanged(
+        beforeConflict.local.record as LocalNotebook,
+        afterConflict.local.record as LocalNotebook
+      ) ||
+      notebookEncryptedFieldsChanged(
+        beforeConflict.remote.record as LocalNotebook,
+        afterConflict.remote.record as LocalNotebook
+      )
+    );
+  }
+
+  return false;
 }
 
 async function saveConflictEncryptionChanges(
@@ -664,15 +790,18 @@ async function saveConflictEncryptionChanges(
 
 async function ensureLocalConflictsEncrypted(): Promise<void> {
   const conflicts = await localDb.conflicts.toArray();
-  const noteConflicts = conflicts.filter(
+  const conflictsNeedingEncryption = conflicts.filter(
     (conflict) =>
-      isNoteConflict(conflict) && noteConflictNeedsEncryption(conflict.conflict)
+      (isNoteConflict(conflict) &&
+        noteConflictNeedsEncryption(conflict.conflict)) ||
+      (isNotebookConflict(conflict) &&
+        notebookConflictNeedsEncryption(conflict.conflict))
   );
-  if (!noteConflicts.length) return;
+  if (!conflictsNeedingEncryption.length) return;
 
   await saveConflictEncryptionChanges(
     await Promise.all(
-      noteConflicts.map(async (conflict) => ({
+      conflictsNeedingEncryption.map(async (conflict) => ({
         before: conflict,
         after: await encryptConflictForStorage(conflict.conflict)
       }))
@@ -684,7 +813,9 @@ async function reencryptLocalConflicts(
   previousMaterial: string,
   nextMaterial: string
 ): Promise<void> {
-  const conflicts = (await localDb.conflicts.toArray()).filter(isNoteConflict);
+  const conflicts = (await localDb.conflicts.toArray()).filter(
+    (conflict) => isNoteConflict(conflict) || isNotebookConflict(conflict)
+  );
   if (!conflicts.length) return;
 
   await saveConflictEncryptionChanges(

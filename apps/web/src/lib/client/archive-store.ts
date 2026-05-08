@@ -1,6 +1,11 @@
 import { localDb, type LocalNote } from './db';
 import type { ParsedImportPayload } from './archive-parser';
-import { decryptNoteFields, encryptNoteFields } from './encryption';
+import {
+  decryptNoteFields,
+  decryptNotebookFields,
+  encryptNoteFields,
+  encryptNotebookFields
+} from './encryption';
 import {
   buildNotesMarkdownArchive,
   createZipBlob,
@@ -48,10 +53,13 @@ export async function exportNotesMarkdownZip(): Promise<{
   const decryptedNoteRows = await Promise.all(
     noteRows.map((note) => decryptNoteFields(note))
   );
+  const decryptedNotebookRows = await Promise.all(
+    notebookRows.map((notebook) => decryptNotebookFields(notebook))
+  );
   const exportedAt = nowIso();
   const archive = buildNotesMarkdownArchive(
     decryptedNoteRows,
-    notebookRows,
+    decryptedNotebookRows,
     exportedAt
   );
 
@@ -87,7 +95,11 @@ async function importParsedNotes(
     'rw',
     [localDb.notebooks, localDb.notes],
     async () => {
-      const existingNotebooks = await localDb.notebooks.toArray();
+      const existingNotebooks = await Promise.all(
+        (await localDb.notebooks.toArray()).map((notebook) =>
+          decryptNotebookFields(notebook)
+        )
+      );
       const notebookIdBySourceId = new Map<string, string>();
       const notebookIdByName = new Map<string, string>();
 
@@ -115,18 +127,20 @@ async function importParsedNotes(
         const created = createdAt ?? now;
         const updated = updatedAt ?? created;
         const id = newId();
-        await localDb.notebooks.put({
-          id,
-          name: trimmed,
-          createdAt: created,
-          updatedAt: updated,
-          deletedAt: null,
-          deviceId: device.id,
-          version: 1,
-          syncStatus: 'pending',
-          lastSyncedVersion: 0,
-          lastSyncedAt: null
-        });
+        await localDb.notebooks.put(
+          await encryptNotebookFields({
+            id,
+            name: trimmed,
+            createdAt: created,
+            updatedAt: updated,
+            deletedAt: null,
+            deviceId: device.id,
+            version: 1,
+            syncStatus: 'pending',
+            lastSyncedVersion: 0,
+            lastSyncedAt: null
+          })
+        );
         notebookIdByName.set(normalized, id);
         if (sourceId) notebookIdBySourceId.set(sourceId, id);
         importedNotebooks += 1;

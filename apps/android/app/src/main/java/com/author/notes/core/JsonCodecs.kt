@@ -72,6 +72,7 @@ fun noteFromJson(json: JSONObject): LocalNote {
 fun notebookToJson(notebook: LocalNotebook): JSONObject = JSONObject()
   .put("id", notebook.id)
   .put("name", notebook.name)
+  .putNullable("nameHash", notebook.nameHash)
   .put("createdAt", notebook.createdAt)
   .put("updatedAt", notebook.updatedAt)
   .putNullable("deletedAt", notebook.deletedAt)
@@ -82,6 +83,7 @@ fun notebookToJson(notebook: LocalNotebook): JSONObject = JSONObject()
 fun notebookFromJson(json: JSONObject): LocalNotebook = LocalNotebook(
   id = json.getString("id"),
   name = json.optString("name", ""),
+  nameHash = json.optNullableString("nameHash"),
   createdAt = json.getString("createdAt"),
   updatedAt = json.getString("updatedAt"),
   deletedAt = json.optNullableString("deletedAt"),

@@ -13,7 +13,9 @@ import {
 import { localDb, type LocalNote, type LocalNotebook } from './db';
 import {
   decryptNoteFields,
+  decryptNotebookFields,
   encryptNoteFields,
+  encryptNotebookFields,
   isEncryptedText
 } from './encryption';
 import { getOrCreateDevice, newId, nowIso } from './local-state';
@@ -246,9 +248,22 @@ async function mergeRemoteNotebook(
   syncedAt: string
 ): Promise<void> {
   const local = await localDb.notebooks.get(remote.id);
+  const remotePlain = await decryptNotebookFields(remote);
+  const remoteStored = await encryptNotebookFields(remotePlain);
+  const shouldRepublishEncryption = notebookNeedsEncryptionRepublish(
+    remote,
+    remoteStored
+  );
+  const republishDevice = shouldRepublishEncryption
+    ? await getOrCreateDevice()
+    : null;
   const remoteLocal: LocalNotebook = {
-    ...remote,
-    syncStatus: 'synced',
+    ...remoteStored,
+    deviceId: republishDevice?.id ?? remoteStored.deviceId,
+    version: republishDevice
+      ? nextVersionAfter(remote.version)
+      : remoteStored.version,
+    syncStatus: shouldRepublishEncryption ? 'pending' : 'synced',
     lastSyncedVersion: remote.version,
     lastSyncedAt: syncedAt
   };
@@ -258,10 +273,11 @@ async function mergeRemoteNotebook(
     return;
   }
 
+  const localPlain = await decryptNotebookFields(local);
   if (
     local.syncStatus === 'pending' &&
     local.lastSyncedVersion !== remote.version &&
-    recordsDiffer(local, remote)
+    recordsDiffer(localPlain, remotePlain)
   ) {
     if (await remoteCameFromThisDevice(remote)) {
       if (remote.version > local.lastSyncedVersion) {
@@ -285,8 +301,8 @@ async function mergeRemoteNotebook(
         deviceName: (await getOrCreateDevice()).name,
         updatedAt: local.updatedAt,
         version: local.version,
-        previewText: local.name,
-        record: local
+        previewText: previewText(localPlain),
+        record: localPlain
       },
       remote: {
         source: 'remote',
@@ -294,8 +310,8 @@ async function mergeRemoteNotebook(
         deviceName: await deviceName(remote.deviceId),
         updatedAt: remote.updatedAt,
         version: remote.version,
-        previewText: remote.name,
-        record: remote
+        previewText: previewText(remotePlain),
+        record: remotePlain
       }
     });
     return;
@@ -304,6 +320,16 @@ async function mergeRemoteNotebook(
   if (local.syncStatus !== 'pending' && local.syncStatus !== 'conflict') {
     await localDb.notebooks.put(remoteLocal);
   }
+}
+
+function notebookNeedsEncryptionRepublish(
+  remote: Notebook,
+  stored: Notebook
+): boolean {
+  return (
+    !isEncryptedText(remote.name) ||
+    (remote.nameHash ?? null) !== (stored.nameHash ?? null)
+  );
 }
 
 export async function mergeRemoteChanges(
@@ -365,23 +391,27 @@ export async function resolveConflict(
     } else {
       const remote = conflict.remote.record as Notebook;
       const local = conflict.local.record as Notebook;
+      await localDb.notebooks.put(
+        await encryptNotebookFields({
+          ...remote,
+          syncStatus: 'synced',
+          lastSyncedVersion: remote.version,
+          lastSyncedAt: now
+        })
+      );
       await localDb.notebooks.put({
-        ...remote,
-        syncStatus: 'synced',
-        lastSyncedVersion: remote.version,
-        lastSyncedAt: now
-      });
-      await localDb.notebooks.put({
-        ...local,
-        id: newId(),
-        name: `${local.name} copy`,
-        createdAt: now,
-        updatedAt: now,
-        deviceId: device.id,
-        version: 1,
-        syncStatus: 'pending',
-        lastSyncedVersion: 0,
-        lastSyncedAt: null
+        ...(await encryptNotebookFields({
+          ...local,
+          id: newId(),
+          name: `${local.name} copy`,
+          createdAt: now,
+          updatedAt: now,
+          deviceId: device.id,
+          version: 1,
+          syncStatus: 'pending',
+          lastSyncedVersion: 0,
+          lastSyncedAt: null
+        }))
       });
     }
   } else {
@@ -407,16 +437,18 @@ export async function resolveConflict(
       const selected = chooseConflictVersion(notebookConflict, choice);
       const record = selected.record as Notebook;
       const isRemote = selected.source === 'remote';
-      await localDb.notebooks.put({
-        ...record,
-        deviceId: isRemote ? record.deviceId : device.id,
-        version: isRemote
-          ? notebookConflict.remote.version
-          : nextVersionAfter(notebookConflict.remote.version),
-        syncStatus: isRemote ? 'synced' : 'pending',
-        lastSyncedVersion: notebookConflict.remote.version,
-        lastSyncedAt: isRemote ? now : null
-      });
+      await localDb.notebooks.put(
+        await encryptNotebookFields({
+          ...record,
+          deviceId: isRemote ? record.deviceId : device.id,
+          version: isRemote
+            ? notebookConflict.remote.version
+            : nextVersionAfter(notebookConflict.remote.version),
+          syncStatus: isRemote ? 'synced' : 'pending',
+          lastSyncedVersion: notebookConflict.remote.version,
+          lastSyncedAt: isRemote ? now : null
+        })
+      );
     }
   }
 

@@ -114,6 +114,20 @@ class NoteCrypto(
 
   fun reencryptNoteFields(note: LocalNote, previousMaterial: String, nextMaterial: String): LocalNote = encryptNoteFields(decryptNoteFields(note, previousMaterial), nextMaterial)
 
+  fun encryptNotebookFields(notebook: LocalNotebook, keyMaterial: String = getEncryptionKeyMaterial()): LocalNotebook {
+    val nameHash = if (isEncryptedText(notebook.name)) notebook.nameHash else fieldHash(normalizedNotebookName(notebook.name), keyMaterial, "notebook:name")
+    return notebook.copy(
+      nameHash = nameHash,
+      name = encryptText(notebook.name, keyMaterial)
+    )
+  }
+
+  fun decryptNotebookFields(notebook: LocalNotebook, keyMaterial: String = getEncryptionKeyMaterial()): LocalNotebook = notebook.copy(
+    name = decryptText(notebook.name, keyMaterial)
+  )
+
+  fun reencryptNotebookFields(notebook: LocalNotebook, previousMaterial: String, nextMaterial: String): LocalNotebook = encryptNotebookFields(decryptNotebookFields(notebook, previousMaterial), nextMaterial)
+
   private fun encryptionKey(keyMaterial: String): SecretKeySpec = SecretKeySpec(sha256("author-notes:$keyMaterial".toByteArray(UTF_8)), "AES")
 
   private fun decryptionKeyMaterials(primary: String): List<String> {

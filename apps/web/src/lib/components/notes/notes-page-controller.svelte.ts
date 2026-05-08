@@ -92,7 +92,12 @@ import type {
 export type NotesFilterId = 'all' | 'unfiled' | 'trash' | (string & {});
 export type Theme = 'light' | 'dark';
 export type AuthMode = 'signin' | 'signup';
-export type SettingsSection = 'account' | 'sync' | 'data' | 'appearance';
+export type SettingsSection =
+  | 'account'
+  | 'sync'
+  | 'data'
+  | 'appearance'
+  | 'legal';
 export type ConflictChoice =
   | 'keep-newer'
   | 'keep-older'

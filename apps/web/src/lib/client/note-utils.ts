@@ -20,7 +20,7 @@ export function noteDisplayTitle(
 }
 
 export function normalizeNotebookName(name: string): string {
-  return name.trim().toLocaleLowerCase();
+  return name.trim().toLowerCase();
 }
 
 export function noteNotebookIds(

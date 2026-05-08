@@ -149,6 +149,7 @@ function toNotebook(row: Row): Notebook {
   return {
     id: asString(row.id),
     name: asString(row.name),
+    nameHash: asNullableString(row.name_hash),
     createdAt: asString(row.created_at),
     updatedAt: asString(row.updated_at),
     deletedAt: asNullableString(row.deleted_at),
@@ -638,9 +639,25 @@ export async function deleteDevicesByIds(
 async function getActiveNotebookByName(
   db: NotesExecutor,
   name: string,
+  nameHash: string | null | undefined,
   excludeId: string,
   ownerUsername = LEGACY_OWNER_USERNAME
 ): Promise<Notebook | null> {
+  if (nameHash) {
+    const row = (await queryOne(
+      db,
+      `SELECT * FROM notebooks
+       WHERE owner_username = ?
+         AND deleted_at IS NULL
+         AND id <> ?
+         AND name_hash = ?
+       LIMIT 1`,
+      [ownerUsername, excludeId, nameHash]
+    )) as Row | null;
+
+    return row ? toNotebook(row) : null;
+  }
+
   const row = (await queryOne(
     db,
     `SELECT * FROM notebooks
@@ -860,12 +877,13 @@ async function saveNotebookSnapshot(
   await runSql(
     db,
     `INSERT INTO notebook_versions (
-       notebook_id, owner_username, name, created_at, updated_at, deleted_at, device_id, version, saved_at, reason
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       notebook_id, owner_username, name, name_hash, created_at, updated_at, deleted_at, device_id, version, saved_at, reason
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       notebook.id,
       ownerUsername,
       notebook.name,
+      notebook.nameHash ?? null,
       notebook.createdAt,
       notebook.updatedAt,
       notebook.deletedAt,
@@ -945,10 +963,11 @@ async function putNotebook(
   await runSql(
     db,
     `INSERT INTO notebooks (
-       id, owner_username, name, created_at, updated_at, deleted_at, device_id, version, sync_status
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       id, owner_username, name, name_hash, created_at, updated_at, deleted_at, device_id, version, sync_status
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
+       name_hash = excluded.name_hash,
        created_at = excluded.created_at,
        updated_at = excluded.updated_at,
        deleted_at = excluded.deleted_at,
@@ -960,6 +979,7 @@ async function putNotebook(
       notebook.id,
       ownerUsername,
       notebook.name,
+      notebook.nameHash ?? null,
       notebook.createdAt,
       notebook.updatedAt,
       notebook.deletedAt,
@@ -1250,6 +1270,7 @@ export async function pushChanges(
         : await getActiveNotebookByName(
             tx,
             change.record.name,
+            change.record.nameHash,
             change.record.id,
             ownerUsername
           );

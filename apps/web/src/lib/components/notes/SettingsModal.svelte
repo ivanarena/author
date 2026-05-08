@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { resolve } from '$app/paths';
   import {
     ChevronRight,
     Check,
@@ -8,6 +9,7 @@
     Eye,
     EyeOff,
     KeyRound,
+    Landmark,
     LogIn,
     LogOut,
     Moon,
@@ -102,6 +104,16 @@
         >
           <Palette size={15} strokeWidth={1.8} />
           <span>Appearance</span>
+          <ChevronRight size={14} strokeWidth={1.8} />
+        </button>
+        <button
+          class="settings-menu-item"
+          class:active={model.settingsSection === 'legal'}
+          aria-current={model.settingsSection === 'legal' ? 'page' : undefined}
+          onclick={() => model.setSettingsSection('legal')}
+        >
+          <Landmark size={15} strokeWidth={1.8} />
+          <span>Legal</span>
           <ChevronRight size={14} strokeWidth={1.8} />
         </button>
         {#if model.hasToken}
@@ -578,7 +590,7 @@
               </button>
             </div>
           </div>
-        {:else}
+        {:else if model.settingsSection === 'appearance'}
           <header class="settings-panel-header">
             <Palette size={16} strokeWidth={1.8} />
             <h3>Appearance</h3>
@@ -625,6 +637,46 @@
             >
               <ZoomIn size={14} strokeWidth={1.8} />
             </button>
+          </div>
+        {:else}
+          <header class="settings-panel-header">
+            <Landmark size={16} strokeWidth={1.8} />
+            <h3>Legal</h3>
+          </header>
+
+          <div class="settings-action-group" aria-label="Legal documents">
+            <div class="settings-action-group-heading">
+              <span>Documents</span>
+            </div>
+            <div class="settings-actions">
+              <a
+                class="settings-action"
+                href={resolve('/privacy')}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <Landmark size={15} strokeWidth={1.8} />
+                <span>Privacy</span>
+              </a>
+              <a
+                class="settings-action"
+                href={resolve('/terms')}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <Landmark size={15} strokeWidth={1.8} />
+                <span>Terms</span>
+              </a>
+              <a
+                class="settings-action"
+                href={resolve('/license')}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <Landmark size={15} strokeWidth={1.8} />
+                <span>License</span>
+              </a>
+            </div>
           </div>
         {/if}
       </section>

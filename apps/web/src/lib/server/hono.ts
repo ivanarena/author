@@ -509,6 +509,7 @@ function hasNotebookRecord(record: unknown): record is Notebook {
   return (
     nonEmptyString(notebook.id) &&
     typeof notebook.name === 'string' &&
+    isNullableString(notebook.nameHash ?? null) &&
     isIsoDate(notebook.createdAt) &&
     isIsoDate(notebook.updatedAt) &&
     isNullableIsoDate(notebook.deletedAt) &&

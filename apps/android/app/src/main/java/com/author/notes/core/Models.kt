@@ -27,6 +27,7 @@ data class LocalNote(
 data class LocalNotebook(
   val id: String,
   val name: String,
+  val nameHash: String?,
   val createdAt: String,
   val updatedAt: String,
   val deletedAt: String?,

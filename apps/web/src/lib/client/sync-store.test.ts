@@ -7,7 +7,11 @@ import {
   mergeRemoteChanges
 } from './sync-store';
 import { localDb } from './db';
-import { encryptNoteFields, isEncryptedText } from './encryption';
+import {
+  encryptNoteFields,
+  encryptNotebookFields,
+  isEncryptedText
+} from './encryption';
 
 vi.mock('./db', () => ({
   localDb: {
@@ -35,7 +39,9 @@ vi.mock('./db', () => ({
 
 vi.mock('./encryption', () => ({
   decryptNoteFields: vi.fn(async (note) => note),
+  decryptNotebookFields: vi.fn(async (notebook) => notebook),
   encryptNoteFields: vi.fn(async (note) => note),
+  encryptNotebookFields: vi.fn(async (notebook) => notebook),
   isEncryptedText: vi.fn(() => true)
 }));
 
@@ -117,6 +123,9 @@ beforeEach(() => {
   vi.mocked(localDb.notebooks.get).mockResolvedValue(null);
   vi.mocked(localDb.devices.get).mockResolvedValue(null);
   vi.mocked(encryptNoteFields).mockImplementation(async (note) => note);
+  vi.mocked(encryptNotebookFields).mockImplementation(
+    async (notebook) => notebook
+  );
   vi.mocked(isEncryptedText).mockReturnValue(true);
 });
 

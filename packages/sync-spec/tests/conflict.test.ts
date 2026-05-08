@@ -146,6 +146,18 @@ describe('sync conflict rules', () => {
       recordsDiffer(baseNotebook, { ...baseNotebook, name: 'Archive' })
     ).toBe(true);
     expect(
+      recordsDiffer(
+        { ...baseNotebook, name: 'enc:v1:a', nameHash: 'hash:v1:same' },
+        { ...baseNotebook, name: 'enc:v1:b', nameHash: 'hash:v1:same' }
+      )
+    ).toBe(false);
+    expect(
+      recordsDiffer(
+        { ...baseNotebook, name: 'enc:v1:a', nameHash: 'hash:v1:same' },
+        { ...baseNotebook, name: 'enc:v1:b', nameHash: 'hash:v1:other' }
+      )
+    ).toBe(true);
+    expect(
       recordsDiffer(baseNotebook, {
         ...baseNotebook,
         deletedAt: '2026-01-02T00:00:00.000Z'

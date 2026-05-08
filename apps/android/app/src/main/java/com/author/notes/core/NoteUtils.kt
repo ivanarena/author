@@ -13,7 +13,7 @@ fun newId(): String = UUID.randomUUID().toString()
 
 fun nowIso(): String = Instant.now().toString()
 
-fun normalizedNotebookName(name: String): String = name.trim().lowercase(Locale.getDefault())
+fun normalizedNotebookName(name: String): String = name.trim().lowercase(Locale.ROOT)
 
 fun noteNotebookIds(note: LocalNote): List<String> {
   val ids = if (note.notebookIds.isNotEmpty()) {
@@ -156,4 +156,11 @@ fun recordsDiffer(a: LocalNote, b: LocalNote): Boolean {
     a.trashedAt != b.trashedAt
 }
 
-fun recordsDiffer(a: LocalNotebook, b: LocalNotebook): Boolean = a.name != b.name || a.deletedAt != b.deletedAt
+fun recordsDiffer(a: LocalNotebook, b: LocalNotebook): Boolean {
+  val nameDiffers = if (a.nameHash != null || b.nameHash != null) {
+    a.nameHash != b.nameHash
+  } else {
+    a.name != b.name
+  }
+  return nameDiffers || a.deletedAt != b.deletedAt
+}

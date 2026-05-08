@@ -22,7 +22,9 @@ vi.mock('./db', () => ({
       bulkPut: vi.fn()
     },
     notebooks: {
-      count: vi.fn()
+      count: vi.fn(),
+      toArray: vi.fn(),
+      bulkPut: vi.fn()
     },
     conflicts: {
       count: vi.fn(),
@@ -38,11 +40,17 @@ vi.mock('./db', () => ({
 
 vi.mock('./encryption', () => ({
   decryptNoteFields: vi.fn(async (note) => note),
+  decryptNotebookFields: vi.fn(async (notebook) => notebook),
   encryptNoteFields: vi.fn(async (note) => note),
+  encryptNotebookFields: vi.fn(async (notebook) => notebook),
   isEncryptedText: vi.fn(() => true),
   reencryptNoteFields: vi.fn(async (note) => ({
     ...note,
     title: 'reencrypted-title'
+  })),
+  reencryptNotebookFields: vi.fn(async (notebook) => ({
+    ...notebook,
+    name: 'reencrypted-name'
   }))
 }));
 
@@ -79,6 +87,8 @@ beforeEach(() => {
     ...storedNote,
     title: 'reencrypted-title'
   }));
+  vi.mocked(localDb.notebooks.toArray).mockResolvedValue([]);
+  vi.mocked(localDb.notebooks.bulkPut).mockResolvedValue('notebook-1');
   vi.mocked(getOrCreateDevice).mockResolvedValue({
     id: 'browser',
     name: 'Browser'
@@ -166,7 +176,7 @@ describe('local note encryption sync state', () => {
   it('skips the local encryption scan after a clean audit', async () => {
     vi.mocked(localDb.syncMeta.get).mockResolvedValue({
       key: 'localEncryptionAuditVersion',
-      value: 'notes-conflicts:v1'
+      value: 'content-conflicts:v2'
     });
 
     await ensureLocalNotesEncrypted();

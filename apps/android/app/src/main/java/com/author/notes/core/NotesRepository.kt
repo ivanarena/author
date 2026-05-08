@@ -22,7 +22,7 @@ private const val EDITOR_ZOOM_KEY = "author-notes-editor-zoom"
 private const val API_BASE_URL_KEY = "author-notes-api-base-url"
 private const val LOCAL_WORKSPACE_OWNER_KEY = "localWorkspaceOwner"
 private const val ENCRYPTION_AUDIT_VERSION_KEY = "localEncryptionAuditVersion"
-private const val ENCRYPTION_AUDIT_VERSION = "notes-conflicts:v1"
+private const val ENCRYPTION_AUDIT_VERSION = "content-conflicts:v2"
 private const val LAST_SYNC_ERROR_AT_KEY = "lastSyncErrorAt"
 private const val LAST_SYNC_ERROR_SOURCE_KEY = "lastSyncErrorSource"
 private const val LAST_SYNC_ERROR_MESSAGE_KEY = "lastSyncErrorMessage"
@@ -175,6 +175,7 @@ class NotesRepository(context: Context) {
     val notebook = LocalNotebook(
       id = newId(),
       name = trimmed,
+      nameHash = null,
       createdAt = now,
       updatedAt = now,
       deletedAt = null,
@@ -184,7 +185,7 @@ class NotesRepository(context: Context) {
       lastSyncedVersion = 0,
       lastSyncedAt = null
     )
-    db.putNotebook(notebook)
+    db.putNotebook(crypto.encryptNotebookFields(notebook))
     notebook
   }
 
@@ -193,16 +194,17 @@ class NotesRepository(context: Context) {
     if (trimmed.isEmpty()) return@withContext null
     val notebook = db.getNotebook(notebookId) ?: return@withContext null
     if (notebook.deletedAt != null) return@withContext null
-    if (notebook.name == trimmed) return@withContext notebook
+    val plainNotebook = crypto.decryptNotebookFields(notebook)
+    if (plainNotebook.name == trimmed) return@withContext plainNotebook
     val device = getOrCreateDevice()
-    val updated = notebook.copy(
+    val updated = plainNotebook.copy(
       name = trimmed,
       updatedAt = nowIso(),
       deviceId = device.id,
       version = notebook.version + 1,
       syncStatus = "pending"
     )
-    db.putNotebook(updated)
+    db.putNotebook(crypto.encryptNotebookFields(updated))
     updated
   }
 
@@ -320,13 +322,14 @@ class NotesRepository(context: Context) {
 
   suspend fun loadWorkspace(): Workspace = withContext(Dispatchers.IO) {
     val notes = db.allNotes().map { crypto.decryptNoteFields(it) }
+    val notebooks = db.allNotebooks().map { crypto.decryptNotebookFields(it) }
     val activeNotes = notes.filter { it.deletedAt == null && it.trashedAt == null }
       .sortedByDescending { it.updatedAt }
     val trash = notes.filter { it.deletedAt == null && it.trashedAt != null }
       .sortedByDescending { it.trashedAt ?: "" }
     Workspace(
       notes = activeNotes,
-      notebooks = db.allNotebooks().filter { it.deletedAt == null }.sortedBy { it.name.lowercase() },
+      notebooks = notebooks.filter { it.deletedAt == null }.sortedBy { it.name.lowercase() },
       trash = trash,
       devices = db.allDevices(),
       conflicts = loadPendingConflictsInternal(),
@@ -357,6 +360,23 @@ class NotesRepository(context: Context) {
         }
       )
     }
+    val notebooks = db.allNotebooks()
+    val changedNotebooks = notebooks.filter {
+      !crypto.isEncryptedText(it.name) || it.nameHash == null
+    }
+    if (changedNotebooks.isNotEmpty()) {
+      val device = getOrCreateDevice()
+      db.putNotebooks(
+        changedNotebooks.map { before ->
+          crypto.encryptNotebookFields(crypto.decryptNotebookFields(before)).copy(
+            deviceId = device.id,
+            version = before.version + 1,
+            syncStatus = if (before.syncStatus == "conflict" || before.syncStatus == "deleted") before.syncStatus else "pending"
+          )
+        }
+      )
+    }
+    ensureLocalConflictsEncryptedInternal()
     db.putMeta(ENCRYPTION_AUDIT_VERSION_KEY, ENCRYPTION_AUDIT_VERSION)
   }
 
@@ -574,22 +594,25 @@ class NotesRepository(context: Context) {
         )
       }
     } else {
-      val conflict = notebookConflictFromJson(JSONObject(raw.conflictJson))
+      val conflict = decryptNotebookConflictForDisplay(notebookConflictFromJson(JSONObject(raw.conflictJson)))
       if (choice == "duplicate-both") {
         val remote = conflict.remote.record
         val local = conflict.local.record
-        db.putNotebook(remote.copy(syncStatus = "synced", lastSyncedVersion = remote.version, lastSyncedAt = now))
+        db.putNotebook(crypto.encryptNotebookFields(remote.copy(syncStatus = "synced", lastSyncedVersion = remote.version, lastSyncedAt = now)))
         db.putNotebook(
-          local.copy(
-            id = newId(),
-            name = "${local.name} copy",
-            createdAt = now,
-            updatedAt = now,
-            deviceId = device.id,
-            version = 1,
-            syncStatus = "pending",
-            lastSyncedVersion = 0,
-            lastSyncedAt = null
+          crypto.encryptNotebookFields(
+            local.copy(
+              id = newId(),
+              name = "${local.name} copy",
+              nameHash = null,
+              createdAt = now,
+              updatedAt = now,
+              deviceId = device.id,
+              version = 1,
+              syncStatus = "pending",
+              lastSyncedVersion = 0,
+              lastSyncedAt = null
+            )
           )
         )
       } else {
@@ -597,12 +620,14 @@ class NotesRepository(context: Context) {
         val record = selected.record
         val isRemote = selected.source == "remote"
         db.putNotebook(
-          record.copy(
-            deviceId = if (isRemote) record.deviceId else device.id,
-            version = if (isRemote) conflict.remote.version else conflict.remote.version + 1,
-            syncStatus = if (isRemote) "synced" else "pending",
-            lastSyncedVersion = conflict.remote.version,
-            lastSyncedAt = if (isRemote) now else null
+          crypto.encryptNotebookFields(
+            record.copy(
+              deviceId = if (isRemote) record.deviceId else device.id,
+              version = if (isRemote) conflict.remote.version else conflict.remote.version + 1,
+              syncStatus = if (isRemote) "synced" else "pending",
+              lastSyncedVersion = conflict.remote.version,
+              lastSyncedAt = if (isRemote) now else null
+            )
           )
         )
       }
@@ -612,7 +637,7 @@ class NotesRepository(context: Context) {
 
   suspend fun exportMarkdownZip(): Pair<String, ByteArray> = withContext(Dispatchers.IO) {
     val notes = db.allNotes().map { crypto.decryptNoteFields(it) }.filter { it.deletedAt == null }
-    val notebooks = db.allNotebooks()
+    val notebooks = db.allNotebooks().map { crypto.decryptNotebookFields(it) }
     buildMarkdownZip(notes, notebooks)
   }
 
@@ -625,7 +650,7 @@ class NotesRepository(context: Context) {
       val conflict = decryptNoteConflictForDisplay(noteConflictFromJson(JSONObject(raw.conflictJson)))
       LocalConflict(raw.id, raw.entityType, raw.entityId, raw.status, raw.createdAt, conflict, null)
     } else {
-      val conflict = notebookConflictFromJson(JSONObject(raw.conflictJson))
+      val conflict = decryptNotebookConflictForDisplay(notebookConflictFromJson(JSONObject(raw.conflictJson)))
       LocalConflict(raw.id, raw.entityType, raw.entityId, raw.status, raw.createdAt, null, conflict)
     }
   }
@@ -772,20 +797,35 @@ class NotesRepository(context: Context) {
 
   private fun mergeRemoteNotebook(remote: LocalNotebook, syncedAt: String) {
     val local = db.getNotebook(remote.id)
-    val remoteLocal = remote.copy(syncStatus = "synced", lastSyncedVersion = remote.version, lastSyncedAt = syncedAt)
+    val remotePlain = crypto.decryptNotebookFields(remote)
+    val remoteStored = crypto.encryptNotebookFields(remotePlain)
+    val shouldRepublish = !crypto.isEncryptedText(remote.name) ||
+      remote.nameHash != remoteStored.nameHash
+    val remoteLocal = remoteStored.copy(
+      syncStatus = if (shouldRepublish) "pending" else "synced",
+      lastSyncedVersion = remote.version,
+      lastSyncedAt = syncedAt
+    )
     if (local == null) {
       db.putNotebook(remoteLocal)
       return
     }
-    if (local.syncStatus == "pending" && local.lastSyncedVersion != remote.version && recordsDiffer(local, remote)) {
+    val localPlain = crypto.decryptNotebookFields(local)
+    if (local.syncStatus == "pending" && local.lastSyncedVersion != remote.version && recordsDiffer(localPlain, remotePlain)) {
+      if (remote.deviceId == prefs.getString(DEVICE_KEY, null)) {
+        if (remote.version > local.lastSyncedVersion) {
+          db.putNotebook(local.copy(lastSyncedVersion = remote.version, lastSyncedAt = syncedAt))
+        }
+        return
+      }
       saveNotebookConflict(
         SyncConflict(
           id = newId(),
           entityType = "notebook",
           entityId = remote.id,
           reason = "remote_changed",
-          local = ConflictVersion("local", local.deviceId, deviceName(local.deviceId), local.updatedAt, local.version, local.name, local),
-          remote = ConflictVersion("remote", remote.deviceId, deviceName(remote.deviceId), remote.updatedAt, remote.version, remote.name, remote)
+          local = ConflictVersion("local", local.deviceId, deviceName(local.deviceId), local.updatedAt, local.version, previewText(localPlain), localPlain),
+          remote = ConflictVersion("remote", remote.deviceId, deviceName(remote.deviceId), remote.updatedAt, remote.version, previewText(remotePlain), remotePlain)
         )
       )
       return
@@ -800,22 +840,41 @@ class NotesRepository(context: Context) {
   }
 
   private fun saveNotebookConflict(conflict: SyncConflict<LocalNotebook>) {
-    db.putConflict(conflict.id, conflict.entityType, conflict.entityId, "pending", nowIso(), notebookConflictToJson(conflict).toString())
-    db.getNotebook(conflict.entityId)?.let { db.putNotebook(it.copy(syncStatus = "conflict")) }
+    val stored = encryptNotebookConflictForStorage(conflict)
+    db.putConflict(stored.id, stored.entityType, stored.entityId, "pending", nowIso(), notebookConflictToJson(stored).toString())
+    db.getNotebook(stored.entityId)?.let { db.putNotebook(it.copy(syncStatus = "conflict")) }
   }
 
-  private fun encryptNoteConflictForStorage(conflict: SyncConflict<LocalNote>): SyncConflict<LocalNote> {
-    val localPlain = crypto.decryptNoteFields(conflict.local.record)
-    val remotePlain = crypto.decryptNoteFields(conflict.remote.record)
+  private fun encryptNoteConflictForStorage(conflict: SyncConflict<LocalNote>, keyMaterial: String = crypto.getEncryptionKeyMaterial()): SyncConflict<LocalNote> {
+    val localPlain = crypto.decryptNoteFields(conflict.local.record, keyMaterial)
+    val remotePlain = crypto.decryptNoteFields(conflict.remote.record, keyMaterial)
     return conflict.copy(
-      local = conflict.local.copy(previewText = "", record = crypto.encryptNoteFields(localPlain)),
-      remote = conflict.remote.copy(previewText = "", record = crypto.encryptNoteFields(remotePlain))
+      local = conflict.local.copy(previewText = "", record = crypto.encryptNoteFields(localPlain, keyMaterial)),
+      remote = conflict.remote.copy(previewText = "", record = crypto.encryptNoteFields(remotePlain, keyMaterial))
     )
   }
 
-  private fun decryptNoteConflictForDisplay(conflict: SyncConflict<LocalNote>): SyncConflict<LocalNote> {
-    val local = crypto.decryptNoteFields(conflict.local.record)
-    val remote = crypto.decryptNoteFields(conflict.remote.record)
+  private fun decryptNoteConflictForDisplay(conflict: SyncConflict<LocalNote>, keyMaterial: String = crypto.getEncryptionKeyMaterial()): SyncConflict<LocalNote> {
+    val local = crypto.decryptNoteFields(conflict.local.record, keyMaterial)
+    val remote = crypto.decryptNoteFields(conflict.remote.record, keyMaterial)
+    return conflict.copy(
+      local = conflict.local.copy(previewText = previewText(local), record = local),
+      remote = conflict.remote.copy(previewText = previewText(remote), record = remote)
+    )
+  }
+
+  private fun encryptNotebookConflictForStorage(conflict: SyncConflict<LocalNotebook>, keyMaterial: String = crypto.getEncryptionKeyMaterial()): SyncConflict<LocalNotebook> {
+    val localPlain = crypto.decryptNotebookFields(conflict.local.record, keyMaterial)
+    val remotePlain = crypto.decryptNotebookFields(conflict.remote.record, keyMaterial)
+    return conflict.copy(
+      local = conflict.local.copy(previewText = "", record = crypto.encryptNotebookFields(localPlain, keyMaterial)),
+      remote = conflict.remote.copy(previewText = "", record = crypto.encryptNotebookFields(remotePlain, keyMaterial))
+    )
+  }
+
+  private fun decryptNotebookConflictForDisplay(conflict: SyncConflict<LocalNotebook>, keyMaterial: String = crypto.getEncryptionKeyMaterial()): SyncConflict<LocalNotebook> {
+    val local = crypto.decryptNotebookFields(conflict.local.record, keyMaterial)
+    val remote = crypto.decryptNotebookFields(conflict.remote.record, keyMaterial)
     return conflict.copy(
       local = conflict.local.copy(previewText = previewText(local), record = local),
       remote = conflict.remote.copy(previewText = previewText(remote), record = remote)
@@ -876,7 +935,58 @@ class NotesRepository(context: Context) {
       )
       db.putNote(updated)
     }
+    db.allNotebooks().forEach { notebook ->
+      val updated = crypto.reencryptNotebookFields(notebook, previousMaterial, nextMaterial).copy(
+        deviceId = deviceId,
+        version = notebook.version + 1,
+        syncStatus = if (notebook.syncStatus == "conflict" || notebook.syncStatus == "deleted") notebook.syncStatus else "pending"
+      )
+      db.putNotebook(updated)
+    }
+    reencryptLocalConflictsInternal(previousMaterial, nextMaterial)
     db.putMeta(ENCRYPTION_AUDIT_VERSION_KEY, ENCRYPTION_AUDIT_VERSION)
+  }
+
+  private fun reencryptLocalConflictsInternal(previousMaterial: String, nextMaterial: String) {
+    db.rawConflicts().forEach { raw ->
+      when (raw.entityType) {
+        "note" -> {
+          val decrypted = decryptNoteConflictForDisplay(
+            noteConflictFromJson(JSONObject(raw.conflictJson)),
+            previousMaterial
+          )
+          val stored = encryptNoteConflictForStorage(decrypted, nextMaterial)
+          db.putConflict(raw.id, raw.entityType, raw.entityId, raw.status, raw.createdAt, noteConflictToJson(stored).toString())
+        }
+        "notebook" -> {
+          val decrypted = decryptNotebookConflictForDisplay(
+            notebookConflictFromJson(JSONObject(raw.conflictJson)),
+            previousMaterial
+          )
+          val stored = encryptNotebookConflictForStorage(decrypted, nextMaterial)
+          db.putConflict(raw.id, raw.entityType, raw.entityId, raw.status, raw.createdAt, notebookConflictToJson(stored).toString())
+        }
+      }
+    }
+  }
+
+  private fun ensureLocalConflictsEncryptedInternal() {
+    db.rawConflicts().forEach { raw ->
+      when (raw.entityType) {
+        "note" -> {
+          val stored = encryptNoteConflictForStorage(
+            decryptNoteConflictForDisplay(noteConflictFromJson(JSONObject(raw.conflictJson)))
+          )
+          db.putConflict(raw.id, raw.entityType, raw.entityId, raw.status, raw.createdAt, noteConflictToJson(stored).toString())
+        }
+        "notebook" -> {
+          val stored = encryptNotebookConflictForStorage(
+            decryptNotebookConflictForDisplay(notebookConflictFromJson(JSONObject(raw.conflictJson)))
+          )
+          db.putConflict(raw.id, raw.entityType, raw.entityId, raw.status, raw.createdAt, notebookConflictToJson(stored).toString())
+        }
+      }
+    }
   }
 
   private fun deviceName(deviceId: String): String = db.getDevice(deviceId)?.name ?: deviceId
@@ -893,7 +1003,7 @@ class NotesRepository(context: Context) {
       prefs.edit().putString(DEVICE_KEY, it).apply()
     }
     val device = db.getDevice(deviceId) ?: Device(deviceId, deviceName()).also { db.putDevice(it) }
-    val notebookIdByName = db.allNotebooks()
+    val notebookIdByName = db.allNotebooks().map { crypto.decryptNotebookFields(it) }
       .filter { it.deletedAt == null }
       .associateBy { normalizedNotebookName(it.name) }
       .toMutableMap()
@@ -913,6 +1023,7 @@ class NotesRepository(context: Context) {
       val notebook = LocalNotebook(
         id = newId(),
         name = trimmed,
+        nameHash = null,
         createdAt = createdAt ?: now,
         updatedAt = updatedAt ?: createdAt ?: now,
         deletedAt = null,
@@ -922,7 +1033,7 @@ class NotesRepository(context: Context) {
         lastSyncedVersion = 0,
         lastSyncedAt = null
       )
-      db.putNotebook(notebook)
+      db.putNotebook(crypto.encryptNotebookFields(notebook))
       notebookIdByName[normalized] = notebook
       importedNotebooks += 1
       return notebook.id

@@ -25,7 +25,15 @@ jobs:
       - uses: android-actions/setup-android@v3
 
       - name: Install dependencies
-        run: npx -y @endevco/aube@1.4.0 install --frozen-lockfile
+        run: |
+          for attempt in 1 2 3; do
+            npx -y @endevco/aube@1.4.0 install --frozen-lockfile && exit 0
+            sleep_seconds=$((attempt * 20))
+            echo "Dependency install failed on attempt ${attempt}; retrying in ${sleep_seconds}s..."
+            sleep "${sleep_seconds}"
+          done
+
+          npx -y @endevco/aube@1.4.0 install --frozen-lockfile
 
       - name: Dependency graph check
         run: npx -y @endevco/aube@1.4.0 run deps:check

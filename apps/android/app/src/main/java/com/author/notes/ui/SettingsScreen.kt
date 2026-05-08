@@ -168,8 +168,7 @@ private fun SettingsNavRow(
   }
 }
 
-private fun activeSettingsSection(section: String): String =
-  if (section == "menu") "account" else section
+private fun activeSettingsSection(section: String): String = if (section == "menu") "account" else section
 
 @Composable
 private fun SettingsContent(
@@ -283,32 +282,28 @@ private fun SyncStatusTile(controller: NotesController) {
   }
 }
 
-private fun buildApiDetail(): String =
-  if (BuildConfig.DEFAULT_API_BASE_URL_CONFIGURED) {
-    "Loaded from build-time environment or Gradle property"
-  } else {
-    "Local emulator default. Set AUTHOR_NOTES_API_URL for a real build."
-  }
+private fun buildApiDetail(): String = if (BuildConfig.DEFAULT_API_BASE_URL_CONFIGURED) {
+  "Loaded from build-time environment or Gradle property"
+} else {
+  "Local emulator default. Set AUTHOR_NOTES_API_URL for a real build."
+}
 
-private fun serverApiDetail(controller: NotesController): String =
-  controller.serverConfigError.ifBlank {
-    "Reported by the Author API. Turso credentials stay on the server."
-  }
+private fun serverApiDetail(controller: NotesController): String = controller.serverConfigError.ifBlank {
+  "Reported by the Author API. Turso credentials stay on the server."
+}
 
-private fun remoteDatabaseValue(controller: NotesController): String =
-  when {
-    controller.serverRemoteDatabaseConfigured -> "Configured"
-    controller.serverConfigError.isBlank() -> "Not configured"
-    else -> "Unknown"
-  }
+private fun remoteDatabaseValue(controller: NotesController): String = when {
+  controller.serverRemoteDatabaseConfigured -> "Configured"
+  controller.serverConfigError.isBlank() -> "Not configured"
+  else -> "Unknown"
+}
 
-private fun remoteDatabaseDetail(controller: NotesController): String =
-  when {
-    controller.serverConfigError.isNotBlank() -> controller.serverConfigError
-    controller.serverRemoteSyncEnabled -> "Turso remote mirror enabled by the API server"
-    controller.serverRemoteDatabaseConfigured -> "Turso configured on the API server, remote sync disabled"
-    else -> "Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN on the API server"
-  }
+private fun remoteDatabaseDetail(controller: NotesController): String = when {
+  controller.serverConfigError.isNotBlank() -> controller.serverConfigError
+  controller.serverRemoteSyncEnabled -> "Turso remote mirror enabled by the API server"
+  controller.serverRemoteDatabaseConfigured -> "Turso configured on the API server, remote sync disabled"
+  else -> "Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN on the API server"
+}
 
 @Composable
 private fun SyncDebugTile(controller: NotesController) {

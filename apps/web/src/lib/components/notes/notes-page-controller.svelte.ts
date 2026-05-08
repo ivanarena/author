@@ -165,6 +165,7 @@ export interface NoteListPanelModel {
   syncIndicator: SyncIndicator;
   newNote: () => void | Promise<void>;
   changeSort: (event: Event) => void;
+  setNoteSort: (sort: NoteSort) => void;
   selectNote: NoteCallback;
   toggleNoteSelection: (note: LocalNote, selected: boolean) => void;
   toggleAllVisibleNotes: (selected: boolean) => void;
@@ -463,13 +464,22 @@ function noteSyncStatusLabel(note: LocalNote): string {
   return 'Pending sync';
 }
 
+function formatLastSynced(iso: string | null, deviceName: string): string {
+  if (!iso) return 'Not synced yet';
+  return `${formatMetadataDate(iso)} by ${deviceName}`;
+}
+
 function metadataRowsForNote(
   note: LocalNote,
-  wordCount = countWords(`${note.title} ${note.body}`)
+  wordCount = countWords(`${note.title} ${note.body}`),
+  deviceName = 'Unknown device'
 ): MetadataRow[] {
   return [
     { label: 'Status', value: noteSyncStatusLabel(note) },
-    { label: 'Last synced', value: formatMetadataDate(note.lastSyncedAt) },
+    {
+      label: 'Last synced',
+      value: formatLastSynced(note.lastSyncedAt, deviceName)
+    },
     { label: 'Last updated', value: formatMetadataDate(note.updatedAt) },
     { label: 'Created', value: formatMetadataDate(note.createdAt) },
     {
@@ -479,9 +489,19 @@ function metadataRowsForNote(
   ];
 }
 
-function editorMetadataRowsForNote(note: LocalNote): MetadataRow[] {
+function editorMetadataRowsForNote(
+  note: LocalNote,
+  deviceName: string
+): MetadataRow[] {
   return [
     { label: 'Status', value: noteSyncStatusLabel(note) },
+    {
+      label: 'Last synced',
+      value:
+        note.lastSyncedAt === null
+          ? 'Not synced yet'
+          : `Synced ${formatLastSynced(note.lastSyncedAt, deviceName)}`
+    },
     {
       label: 'Last updated',
       value: `Updated ${formatMetadataDate(note.updatedAt)}`
@@ -667,7 +687,10 @@ export class NotesPageController
   );
   editorMetadataRows = $derived(
     this.selectedNote
-      ? editorMetadataRowsForNote(this.selectedNote)
+      ? editorMetadataRowsForNote(
+          this.selectedNote,
+          this.deviceName(this.selectedNote.deviceId)
+        )
       : [{ label: 'Status', value: 'Unsaved draft' }]
   );
   isArchiveBusy = $derived(Boolean(this.archiveOperation) || this.isImporting);
@@ -986,6 +1009,11 @@ export class NotesPageController
     setStoredSort(this.noteSort);
   };
 
+  setNoteSort = (sort: NoteSort) => {
+    this.noteSort = sort;
+    setStoredSort(sort);
+  };
+
   toggleNoteSelection = (note: LocalNote, selected: boolean) => {
     const next = new Set(this.selectedNoteIds);
     if (selected) {
@@ -1190,7 +1218,11 @@ export class NotesPageController
   };
 
   contextNoteMetadataRows = (note: LocalNote): MetadataRow[] =>
-    metadataRowsForNote(note);
+    metadataRowsForNote(
+      note,
+      countWords(`${note.title} ${note.body}`),
+      this.deviceName(note.deviceId)
+    );
 
   contextAssignNotebookForNote = async (
     note: LocalNote,

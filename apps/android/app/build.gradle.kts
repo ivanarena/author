@@ -32,16 +32,13 @@ fun loadEnvFile(file: java.io.File): Map<String, String> {
 val repoRoot = repoRootFrom(rootProject.projectDir)
 val rootEnv = loadEnvFile(repoRoot.resolve(".env"))
 
-fun configValue(name: String): String? =
-  (findProperty(name) as String?)?.trim()?.takeIf { it.isNotEmpty() }
-    ?: System.getenv(name)?.trim()?.takeIf { it.isNotEmpty() }
-    ?: rootEnv[name]?.trim()?.takeIf { it.isNotEmpty() }
+fun configValue(name: String): String? = (findProperty(name) as String?)?.trim()?.takeIf { it.isNotEmpty() }
+  ?: System.getenv(name)?.trim()?.takeIf { it.isNotEmpty() }
+  ?: rootEnv[name]?.trim()?.takeIf { it.isNotEmpty() }
 
-fun firstConfigValue(vararg names: String): String? =
-  names.firstNotNullOfOrNull { configValue(it) }
+fun firstConfigValue(vararg names: String): String? = names.firstNotNullOfOrNull { configValue(it) }
 
-fun buildConfigString(value: String): String =
-  "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+fun buildConfigString(value: String): String = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 val configuredApiBaseUrl = firstConfigValue(
   "AUTHOR_NOTES_API_URL",

@@ -11,5 +11,5 @@ aube run lint
 
 (
   cd apps/android
-  ./gradlew :app:compileDebugKotlin :app:lintDebug :app:testDebugUnitTest
+  ./gradlew spotlessApply :app:compileDebugKotlin :app:lintDebug :app:testDebugUnitTest
 )

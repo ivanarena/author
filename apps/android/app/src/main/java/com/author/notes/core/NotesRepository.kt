@@ -62,17 +62,15 @@ class NotesRepository(context: Context) {
     prefs.edit().putFloat(EDITOR_ZOOM_KEY, value.coerceIn(0.8f, 1.4f)).apply()
   }
 
-  fun getApiBaseUrl(): String =
-    prefs.getString(API_BASE_URL_KEY, BuildConfig.DEFAULT_API_BASE_URL) ?: BuildConfig.DEFAULT_API_BASE_URL
+  fun getApiBaseUrl(): String = prefs.getString(API_BASE_URL_KEY, BuildConfig.DEFAULT_API_BASE_URL) ?: BuildConfig.DEFAULT_API_BASE_URL
 
   fun setApiBaseUrl(value: String) {
     prefs.edit().putString(API_BASE_URL_KEY, value.trim()).apply()
   }
 
-  fun getLoginHint(): String =
-    prefs.getString(USERNAME_KEY, null)
-      ?: prefs.getString(LAST_USERNAME_KEY, null)
-      ?: ""
+  fun getLoginHint(): String = prefs.getString(USERNAME_KEY, null)
+    ?: prefs.getString(LAST_USERNAME_KEY, null)
+    ?: ""
 
   fun getStoredSession(): StoredSession? {
     val token = securePrefs.getString(TOKEN_KEY) ?: return null
@@ -151,22 +149,21 @@ class NotesRepository(context: Context) {
     note
   }
 
-  suspend fun updateNoteContent(noteId: String, title: String, body: String): LocalNote? =
-    withContext(Dispatchers.IO) {
-      val note = db.getNote(noteId) ?: return@withContext null
-      if (note.deletedAt != null) return@withContext null
-      val device = getOrCreateDevice()
-      val updated = note.copy(
-        title = title.trim(),
-        body = body,
-        updatedAt = nowIso(),
-        deviceId = device.id,
-        version = note.version + 1,
-        syncStatus = "pending"
-      )
-      db.putNote(crypto.encryptNoteFields(updated))
-      db.getNote(noteId)?.let { crypto.decryptNoteFields(it) }
-    }
+  suspend fun updateNoteContent(noteId: String, title: String, body: String): LocalNote? = withContext(Dispatchers.IO) {
+    val note = db.getNote(noteId) ?: return@withContext null
+    if (note.deletedAt != null) return@withContext null
+    val device = getOrCreateDevice()
+    val updated = note.copy(
+      title = title.trim(),
+      body = body,
+      updatedAt = nowIso(),
+      deviceId = device.id,
+      version = note.version + 1,
+      syncStatus = "pending"
+    )
+    db.putNote(crypto.encryptNoteFields(updated))
+    db.getNote(noteId)?.let { crypto.decryptNoteFields(it) }
+  }
 
   suspend fun createNotebook(name: String): LocalNotebook? = withContext(Dispatchers.IO) {
     val trimmed = name.trim()
@@ -189,24 +186,23 @@ class NotesRepository(context: Context) {
     notebook
   }
 
-  suspend fun renameNotebook(notebookId: String, name: String): LocalNotebook? =
-    withContext(Dispatchers.IO) {
-      val trimmed = name.trim()
-      if (trimmed.isEmpty()) return@withContext null
-      val notebook = db.getNotebook(notebookId) ?: return@withContext null
-      if (notebook.deletedAt != null) return@withContext null
-      if (notebook.name == trimmed) return@withContext notebook
-      val device = getOrCreateDevice()
-      val updated = notebook.copy(
-        name = trimmed,
-        updatedAt = nowIso(),
-        deviceId = device.id,
-        version = notebook.version + 1,
-        syncStatus = "pending"
-      )
-      db.putNotebook(updated)
-      updated
-    }
+  suspend fun renameNotebook(notebookId: String, name: String): LocalNotebook? = withContext(Dispatchers.IO) {
+    val trimmed = name.trim()
+    if (trimmed.isEmpty()) return@withContext null
+    val notebook = db.getNotebook(notebookId) ?: return@withContext null
+    if (notebook.deletedAt != null) return@withContext null
+    if (notebook.name == trimmed) return@withContext notebook
+    val device = getOrCreateDevice()
+    val updated = notebook.copy(
+      name = trimmed,
+      updatedAt = nowIso(),
+      deviceId = device.id,
+      version = notebook.version + 1,
+      syncStatus = "pending"
+    )
+    db.putNotebook(updated)
+    updated
+  }
 
   suspend fun deleteNotebook(notebookId: String) = withContext(Dispatchers.IO) {
     val notebook = db.getNotebook(notebookId) ?: return@withContext
@@ -362,23 +358,20 @@ class NotesRepository(context: Context) {
     syncClient.login(username, password, getOrCreateDevice())
   }
 
-  suspend fun signup(username: String, password: String, displayName: String?): LoginResponse =
-    withContext(Dispatchers.IO) {
-      syncClient.signup(username, password, displayName, getOrCreateDevice())
-    }
+  suspend fun signup(username: String, password: String, displayName: String?): LoginResponse = withContext(Dispatchers.IO) {
+    syncClient.signup(username, password, displayName, getOrCreateDevice())
+  }
 
-  suspend fun assertLocalWorkspaceCanUseAccount(username: String, previousUsername: String?) =
-    withContext(Dispatchers.IO) {
-      assertLocalWorkspaceCanUseAccountInternal(username, previousUsername)
-    }
+  suspend fun assertLocalWorkspaceCanUseAccount(username: String, previousUsername: String?) = withContext(Dispatchers.IO) {
+    assertLocalWorkspaceCanUseAccountInternal(username, previousUsername)
+  }
 
-  suspend fun rememberPasswordAndAdopt(username: String, password: String, previousUsername: String?) =
-    withContext(Dispatchers.IO) {
-      assertLocalWorkspaceCanUseAccountInternal(username, previousUsername)
-      val (previous, next) = crypto.rememberEncryptionPassword(username, password)
-      reencryptLocalNotesInternal(previous, next)
-      rememberLocalWorkspaceAccount(username)
-    }
+  suspend fun rememberPasswordAndAdopt(username: String, password: String, previousUsername: String?) = withContext(Dispatchers.IO) {
+    assertLocalWorkspaceCanUseAccountInternal(username, previousUsername)
+    val (previous, next) = crypto.rememberEncryptionPassword(username, password)
+    reencryptLocalNotesInternal(previous, next)
+    rememberLocalWorkspaceAccount(username)
+  }
 
   suspend fun validateSession(token: String): Pair<AuthUser, String?> = withContext(Dispatchers.IO) {
     syncClient.validateSession(token)
@@ -405,13 +398,12 @@ class NotesRepository(context: Context) {
     syncClient.updateAccount(token, displayName)
   }
 
-  suspend fun changePassword(token: String, currentPassword: String, newPassword: String): AuthUser =
-    withContext(Dispatchers.IO) {
-      val user = syncClient.changePassword(token, currentPassword, newPassword)
-      val (previous, next) = crypto.rememberEncryptionPassword(user.username, newPassword)
-      reencryptLocalNotesInternal(previous, next)
-      user
-    }
+  suspend fun changePassword(token: String, currentPassword: String, newPassword: String): AuthUser = withContext(Dispatchers.IO) {
+    val user = syncClient.changePassword(token, currentPassword, newPassword)
+    val (previous, next) = crypto.rememberEncryptionPassword(user.username, newPassword)
+    reencryptLocalNotesInternal(previous, next)
+    user
+  }
 
   suspend fun logout(token: String) = withContext(Dispatchers.IO) {
     runCatching { syncClient.logout(token) }
@@ -618,16 +610,15 @@ class NotesRepository(context: Context) {
     importMarkdownFilesInternal(files)
   }
 
-  private fun loadPendingConflictsInternal(): List<LocalConflict> =
-    db.rawConflicts("pending").mapNotNull { raw ->
-      if (raw.entityType == "note") {
-        val conflict = decryptNoteConflictForDisplay(noteConflictFromJson(JSONObject(raw.conflictJson)))
-        LocalConflict(raw.id, raw.entityType, raw.entityId, raw.status, raw.createdAt, conflict, null)
-      } else {
-        val conflict = notebookConflictFromJson(JSONObject(raw.conflictJson))
-        LocalConflict(raw.id, raw.entityType, raw.entityId, raw.status, raw.createdAt, null, conflict)
-      }
+  private fun loadPendingConflictsInternal(): List<LocalConflict> = db.rawConflicts("pending").mapNotNull { raw ->
+    if (raw.entityType == "note") {
+      val conflict = decryptNoteConflictForDisplay(noteConflictFromJson(JSONObject(raw.conflictJson)))
+      LocalConflict(raw.id, raw.entityType, raw.entityId, raw.status, raw.createdAt, conflict, null)
+    } else {
+      val conflict = notebookConflictFromJson(JSONObject(raw.conflictJson))
+      LocalConflict(raw.id, raw.entityType, raw.entityId, raw.status, raw.createdAt, null, conflict)
     }
+  }
 
   private fun loadLastSyncPassInternal(): LastSyncPass = LastSyncPass(
     completedAt = db.getMeta("lastSyncPassAt"),
@@ -669,10 +660,9 @@ class NotesRepository(context: Context) {
     db.deleteMeta(LAST_SYNC_ERROR_STACK_KEY)
   }
 
-  private fun syncErrorMessage(error: Throwable): String =
-    error.message?.takeIf { it.isNotBlank() }
-      ?: error::class.java.simpleName.takeIf { it.isNotBlank() }
-      ?: "Sync failed"
+  private fun syncErrorMessage(error: Throwable): String = error.message?.takeIf { it.isNotBlank() }
+    ?: error::class.java.simpleName.takeIf { it.isNotBlank() }
+    ?: "Sync failed"
 
   private fun markAcceptedChanges(
     accepted: List<AcceptedChange>,
@@ -878,11 +868,9 @@ class NotesRepository(context: Context) {
     }
   }
 
-  private fun deviceName(deviceId: String): String =
-    db.getDevice(deviceId)?.name ?: deviceId
+  private fun deviceName(deviceId: String): String = db.getDevice(deviceId)?.name ?: deviceId
 
-  private fun deviceName(): String =
-    if (Build.MODEL.isNullOrBlank()) "Android device" else Build.MODEL
+  private fun deviceName(): String = if (Build.MODEL.isNullOrBlank()) "Android device" else Build.MODEL
 
   private fun importMarkdownFilesInternal(files: List<MarkdownInputFile>): ImportNotesResult {
     val payload = parseNotesMarkdownImportFiles(files)
@@ -971,5 +959,4 @@ class NotesRepository(context: Context) {
   }
 }
 
-private fun SharedPreferences.Editor.putNullableString(key: String, value: String?): SharedPreferences.Editor =
-  if (value == null) remove(key) else putString(key, value)
+private fun SharedPreferences.Editor.putNullableString(key: String, value: String?): SharedPreferences.Editor = if (value == null) remove(key) else putString(key, value)

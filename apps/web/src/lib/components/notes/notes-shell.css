@@ -424,13 +424,23 @@ aside {
   min-height: 32px;
 }
 
-.sort-select {
-  width: 92px;
-  height: var(--control-height);
+.sort-menu {
+  position: relative;
   margin-left: auto;
-  padding: 0 8px;
+}
+
+.sort-trigger {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 7px;
+  align-items: center;
+  width: 104px;
+  min-width: 104px;
+  height: var(--control-height);
+  padding: 0 10px;
   color: var(--muted);
   font-size: 12px;
+  font-weight: 600;
   background: var(--field);
   -webkit-backdrop-filter: var(--surface-blur);
   backdrop-filter: var(--surface-blur);
@@ -440,11 +450,66 @@ aside {
     color 120ms ease;
 }
 
-.sort-select:hover,
-.sort-select:focus-visible {
+.sort-trigger span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sort-trigger:hover,
+.sort-trigger:focus-visible,
+.sort-menu:focus-within .sort-trigger {
   color: var(--text);
   border-color: transparent;
   background: var(--hover);
+}
+
+.sort-popover {
+  position: absolute;
+  z-index: 12;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  gap: 4px;
+  width: 180px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 6px;
+  background: var(--field);
+  box-shadow: var(--shadow-soft);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
+  animation: menu-in 120ms ease-out;
+}
+
+.sort-popover button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 14px;
+  gap: 8px;
+  align-items: center;
+  min-height: 34px;
+  border-color: transparent;
+  padding: 0 8px;
+  color: var(--muted);
+  text-align: left;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.sort-popover button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sort-popover button:hover,
+.sort-popover button:focus-visible,
+.sort-popover button.active {
+  background: var(--hover);
+  color: var(--text);
 }
 
 .menu-form {

@@ -101,17 +101,13 @@ fun deviceFromJson(json: JSONObject): Device = Device(
   name = json.optString("name", json.getString("id"))
 )
 
-fun noteConflictToJson(conflict: SyncConflict<LocalNote>): JSONObject =
-  conflictToJson(conflict, ::noteToJson)
+fun noteConflictToJson(conflict: SyncConflict<LocalNote>): JSONObject = conflictToJson(conflict, ::noteToJson)
 
-fun notebookConflictToJson(conflict: SyncConflict<LocalNotebook>): JSONObject =
-  conflictToJson(conflict, ::notebookToJson)
+fun notebookConflictToJson(conflict: SyncConflict<LocalNotebook>): JSONObject = conflictToJson(conflict, ::notebookToJson)
 
-fun noteConflictFromJson(json: JSONObject): SyncConflict<LocalNote> =
-  conflictFromJson(json, ::noteFromJson)
+fun noteConflictFromJson(json: JSONObject): SyncConflict<LocalNote> = conflictFromJson(json, ::noteFromJson)
 
-fun notebookConflictFromJson(json: JSONObject): SyncConflict<LocalNotebook> =
-  conflictFromJson(json, ::notebookFromJson)
+fun notebookConflictFromJson(json: JSONObject): SyncConflict<LocalNotebook> = conflictFromJson(json, ::notebookFromJson)
 
 private fun <T> conflictToJson(
   conflict: SyncConflict<T>,
@@ -190,11 +186,9 @@ fun parsePullResponse(json: JSONObject): PullResponse = PullResponse(
   hasMore = json.optBoolean("hasMore", false)
 )
 
-fun JSONObject.putNullable(key: String, value: String?): JSONObject =
-  put(key, value ?: JSONObject.NULL)
+fun JSONObject.putNullable(key: String, value: String?): JSONObject = put(key, value ?: JSONObject.NULL)
 
-fun JSONObject.optNullableString(key: String): String? =
-  if (!has(key) || isNull(key)) null else optString(key)
+fun JSONObject.optNullableString(key: String): String? = if (!has(key) || isNull(key)) null else optString(key)
 
 fun JSONArray?.toStringList(): List<String> {
   if (this == null) return emptyList()
@@ -206,17 +200,15 @@ fun <T> JSONArray?.toObjects(map: (JSONObject) -> T): List<T> {
   return List(length()) { index -> map(getJSONObject(index)) }
 }
 
-fun JSONArray?.toAcceptedChanges(): List<AcceptedChange> =
-  toObjects {
-    AcceptedChange(
-      entityType = it.getString("entityType"),
-      id = it.getString("id"),
-      version = it.optInt("version", 1),
-      updatedAt = it.getString("updatedAt")
-    )
-  }
+fun JSONArray?.toAcceptedChanges(): List<AcceptedChange> = toObjects {
+  AcceptedChange(
+    entityType = it.getString("entityType"),
+    id = it.getString("id"),
+    version = it.optInt("version", 1),
+    updatedAt = it.getString("updatedAt")
+  )
+}
 
 fun JSONArray.forEachObject(block: (JSONObject) -> Unit) {
   for (index in 0 until length()) block(getJSONObject(index))
 }
-

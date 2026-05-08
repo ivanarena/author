@@ -155,11 +155,10 @@ private fun splitFrontmatter(content: String): Pair<Map<String, String>, String>
   return parseSimpleYaml(raw) to body
 }
 
-private fun parseSimpleYaml(source: String): Map<String, String> =
-  source.lineSequence().mapNotNull { line ->
-    val match = Regex("^([A-Za-z0-9_-]+):\\s*(.*)$").find(line) ?: return@mapNotNull null
-    match.groupValues[1] to unquoteYamlString(match.groupValues[2].trim())
-  }.toMap()
+private fun parseSimpleYaml(source: String): Map<String, String> = source.lineSequence().mapNotNull { line ->
+  val match = Regex("^([A-Za-z0-9_-]+):\\s*(.*)$").find(line) ?: return@mapNotNull null
+  match.groupValues[1] to unquoteYamlString(match.groupValues[2].trim())
+}.toMap()
 
 private fun unquoteYamlString(value: String): String {
   if (value.length < 2) return value
@@ -222,24 +221,20 @@ private fun stripCommonLeadingDirectories(paths: List<String>): List<String> {
   return if (stripCount == 0) paths else splitPaths.map { it.drop(stripCount).joinToString("/") }
 }
 
-private fun parentSegments(path: String): List<String> =
-  path.split('/').filter(String::isNotBlank).dropLast(1)
+private fun parentSegments(path: String): List<String> = path.split('/').filter(String::isNotBlank).dropLast(1)
 
-private fun titleFromFileName(fileName: String): String =
-  fileName.replace(markdownExtension, "").replace('-', ' ').trim().ifBlank { "Untitled" }
+private fun titleFromFileName(fileName: String): String = fileName.replace(markdownExtension, "").replace('-', ' ').trim().ifBlank { "Untitled" }
 
-private fun safePathSegment(value: String): String =
-  value.trim().ifBlank { "Untitled" }
-    .replace(Regex("""[\\/:*?"<>|]"""), "-")
-    .replace(Regex("\\s+"), "-")
-    .replace(Regex("^\\.+|\\.+$"), "")
-    .replace(Regex("^-+|-+$"), "")
-    .ifBlank { "Untitled" }
+private fun safePathSegment(value: String): String = value.trim().ifBlank { "Untitled" }
+  .replace(Regex("""[\\/:*?"<>|]"""), "-")
+  .replace(Regex("\\s+"), "-")
+  .replace(Regex("^\\.+|\\.+$"), "")
+  .replace(Regex("^-+|-+$"), "")
+  .ifBlank { "Untitled" }
 
-private fun isArchiveRootName(value: String): Boolean =
-  value.startsWith("nn-export") ||
-    Regex("^author-\\d{4}-\\d{2}-\\d{2}-md-frontmatter$").matches(value) ||
-    Regex("^author-notes-\\d{4}-\\d{2}-\\d{2}-md-frontmatter$").matches(value)
+private fun isArchiveRootName(value: String): Boolean = value.startsWith("nn-export") ||
+  Regex("^author-\\d{4}-\\d{2}-\\d{2}-md-frontmatter$").matches(value) ||
+  Regex("^author-notes-\\d{4}-\\d{2}-\\d{2}-md-frontmatter$").matches(value)
 
 private fun uniquePath(path: String, usedPaths: MutableSet<String>): String {
   if (usedPaths.add(path)) return path
@@ -255,5 +250,4 @@ private fun uniquePath(path: String, usedPaths: MutableSet<String>): String {
   return candidate
 }
 
-private fun escapeYamlString(value: String): String =
-  value.replace("\\", "\\\\").replace("\"", "\\\"")
+private fun escapeYamlString(value: String): String = value.replace("\\", "\\\\").replace("\"", "\\\"")

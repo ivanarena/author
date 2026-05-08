@@ -9,6 +9,7 @@ import androidx.compose.runtime.setValue
 import com.author.notes.BuildConfig
 import com.author.notes.core.AuthException
 import com.author.notes.core.AuthUser
+import com.author.notes.core.Device
 import com.author.notes.core.LocalConflict
 import com.author.notes.core.LocalNote
 import com.author.notes.core.LocalNotebook
@@ -19,13 +20,13 @@ import com.author.notes.core.SyncProgress
 import com.author.notes.core.SyncProgressPhase
 import com.author.notes.core.formatDateTime
 import com.author.notes.core.noteNotebookIds
+import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.Locale
 
 class NotesController(
   private val repository: NotesRepository,
@@ -34,6 +35,7 @@ class NotesController(
   var notes by mutableStateOf<List<LocalNote>>(emptyList())
   var notebooks by mutableStateOf<List<LocalNotebook>>(emptyList())
   var trash by mutableStateOf<List<LocalNote>>(emptyList())
+  var devices by mutableStateOf<List<Device>>(emptyList())
   var conflicts by mutableStateOf<List<LocalConflict>>(emptyList())
   var selectedNote by mutableStateOf<LocalNote?>(null)
   var selectedNoteIds by mutableStateOf<Set<String>>(emptySet())
@@ -160,6 +162,7 @@ class NotesController(
     notes = workspace.notes
     notebooks = workspace.notebooks
     trash = workspace.trash
+    devices = workspace.devices
     conflicts = workspace.conflicts
     pendingSyncCount = workspace.pendingSyncCount
     lastSyncPassTitle = workspace.lastSyncPass.completedAt?.let { formatDateTime(it) } ?: "No completed pass yet"
@@ -202,8 +205,7 @@ class NotesController(
     ).filter { it.isNotBlank() }.joinToString("\n")
   }
 
-  private fun pluralizeSyncCount(value: Int, singular: String): String =
-    "$value $singular${if (value == 1) "" else "s"}"
+  private fun pluralizeSyncCount(value: Int, singular: String): String = "$value $singular${if (value == 1) "" else "s"}"
 
   private fun updateSyncProgress(progress: SyncProgress) {
     val (label, detail) = when (progress.phase) {
@@ -229,6 +231,8 @@ class NotesController(
     syncActivityDetail = detail
     syncMessage = label
   }
+
+  fun deviceName(deviceId: String?): String = deviceId?.let { id -> devices.firstOrNull { it.id == id }?.name ?: id } ?: "Unknown device"
 
   fun selectNote(note: LocalNote) {
     navigateTo("editor")
@@ -750,8 +754,7 @@ class NotesController(
     scheduleSyncAfterLocalChange()
   }
 
-  private fun draftNotebookId(): String? =
-    if (filterId in setOf("all", "unfiled", "trash")) null else filterId
+  private fun draftNotebookId(): String? = if (filterId in setOf("all", "unfiled", "trash")) null else filterId
 
   private fun resetHistory() {
     undoStack = emptyList()
@@ -873,10 +876,9 @@ class NotesController(
     serverConfigError = ""
   }
 
-  private fun isHttpApiUrl(value: String): Boolean =
-    runCatching { java.net.URL(value) }.getOrNull()?.let { parsed ->
-      parsed.protocol in setOf("http", "https") && !parsed.host.isNullOrBlank()
-    } == true
+  private fun isHttpApiUrl(value: String): Boolean = runCatching { java.net.URL(value) }.getOrNull()?.let { parsed ->
+    parsed.protocol in setOf("http", "https") && !parsed.host.isNullOrBlank()
+  } == true
 
   fun dismissNotification(id: String) {
     notifications = notifications.filterNot { it.id == id }

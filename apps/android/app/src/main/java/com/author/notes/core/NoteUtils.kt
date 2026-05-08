@@ -13,8 +13,7 @@ fun newId(): String = UUID.randomUUID().toString()
 
 fun nowIso(): String = Instant.now().toString()
 
-fun normalizedNotebookName(name: String): String =
-  name.trim().lowercase(Locale.getDefault())
+fun normalizedNotebookName(name: String): String = name.trim().lowercase(Locale.getDefault())
 
 fun noteNotebookIds(note: LocalNote): List<String> {
   val ids = if (note.notebookIds.isNotEmpty()) {
@@ -27,22 +26,18 @@ fun noteNotebookIds(note: LocalNote): List<String> {
 
 fun primaryNotebookId(ids: List<String>): String? = ids.firstOrNull()
 
-fun deriveTitle(body: String): String =
-  body.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() }
-    ?.take(120)
-    ?: ""
+fun deriveTitle(body: String): String = body.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() }
+  ?.take(120)
+  ?: ""
 
-fun noteDisplayTitle(note: LocalNote): String =
-  note.title.ifBlank { deriveTitle(note.body) }.ifBlank {
-    if (note.trashedAt != null) "Trashed note" else "Untitled"
-  }
+fun noteDisplayTitle(note: LocalNote): String = note.title.ifBlank { deriveTitle(note.body) }.ifBlank {
+  if (note.trashedAt != null) "Trashed note" else "Untitled"
+}
 
-fun notePreview(note: LocalNote): String =
-  note.body.replace(Regex("\\s+"), " ").trim().take(96)
+fun notePreview(note: LocalNote): String = note.body.replace(Regex("\\s+"), " ").trim().take(96)
 
-fun previewText(note: LocalNote): String =
-  note.body.trim().replace(Regex("\\s+"), " ").take(160)
-    .ifBlank { note.title.ifBlank { "Empty note" } }
+fun previewText(note: LocalNote): String = note.body.trim().replace(Regex("\\s+"), " ").take(160)
+  .ifBlank { note.title.ifBlank { "Empty note" } }
 
 fun previewText(notebook: LocalNotebook): String = notebook.name.ifBlank { "Untitled notebook" }
 
@@ -85,12 +80,11 @@ fun filterNotesBySearch(items: List<LocalNote>, query: String): List<LocalNote> 
   }
 }
 
-fun sortNotes(items: List<LocalNote>, sort: String): List<LocalNote> =
-  when (sort) {
-    "az" -> items.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { noteDisplayTitle(it) })
-    "za" -> items.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { noteDisplayTitle(it) }).reversed()
-    else -> items.sortedByDescending { it.updatedAt }
-  }
+fun sortNotes(items: List<LocalNote>, sort: String): List<LocalNote> = when (sort) {
+  "az" -> items.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { noteDisplayTitle(it) })
+  "za" -> items.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { noteDisplayTitle(it) }).reversed()
+  else -> items.sortedByDescending { it.updatedAt }
+}
 
 fun groupNotesByDateRange(
   items: List<LocalNote>,
@@ -117,8 +111,7 @@ fun dateRangeLabel(iso: String, now: Instant = Instant.now()): String {
   }
 }
 
-fun formatListDate(iso: String): String =
-  formatInstant(iso, DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))
+fun formatListDate(iso: String): String = formatInstant(iso, DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))
 
 fun formatDateTime(iso: String?): String {
   if (iso == null) return "Not synced yet"
@@ -139,10 +132,9 @@ fun relativeAge(iso: String, now: Instant = Instant.now()): String {
   }
 }
 
-private fun formatInstant(iso: String, formatter: DateTimeFormatter): String =
-  runCatching {
-    formatter.withZone(ZoneId.systemDefault()).format(Instant.parse(iso))
-  }.getOrDefault(iso)
+private fun formatInstant(iso: String, formatter: DateTimeFormatter): String = runCatching {
+  formatter.withZone(ZoneId.systemDefault()).format(Instant.parse(iso))
+}.getOrDefault(iso)
 
 fun recordsDiffer(a: LocalNote, b: LocalNote): Boolean {
   val titleDiffers = if (a.titleHash != null || b.titleHash != null) {
@@ -164,5 +156,4 @@ fun recordsDiffer(a: LocalNote, b: LocalNote): Boolean {
     a.trashedAt != b.trashedAt
 }
 
-fun recordsDiffer(a: LocalNotebook, b: LocalNotebook): Boolean =
-  a.name != b.name || a.deletedAt != b.deletedAt
+fun recordsDiffer(a: LocalNotebook, b: LocalNotebook): Boolean = a.name != b.name || a.deletedAt != b.deletedAt

@@ -107,17 +107,14 @@ class NoteCrypto(
     )
   }
 
-  fun decryptNoteFields(note: LocalNote, keyMaterial: String = getEncryptionKeyMaterial()): LocalNote =
-    note.copy(
-      title = decryptText(note.title, keyMaterial),
-      body = decryptText(note.body, keyMaterial)
-    )
+  fun decryptNoteFields(note: LocalNote, keyMaterial: String = getEncryptionKeyMaterial()): LocalNote = note.copy(
+    title = decryptText(note.title, keyMaterial),
+    body = decryptText(note.body, keyMaterial)
+  )
 
-  fun reencryptNoteFields(note: LocalNote, previousMaterial: String, nextMaterial: String): LocalNote =
-    encryptNoteFields(decryptNoteFields(note, previousMaterial), nextMaterial)
+  fun reencryptNoteFields(note: LocalNote, previousMaterial: String, nextMaterial: String): LocalNote = encryptNoteFields(decryptNoteFields(note, previousMaterial), nextMaterial)
 
-  private fun encryptionKey(keyMaterial: String): SecretKeySpec =
-    SecretKeySpec(sha256("author-notes:$keyMaterial".toByteArray(UTF_8)), "AES")
+  private fun encryptionKey(keyMaterial: String): SecretKeySpec = SecretKeySpec(sha256("author-notes:$keyMaterial".toByteArray(UTF_8)), "AES")
 
   private fun decryptionKeyMaterials(primary: String): List<String> {
     val candidates = mutableListOf(primary)
@@ -135,15 +132,11 @@ class NoteCrypto(
     return legacy.takeIf { it.isNotEmpty() }?.let { "password:$it" }
   }
 
-  private fun fieldHash(value: String, keyMaterial: String, context: String): String =
-    "hash:v1:${base64UrlEncode(sha256("author-notes-field-hash:$keyMaterial:$context\u0000$value".toByteArray(UTF_8)))}"
+  private fun fieldHash(value: String, keyMaterial: String, context: String): String = "hash:v1:${base64UrlEncode(sha256("author-notes-field-hash:$keyMaterial:$context\u0000$value".toByteArray(UTF_8)))}"
 
-  private fun sha256(bytes: ByteArray): ByteArray =
-    MessageDigest.getInstance("SHA-256").digest(bytes)
+  private fun sha256(bytes: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(bytes)
 }
 
-fun base64UrlEncode(bytes: ByteArray): String =
-  Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+fun base64UrlEncode(bytes: ByteArray): String = Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
 
-fun base64UrlDecode(value: String): ByteArray =
-  Base64.decode(value, Base64.URL_SAFE or Base64.NO_WRAP)
+fun base64UrlDecode(value: String): ByteArray = Base64.decode(value, Base64.URL_SAFE or Base64.NO_WRAP)

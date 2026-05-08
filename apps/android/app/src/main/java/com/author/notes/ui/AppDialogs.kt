@@ -57,7 +57,15 @@ internal fun LoginDialog(controller: NotesController) {
     },
     confirmButton = {
       Button(onClick = { controller.submitLogin() }, enabled = !controller.isLoggingIn && !controller.isArchiveBusy) {
-        Text(if (controller.isLoggingIn) "Working" else if (controller.authMode == "signup") "Create account" else "Sign in")
+        Text(
+          if (controller.isLoggingIn) {
+            "Working"
+          } else if (controller.authMode == "signup") {
+            "Create account"
+          } else {
+            "Sign in"
+          }
+        )
       }
     },
     dismissButton = {

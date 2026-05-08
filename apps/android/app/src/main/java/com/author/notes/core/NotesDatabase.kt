@@ -93,8 +93,7 @@ class NotesDatabase(context: Context) : SQLiteOpenHelper(context, "author-notes.
     writableDatabase.delete("notes", "id = ?", arrayOf(id))
   }
 
-  fun pendingNotes(): List<LocalNote> =
-    readableDatabase.queryAll("notes", "sync_status = ?", arrayOf("pending")) { it.toNote() }
+  fun pendingNotes(): List<LocalNote> = readableDatabase.queryAll("notes", "sync_status = ?", arrayOf("pending")) { it.toNote() }
 
   fun putNotebook(notebook: LocalNotebook) = writableDatabase.insertWithOnConflict(
     "notebooks",
@@ -121,8 +120,7 @@ class NotesDatabase(context: Context) : SQLiteOpenHelper(context, "author-notes.
     writableDatabase.delete("notebooks", "id = ?", arrayOf(id))
   }
 
-  fun pendingNotebooks(): List<LocalNotebook> =
-    readableDatabase.queryAll("notebooks", "sync_status = ?", arrayOf("pending")) { it.toNotebook() }
+  fun pendingNotebooks(): List<LocalNotebook> = readableDatabase.queryAll("notebooks", "sync_status = ?", arrayOf("pending")) { it.toNotebook() }
 
   fun putDevice(device: Device) = writableDatabase.insertWithOnConflict(
     "devices",
@@ -146,8 +144,7 @@ class NotesDatabase(context: Context) : SQLiteOpenHelper(context, "author-notes.
     arrayOf(id)
   ) { Device(it.getString("id"), it.getString("name")) }
 
-  fun allDevices(): List<Device> =
-    readableDatabase.queryAll("devices") { Device(it.getString("id"), it.getString("name")) }
+  fun allDevices(): List<Device> = readableDatabase.queryAll("devices") { Device(it.getString("id"), it.getString("name")) }
 
   fun deleteDevice(id: String) {
     writableDatabase.delete("devices", "id = ?", arrayOf(id))
@@ -204,12 +201,11 @@ class NotesDatabase(context: Context) : SQLiteOpenHelper(context, "author-notes.
     SQLiteDatabase.CONFLICT_REPLACE
   )
 
-  fun rawConflicts(status: String? = null): List<RawConflict> =
-    if (status == null) {
-      readableDatabase.queryAll("conflicts") { it.toRawConflict() }
-    } else {
-      readableDatabase.queryAll("conflicts", "status = ?", arrayOf(status)) { it.toRawConflict() }
-    }.sortedBy { it.createdAt }
+  fun rawConflicts(status: String? = null): List<RawConflict> = if (status == null) {
+    readableDatabase.queryAll("conflicts") { it.toRawConflict() }
+  } else {
+    readableDatabase.queryAll("conflicts", "status = ?", arrayOf(status)) { it.toRawConflict() }
+  }.sortedBy { it.createdAt }
 
   fun rawConflict(id: String): RawConflict? = readableDatabase.queryOne(
     "conflicts",
@@ -307,11 +303,9 @@ private fun parseStringArray(source: String): List<String> = runCatching {
   List(array.length()) { array.getString(it) }
 }.getOrDefault(emptyList())
 
-private fun Cursor.getString(column: String): String =
-  getString(getColumnIndexOrThrow(column))
+private fun Cursor.getString(column: String): String = getString(getColumnIndexOrThrow(column))
 
-private fun Cursor.getInt(column: String): Int =
-  getInt(getColumnIndexOrThrow(column))
+private fun Cursor.getInt(column: String): Int = getInt(getColumnIndexOrThrow(column))
 
 private fun Cursor.getNullableString(column: String): String? {
   val index = getColumnIndexOrThrow(column)

@@ -1,8 +1,8 @@
 package com.author.notes.core
 
+import java.time.Instant
 import org.junit.Assert.assertEquals
 import org.junit.Test
-import java.time.Instant
 
 class NoteUtilsTest {
   @Test

@@ -46,7 +46,7 @@ val NotesController.syncDetail: String
     isSyncing -> syncActivityDetail
     !hasToken -> "Sign in to sync"
     remoteSyncState == "error" -> remoteSyncError
-    pendingSyncCount > 0 -> "${pendingSyncCount} item${if (pendingSyncCount == 1) "" else "s"} queued locally"
+    pendingSyncCount > 0 -> "$pendingSyncCount item${if (pendingSyncCount == 1) "" else "s"} queued locally"
     syncMessage !in setOf(
       "Online",
       "Saving",

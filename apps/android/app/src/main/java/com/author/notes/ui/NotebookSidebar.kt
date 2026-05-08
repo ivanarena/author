@@ -102,8 +102,7 @@ internal fun NotebookSidebar(
   }
 }
 
-private fun notebookCountLabel(count: Int, controller: NotesController): String =
-  if (controller.isWorkspaceLoading) "..." else count.toString()
+private fun notebookCountLabel(count: Int, controller: NotesController): String = if (controller.isWorkspaceLoading) "..." else count.toString()
 
 @Composable
 private fun NotebookRow(

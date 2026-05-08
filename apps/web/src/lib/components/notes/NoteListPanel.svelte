@@ -6,6 +6,11 @@
     Inbox,
     Notebook,
     Search,
+    Check,
+    ChevronDown,
+    ArrowDownAZ,
+    ArrowDownZA,
+    Clock3,
     Trash2,
     X
   } from 'lucide-svelte';
@@ -15,10 +20,33 @@
     notePreview,
     relativeAge
   } from '$lib/client/view-model';
+  import type { NoteSort } from '$lib/client/view-model';
   import NotebookLinkMenu from './NotebookLinkMenu.svelte';
   import type { NoteListPanelModel } from './notes-page-controller.svelte.js';
 
   let { model }: { model: NoteListPanelModel } = $props();
+  let sortMenuOpen = $state(false);
+
+  const sortOptions: Array<{
+    value: NoteSort;
+    label: string;
+    shortLabel: string;
+    icon: typeof Clock3;
+  }> = [
+    {
+      value: 'date-desc',
+      label: 'Newest first',
+      shortLabel: 'Date',
+      icon: Clock3
+    },
+    { value: 'az', label: 'A-Z', shortLabel: 'A-Z', icon: ArrowDownAZ },
+    { value: 'za', label: 'Z-A', shortLabel: 'Z-A', icon: ArrowDownZA }
+  ];
+
+  const activeSort = $derived(
+    sortOptions.find((option) => option.value === model.noteSort) ??
+      sortOptions[0]
+  );
 
   function indeterminate(node: HTMLInputElement, value: boolean) {
     node.indeterminate = value;
@@ -27,6 +55,23 @@
         node.indeterminate = nextValue;
       }
     };
+  }
+
+  function closeSortMenuOnBlur(event: FocusEvent) {
+    const nextTarget = event.relatedTarget;
+    if (
+      nextTarget instanceof Node &&
+      event.currentTarget instanceof HTMLElement &&
+      event.currentTarget.contains(nextTarget)
+    ) {
+      return;
+    }
+    sortMenuOpen = false;
+  }
+
+  function pickSort(sort: NoteSort) {
+    model.setNoteSort(sort);
+    sortMenuOpen = false;
   }
 </script>
 
@@ -129,18 +174,46 @@
         <span class="sync-detail">{model.syncIndicator.detail}</span>
       {/if}
     </p>
-    <label class="sr-only" for="note-sort">Sort notes</label>
-    <select
-      id="note-sort"
-      class="sort-select"
+    <div
+      class="sort-menu"
+      role="group"
       aria-label="Sort notes"
-      bind:value={model.noteSort}
-      onchange={model.changeSort}
+      onfocusout={closeSortMenuOnBlur}
     >
-      <option value="date-desc">Date</option>
-      <option value="az">A-Z</option>
-      <option value="za">Z-A</option>
-    </select>
+      <button
+        class="sort-trigger"
+        type="button"
+        aria-label={`Sort notes: ${activeSort.label}`}
+        aria-haspopup="menu"
+        aria-expanded={sortMenuOpen}
+        onclick={() => (sortMenuOpen = !sortMenuOpen)}
+      >
+        <activeSort.icon size={14} strokeWidth={1.8} />
+        <span>{activeSort.shortLabel}</span>
+        <ChevronDown size={13} strokeWidth={1.8} />
+      </button>
+      {#if sortMenuOpen}
+        <div class="sort-popover" role="menu" aria-label="Sort notes">
+          {#each sortOptions as option}
+            <button
+              type="button"
+              role="menuitemradio"
+              aria-checked={model.noteSort === option.value}
+              class:active={model.noteSort === option.value}
+              onclick={() => pickSort(option.value)}
+            >
+              <option.icon size={14} strokeWidth={1.8} />
+              <span>{option.label}</span>
+              <Check
+                size={13}
+                strokeWidth={1.8}
+                opacity={model.noteSort === option.value ? 1 : 0}
+              />
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
   </div>
 
   <div class="search-row">

@@ -1,13 +1,13 @@
 package com.author.notes.core
 
 import com.author.notes.BuildConfig
-import org.json.JSONArray
-import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
+import org.json.JSONArray
+import org.json.JSONObject
 
 class AuthException(message: String = "Login expired") : Exception(message)
 
@@ -65,12 +65,22 @@ class SyncClient(private val baseUrlProvider: () -> String) {
   ): PushResponse {
     val body = JSONObject()
       .put("device", deviceToJson(device))
-      .put("notes", JSONArray(notes.map { (note, baseVersion) ->
-        JSONObject().put("record", noteToJson(note)).put("baseVersion", baseVersion)
-      }))
-      .put("notebooks", JSONArray(notebooks.map { (notebook, baseVersion) ->
-        JSONObject().put("record", notebookToJson(notebook)).put("baseVersion", baseVersion)
-      }))
+      .put(
+        "notes",
+        JSONArray(
+          notes.map { (note, baseVersion) ->
+            JSONObject().put("record", noteToJson(note)).put("baseVersion", baseVersion)
+          }
+        )
+      )
+      .put(
+        "notebooks",
+        JSONArray(
+          notebooks.map { (notebook, baseVersion) ->
+            JSONObject().put("record", notebookToJson(notebook)).put("baseVersion", baseVersion)
+          }
+        )
+      )
     return parsePushResponse(requestJson("/api/sync/push", "POST", token = token, body = body))
   }
 

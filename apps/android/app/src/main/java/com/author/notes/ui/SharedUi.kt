@@ -70,8 +70,7 @@ internal fun PageHeader(
 }
 
 @Composable
-internal fun pageHorizontalPadding(): Dp =
-  if (LocalConfiguration.current.screenWidthDp < 720) 20.dp else 32.dp
+internal fun pageHorizontalPadding(): Dp = if (LocalConfiguration.current.screenWidthDp < 720) 20.dp else 32.dp
 
 @Composable
 internal fun NavRow(
@@ -137,7 +136,10 @@ internal fun AppDropdownMenu(
   DropdownMenu(
     expanded = expanded,
     onDismissRequest = onDismissRequest,
-    modifier = modifier.background(menuColor()),
+    modifier = modifier
+      .clip(RoundedCornerShape(16.dp))
+      .background(menuColor()),
+    shape = RoundedCornerShape(16.dp),
     containerColor = menuColor(),
     tonalElevation = 0.dp,
     shadowElevation = 8.dp,
@@ -307,36 +309,28 @@ internal fun GlassPanel(
 }
 
 @Composable
-internal fun fieldColor(): Color =
-  if (isLightTheme()) Color(0xFFF2F2EF) else Color(0xFF242424)
+internal fun fieldColor(): Color = if (isLightTheme()) Color(0xFFF2F2EF) else Color(0xFF242424)
 
 @Composable
-internal fun panelColor(): Color =
-  if (isLightTheme()) Color(0xFFF7F7F4) else Color(0xFF1D1D1D)
+internal fun panelColor(): Color = if (isLightTheme()) Color(0xFFF7F7F4) else Color(0xFF1D1D1D)
 
 @Composable
-internal fun activeColor(): Color =
-  if (isLightTheme()) Color(0xFFE8E8E4) else Color(0xFF2D2D2D)
+internal fun activeColor(): Color = if (isLightTheme()) Color(0xFFE8E8E4) else Color(0xFF2D2D2D)
 
 @Composable
-internal fun menuColor(): Color =
-  if (isLightTheme()) Color.White else Color(0xFF242424)
+internal fun menuColor(): Color = if (isLightTheme()) Color.White else Color(0xFF242424)
 
 @Composable
-internal fun toolbarColor(): Color =
-  MaterialTheme.colorScheme.background
+internal fun toolbarColor(): Color = MaterialTheme.colorScheme.background
 
 @Composable
-internal fun isLightTheme(): Boolean =
-  MaterialTheme.colorScheme.background.luminance() > 0.5f
+internal fun isLightTheme(): Boolean = MaterialTheme.colorScheme.background.luminance() > 0.5f
 
 @Composable
-internal fun messageColor(): Color =
-  MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f)
+internal fun messageColor(): Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f)
 
 @Composable
-internal fun statusColor(label: String): Color =
-  MaterialTheme.colorScheme.onSurface.copy(alpha = if (label.contains("Local only", true)) 0.52f else 0.72f)
+internal fun statusColor(label: String): Color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (label.contains("Local only", true)) 0.52f else 0.72f)
 
 @Composable
 internal fun SyncActivityIndicator(active: Boolean, modifier: Modifier = Modifier) {

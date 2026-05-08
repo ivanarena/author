@@ -229,12 +229,16 @@ private fun EditorMoreMenu(controller: NotesController) {
   }
 
   if (metadataOpen && note != null) {
-    NoteMetadataDialog(note) { metadataOpen = false }
+    NoteMetadataDialog(controller, note) { metadataOpen = false }
   }
 }
 
 @Composable
-private fun NoteMetadataDialog(note: LocalNote, onDismiss: () -> Unit) {
+private fun NoteMetadataDialog(
+  controller: NotesController,
+  note: LocalNote,
+  onDismiss: () -> Unit
+) {
   AlertDialog(
     onDismissRequest = onDismiss,
     containerColor = MaterialTheme.colorScheme.surface,
@@ -242,6 +246,7 @@ private fun NoteMetadataDialog(note: LocalNote, onDismiss: () -> Unit) {
     text = {
       Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         InfoTile("Status", syncStatusLabel(note.syncStatus), "")
+        InfoTile("Last synced", lastSyncedLabel(controller, note), "")
         InfoTile("Updated", formatDateTime(note.updatedAt), "")
         InfoTile("Created", formatDateTime(note.createdAt), "")
       }
@@ -251,6 +256,8 @@ private fun NoteMetadataDialog(note: LocalNote, onDismiss: () -> Unit) {
     }
   )
 }
+
+private fun lastSyncedLabel(controller: NotesController, note: LocalNote): String = note.lastSyncedAt?.let { "${formatDateTime(it)} by ${controller.deviceName(note.deviceId)}" } ?: "Not synced yet"
 
 @Composable
 private fun EditorStatusBar(controller: NotesController, muted: Color) {
@@ -267,5 +274,4 @@ private fun EditorStatusBar(controller: NotesController, muted: Color) {
   }
 }
 
-private fun syncStatusLabel(status: String): String =
-  status.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+private fun syncStatusLabel(status: String): String = status.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }

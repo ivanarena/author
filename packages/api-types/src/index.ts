@@ -70,7 +70,7 @@ export interface AccountResponse {
 
 export interface HealthResponse {
   ok: true;
-  service: 'author-notes';
+  service: 'author';
   time: string;
 }
 

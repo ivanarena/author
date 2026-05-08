@@ -23,7 +23,7 @@
   on:offline={controller.handleOffline}
 />
 
-<main class="app-shell">
+<main class="app-shell" class:settings-open={controller.settingsOpen}>
   <NavigationDock model={controller} />
   <EditorPane model={controller} />
 </main>

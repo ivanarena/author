@@ -5,12 +5,12 @@
 </script>
 
 <svelte:head>
-  <title>Terms | Author Notes</title>
-  <meta name="description" content="Terms for using Author Notes." />
+  <title>Terms | Author</title>
+  <meta name="description" content="Terms for using Author." />
 </svelte:head>
 
 <main class="legal-page">
-  <a href={resolve('/')} class="legal-back">Author Notes</a>
+  <a href={resolve('/')} class="legal-back">Author</a>
   <h1>Terms</h1>
   <p class="legal-updated">Updated {updated}</p>
 
@@ -27,16 +27,16 @@
   <section>
     <h2>Acceptable use</h2>
     <p>
-      Do not use Author Notes to store or share unlawful, abusive, infringing,
-      or harmful material. You are responsible for complying with laws and
-      rights that apply to the content you create, import, export, or sync.
+      Do not use Author to store or share unlawful, abusive, infringing, or
+      harmful material. You are responsible for complying with laws and rights
+      that apply to the content you create, import, export, or sync.
     </p>
   </section>
 
   <section>
     <h2>Service limits</h2>
     <p>
-      Author Notes is provided as-is. Sync, import, export, and cleanup features
+      Author is provided as-is. Sync, import, export, and cleanup features
       should be verified with your own backups before relying on them for
       critical records.
     </p>

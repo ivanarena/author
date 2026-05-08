@@ -564,7 +564,7 @@ function pullLimit(value: unknown): number | null {
 api.get(API_PATHS.health, (c) =>
   c.json({
     ok: true,
-    service: 'author-notes',
+    service: 'author',
     time: new Date().toISOString()
   } satisfies HealthResponse)
 );

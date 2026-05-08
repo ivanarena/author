@@ -60,7 +60,7 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-The container stores SQLite data in the `author-notes-data` volume at `/data/notes.sqlite`.
+The container stores SQLite data at `/data/notes.sqlite`.
 
 ## Monorepo
 

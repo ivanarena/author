@@ -21,9 +21,7 @@
   class:open={model.menusOpen}
   role="navigation"
   aria-label="Navigation"
-  onpointerenter={model.openMenus}
   onpointerleave={model.scheduleMenusClose}
-  onfocusin={model.openMenus}
   onfocusout={model.closeMenusOnBlur}
 >
   <div class="dock-buttons">
@@ -33,6 +31,8 @@
       aria-label="Show menus"
       aria-controls="navigation-menus"
       aria-expanded={model.menusOpen}
+      onpointerenter={model.openMenus}
+      onfocus={model.openMenus}
       onclick={model.toggleMenus}
     >
       <Menu size={18} strokeWidth={1.8} />
@@ -135,7 +135,7 @@
             role="menuitem"
             onclick={model.toggleTheme}
           >
-            {#if model.theme === 'dark'}
+            {#if model.theme.startsWith('dark')}
               <Sun size={14} strokeWidth={1.8} />
               <span>Light</span>
             {:else}
@@ -157,7 +157,14 @@
     </div>
   </div>
 
-  <div class="menu-panels" id="navigation-menus">
+  <div
+    class="menu-panels"
+    id="navigation-menus"
+    role="group"
+    aria-label="Navigation menus"
+    onpointerenter={model.openMenus}
+    onfocusin={model.openMenus}
+  >
     <NotebookSidebar {model} />
     <NoteListPanel {model} />
   </div>

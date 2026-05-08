@@ -32,9 +32,8 @@ textarea::-webkit-scrollbar {
   line-height: 1.4;
   text-align: left;
   transition:
-    background-color 120ms ease,
-    border-color 120ms ease,
-    color 120ms ease;
+    background-color var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease);
 }
 
 .nav-main,
@@ -70,7 +69,7 @@ textarea::-webkit-scrollbar {
   font-variant-numeric: tabular-nums;
   line-height: 1.35;
   text-align: right;
-  transition: opacity 120ms ease;
+  transition: opacity var(--motion-fast) var(--motion-ease);
 }
 
 .nav-row {
@@ -81,11 +80,9 @@ textarea::-webkit-scrollbar {
   width: 100%;
   min-width: 0;
   min-height: 46px;
-  border: 1px solid transparent;
+  border: 0;
   border-radius: var(--radius-lg);
-  transition:
-    background-color 120ms ease,
-    border-color 120ms ease;
+  transition: background-color var(--motion-fast) var(--motion-ease);
 }
 
 .nav-row::before {
@@ -98,7 +95,7 @@ textarea::-webkit-scrollbar {
   content: '';
   opacity: 0;
   pointer-events: none;
-  transition: opacity 120ms ease;
+  transition: opacity var(--motion-fast) var(--motion-ease);
 }
 
 .nav-row.active {
@@ -130,7 +127,7 @@ textarea::-webkit-scrollbar {
   opacity: 0;
   pointer-events: none;
   transform: translateY(-50%);
-  transition: opacity 120ms ease;
+  transition: opacity var(--motion-fast) var(--motion-ease);
 }
 
 .notebook-row:hover .notebook-actions,
@@ -157,10 +154,10 @@ textarea::-webkit-scrollbar {
 .inline-rename input {
   min-width: 0;
   height: var(--control-height);
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: var(--radius-md);
   padding: 0 14px;
-  background: var(--field);
+  background: var(--panel);
   color: var(--text);
   font-size: 13px;
   -webkit-backdrop-filter: var(--surface-blur);
@@ -193,7 +190,7 @@ textarea::-webkit-scrollbar {
 .note-list {
   flex: 1;
   gap: 0;
-  border-top: 1px solid var(--line);
+  border-top: 0;
   padding-top: var(--space-2);
 }
 
@@ -205,7 +202,7 @@ textarea::-webkit-scrollbar {
   gap: 7px;
   align-items: center;
   min-height: 32px;
-  border: 1px solid transparent;
+  border: 0;
   border-radius: var(--radius-md);
   padding: 0 8px;
   color: var(--muted);
@@ -274,14 +271,14 @@ textarea::-webkit-scrollbar {
   display: grid;
   gap: 8px;
   width: min(260px, calc(100% - 32px));
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: var(--radius-lg);
   padding: 12px;
-  background: var(--field);
+  background: var(--panel);
   box-shadow: var(--shadow-soft);
   -webkit-backdrop-filter: var(--surface-blur);
   backdrop-filter: var(--surface-blur);
-  animation: menu-in 120ms ease-out;
+  animation: menu-in var(--motion-slow) var(--motion-ease);
 }
 
 .batch-popover button {
@@ -294,8 +291,8 @@ textarea::-webkit-scrollbar {
   padding: 0 10px;
   text-align: left;
   transition:
-    background-color 120ms ease,
-    color 120ms ease;
+    background-color var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease);
 }
 
 .batch-popover button:hover,
@@ -326,24 +323,14 @@ textarea::-webkit-scrollbar {
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   min-height: 116px;
-  border: 1px solid transparent;
+  border: 0;
   border-radius: var(--radius-lg);
   margin: 0 0 var(--space-2);
-  transition:
-    background-color 120ms ease,
-    border-color 120ms ease;
+  transition: background-color var(--motion-fast) var(--motion-ease);
 }
 
 .note-row::after {
-  position: absolute;
-  right: 18px;
-  bottom: calc(var(--space-2) * -0.5);
-  left: 18px;
-  height: 1px;
-  background: var(--line);
-  content: '';
-  pointer-events: none;
-  transition: opacity 120ms ease;
+  content: none;
 }
 
 .note-row:hover,
@@ -455,7 +442,6 @@ textarea::-webkit-scrollbar {
   color: var(--muted);
   font-size: 11px;
   line-height: 1.45;
-  overflow: hidden;
   word-spacing: 0.02em;
 }
 
@@ -482,9 +468,13 @@ textarea::-webkit-scrollbar {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  flex: 1 1 160px;
+  grid-column: 1 / 3;
+  grid-row: 2;
+  flex: initial;
   min-height: 24px;
+  min-width: 0;
   margin: 0;
+  overflow: hidden;
 }
 
 .sync-detail {
@@ -499,7 +489,7 @@ textarea::-webkit-scrollbar {
   gap: 10px;
   padding-right: 12px;
   opacity: 0;
-  transition: opacity 120ms ease;
+  transition: opacity var(--motion-fast) var(--motion-ease);
 }
 
 .note-row:hover .row-actions,
@@ -539,14 +529,14 @@ textarea::-webkit-scrollbar {
   top: 70px;
   right: 18px;
   width: min(260px, calc(100% - 36px));
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: var(--radius-lg);
   padding: 14px;
-  background: var(--field);
+  background: var(--panel);
   box-shadow: var(--shadow-soft);
   -webkit-backdrop-filter: var(--surface-blur);
   backdrop-filter: var(--surface-blur);
-  animation: menu-in 120ms ease-out;
+  animation: menu-in var(--motion-slow) var(--motion-ease);
 }
 
 .notebook-link-menu {
@@ -564,8 +554,8 @@ textarea::-webkit-scrollbar {
   padding: 0 12px;
   text-align: left;
   transition:
-    background-color 120ms ease,
-    color 120ms ease;
+    background-color var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease);
 }
 
 .notebook-link-menu button:hover,

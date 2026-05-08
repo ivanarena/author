@@ -26,13 +26,28 @@
     ZoomIn,
     ZoomOut
   } from 'lucide-svelte';
-  import type { SettingsModalModel } from './notes-page-controller.svelte.js';
+  import type {
+    SettingsModalModel,
+    Theme
+  } from './notes-page-controller.svelte.js';
+  import type { EditorFont } from './page-preferences';
 
   let { model }: { model: SettingsModalModel } = $props();
   let currentPasswordVisible = $state(false);
   let newPasswordVisible = $state(false);
   let confirmPasswordVisible = $state(false);
   let deletePasswordVisible = $state(false);
+
+  const themeOptions: Array<{ value: Theme; label: string }> = [
+    { value: 'light', label: 'Light' },
+    { value: 'light-mint', label: 'Mint' },
+    { value: 'light-rose', label: 'Rose' },
+    { value: 'light-lavender', label: 'Lavender' },
+    { value: 'dark', label: 'Dark' },
+    { value: 'dark-mint', label: 'Dark mint' },
+    { value: 'dark-rose', label: 'Dark rose' },
+    { value: 'dark-lavender', label: 'Dark lavender' }
+  ];
 </script>
 
 <div class="settings-layer" role="presentation">
@@ -607,7 +622,7 @@
               <span>Compact notes</span>
             </button>
             <button class="settings-action" onclick={model.toggleTheme}>
-              {#if model.theme === 'dark'}
+              {#if model.theme.startsWith('dark')}
                 <Sun size={15} strokeWidth={1.8} />
                 <span>Light mode</span>
               {:else}
@@ -615,6 +630,82 @@
                 <span>Dark mode</span>
               {/if}
             </button>
+          </div>
+
+          <div class="settings-action-group" aria-label="Theme colors">
+            <div class="settings-action-group-heading">
+              <span>Themes</span>
+            </div>
+            <div class="theme-grid">
+              {#each themeOptions as option}
+                <button
+                  type="button"
+                  class="theme-choice"
+                  class:active={model.theme === option.value}
+                  aria-pressed={model.theme === option.value}
+                  onclick={() => model.setThemeChoice(option.value)}
+                >
+                  <span class={`theme-swatch ${option.value}`}></span>
+                  <span>{option.label}</span>
+                  <Check
+                    size={13}
+                    strokeWidth={1.8}
+                    opacity={model.theme === option.value ? 1 : 0}
+                  />
+                </button>
+              {/each}
+            </div>
+          </div>
+
+          <div class="settings-action-group" aria-label="Editor typography">
+            <div class="settings-action-group-heading">
+              <span>Typography</span>
+            </div>
+            <label class="settings-select-row">
+              <span>Font</span>
+              <select
+                value={model.editorFont}
+                onchange={(event) =>
+                  model.setEditorFont(
+                    (event.currentTarget as HTMLSelectElement)
+                      .value as EditorFont
+                  )}
+              >
+                {#each model.editorFontOptions as option}
+                  <option value={option.value}>{option.label}</option>
+                {/each}
+              </select>
+            </label>
+            <label class="settings-range-row">
+              <span>Text size</span>
+              <input
+                type="range"
+                min={model.minEditorTextSize}
+                max={model.maxEditorTextSize}
+                step="1"
+                value={model.editorTextSize}
+                oninput={(event) =>
+                  model.setEditorTextSize(
+                    Number((event.currentTarget as HTMLInputElement).value)
+                  )}
+              />
+              <output>{model.editorTextSize}px</output>
+            </label>
+            <label class="settings-range-row">
+              <span>Line height</span>
+              <input
+                type="range"
+                min={model.minEditorLineHeight}
+                max={model.maxEditorLineHeight}
+                step="0.05"
+                value={model.editorLineHeight}
+                oninput={(event) =>
+                  model.setEditorLineHeight(
+                    Number((event.currentTarget as HTMLInputElement).value)
+                  )}
+              />
+              <output>{model.editorLineHeight.toFixed(2)}</output>
+            </label>
           </div>
 
           <div class="settings-zoom">

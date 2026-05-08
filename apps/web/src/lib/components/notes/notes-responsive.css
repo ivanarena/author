@@ -1,7 +1,7 @@
 @keyframes menu-in {
   from {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: translateY(-10px) scale(0.985);
   }
   to {
     opacity: 1;
@@ -14,7 +14,9 @@
   .profile-trigger,
   .profile-hover-card,
   .profile-quick-action,
+  .menu-dock,
   .menu-panels,
+  .editor-wrap,
   .menu-form,
   .settings-modal,
   .login-modal,
@@ -56,7 +58,7 @@
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 1180px) {
   :root {
     --menu-controls-top: 16px;
     --menu-offset-top: 82px;
@@ -78,15 +80,40 @@
     transform: translateX(-50%);
   }
 
-  .menu-dock.open,
-  .menu-dock:hover,
-  .menu-dock:focus-within {
+  .menu-dock.open {
+    width: min(100vw - 18px, 920px);
     height: min(900px, calc(var(--menu-offset-top) + var(--menu-panel-height)));
   }
 
   .dock-buttons {
     top: var(--menu-controls-top);
     left: 50%;
+    flex-direction: row;
+    transform: translateX(-50%);
+  }
+
+  .profile-menu::before {
+    position: fixed;
+    top: calc(var(--control-height) - var(--space-1));
+    left: 50%;
+    width: min(430px, calc(100vw - 40px));
+    height: calc(
+      var(--menu-offset-top) - var(--menu-controls-top) -
+        var(--control-height) + var(--space-4)
+    );
+    transform: translateX(-50%);
+  }
+
+  .profile-hover-card {
+    position: fixed;
+    top: calc(var(--menu-offset-top) - var(--menu-controls-top));
+    left: 50%;
+    transform: translateX(-50%) translateY(-10px) scale(0.98);
+    transform-origin: top center;
+  }
+
+  .profile-menu.open .profile-hover-card {
+    transform: translateX(-50%) translateY(0);
   }
 
   .menu-trigger {
@@ -110,8 +137,9 @@
     width: 100%;
     height: var(--menu-panel-height);
     padding: 14px;
-    background: var(--panel-transparent);
-    border: 1px solid var(--line);
+    background: var(--panel);
+    border: 0;
+    border: 0;
     border-radius: var(--radius-panel);
     visibility: hidden;
     opacity: 0;
@@ -119,14 +147,12 @@
     transform: translateY(-10px) scale(0.98);
     transform-origin: top center;
     transition:
-      opacity 180ms ease,
-      transform 190ms cubic-bezier(0.2, 0.8, 0.2, 1),
-      visibility 180ms ease;
+      opacity var(--motion-slow) var(--motion-ease),
+      transform var(--motion-slow) var(--motion-ease),
+      visibility var(--motion-slow) var(--motion-ease);
   }
 
-  .menu-dock.open .menu-panels,
-  .menu-dock:hover .menu-panels,
-  .menu-dock:focus-within .menu-panels {
+  .menu-dock.open .menu-panels {
     visibility: visible;
     opacity: 1;
     pointer-events: auto;
@@ -138,6 +164,10 @@
     opacity: 0;
     pointer-events: none;
     transform: translateY(-10px) scale(0.98);
+  }
+
+  .app-shell:has(.menu-dock.open) .editor-wrap {
+    margin-left: 0;
   }
 
   .settings-layer {
@@ -180,7 +210,8 @@
 
   .sync-line {
     order: 3;
-    flex-basis: 100%;
+    grid-column: 1 / -1;
+    grid-row: auto;
   }
 
   .row-actions {
@@ -225,7 +256,7 @@
 
   .notebooks {
     border-right: 0;
-    border-bottom: 1px solid var(--line);
+    border-bottom: 0;
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   }
 

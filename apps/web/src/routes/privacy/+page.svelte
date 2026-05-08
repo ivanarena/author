@@ -5,15 +5,15 @@
 </script>
 
 <svelte:head>
-  <title>Privacy | Author Notes</title>
+  <title>Privacy | Author</title>
   <meta
     name="description"
-    content="Privacy notice for Author Notes and its encrypted sync model."
+    content="Privacy notice for Author and its encrypted sync model."
   />
 </svelte:head>
 
 <main class="legal-page">
-  <a href={resolve('/')} class="legal-back">Author Notes</a>
+  <a href={resolve('/')} class="legal-back">Author</a>
   <h1>Privacy</h1>
   <p class="legal-updated">Updated {updated}</p>
 
@@ -22,8 +22,8 @@
     <p>
       Note titles, note bodies, and notebook names are encrypted on your device
       before sync using key material derived from your login password. Author
-      Notes does not add a recovery key or a separate encryption passphrase, so
-      the same simple login flow unlocks synced content on your own devices.
+      does not add a recovery key or a separate encryption passphrase, so the
+      same simple login flow unlocks synced content on your own devices.
     </p>
   </section>
 

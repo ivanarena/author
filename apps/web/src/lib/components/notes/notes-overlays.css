@@ -4,10 +4,10 @@
   display: grid;
   gap: 4px;
   width: 190px;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: var(--radius-lg);
   padding: 6px;
-  background: var(--field);
+  background: var(--panel);
   box-shadow: var(--shadow-soft);
   -webkit-backdrop-filter: var(--surface-blur);
   backdrop-filter: var(--surface-blur);
@@ -31,8 +31,8 @@
   padding: 0 8px;
   text-align: left;
   transition:
-    background-color 120ms ease,
-    color 120ms ease;
+    background-color var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease);
 }
 
 .note-context-menu button {
@@ -49,7 +49,7 @@
 .context-metadata {
   display: grid;
   gap: 5px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 0;
   padding: 4px 8px 10px;
 }
 
@@ -169,13 +169,13 @@
   border: 0;
   border-radius: var(--radius-lg);
   padding: 12px 10px 12px 12px;
-  background: var(--field);
+  background: var(--panel);
   box-shadow: var(--shadow-soft);
   color: var(--muted);
   -webkit-backdrop-filter: var(--surface-blur);
   backdrop-filter: var(--surface-blur);
   pointer-events: auto;
-  animation: menu-in 120ms ease-out;
+  animation: menu-in var(--motion-slow) var(--motion-ease);
 }
 
 .notification.success {
@@ -229,10 +229,10 @@
 
 .conflict-dialog {
   width: min(720px, 100%);
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: var(--radius-panel);
   padding: 18px;
-  background: var(--panel-transparent);
+  background: var(--panel);
   box-shadow: var(--shadow-soft);
   -webkit-backdrop-filter: var(--surface-blur);
   backdrop-filter: var(--surface-blur);
@@ -258,7 +258,7 @@
 
 .versions article {
   min-width: 0;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: var(--radius-lg);
   padding: 12px;
   background: var(--panel-soft);

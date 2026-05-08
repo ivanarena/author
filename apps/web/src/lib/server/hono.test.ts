@@ -87,7 +87,7 @@ describe('Hono API', () => {
   it('serves health and rejects unauthorized sync requests', async () => {
     const health = await api.fetch(new Request('http://localhost/api/health'));
     expect(health.status).toBe(200);
-    expect((await health.json()).service).toBe('author-notes');
+    expect((await health.json()).service).toBe('author');
 
     const token = await loginToken();
     const pull = await post('/api/sync/pull', { since: null }, 'bad-token');

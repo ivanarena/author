@@ -3,6 +3,13 @@
   min-width: 0;
   min-height: 100vh;
   background: var(--paper);
+  transition: margin-left var(--motion-slow) var(--motion-ease);
+}
+
+.app-shell:not(.settings-open):has(.menu-dock.open) .editor-wrap {
+  margin-left: calc(
+    var(--side-menu-left) + var(--side-menu-width) + var(--space-4)
+  );
 }
 
 .writer {
@@ -12,9 +19,10 @@
   min-width: 0;
   min-height: 100vh;
   justify-self: center;
-  padding: clamp(220px, 19vw, 300px) clamp(48px, 8vw, 118px)
+  padding: clamp(54px, 7vw, 96px) clamp(48px, 8vw, 118px)
     clamp(48px, 8vw, 118px);
   background: var(--paper);
+  font-family: var(--editor-font);
 }
 
 .title-input,
@@ -66,15 +74,15 @@ textarea::placeholder {
 .title-input {
   min-height: 68px;
   margin-bottom: 58px;
-  font-size: calc(60px * var(--editor-zoom, 1));
+  font-size: calc(var(--editor-text-size, 16px) * 3.75 * var(--editor-zoom, 1));
   font-weight: 700;
   line-height: 1.08;
 }
 
 textarea {
   min-height: 0;
-  font-size: calc(16px * var(--editor-zoom, 1));
-  line-height: 1.75;
+  font-size: calc(var(--editor-text-size, 16px) * var(--editor-zoom, 1));
+  line-height: var(--editor-line-height, 1.75);
   scrollbar-width: none;
 }
 
@@ -95,13 +103,13 @@ textarea {
 
 .editor-tool-group {
   display: grid;
-  grid-template-columns: auto auto;
+  grid-template-columns: auto;
   gap: 8px;
   align-items: center;
   min-width: 0;
   border-radius: var(--radius-md);
   padding: 5px 8px;
-  background: var(--field);
+  background: var(--panel);
   -webkit-backdrop-filter: var(--surface-blur);
   backdrop-filter: var(--surface-blur);
 }
@@ -142,7 +150,7 @@ textarea:focus-visible {
   }
 
   .editor-tool-group {
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: auto;
     justify-content: start;
   }
 }

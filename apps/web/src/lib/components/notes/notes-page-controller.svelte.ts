@@ -2,6 +2,7 @@ import { onMount, tick } from 'svelte';
 import type { Device } from '@author/schema';
 import type { RemoteSyncState } from '@author/api-types';
 import type { LocalConflict, LocalNote, LocalNotebook } from '$lib/client/db';
+import type { StoredTheme } from '$lib/client/local-state';
 import {
   hasStoredEncryptionKeyMaterial,
   rememberEncryptionPassword
@@ -70,15 +71,28 @@ import {
 } from '$lib/client/view-model';
 import { pushEditorHistory, sameEditorSnapshot } from './editor-history';
 import {
+  EDITOR_FONT_OPTIONS,
+  getEditorFontCss,
   getStoredCompactView,
+  getStoredEditorFont,
+  getStoredEditorLineHeight,
+  getStoredEditorTextSize,
   getStoredEditorZoom,
   getStoredSort,
+  MAX_EDITOR_LINE_HEIGHT,
+  MAX_EDITOR_TEXT_SIZE,
   MAX_EDITOR_ZOOM,
+  MIN_EDITOR_LINE_HEIGHT,
+  MIN_EDITOR_TEXT_SIZE,
   MIN_EDITOR_ZOOM,
   nextEditorZoom,
   setStoredCompactView,
+  setStoredEditorFont,
+  setStoredEditorLineHeight,
+  setStoredEditorTextSize,
   setStoredEditorZoom,
   setStoredSort,
+  type EditorFont,
   zoomPercent as formatZoomPercent
 } from './page-preferences';
 import type {
@@ -90,7 +104,7 @@ import type {
 } from './ui-types';
 
 export type NotesFilterId = 'all' | 'unfiled' | 'trash' | (string & {});
-export type Theme = 'light' | 'dark';
+export type Theme = StoredTheme;
 export type AuthMode = 'signin' | 'signup';
 export type SettingsSection =
   | 'account'
@@ -242,12 +256,21 @@ export interface EditorPaneModel {
   undoStack: EditorSnapshot[];
   redoStack: EditorSnapshot[];
   editorZoom: number;
+  editorFont: EditorFont;
+  editorFontCss: string;
+  editorTextSize: number;
+  editorLineHeight: number;
   canUndoEditor: boolean;
   canRedoEditor: boolean;
   selectedDeviceName: string;
   editorMetadataRows: MetadataRow[];
   minEditorZoom: number;
   maxEditorZoom: number;
+  minEditorTextSize: number;
+  maxEditorTextSize: number;
+  minEditorLineHeight: number;
+  maxEditorLineHeight: number;
+  editorFontOptions: typeof EDITOR_FONT_OPTIONS;
   zoomPercent: () => string;
   zoomEditor: (direction: -1 | 1) => void;
   handleTitleKeydown: (event: KeyboardEvent) => void;
@@ -282,8 +305,16 @@ export interface SettingsModalModel {
   theme: Theme;
   settingsSection: SettingsSection;
   editorZoom: number;
+  editorFont: EditorFont;
+  editorTextSize: number;
+  editorLineHeight: number;
   minEditorZoom: number;
   maxEditorZoom: number;
+  minEditorTextSize: number;
+  maxEditorTextSize: number;
+  minEditorLineHeight: number;
+  maxEditorLineHeight: number;
+  editorFontOptions: typeof EDITOR_FONT_OPTIONS;
   loginOpen: boolean;
   authMode: AuthMode;
   loginUsernameValue: string;
@@ -321,6 +352,10 @@ export interface SettingsModalModel {
   handleMarkdownImport: (event: Event) => void | Promise<void>;
   toggleCompactView: () => void;
   toggleTheme: () => void;
+  setThemeChoice: (theme: Theme) => void;
+  setEditorFont: (font: EditorFont) => void;
+  setEditorTextSize: (size: number) => void;
+  setEditorLineHeight: (lineHeight: number) => void;
   zoomEditor: (direction: -1 | 1) => void;
   zoomPercent: () => string;
   submitLoginMenu: () => void | Promise<void>;
@@ -578,6 +613,9 @@ export class NotesPageController
   searchValue = $state('');
   compactView = $state(false);
   editorZoom = $state(1);
+  editorFont = $state<EditorFont>('kedebideri');
+  editorTextSize = $state(16);
+  editorLineHeight = $state(1.75);
   currentTime = $state(new Date());
   menusOpen = $state(false);
   accountMenuOpen = $state(false);
@@ -608,6 +646,11 @@ export class NotesPageController
   settingsModal: HTMLElement | null = null;
   readonly minEditorZoom = MIN_EDITOR_ZOOM;
   readonly maxEditorZoom = MAX_EDITOR_ZOOM;
+  readonly minEditorTextSize = MIN_EDITOR_TEXT_SIZE;
+  readonly maxEditorTextSize = MAX_EDITOR_TEXT_SIZE;
+  readonly minEditorLineHeight = MIN_EDITOR_LINE_HEIGHT;
+  readonly maxEditorLineHeight = MAX_EDITOR_LINE_HEIGHT;
+  readonly editorFontOptions = EDITOR_FONT_OPTIONS;
 
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private autoSyncTimer: ReturnType<typeof setTimeout> | null = null;
@@ -705,6 +748,7 @@ export class NotesPageController
   canRedoEditor = $derived(
     this.redoStack.length > 0 && !this.selectedNote?.trashedAt
   );
+  editorFontCss = $derived(getEditorFontCss(this.editorFont));
 
   constructor() {
     $effect(() => {
@@ -843,6 +887,7 @@ export class NotesPageController
   };
 
   selectNote = async (note: LocalNote) => {
+    this.closeMenus();
     await this.flushPendingSave();
     this.selectedNote = note;
     this.closeNotebookMenus();
@@ -853,6 +898,7 @@ export class NotesPageController
   };
 
   newNote = async () => {
+    this.closeMenus();
     await this.flushPendingSave();
     this.filterId = 'all';
     this.openDraftNote();
@@ -915,14 +961,20 @@ export class NotesPageController
   };
 
   openMenus = () => {
+    if (this.settingsOpen || this.loginOpen) return;
     if (this.menuCloseTimer) {
       clearTimeout(this.menuCloseTimer);
       this.menuCloseTimer = null;
     }
+    this.closeAccountMenu();
     this.menusOpen = true;
   };
 
   toggleMenus = () => {
+    if (this.settingsOpen || this.loginOpen) {
+      this.closeMenus();
+      return;
+    }
     if (this.menuCloseTimer) {
       clearTimeout(this.menuCloseTimer);
       this.menuCloseTimer = null;
@@ -954,7 +1006,7 @@ export class NotesPageController
     this.accountMenuCloseTimer = setTimeout(() => {
       this.accountMenuOpen = false;
       this.accountMenuCloseTimer = null;
-    }, 160);
+    }, 260);
   };
 
   scheduleMenusClose = () => {
@@ -969,7 +1021,7 @@ export class NotesPageController
     const current = event.currentTarget as HTMLElement;
     const next = event.relatedTarget as Node | null;
     if (next && current.contains(next)) return;
-    this.menusOpen = false;
+    this.closeMenus();
   };
 
   closeAccountMenuOnBlur = (event: FocusEvent) => {
@@ -980,6 +1032,7 @@ export class NotesPageController
   };
 
   openSettingsModal = (section: SettingsSection = 'account') => {
+    this.closeMenus();
     this.settingsSection = section;
     this.settingsOpen = true;
     this.closeAccountMenu();
@@ -1162,6 +1215,21 @@ export class NotesPageController
   };
 
   zoomPercent = (): string => formatZoomPercent(this.editorZoom);
+
+  setEditorFont = (font: EditorFont) => {
+    this.editorFont = font;
+    setStoredEditorFont(font);
+  };
+
+  setEditorTextSize = (size: number) => {
+    this.editorTextSize = size;
+    setStoredEditorTextSize(size);
+  };
+
+  setEditorLineHeight = (lineHeight: number) => {
+    this.editorLineHeight = lineHeight;
+    setStoredEditorLineHeight(lineHeight);
+  };
 
   openNotebookContext = (event: MouseEvent, notebook: LocalNotebook) => {
     event.preventDefault();
@@ -1749,8 +1817,13 @@ export class NotesPageController
   };
 
   toggleTheme = () => {
-    this.theme = this.theme === 'dark' ? 'light' : 'dark';
+    this.theme = this.theme.startsWith('dark') ? 'light' : 'dark';
     setTheme(this.theme);
+  };
+
+  setThemeChoice = (theme: Theme) => {
+    this.theme = theme;
+    setTheme(theme);
   };
 
   saveAccountProfile = async () => {
@@ -1911,6 +1984,9 @@ export class NotesPageController
     this.noteSort = getStoredSort();
     this.compactView = getStoredCompactView();
     this.editorZoom = getStoredEditorZoom();
+    this.editorFont = getStoredEditorFont();
+    this.editorTextSize = getStoredEditorTextSize();
+    this.editorLineHeight = getStoredEditorLineHeight();
     const storedSession = getStoredSession();
     this.accountUsername = storedSession?.user.username ?? '';
     this.accountDisplayName = storedSession?.user.displayName ?? '';
@@ -2002,6 +2078,14 @@ export class NotesPageController
   private closeNotebookMenus = () => {
     this.linkingNoteId = null;
     this.selectedNotebookMenuOpen = false;
+  };
+
+  private closeMenus = () => {
+    if (this.menuCloseTimer) {
+      clearTimeout(this.menuCloseTimer);
+      this.menuCloseTimer = null;
+    }
+    this.menusOpen = false;
   };
 
   private pruneSelectedNotes = (notes: LocalNote[], trash: LocalNote[]) => {

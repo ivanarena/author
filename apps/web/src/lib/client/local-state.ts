@@ -10,6 +10,16 @@ const DISPLAY_NAME_KEY = 'author-notes-display-name';
 const SESSION_EXPIRES_KEY = 'author-notes-session-expires-at';
 const THEME_KEY = 'author-notes-theme';
 
+export type StoredTheme =
+  | 'light'
+  | 'light-mint'
+  | 'light-rose'
+  | 'light-lavender'
+  | 'dark'
+  | 'dark-mint'
+  | 'dark-rose'
+  | 'dark-lavender';
+
 export interface StoredAuthUser {
   username: string;
   displayName: string | null;
@@ -127,13 +137,24 @@ export function setDisplayName(displayName: string | null): void {
   }
 }
 
-export function getTheme(): 'light' | 'dark' {
+export function getTheme(): StoredTheme {
   const stored = localStorage.getItem(THEME_KEY);
-  if (stored === 'light' || stored === 'dark') return stored;
+  if (
+    stored === 'light' ||
+    stored === 'light-mint' ||
+    stored === 'light-rose' ||
+    stored === 'light-lavender' ||
+    stored === 'dark' ||
+    stored === 'dark-mint' ||
+    stored === 'dark-rose' ||
+    stored === 'dark-lavender'
+  ) {
+    return stored;
+  }
   return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
-export function setTheme(theme: 'light' | 'dark'): void {
+export function setTheme(theme: StoredTheme): void {
   localStorage.setItem(THEME_KEY, theme);
   document.documentElement.dataset.theme = theme;
 }

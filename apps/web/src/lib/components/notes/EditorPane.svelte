@@ -13,7 +13,7 @@
   <section
     class="writer"
     aria-label="Plain text editor"
-    style={`--editor-zoom: ${model.editorZoom};`}
+    style={`--editor-zoom: ${model.editorZoom}; --editor-font: ${model.editorFontCss}; --editor-text-size: ${model.editorTextSize}px; --editor-line-height: ${model.editorLineHeight};`}
   >
     <div class="editor-meta-strip" aria-label="Note metadata">
       {#each model.editorMetadataRows as row}
@@ -64,9 +64,6 @@
             <Redo2 size={14} strokeWidth={1.8} />
           </button>
         </div>
-        <span class="tool-detail"
-          >{model.undoStack.length} undo, {model.redoStack.length} redo</span
-        >
       </div>
       <div class="editor-tool-group zoom-tool" aria-label="Editor zoom">
         <div class="tool-buttons">

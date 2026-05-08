@@ -76,8 +76,7 @@ fun parseNotesMarkdownImportFiles(files: List<MarkdownInputFile>): ParsedImportP
 fun parseMarkdownNote(content: String, fallbackFileName: String): ParsedImportNote {
   val (frontmatter, body) = splitFrontmatter(content)
   val title = frontmatter["title"]?.takeIf { it.isNotBlank() }
-    ?: deriveTitle(body)
-    ?: titleFromFileName(fallbackFileName)
+    ?: deriveTitle(body).ifBlank { titleFromFileName(fallbackFileName) }
   return ParsedImportNote(
     title = title,
     body = stripGeneratedHeading(body, title),
@@ -93,7 +92,7 @@ fun buildMarkdownZip(
   notebooks: List<LocalNotebook>
 ): Pair<String, ByteArray> {
   val exportedAt = nowIso()
-  val rootName = "author-notes-${exportedAt.take(10)}-md-frontmatter"
+  val rootName = "author-${exportedAt.take(10)}-md-frontmatter"
   val activeNotebooks = notebooks.filter { it.deletedAt == null }.associateBy { it.id }
   val usedPaths = mutableSetOf<String>()
   val output = ByteArrayOutputStream()
@@ -239,6 +238,7 @@ private fun safePathSegment(value: String): String =
 
 private fun isArchiveRootName(value: String): Boolean =
   value.startsWith("nn-export") ||
+    Regex("^author-\\d{4}-\\d{2}-\\d{2}-md-frontmatter$").matches(value) ||
     Regex("^author-notes-\\d{4}-\\d{2}-\\d{2}-md-frontmatter$").matches(value)
 
 private fun uniquePath(path: String, usedPaths: MutableSet<String>): String {

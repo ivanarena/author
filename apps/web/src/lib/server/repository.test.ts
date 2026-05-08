@@ -17,6 +17,7 @@ import {
   getDevicesByIds,
   getNote,
   getNotebook,
+  getSyncMeta,
   LEGACY_OWNER_USERNAME,
   listNotebooks,
   pullChangesSince,
@@ -722,6 +723,36 @@ describe('server repository', () => {
       });
       const mirrored = await pullChangesSince(remote, null, 0, { limit: 1000 });
       expect(mirrored.notes).toHaveLength(noteCount);
+    } finally {
+      local.close();
+      remote.close();
+    }
+  });
+
+  it('resets stale mirror cursors when the target cursor is ahead of the source', async () => {
+    const local = await openMemoryDatabase();
+    const remote = await openMemoryDatabase();
+    try {
+      await pushChanges(local, {
+        device: fixtureDevice,
+        notebooks: [{ record: fixtureNotebook, baseVersion: 0 }],
+        notes: [{ record: fixtureNote, baseVersion: 0 }]
+      });
+      await setSyncMeta(
+        remote,
+        `mirror.local.revision.${LEGACY_OWNER_USERNAME}`,
+        '9999'
+      );
+      const sourceRevision = await currentRevision(local);
+
+      await syncDatabases(local, remote);
+
+      await expect(getNote(remote, fixtureNote.id)).resolves.toMatchObject({
+        body: fixtureNote.body
+      });
+      await expect(
+        getSyncMeta(remote, `mirror.local.revision.${LEGACY_OWNER_USERNAME}`)
+      ).resolves.toBe(String(sourceRevision));
     } finally {
       local.close();
       remote.close();

@@ -157,6 +157,18 @@ async function getUserRow(
   return row as UserRow | null;
 }
 
+function authCredentialsChanged(
+  existing: UserRow | null,
+  next: UserRow
+): boolean {
+  return (
+    !existing ||
+    existing.password_hash !== next.password_hash ||
+    existing.password_salt !== next.password_salt ||
+    existing.password_iterations !== next.password_iterations
+  );
+}
+
 async function maybeBootstrapEnvUser(
   db: NotesExecutor,
   username: string,
@@ -242,6 +254,48 @@ export async function createUserAccount(
   );
 
   return { username: normalized, displayName: nextDisplayName };
+}
+
+export async function mirrorUserForLocalSession(
+  source: NotesExecutor,
+  target: NotesExecutor,
+  username: string
+): Promise<AuthUser | null> {
+  const normalized = requireUsername(username);
+  const sourceUser = await getUserRow(source, normalized);
+  if (!sourceUser) return null;
+
+  const existing = await getUserRow(target, normalized);
+  if (authCredentialsChanged(existing, sourceUser)) {
+    await run(target, 'DELETE FROM auth_sessions WHERE username = ?', [
+      normalized
+    ]);
+  }
+
+  const now = new Date().toISOString();
+  await run(
+    target,
+    `INSERT INTO users (
+       username, display_name, password_hash, password_salt, password_iterations, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(username) DO UPDATE SET
+       display_name = excluded.display_name,
+       password_hash = excluded.password_hash,
+       password_salt = excluded.password_salt,
+       password_iterations = excluded.password_iterations,
+       updated_at = excluded.updated_at`,
+    [
+      normalized,
+      sourceUser.display_name,
+      sourceUser.password_hash,
+      sourceUser.password_salt,
+      sourceUser.password_iterations,
+      now,
+      now
+    ]
+  );
+
+  return { username: normalized, displayName: sourceUser.display_name };
 }
 
 export async function authenticateUser(

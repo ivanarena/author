@@ -10,7 +10,7 @@ import {
 import { setUserPassword } from './auth';
 import { openConfiguredDatabase, openDatabase } from './db';
 import { api } from './hono';
-import { getNote, pushChanges } from './repository';
+import { getNote, pushChanges, setSyncMeta } from './repository';
 
 let tempDir: string;
 
@@ -18,6 +18,11 @@ beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'author-notes-api-'));
   delete process.env.TURSO_DATABASE_URL;
   delete process.env.TURSO_AUTH_TOKEN;
+  delete process.env.AUTHOR_NOTES_API_URL;
+  delete process.env.AUTHOR_NOTES_SYNC_API_URL;
+  delete process.env.ANDROID_SYNC_API_URL;
+  delete process.env.ANDROID_SYNC_SERVER_URL;
+  delete process.env.NOTES_SYNC_SERVER_URL;
   process.env.NOTES_DB_PATH = join(tempDir, 'notes.sqlite');
   process.env.NOTES_REMOTE_SYNC_ENABLED = 'false';
   process.env.NOTES_LOGIN_USERNAME = 'owner';
@@ -30,6 +35,11 @@ afterEach(() => {
   delete process.env.NOTES_DB_PATH;
   delete process.env.TURSO_DATABASE_URL;
   delete process.env.TURSO_AUTH_TOKEN;
+  delete process.env.AUTHOR_NOTES_API_URL;
+  delete process.env.AUTHOR_NOTES_SYNC_API_URL;
+  delete process.env.ANDROID_SYNC_API_URL;
+  delete process.env.ANDROID_SYNC_SERVER_URL;
+  delete process.env.NOTES_SYNC_SERVER_URL;
   delete process.env.NOTES_REMOTE_SYNC_ENABLED;
   delete process.env.NOTES_LOGIN_USERNAME;
   delete process.env.NOTES_LOGIN_PASSWORD;
@@ -102,6 +112,29 @@ describe('Hono API', () => {
     await expect(status.json()).resolves.toMatchObject({
       remote: { enabled: false, state: 'disabled' }
     });
+  });
+
+  it('serves non-secret public sync configuration', async () => {
+    process.env.AUTHOR_NOTES_API_URL = 'https://notes.example.com';
+    process.env.TURSO_DATABASE_URL = 'libsql://author-notes.example.turso.io';
+    process.env.TURSO_AUTH_TOKEN = 'super-secret-token';
+    process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
+
+    const response = await api.fetch(
+      new Request('http://localhost/api/config')
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toEqual({
+      apiBaseUrl: 'https://notes.example.com',
+      remote: {
+        enabled: true,
+        configured: true
+      }
+    });
+    expect(JSON.stringify(body)).not.toContain('super-secret-token');
+    expect(JSON.stringify(body)).not.toContain('libsql://');
+    expect(JSON.stringify(body)).not.toContain('author-notes.example.turso.io');
   });
 
   it('validates active auth tokens without accepting invalid ones', async () => {
@@ -217,6 +250,115 @@ describe('Hono API', () => {
       error: 'Signup requires remote database access'
     });
   });
+
+  it('authenticates remote-backed users through Turso before local session creation', async () => {
+    const remotePath = join(tempDir, 'remote-login.sqlite');
+    process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
+    process.env.TURSO_AUTH_TOKEN = 'test-token';
+    process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
+
+    const local = await openDatabase();
+    try {
+      await setUserPassword(local, 'owner', 'old-local-password');
+    } finally {
+      local.close();
+    }
+
+    const remote = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${remotePath}`, authToken: 'test-token' }
+    });
+    try {
+      await setUserPassword(remote, 'owner', 'remote-password');
+    } finally {
+      remote.close();
+    }
+
+    const oldLocalPassword = await api.fetch(
+      new Request('http://localhost/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'owner',
+          password: 'old-local-password',
+          device: fixtureDevice
+        })
+      })
+    );
+    expect(oldLocalPassword.status).toBe(401);
+
+    const remotePassword = await api.fetch(
+      new Request('http://localhost/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'owner',
+          password: 'remote-password',
+          device: fixtureDevice
+        })
+      })
+    );
+    expect(remotePassword.status).toBe(200);
+    await expect(remotePassword.json()).resolves.toMatchObject({
+      user: { username: 'owner' },
+      token: expect.any(String)
+    });
+  });
+
+  it('creates a local session for a remote-backed user when mirror sync is busy', async () => {
+    const remotePath = join(tempDir, 'remote-login-busy.sqlite');
+    process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
+    process.env.TURSO_AUTH_TOKEN = 'test-token';
+    process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
+
+    const remote = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${remotePath}`, authToken: 'test-token' }
+    });
+    try {
+      await setUserPassword(remote, 'owner', 'remote-password');
+    } finally {
+      remote.close();
+    }
+
+    const local = await openDatabase();
+    try {
+      await setSyncMeta(
+        local,
+        'mirror.lock.v1',
+        JSON.stringify({
+          owner: 'another-process',
+          expiresAt: new Date(Date.now() + 1_000).toISOString()
+        })
+      );
+    } finally {
+      local.close();
+    }
+
+    const response = await api.fetch(
+      new Request('http://localhost/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'owner',
+          password: 'remote-password',
+          device: fixtureDevice
+        })
+      })
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { token: string };
+    expect(body.token).toEqual(expect.any(String));
+
+    const valid = await api.fetch(
+      new Request('http://localhost/api/auth/validate', {
+        headers: { authorization: `Bearer ${body.token}` }
+      })
+    );
+    expect(valid.status).toBe(200);
+
+    await sleep(5_200);
+  }, 10_000);
 
   it('revokes existing sessions when a password is reset', async () => {
     const token = await loginToken();

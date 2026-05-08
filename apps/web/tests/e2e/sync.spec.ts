@@ -342,7 +342,7 @@ test('exports Markdown without closing settings', async ({ page }) => {
   await page.getByRole('button', { name: 'Export MD ZIP' }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(
-    /^author-notes-.*-md-frontmatter\.zip$/
+    /^author-.*-md-frontmatter\.zip$/
   );
   await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
 });

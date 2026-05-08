@@ -122,7 +122,7 @@ describe('Markdown archive import and export', () => {
       exportedAt
     );
 
-    expect(archive.rootName).toBe('author-notes-2026-04-30-md-frontmatter');
+    expect(archive.rootName).toBe('author-2026-04-30-md-frontmatter');
     expect(archive.files.map((file) => file.path)).toEqual([
       'poems/Aurora.md',
       'poems/Aurora-2.md',
@@ -155,7 +155,7 @@ describe('Markdown archive import and export', () => {
     expect(view.getUint32(bytes.length - 22, true)).toBe(0x06054b50);
     expect(view.getUint16(bytes.length - 14, true)).toBe(1);
     expect(decoded).toContain(
-      'author-notes-2026-04-30-md-frontmatter/poems/Aurora.md'
+      'author-2026-04-30-md-frontmatter/poems/Aurora.md'
     );
   });
 });

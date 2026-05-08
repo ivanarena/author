@@ -124,6 +124,27 @@ describe('client note view model', () => {
 
     expect(
       syncIndicatorState({
+        isSyncing: true,
+        conflictCount: 0,
+        isBrowserOnline: true,
+        hasSession: true,
+        pendingSyncCount: 0,
+        syncMessage: 'Pushing local changes',
+        syncActivityLabel: 'Pushing local changes',
+        syncActivityDetail: '2 of 5 local changes pushed',
+        remoteSyncEnabled: false,
+        remoteSyncState: 'disabled',
+        remoteSyncError: ''
+      })
+    ).toMatchObject({
+      kind: 'syncing',
+      tone: 'info',
+      label: 'Pushing local changes',
+      detail: '2 of 5 local changes pushed'
+    });
+
+    expect(
+      syncIndicatorState({
         isSyncing: false,
         conflictCount: 2,
         isBrowserOnline: true,
@@ -139,6 +160,24 @@ describe('client note view model', () => {
       tone: 'error',
       label: '2 conflicts',
       detail: ''
+    });
+
+    expect(
+      syncIndicatorState({
+        isSyncing: false,
+        conflictCount: 0,
+        isBrowserOnline: true,
+        hasSession: true,
+        pendingSyncCount: 3,
+        syncMessage: 'Signed in',
+        remoteSyncEnabled: false,
+        remoteSyncState: 'disabled',
+        remoteSyncError: ''
+      })
+    ).toMatchObject({
+      kind: 'pending',
+      label: 'Waiting to sync',
+      detail: '3 items queued locally'
     });
 
     expect(

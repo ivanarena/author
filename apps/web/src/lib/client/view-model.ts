@@ -22,6 +22,8 @@ export interface SyncIndicatorState {
   hasSession: boolean;
   pendingSyncCount: number;
   syncMessage: string;
+  syncActivityLabel?: string;
+  syncActivityDetail?: string;
   remoteSyncEnabled?: boolean;
   remoteSyncState?: RemoteSyncState | 'unknown';
   remoteSyncError?: string;
@@ -43,6 +45,11 @@ const HEALTHY_SYNC_MESSAGES = new Set([
   'All changes saved',
   'All changes synced',
   'Local changes saved',
+  'Signed in',
+  'Preparing sync',
+  'Pushing local changes',
+  'Pulling remote changes',
+  'Waiting to sync',
   'Remote sync queued',
   'Syncing remote'
 ]);
@@ -199,17 +206,21 @@ export function syncIndicatorState(state: SyncIndicatorState): SyncIndicator {
     hasSession,
     pendingSyncCount,
     syncMessage,
+    syncActivityLabel = '',
+    syncActivityDetail = '',
     remoteSyncEnabled = false,
     remoteSyncState = 'disabled',
     remoteSyncError = ''
   } = state;
 
-  if (isSyncing)
+  if (isSyncing) {
+    const label = syncActivityLabel || 'Syncing changes';
     return syncIndicator(
       'syncing',
-      'Saving locally',
-      remoteSyncEnabled ? 'Remote not synced yet' : ''
+      label,
+      syncActivityDetail || (remoteSyncEnabled ? 'Remote not synced yet' : '')
     );
+  }
   if (conflictCount > 0) {
     return syncIndicator(
       'conflict',
@@ -221,8 +232,13 @@ export function syncIndicatorState(state: SyncIndicatorState): SyncIndicator {
   if (!hasSession)
     return syncIndicator('local-only', 'Local only', 'Sign in to sync');
   if (pendingSyncCount > 0) {
-    const label = 'Saving locally';
-    return syncIndicator('pending', label, syncDetail(syncMessage, label));
+    const label = 'Waiting to sync';
+    return syncIndicator(
+      'pending',
+      label,
+      syncDetail(syncMessage, label) ||
+        `${pendingSyncCount} item${pendingSyncCount === 1 ? '' : 's'} queued locally`
+    );
   }
 
   if (remoteSyncEnabled) {

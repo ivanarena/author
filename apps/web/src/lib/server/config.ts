@@ -73,6 +73,17 @@ export function shouldSyncRemoteDatabase(): boolean {
   return Boolean(getRemoteDatabaseConfig());
 }
 
+export function getPublicApiBaseUrl(): string | null {
+  const value =
+    process.env.AUTHOR_NOTES_API_URL ??
+    process.env.AUTHOR_NOTES_SYNC_API_URL ??
+    process.env.ANDROID_SYNC_API_URL ??
+    process.env.ANDROID_SYNC_SERVER_URL ??
+    process.env.NOTES_SYNC_SERVER_URL;
+  const trimmed = value?.trim();
+  return trimmed || null;
+}
+
 export function getLegacyAuthToken(): string | null {
   if (process.env.NOTES_LEGACY_AUTH_TOKEN_ENABLED !== 'true') return null;
 

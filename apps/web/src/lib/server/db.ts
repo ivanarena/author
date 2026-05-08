@@ -19,7 +19,11 @@ export type NotesExecutor = Client | Transaction;
 export type SqlArgs = InArgs;
 
 const initializedDatabases = new Map<string, Promise<void>>();
+const databaseWriteQueues = new Map<string, Promise<void>>();
+const databaseWriteKeys = new WeakMap<NotesDb, string>();
 const LEGACY_OWNER_USERNAME = 'legacy-token';
+const WRITE_TRANSACTION_MAX_ATTEMPTS = 6;
+const WRITE_TRANSACTION_RETRY_BASE_MS = 25;
 
 function defaultDataOwner(): string {
   const configured = getLoginUsername()?.trim().toLowerCase();
@@ -229,7 +233,15 @@ export async function run(
   sql: string,
   args: SqlArgs = []
 ): Promise<void> {
-  await db.execute({ sql, args });
+  const operation = async () => {
+    await retryDatabaseBusy(() => db.execute({ sql, args }));
+  };
+  const key = databaseWriteKeys.get(db as NotesDb);
+  if (key) {
+    await serializeDatabaseWrite(db as NotesDb, operation);
+    return;
+  }
+  await operation();
 }
 
 export async function all(
@@ -258,6 +270,7 @@ function databaseInitKey(config: DatabaseConfig): string {
 
 async function enableConnectionPragmas(db: NotesDb): Promise<void> {
   await run(db, 'PRAGMA foreign_keys = ON');
+  await run(db, 'PRAGMA busy_timeout = 250').catch(() => {});
 }
 
 async function hasColumn(
@@ -502,6 +515,7 @@ export async function openConfiguredDatabase(
 
   await ensureDatabaseInitialized(config);
   const db = createClient(config.client);
+  databaseWriteKeys.set(db, databaseInitKey(config));
   await enableConnectionPragmas(db);
   return db;
 }
@@ -516,29 +530,122 @@ export async function openLocalDatabase(): Promise<NotesDb> {
 
 export async function openMemoryDatabase(): Promise<NotesDb> {
   const tempDir = mkdtempSync(join(tmpdir(), 'author-notes-'));
-  const db = createClient({ url: `file:${join(tempDir, 'test.sqlite')}` });
+  const filePath = join(tempDir, 'test.sqlite');
+  const db = createClient({ url: `file:${filePath}` });
+  databaseWriteKeys.set(db, `local:${filePath}`);
   const close = db.close.bind(db);
   db.close = () => {
     close();
     rmSync(tempDir, { recursive: true, force: true });
   };
+  await enableConnectionPragmas(db);
   await initializeDatabase(db);
   return db;
+}
+
+function isDatabaseBusyError(error: unknown): boolean {
+  const record = error as {
+    code?: unknown;
+    message?: unknown;
+    cause?: { code?: unknown; message?: unknown };
+  };
+  const code = String(record?.code ?? record?.cause?.code ?? '');
+  const message = String(record?.message ?? record?.cause?.message ?? '');
+  return (
+    code === 'SQLITE_BUSY' ||
+    message.includes('SQLITE_BUSY') ||
+    message.includes('database is locked')
+  );
+}
+
+function transactionRetryDelay(attempt: number): number {
+  return WRITE_TRANSACTION_RETRY_BASE_MS * 2 ** attempt;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function retryDatabaseBusy<T>(operation: () => Promise<T>): Promise<T> {
+  for (
+    let attempt = 0;
+    attempt < WRITE_TRANSACTION_MAX_ATTEMPTS;
+    attempt += 1
+  ) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (
+        isDatabaseBusyError(error) &&
+        attempt < WRITE_TRANSACTION_MAX_ATTEMPTS - 1
+      ) {
+        await sleep(transactionRetryDelay(attempt));
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new Error('Database busy retry loop exited unexpectedly');
+}
+
+async function serializeDatabaseWrite<T>(
+  db: NotesDb,
+  operation: () => Promise<T>
+): Promise<T> {
+  const key = databaseWriteKeys.get(db);
+  if (!key) return await operation();
+
+  const previous = databaseWriteQueues.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = previous.catch(() => {}).then(() => current);
+  databaseWriteQueues.set(key, tail);
+
+  await previous.catch(() => {});
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (databaseWriteQueues.get(key) === tail) {
+      databaseWriteQueues.delete(key);
+    }
+  }
 }
 
 export async function withWriteTransaction<T>(
   db: NotesDb,
   operation: (tx: Transaction) => Promise<T>
 ): Promise<T> {
-  const tx = await db.transaction('write');
-  try {
-    const result = await operation(tx);
-    await tx.commit();
-    return result;
-  } catch (error) {
-    await tx.rollback().catch(() => {});
-    throw error;
-  } finally {
-    if (!tx.closed) tx.close();
-  }
+  return await serializeDatabaseWrite(db, async () => {
+    for (
+      let attempt = 0;
+      attempt < WRITE_TRANSACTION_MAX_ATTEMPTS;
+      attempt += 1
+    ) {
+      let tx: Transaction | null = null;
+      try {
+        tx = await db.transaction('write');
+        const result = await operation(tx);
+        await tx.commit();
+        return result;
+      } catch (error) {
+        await tx?.rollback().catch(() => {});
+        if (
+          isDatabaseBusyError(error) &&
+          attempt < WRITE_TRANSACTION_MAX_ATTEMPTS - 1
+        ) {
+          await sleep(transactionRetryDelay(attempt));
+          continue;
+        }
+        throw error;
+      } finally {
+        if (tx && !tx.closed) tx.close();
+      }
+    }
+
+    throw new Error('Write transaction retry loop exited unexpectedly');
+  });
 }

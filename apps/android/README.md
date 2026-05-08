@@ -1,12 +1,39 @@
-# Author Notes Android
+# Author Android
 
-Native Android client for the Author Notes local-first notes app.
+Native Android client for the Author local-first notes app.
 
 ## Build
 
 ```sh
 ./gradlew :app:assembleDebug
 ```
+
+The default sync API URL is read at build time from Gradle properties,
+environment variables, or the repo root `.env`. Prefer the canonical public API
+setting and keep the aliases only for older build pipelines:
+
+```env
+AUTHOR_NOTES_API_URL=https://your-author-api.example.com
+ANDROID_SYNC_API_URL=https://your-author-api.example.com
+ANDROID_SYNC_SERVER_URL=https://your-author-api.example.com
+NOTES_SYNC_SERVER_URL=https://your-author-api.example.com
+```
+
+For emulator development against the local web app, use
+`AUTHOR_NOTES_API_URL=http://10.0.2.2:5173`. Turso credentials stay on the
+server; the Android app talks to the API server, and the server mirrors to the
+configured remote Turso database. Never point the Android sync URL at
+`TURSO_DATABASE_URL`; that is a database endpoint, not the HTTP sync API.
+
+## Emulator
+
+```sh
+aube run emulator:window
+```
+
+The emulator starts with a visible window and no boot animation. Set
+`ANDROID_AVD` to choose a device. If unset, the script uses the first AVD under
+`~/.android/avd`.
 
 The app is implemented with Kotlin and Jetpack Compose. Local changes are saved
 first in the on-device SQLite database, then pushed/pulled through the same sync

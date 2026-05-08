@@ -121,6 +121,7 @@
     <p class="sync-line">
       <span
         class={`sync-state ${model.syncIndicator.tone}`}
+        class:syncing={model.syncIndicator.kind === 'syncing'}
         aria-label={`Sync status: ${model.syncIndicator.label}`}
         >{model.syncIndicator.label}</span
       >

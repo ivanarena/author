@@ -5,6 +5,7 @@ import {
   login,
   runSync,
   SyncHttpError,
+  type SyncProgress,
   validateSession
 } from './sync';
 import {
@@ -36,14 +37,17 @@ vi.mock('./store', () => ({
 vi.mock('./db', () => ({
   localDb: {
     notes: {
-      where: vi.fn()
+      where: vi.fn(),
+      bulkPut: vi.fn()
     },
     notebooks: {
-      where: vi.fn()
+      where: vi.fn(),
+      bulkPut: vi.fn()
     },
     syncMeta: {
       get: vi.fn(),
-      put: vi.fn()
+      put: vi.fn(),
+      delete: vi.fn()
     }
   }
 }));
@@ -122,6 +126,9 @@ beforeEach(() => {
   vi.mocked(mergeRemoteChanges).mockResolvedValue(undefined);
   vi.mocked(localDb.syncMeta.get).mockResolvedValue(undefined);
   vi.mocked(localDb.syncMeta.put).mockResolvedValue('lastPulledAt');
+  vi.mocked(localDb.syncMeta.delete).mockResolvedValue(undefined);
+  vi.mocked(localDb.notes.bulkPut).mockResolvedValue(note.id);
+  vi.mocked(localDb.notebooks.bulkPut).mockResolvedValue(notebook.id);
   mockPendingNotes([]);
   mockPendingNotebooks([]);
 });
@@ -208,12 +215,23 @@ describe('client sync orchestration', () => {
         serverRevision: 42
       })
     );
+    const progress: SyncProgress[] = [];
 
-    await expect(runSync('session-token')).resolves.toEqual({
+    await expect(
+      runSync('session-token', (event) => progress.push(event))
+    ).resolves.toEqual({
       pushed: 2,
       pulled: 4,
       conflicts: 1
     });
+
+    expect(progress).toEqual([
+      { phase: 'preparing' },
+      { phase: 'pushing', pushed: 0, total: 2, batchSize: 2 },
+      { phase: 'pushing', pushed: 2, total: 2, batchSize: 2 },
+      { phase: 'pulling', pulled: 0, hasMore: true, pageSize: 0 },
+      { phase: 'pulling', pulled: 4, hasMore: false, pageSize: 4 }
+    ]);
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
@@ -276,6 +294,90 @@ describe('client sync orchestration', () => {
       key: 'lastPulledRevision',
       value: '42'
     });
+  });
+
+  it('repairs stale pending records before pushing them', async () => {
+    const staleNote = {
+      ...note,
+      deviceId: 'phone',
+      version: 3,
+      lastSyncedVersion: 3,
+      lastSyncedAt: '2026-05-01T10:00:00.000Z'
+    };
+    const staleNotebook = {
+      ...notebook,
+      deviceId: 'phone',
+      version: 5,
+      lastSyncedVersion: 5,
+      lastSyncedAt: '2026-05-01T10:00:00.000Z'
+    };
+    const repairedNote = {
+      ...staleNote,
+      deviceId: device.id,
+      version: 4
+    };
+    const repairedNotebook = {
+      ...staleNotebook,
+      deviceId: device.id,
+      version: 6
+    };
+    mockPendingNotes([staleNote]);
+    mockPendingNotebooks([staleNotebook]);
+    const fetchMock = mockFetch(
+      jsonResponse({
+        accepted: [],
+        conflicts: [],
+        serverTime: '2026-05-01T10:10:00.000Z'
+      }),
+      jsonResponse({
+        notes: [],
+        notebooks: [],
+        devices: [],
+        deletedNoteIds: [],
+        deletedNotebookIds: [],
+        deletedDeviceIds: [],
+        serverTime: '2026-05-01T10:11:00.000Z',
+        serverRevision: 42
+      })
+    );
+
+    await expect(runSync('session-token')).resolves.toEqual({
+      pushed: 2,
+      pulled: 0,
+      conflicts: 0
+    });
+
+    expect(localDb.notes.bulkPut).toHaveBeenCalledWith([repairedNote]);
+    expect(localDb.notebooks.bulkPut).toHaveBeenCalledWith([repairedNotebook]);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/sync/push',
+      expect.objectContaining({
+        body: JSON.stringify({
+          device,
+          notes: [{ record: repairedNote, baseVersion: 3 }],
+          notebooks: [{ record: repairedNotebook, baseVersion: 5 }]
+        })
+      })
+    );
+    expect(markAcceptedChanges).toHaveBeenCalledWith(
+      expect.any(Array),
+      '2026-05-01T10:10:00.000Z',
+      [
+        {
+          entityType: 'note',
+          id: note.id,
+          version: 4,
+          updatedAt: note.updatedAt
+        },
+        {
+          entityType: 'notebook',
+          id: notebook.id,
+          version: 6,
+          updatedAt: notebook.updatedAt
+        }
+      ]
+    );
   });
 
   it('skips push when there are no pending changes but still refreshes from pull', async () => {
@@ -351,6 +453,76 @@ describe('client sync orchestration', () => {
           limit: 500
         })
       })
+    );
+  });
+
+  it('resets the pull cursor once when the server revision moved backwards', async () => {
+    vi.mocked(localDb.syncMeta.get)
+      .mockResolvedValueOnce({
+        key: 'lastPulledAt',
+        value: '2026-05-01T10:00:00.000Z'
+      })
+      .mockResolvedValueOnce({
+        key: 'lastPulledRevision',
+        value: '41'
+      });
+    const remoteNote = { ...note, id: 'note-after-reset', version: 1 };
+    const fetchMock = mockFetch(
+      jsonResponse({
+        notes: [],
+        notebooks: [],
+        devices: [],
+        deletedNoteIds: [],
+        deletedNotebookIds: [],
+        deletedDeviceIds: [],
+        serverTime: '2026-05-01T10:12:00.000Z',
+        serverRevision: 12
+      }),
+      jsonResponse({
+        notes: [remoteNote],
+        notebooks: [],
+        devices: [],
+        deletedNoteIds: [],
+        deletedNotebookIds: [],
+        deletedDeviceIds: [],
+        serverTime: '2026-05-01T10:13:00.000Z',
+        serverRevision: 12
+      })
+    );
+
+    await expect(runSync('session-token')).resolves.toEqual({
+      pushed: 0,
+      pulled: 1,
+      conflicts: 0
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/sync/pull',
+      expect.objectContaining({
+        body: JSON.stringify({
+          since: '2026-05-01T10:00:00.000Z',
+          sinceRevision: 41,
+          limit: 500
+        })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/sync/pull',
+      expect.objectContaining({
+        body: JSON.stringify({ since: null, sinceRevision: 0, limit: 500 })
+      })
+    );
+    expect(localDb.syncMeta.put).toHaveBeenCalledWith({
+      key: 'lastPulledRevision',
+      value: '0'
+    });
+    expect(localDb.syncMeta.delete).toHaveBeenCalledWith('lastPulledAt');
+    expect(mergeRemoteChanges).toHaveBeenCalledWith(
+      [remoteNote],
+      [],
+      '2026-05-01T10:13:00.000Z'
     );
   });
 

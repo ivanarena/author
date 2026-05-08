@@ -81,6 +81,7 @@
             {/if}
             <span
               class={`sync-state ${model.syncIndicator.tone}`}
+              class:syncing={model.syncIndicator.kind === 'syncing'}
               aria-label={`Sync status: ${model.syncIndicator.label}`}
               >{model.syncIndicator.label}</span
             >
@@ -103,7 +104,7 @@
                 {model.isArchiveBusy
                   ? 'Sync paused'
                   : model.isSyncing
-                    ? 'Syncing changes'
+                    ? model.syncIndicator.label
                     : 'Sync now'}
               </span>
             </button>

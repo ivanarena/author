@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
 import com.author.notes.BuildConfig
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -20,6 +21,10 @@ private const val COMPACT_VIEW_KEY = "author-notes-compact-view"
 private const val EDITOR_ZOOM_KEY = "author-notes-editor-zoom"
 private const val API_BASE_URL_KEY = "author-notes-api-base-url"
 private const val LOCAL_WORKSPACE_OWNER_KEY = "localWorkspaceOwner"
+private const val LAST_SYNC_ERROR_AT_KEY = "lastSyncErrorAt"
+private const val LAST_SYNC_ERROR_SOURCE_KEY = "lastSyncErrorSource"
+private const val LAST_SYNC_ERROR_MESSAGE_KEY = "lastSyncErrorMessage"
+private const val LAST_SYNC_ERROR_STACK_KEY = "lastSyncErrorStack"
 private const val PUSH_BATCH_SIZE = 100
 private const val PULL_BATCH_SIZE = 500
 
@@ -27,8 +32,9 @@ class NotesRepository(context: Context) {
   private val appContext = context.applicationContext
   private val prefs: SharedPreferences =
     appContext.getSharedPreferences("author-notes", Context.MODE_PRIVATE)
+  private val securePrefs = SecurePreferenceStore(prefs)
   private val db = NotesDatabase(appContext)
-  private val crypto = NoteCrypto(prefs)
+  private val crypto = NoteCrypto(prefs, securePrefs)
   private val syncClient = SyncClient { getApiBaseUrl() }
 
   fun getTheme(): String = prefs.getString(THEME_KEY, null)
@@ -69,7 +75,7 @@ class NotesRepository(context: Context) {
       ?: ""
 
   fun getStoredSession(): StoredSession? {
-    val token = prefs.getString(TOKEN_KEY, null) ?: return null
+    val token = securePrefs.getString(TOKEN_KEY) ?: return null
     return StoredSession(
       token = token,
       user = AuthUser(
@@ -81,8 +87,8 @@ class NotesRepository(context: Context) {
   }
 
   fun setStoredSession(session: StoredSession) {
+    securePrefs.putString(TOKEN_KEY, session.token)
     prefs.edit()
-      .putString(TOKEN_KEY, session.token)
       .putString(USERNAME_KEY, session.user.username)
       .putString(LAST_USERNAME_KEY, session.user.username)
       .putNullableString(DISPLAY_NAME_KEY, session.user.displayName)
@@ -92,11 +98,11 @@ class NotesRepository(context: Context) {
 
   fun clearStoredSession() {
     prefs.edit()
-      .remove(TOKEN_KEY)
       .remove(USERNAME_KEY)
       .remove(DISPLAY_NAME_KEY)
       .remove(SESSION_EXPIRES_KEY)
       .apply()
+    securePrefs.remove(TOKEN_KEY)
     crypto.clearStoredEncryptionKeyMaterial()
   }
 
@@ -327,7 +333,8 @@ class NotesRepository(context: Context) {
       devices = db.allDevices(),
       conflicts = loadPendingConflictsInternal(),
       pendingSyncCount = db.pendingSyncCount(),
-      lastSyncPass = loadLastSyncPassInternal()
+      lastSyncPass = loadLastSyncPassInternal(),
+      syncDebugInfo = loadSyncDebugInfoInternal()
     )
   }
 
@@ -360,9 +367,14 @@ class NotesRepository(context: Context) {
       syncClient.signup(username, password, displayName, getOrCreateDevice())
     }
 
+  suspend fun assertLocalWorkspaceCanUseAccount(username: String, previousUsername: String?) =
+    withContext(Dispatchers.IO) {
+      assertLocalWorkspaceCanUseAccountInternal(username, previousUsername)
+    }
+
   suspend fun rememberPasswordAndAdopt(username: String, password: String, previousUsername: String?) =
     withContext(Dispatchers.IO) {
-      assertLocalWorkspaceCanUseAccount(username, previousUsername)
+      assertLocalWorkspaceCanUseAccountInternal(username, previousUsername)
       val (previous, next) = crypto.rememberEncryptionPassword(username, password)
       reencryptLocalNotesInternal(previous, next)
       rememberLocalWorkspaceAccount(username)
@@ -372,8 +384,21 @@ class NotesRepository(context: Context) {
     syncClient.validateSession(token)
   }
 
+  suspend fun loadServerConfig(): ServerConfig = withContext(Dispatchers.IO) {
+    syncClient.loadServerConfig()
+  }
+
   suspend fun loadSyncStatus(token: String): RemoteSyncInfo = withContext(Dispatchers.IO) {
     syncClient.loadSyncStatus(token)
+  }
+
+  suspend fun recordSyncError(error: Throwable, source: String = "Sync") = withContext(Dispatchers.IO) {
+    if (error is CancellationException) throw error
+    recordSyncErrorInternal(error, source)
+  }
+
+  suspend fun clearSyncError() = withContext(Dispatchers.IO) {
+    clearSyncErrorInternal()
   }
 
   suspend fun updateAccount(token: String, displayName: String?): AuthUser = withContext(Dispatchers.IO) {
@@ -397,55 +422,109 @@ class NotesRepository(context: Context) {
     db.clearAll()
   }
 
-  suspend fun runSync(token: String): SyncRunResult = withContext(Dispatchers.IO) {
-    if (!crypto.hasStoredEncryptionKeyMaterial()) {
-      throw IllegalStateException("Sign in again to sync encrypted notes")
-    }
-    val device = getOrCreateDevice()
-    ensureLocalNotesEncrypted()
-    val pendingNotes = db.pendingNotes().map { it to it.lastSyncedVersion }.toMutableList()
-    val pendingNotebooks = db.pendingNotebooks().map { it to it.lastSyncedVersion }.toMutableList()
-    var conflicts = 0
-    var pushed = 0
-
-    while (pendingNotes.isNotEmpty() || pendingNotebooks.isNotEmpty()) {
-      val notesBatch = pendingNotes.take(PUSH_BATCH_SIZE)
-      val notebooksBatch = pendingNotebooks.take(PUSH_BATCH_SIZE)
-      repeat(notesBatch.size) { pendingNotes.removeAt(0) }
-      repeat(notebooksBatch.size) { pendingNotebooks.removeAt(0) }
-      val response = syncClient.pushSyncChanges(token, device, notesBatch, notebooksBatch)
-      pushed += notesBatch.size + notebooksBatch.size
-      markAcceptedChanges(response.accepted, response.serverTime, notesBatch, notebooksBatch)
-      response.noteConflicts.forEach {
-        conflicts += 1
-        saveNoteConflict(it)
+  suspend fun runSync(
+    token: String,
+    onProgress: suspend (SyncProgress) -> Unit = {}
+  ): SyncRunResult = withContext(Dispatchers.IO) {
+    try {
+      if (!crypto.hasStoredEncryptionKeyMaterial()) {
+        throw IllegalStateException("Sign in again to sync encrypted notes")
       }
-      response.notebookConflicts.forEach {
-        conflicts += 1
-        saveNotebookConflict(it)
+      onProgress(SyncProgress(SyncProgressPhase.PREPARING))
+      val device = getOrCreateDevice()
+      ensureLocalNotesEncrypted()
+      val pendingNotes = db.pendingNotes().map { it to it.lastSyncedVersion }.toMutableList()
+      val pendingNotebooks = db.pendingNotebooks().map { it to it.lastSyncedVersion }.toMutableList()
+      val totalPushCount = pendingNotes.size + pendingNotebooks.size
+      var conflicts = 0
+      var pushed = 0
+
+      while (pendingNotes.isNotEmpty() || pendingNotebooks.isNotEmpty()) {
+        val notesBatch = pendingNotes.take(PUSH_BATCH_SIZE)
+        val notebooksBatch = pendingNotebooks.take(PUSH_BATCH_SIZE)
+        repeat(notesBatch.size) { pendingNotes.removeAt(0) }
+        repeat(notebooksBatch.size) { pendingNotebooks.removeAt(0) }
+        val batchSize = notesBatch.size + notebooksBatch.size
+        onProgress(
+          SyncProgress(
+            phase = SyncProgressPhase.PUSHING,
+            pushed = pushed,
+            total = totalPushCount,
+            batchSize = batchSize
+          )
+        )
+        val response = syncClient.pushSyncChanges(token, device, notesBatch, notebooksBatch)
+        pushed += batchSize
+        onProgress(
+          SyncProgress(
+            phase = SyncProgressPhase.PUSHING,
+            pushed = pushed,
+            total = totalPushCount,
+            batchSize = batchSize
+          )
+        )
+        markAcceptedChanges(response.accepted, response.serverTime, notesBatch, notebooksBatch)
+        response.noteConflicts.forEach {
+          conflicts += 1
+          saveNoteConflict(it)
+        }
+        response.notebookConflicts.forEach {
+          conflicts += 1
+          saveNotebookConflict(it)
+        }
       }
-    }
 
-    val lastPulledAt = db.getMeta("lastPulledAt")
-    var cursor = db.getMeta("lastPulledRevision")?.toLongOrNull()?.takeIf { it >= 0 } ?: 0L
-    var pulled = 0
-    var hasMore = true
-    while (hasMore) {
-      val response = syncClient.pullSyncChanges(token, lastPulledAt, cursor, PULL_BATCH_SIZE)
-      val nextCursor = safeRevisionCursor(response.serverRevision, cursor, response.hasMore)
-      db.putDevices(response.devices)
-      applyRemoteDeletes(response.deletedNoteIds, response.deletedNotebookIds, response.deletedDeviceIds)
-      mergeRemoteChanges(response.notes, response.notebooks, response.serverTime)
-      db.putMeta("lastPulledAt", response.serverTime)
-      db.putMeta("lastPulledRevision", nextCursor.toString())
-      pulled += response.notes.size + response.notebooks.size +
-        response.deletedNoteIds.size + response.deletedNotebookIds.size
-      hasMore = response.hasMore
-      cursor = nextCursor
-    }
+      var lastPulledAt = db.getMeta("lastPulledAt")
+      var cursor = db.getMeta("lastPulledRevision")?.toLongOrNull()?.takeIf { it >= 0 } ?: 0L
+      var pulled = 0
+      var hasMore = true
+      var resetPullCursor = false
+      while (hasMore) {
+        onProgress(
+          SyncProgress(
+            phase = SyncProgressPhase.PULLING,
+            pulled = pulled,
+            hasMore = true
+          )
+        )
+        val response = syncClient.pullSyncChanges(token, lastPulledAt, cursor, PULL_BATCH_SIZE)
+        if (response.serverRevision < cursor && !resetPullCursor) {
+          resetPullCursor = true
+          cursor = 0L
+          lastPulledAt = null
+          db.putMeta("lastPulledRevision", "0")
+          db.deleteMeta("lastPulledAt")
+          continue
+        }
+        val nextCursor = safeRevisionCursor(response.serverRevision, cursor, response.hasMore)
+        db.putDevices(response.devices)
+        applyRemoteDeletes(response.deletedNoteIds, response.deletedNotebookIds, response.deletedDeviceIds)
+        mergeRemoteChanges(response.notes, response.notebooks, response.serverTime)
+        db.putMeta("lastPulledAt", response.serverTime)
+        db.putMeta("lastPulledRevision", nextCursor.toString())
+        val pageSize = response.notes.size + response.notebooks.size +
+          response.deletedNoteIds.size + response.deletedNotebookIds.size
+        pulled += pageSize
+        hasMore = response.hasMore
+        onProgress(
+          SyncProgress(
+            phase = SyncProgressPhase.PULLING,
+            pulled = pulled,
+            pageSize = pageSize,
+            hasMore = hasMore
+          )
+        )
+        cursor = nextCursor
+      }
 
-    SyncRunResult(pushed, pulled, conflicts).also {
-      recordLastSyncPass(it)
+      SyncRunResult(pushed, pulled, conflicts).also {
+        recordLastSyncPass(it)
+        clearSyncErrorInternal()
+      }
+    } catch (error: Throwable) {
+      if (error is CancellationException) throw error
+      recordSyncErrorInternal(error, "Sync")
+      throw error
     }
   }
 
@@ -557,6 +636,17 @@ class NotesRepository(context: Context) {
     conflicts = db.getMeta("lastSyncPassConflicts")?.toIntOrNull() ?: 0
   )
 
+  private fun loadSyncDebugInfoInternal(): SyncDebugInfo {
+    val source = db.getMeta(LAST_SYNC_ERROR_SOURCE_KEY)
+    val message = db.getMeta(LAST_SYNC_ERROR_MESSAGE_KEY).orEmpty()
+    val prefix = source?.takeIf { it.isNotBlank() }?.let { "$it: " }.orEmpty()
+    return SyncDebugInfo(
+      lastErrorAt = db.getMeta(LAST_SYNC_ERROR_AT_KEY),
+      lastErrorMessage = if (message.isBlank()) "" else "$prefix$message",
+      lastErrorStack = db.getMeta(LAST_SYNC_ERROR_STACK_KEY).orEmpty()
+    )
+  }
+
   private fun recordLastSyncPass(result: SyncRunResult) {
     val now = nowIso()
     db.putMeta("lastSyncPassAt", now)
@@ -564,6 +654,25 @@ class NotesRepository(context: Context) {
     db.putMeta("lastSyncPassPulled", result.pulled.toString())
     db.putMeta("lastSyncPassConflicts", result.conflicts.toString())
   }
+
+  private fun recordSyncErrorInternal(error: Throwable, source: String) {
+    db.putMeta(LAST_SYNC_ERROR_AT_KEY, nowIso())
+    db.putMeta(LAST_SYNC_ERROR_SOURCE_KEY, source)
+    db.putMeta(LAST_SYNC_ERROR_MESSAGE_KEY, syncErrorMessage(error))
+    db.putMeta(LAST_SYNC_ERROR_STACK_KEY, error.stackTraceToString())
+  }
+
+  private fun clearSyncErrorInternal() {
+    db.deleteMeta(LAST_SYNC_ERROR_AT_KEY)
+    db.deleteMeta(LAST_SYNC_ERROR_SOURCE_KEY)
+    db.deleteMeta(LAST_SYNC_ERROR_MESSAGE_KEY)
+    db.deleteMeta(LAST_SYNC_ERROR_STACK_KEY)
+  }
+
+  private fun syncErrorMessage(error: Throwable): String =
+    error.message?.takeIf { it.isNotBlank() }
+      ?: error::class.java.simpleName.takeIf { it.isNotBlank() }
+      ?: "Sync failed"
 
   private fun markAcceptedChanges(
     accepted: List<AcceptedChange>,
@@ -734,12 +843,12 @@ class NotesRepository(context: Context) {
 
   private fun safeRevisionCursor(serverRevision: Long, previousRevision: Long, hasMore: Boolean): Long {
     if (previousRevision < 0 || serverRevision < 0 || serverRevision < previousRevision || (hasMore && serverRevision == previousRevision)) {
-      throw IllegalStateException("Sync pull cursor did not advance")
+      throw IllegalStateException("Sync pull cursor did not advance (previous $previousRevision, server $serverRevision, hasMore $hasMore)")
     }
     return serverRevision
   }
 
-  private fun assertLocalWorkspaceCanUseAccount(username: String, fallbackOwnerUsername: String?) {
+  private fun assertLocalWorkspaceCanUseAccountInternal(username: String, fallbackOwnerUsername: String?) {
     val normalized = username.trim().lowercase()
     val storedOwner = db.getMeta(LOCAL_WORKSPACE_OWNER_KEY)
     val fallback = fallbackOwnerUsername?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }

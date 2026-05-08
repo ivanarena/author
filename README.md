@@ -1,4 +1,4 @@
-# Author Notes
+# Author
 
 [![CI](../../actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
 [![Docker](../../actions/workflows/docker.yml/badge.svg)](../../actions/workflows/docker.yml)
@@ -48,6 +48,7 @@ aube run quality               # Format, lint, and Svelte/TypeScript checks
 aube run deps:check            # Verify dependency links and resolution
 aube -F @author/web run check  # Svelte and TypeScript checks
 aube -F @author/web run build  # Production web build
+aube run emulator:window       # Start the Android emulator with a visible window and no boot animation
 ```
 
 ## Self-Hosting

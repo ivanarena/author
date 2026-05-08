@@ -179,6 +179,38 @@
   white-space: nowrap;
 }
 
+.sync-state.syncing,
+.sync-card-status.syncing {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sync-state.syncing::before,
+.sync-card-status.syncing::before {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  content: '';
+  flex: 0 0 auto;
+  animation: sync-spin 720ms linear infinite;
+}
+
+@keyframes sync-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sync-state.syncing::before,
+  .sync-card-status.syncing::before {
+    animation-duration: 1.8s;
+  }
+}
+
 .sync-state.ok {
   color: var(--status-ok);
 }

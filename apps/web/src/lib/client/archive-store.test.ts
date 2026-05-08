@@ -80,10 +80,10 @@ describe('archive store import and export', () => {
     const archive = await exportNotesMarkdownZip();
     const content = new TextDecoder().decode(await archive.blob.arrayBuffer());
 
-    expect(archive.fileName).toBe('author-notes-2026-05-04-md-frontmatter.zip');
+    expect(archive.fileName).toBe('author-2026-05-04-md-frontmatter.zip');
     expect(archive.noteCount).toBe(1);
     expect(content).toContain(
-      'author-notes-2026-05-04-md-frontmatter/Ideas/Roadmap.md'
+      'author-2026-05-04-md-frontmatter/Ideas/Roadmap.md'
     );
   });
 

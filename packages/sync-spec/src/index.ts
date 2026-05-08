@@ -130,7 +130,9 @@ export function safeRevisionCursor(
     serverRevision < previousRevision ||
     (hasMore && serverRevision === previousRevision)
   ) {
-    throw new Error(`${context} cursor did not advance`);
+    throw new Error(
+      `${context} cursor did not advance (previous ${previousRevision}, server ${serverRevision}, hasMore ${hasMore})`
+    );
   }
 
   return serverRevision;

@@ -283,6 +283,8 @@ describe('client sync store', () => {
         body: 'enc:Remote body',
         titleHash: 'hash-title',
         bodyHash: 'hash-body',
+        deviceId: 'browser-device',
+        version: 4,
         syncStatus: 'pending',
         lastSyncedVersion: 3,
         lastSyncedAt: syncedAt

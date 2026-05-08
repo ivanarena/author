@@ -6,6 +6,7 @@ import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.author.notes.BuildConfig
 import com.author.notes.core.AuthException
 import com.author.notes.core.AuthUser
 import com.author.notes.core.LocalConflict
@@ -14,27 +15,17 @@ import com.author.notes.core.LocalNotebook
 import com.author.notes.core.MarkdownInputFile
 import com.author.notes.core.NotesRepository
 import com.author.notes.core.StoredSession
-import com.author.notes.core.countNotesByNotebook
-import com.author.notes.core.countWords
-import com.author.notes.core.filterNotesBySearch
-import com.author.notes.core.filterNotesForView
+import com.author.notes.core.SyncProgress
+import com.author.notes.core.SyncProgressPhase
 import com.author.notes.core.formatDateTime
-import com.author.notes.core.groupNotesByDateRange
 import com.author.notes.core.noteNotebookIds
-import com.author.notes.core.primaryNotebookId
-import com.author.notes.core.sortNotes
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
-
-data class AppNotification(
-  val id: String,
-  val kind: String,
-  val title: String,
-  val message: String = ""
-)
 
 class NotesController(
   private val repository: NotesRepository,
@@ -54,9 +45,7 @@ class NotesController(
   var compactView by mutableStateOf(repository.getCompactView())
   var editorZoom by mutableStateOf(repository.getEditorZoom())
   var theme by mutableStateOf(repository.getTheme())
-  var menusOpen by mutableStateOf(false)
-  var profileOpen by mutableStateOf(false)
-  var settingsOpen by mutableStateOf(false)
+  var currentPage by mutableStateOf("editor")
   var loginOpen by mutableStateOf(false)
   var settingsSection by mutableStateOf("account")
   var newNotebookOpen by mutableStateOf(false)
@@ -65,8 +54,6 @@ class NotesController(
   var renamingNotebookId by mutableStateOf<String?>(null)
   var renameNotebookValue by mutableStateOf("")
   var deletingNotebookId by mutableStateOf<String?>(null)
-  var linkingNoteId by mutableStateOf<String?>(null)
-  var selectedNotebookMenuOpen by mutableStateOf(false)
   var authMode by mutableStateOf("signin")
   var loginUsernameValue by mutableStateOf(repository.getLoginHint())
   var loginPasswordValue by mutableStateOf("")
@@ -87,11 +74,21 @@ class NotesController(
   var confirmPasswordValue by mutableStateOf("")
   var deletePasswordValue by mutableStateOf("")
   var apiBaseUrl by mutableStateOf(repository.getApiBaseUrl())
+  var serverApiBaseUrl by mutableStateOf(BuildConfig.DEFAULT_API_BASE_URL)
+  var serverConfigError by mutableStateOf("")
+  var serverRemoteDatabaseConfigured by mutableStateOf(false)
+  var serverRemoteSyncEnabled by mutableStateOf(false)
   var syncMessage by mutableStateOf(if (hasToken) "All changes saved" else "Sign in to sync")
+  var syncActivityLabel by mutableStateOf("")
+  var syncActivityDetail by mutableStateOf("")
   var isSyncing by mutableStateOf(false)
+  var isWorkspaceLoading by mutableStateOf(true)
   var pendingSyncCount by mutableStateOf(0)
   var lastSyncPassTitle by mutableStateOf("No completed pass yet")
   var lastSyncPassDetail by mutableStateOf("Sync has not completed on this device.")
+  var syncDebugTitle by mutableStateOf("No sync errors recorded")
+  var syncDebugDetail by mutableStateOf("The last caught sync error will appear here.")
+  var syncDebugLog by mutableStateOf("No sync errors recorded on this device.")
   var remoteSyncEnabled by mutableStateOf(false)
   var remoteSyncState by mutableStateOf("unknown")
   var remoteSyncError by mutableStateOf("")
@@ -103,63 +100,58 @@ class NotesController(
 
   private var saveJob: Job? = null
   private var autoSyncJob: Job? = null
+  private var syncQueued = false
   private var lastSnapshot = "" to ""
   private var preparedExport: ByteArray? = null
-
-  val notebookCounts: Map<String, Int>
-    get() = countNotesByNotebook(notes)
-
-  val unfiledCount: Int
-    get() = notebookCounts[""] ?: 0
-
-  val visibleNotes: List<LocalNote>
-    get() = sortNotes(filterNotesBySearch(filterNotesForView(notes, trash, filterId), searchValue), noteSort)
-
-  val visibleGroups: List<Pair<String, List<LocalNote>>>
-    get() = groupNotesByDateRange(visibleNotes, noteSort)
-
-  val selectedNotes: List<LocalNote>
-    get() = (notes + trash).filter { selectedNoteIds.contains(it.id) }
-
-  val wordCount: Int
-    get() = countWords("$titleValue $bodyValue")
-
-  val syncLabel: String
-    get() = when {
-      isSyncing -> "Saving locally"
-      conflicts.isNotEmpty() -> "${conflicts.size} conflict${if (conflicts.size == 1) "" else "s"}"
-      !hasToken -> "Local only"
-      pendingSyncCount > 0 -> "Saving locally"
-      remoteSyncEnabled && remoteSyncState == "queued" -> "Remote sync queued"
-      remoteSyncEnabled && (remoteSyncState == "syncing" || remoteSyncState == "unknown") -> "Syncing remote"
-      remoteSyncEnabled && remoteSyncState == "error" -> "Remote sync failed"
-      remoteSyncEnabled -> "All changes synced"
-      else -> "All changes saved"
-    }
-
-  val syncDetail: String
-    get() = when {
-      !hasToken -> "Sign in to sync"
-      remoteSyncState == "error" -> remoteSyncError
-      syncMessage !in setOf("Online", "Saving", "Syncing", "Synced", "All changes saved", "All changes synced", "Local changes saved") -> syncMessage
-      else -> ""
-    }
 
   fun initialize() {
     scope.launch {
       try {
-        repository.ensureLocalNotesEncrypted()
         refresh()
-        openDraftNote()
+        isWorkspaceLoading = false
+        runCatching {
+          repository.ensureLocalNotesEncrypted()
+          refresh()
+        }.onFailure { repository.recordSyncError(it, "Local workspace") }
+        runCatching { refreshServerConfigNow() }
+          .onFailure { serverConfigError = it.message ?: "Could not reach sync API" }
         repository.getStoredSession()?.let { resumeSession(it.token) }
       } catch (error: Throwable) {
-      notify("error", "Startup failed", error.message ?: "Could not open notes")
+        isWorkspaceLoading = false
+        notify("error", "Startup failed", error.message ?: "Could not open notes")
       }
     }
   }
 
   fun refreshAsync() {
     scope.launch { refresh() }
+  }
+
+  fun navigateTo(page: String) {
+    currentPage = page
+    if (page == "settings") settingsSection = "menu"
+  }
+
+  fun openLogin(mode: String = "signin") {
+    authMode = mode
+    loginUsernameValue = repository.getLoginHint()
+    loginPasswordValue = ""
+    signupDisplayNameValue = ""
+    signupConfirmPasswordValue = ""
+    loginError = ""
+    loginOpen = true
+  }
+
+  fun chooseAuthMode(mode: String) {
+    if (isLoggingIn || authMode == mode) return
+    authMode = mode
+    loginError = ""
+    loginPasswordValue = ""
+    signupConfirmPasswordValue = ""
+    if (mode == "signin") {
+      signupDisplayNameValue = ""
+      loginUsernameValue = repository.getLoginHint()
+    }
   }
 
   suspend fun refresh() {
@@ -176,6 +168,13 @@ class NotesController(
     } else {
       "${workspace.lastSyncPass.pushed} pushed, ${workspace.lastSyncPass.pulled} pulled, ${workspace.lastSyncPass.conflicts} conflicts"
     }
+    syncDebugTitle = workspace.syncDebugInfo.lastErrorAt?.let { formatDateTime(it) } ?: "No sync errors recorded"
+    syncDebugDetail = workspace.syncDebugInfo.lastErrorMessage.ifBlank { "The last caught sync error will appear here." }
+    syncDebugLog = formatSyncDebugLog(
+      workspace.syncDebugInfo.lastErrorAt,
+      workspace.syncDebugInfo.lastErrorMessage,
+      workspace.syncDebugInfo.lastErrorStack
+    )
     selectedNoteIds = selectedNoteIds.filter { id -> (notes + trash).any { it.id == id } }.toSet()
     if (selectedId != null) {
       val refreshed = (notes + trash).firstOrNull { it.id == selectedId }
@@ -187,19 +186,63 @@ class NotesController(
     }
   }
 
+  private fun formatSyncDebugLog(
+    lastErrorAt: String?,
+    lastErrorMessage: String,
+    lastErrorStack: String
+  ): String {
+    if (lastErrorAt == null && lastErrorMessage.isBlank()) {
+      return "No sync errors recorded on this device."
+    }
+
+    return listOf(
+      "Time: ${lastErrorAt?.let { formatDateTime(it) } ?: "Unknown"}",
+      "Message: ${lastErrorMessage.ifBlank { "Sync failed" }}",
+      lastErrorStack.takeIf { it.isNotBlank() }?.let { "\n$it" }.orEmpty()
+    ).filter { it.isNotBlank() }.joinToString("\n")
+  }
+
+  private fun pluralizeSyncCount(value: Int, singular: String): String =
+    "$value $singular${if (value == 1) "" else "s"}"
+
+  private fun updateSyncProgress(progress: SyncProgress) {
+    val (label, detail) = when (progress.phase) {
+      SyncProgressPhase.PREPARING -> "Preparing sync" to "Checking local changes before the network pass"
+      SyncProgressPhase.PUSHING -> {
+        val detail = when {
+          progress.total == 0 -> "No local changes to push"
+          progress.pushed == 0 -> "Sending ${pluralizeSyncCount(progress.total, "local change")}"
+          else -> "${progress.pushed} of ${progress.total} local changes pushed"
+        }
+        "Pushing local changes" to detail
+      }
+      SyncProgressPhase.PULLING -> {
+        val detail = if (progress.pulled == 0) {
+          "Checking for remote changes"
+        } else {
+          "${pluralizeSyncCount(progress.pulled, "remote change")} pulled${if (progress.hasMore) ", checking for more" else ""}"
+        }
+        "Pulling remote changes" to detail
+      }
+    }
+    syncActivityLabel = label
+    syncActivityDetail = detail
+    syncMessage = label
+  }
+
   fun selectNote(note: LocalNote) {
+    navigateTo("editor")
     scope.launch {
       flushPendingSave()
       selectedNote = note
       titleValue = note.title
       bodyValue = note.body
-      linkingNoteId = null
-      selectedNotebookMenuOpen = false
       resetHistory()
     }
   }
 
   fun newNote() {
+    navigateTo("editor")
     scope.launch {
       flushPendingSave()
       filterId = "all"
@@ -212,8 +255,6 @@ class NotesController(
     selectedNote = null
     titleValue = ""
     bodyValue = ""
-    linkingNoteId = null
-    selectedNotebookMenuOpen = false
     resetHistory()
   }
 
@@ -278,7 +319,6 @@ class NotesController(
 
   fun clearSelection() {
     selectedNoteIds = emptySet()
-    selectedNotebookMenuOpen = false
   }
 
   fun createNotebook() {
@@ -333,8 +373,6 @@ class NotesController(
       val assigned = notebookId != null && !noteNotebookIds(note).contains(notebookId)
       val updated = repository.assignNoteToNotebook(note.id, notebookId, assigned)
       if (selectedNote?.id == note.id) selectedNote = updated
-      linkingNoteId = null
-      selectedNotebookMenuOpen = false
       refresh()
       scheduleSyncAfterLocalChange()
     }
@@ -345,7 +383,6 @@ class NotesController(
       val active = selectedNotes.filter { it.trashedAt == null }
       val assigned = notebookId != null && !active.all { noteNotebookIds(it).contains(notebookId) }
       active.forEach { repository.assignNoteToNotebook(it.id, notebookId, assigned) }
-      selectedNotebookMenuOpen = false
       refresh()
       scheduleSyncAfterLocalChange()
     }
@@ -382,9 +419,51 @@ class NotesController(
     }
   }
 
-  fun trashSelected() = selectedNotes.filter { it.trashedAt == null }.forEach { trashNote(it) }.also { clearSelection() }
-  fun restoreSelected() = selectedNotes.filter { it.trashedAt != null }.forEach { restoreNote(it) }.also { clearSelection() }
-  fun deleteSelectedPermanently() = selectedNotes.filter { it.trashedAt != null }.forEach { deleteNotePermanently(it) }.also { clearSelection() }
+  fun trashSelected() {
+    val targets = selectedNotes.filter { it.trashedAt == null }
+    if (targets.isEmpty()) return
+    scope.launch {
+      flushPendingSave()
+      val targetIds = targets.map { it.id }.toSet()
+      targets.forEach { repository.moveNoteToTrash(it.id) }
+      selectedNoteIds = selectedNoteIds - targetIds
+      refresh()
+      if (selectedNote?.id in targetIds) {
+        notes.firstOrNull { it.id !in targetIds }?.let(::selectNote) ?: openDraftNote()
+      }
+      scheduleSyncAfterLocalChange()
+    }
+  }
+
+  fun restoreSelected() {
+    val targets = selectedNotes.filter { it.trashedAt != null }
+    if (targets.isEmpty()) return
+    scope.launch {
+      val targetIds = targets.map { it.id }.toSet()
+      targets.forEach { repository.restoreNote(it.id) }
+      selectedNoteIds = selectedNoteIds - targetIds
+      filterId = "all"
+      refresh()
+      targets.firstOrNull()?.let { target -> notes.firstOrNull { it.id == target.id }?.let(::selectNote) }
+      scheduleSyncAfterLocalChange()
+    }
+  }
+
+  fun deleteSelectedPermanently() {
+    val targets = selectedNotes.filter { it.trashedAt != null }
+    if (targets.isEmpty()) return
+    scope.launch {
+      flushPendingSave()
+      val targetIds = targets.map { it.id }.toSet()
+      targets.forEach { repository.deleteNotePermanently(it.id) }
+      selectedNoteIds = selectedNoteIds - targetIds
+      refresh()
+      if (selectedNote?.id in targetIds) {
+        (if (filterId == "trash") trash.firstOrNull() else notes.firstOrNull())?.let(::selectNote) ?: openDraftNote()
+      }
+      scheduleSyncAfterLocalChange()
+    }
+  }
 
   fun submitLogin() {
     val username = loginUsernameValue.trim()
@@ -406,6 +485,7 @@ class NotesController(
       loginError = ""
       try {
         val previousUsername = repository.getStoredSession()?.user?.username ?: repository.getLoginHint().ifBlank { null }
+        repository.assertLocalWorkspaceCanUseAccount(username, previousUsername)
         val response = if (authMode == "signup") {
           repository.signup(username, password, signupDisplayNameValue.ifBlank { null })
         } else {
@@ -432,33 +512,74 @@ class NotesController(
 
   fun syncNow() {
     scope.launch {
+      if (isArchiveBusy) {
+        syncQueued = true
+        syncMessage = "Sync paused during import/export"
+        return@launch
+      }
       val token = repository.getStoredSession()?.token
       hasToken = token != null
-      if (token == null || isSyncing) return@launch
+      if (token == null) return@launch
+      if (isSyncing) {
+        syncQueued = true
+        return@launch
+      }
       if (!repository.hasStoredEncryptionKeyMaterial()) {
+        repository.recordSyncError(IllegalStateException("Sign in again to sync encrypted notes"), "Sync")
+        refresh()
         expireSession("Sign in again to sync encrypted notes")
         return@launch
       }
       isSyncing = true
-      syncMessage = "Saving locally"
+      updateSyncProgress(SyncProgress(SyncProgressPhase.PREPARING))
+      var syncCompleted = false
       try {
         flushPendingSave()
-        val result = repository.runSync(token)
+        val result = repository.runSync(token) { progress ->
+          withContext(Dispatchers.Main) {
+            updateSyncProgress(progress)
+          }
+        }
         syncMessage = if (result.conflicts > 0) "${result.conflicts} conflicts" else "Local changes saved"
         refresh()
-        runCatching {
+        try {
           val remote = repository.loadSyncStatus(token)
           remoteSyncEnabled = remote.enabled
           remoteSyncState = remote.state
           remoteSyncError = remote.lastError ?: ""
+          if (!remote.lastError.isNullOrBlank()) {
+            repository.recordSyncError(IllegalStateException(remote.lastError), "Remote sync")
+            refresh()
+          }
+        } catch (error: AuthException) {
+          repository.recordSyncError(error, "Remote sync status")
+          refresh()
+          expireSession(error.message ?: "Login expired")
+          return@launch
+        } catch (error: Throwable) {
+          repository.recordSyncError(error, "Remote sync status")
+          refresh()
+          remoteSyncEnabled = true
+          remoteSyncState = "error"
+          remoteSyncError = error.message ?: "Could not check remote sync"
         }
+        runCatching { refreshServerConfigNow() }
+          .onFailure { serverConfigError = it.message ?: "Could not reach sync API" }
+        syncCompleted = true
       } catch (error: AuthException) {
+        refresh()
         expireSession(error.message ?: "Login expired")
       } catch (error: Throwable) {
+        refresh()
         syncMessage = error.message ?: "Sync failed"
         notify("error", "Sync failed", syncMessage)
       } finally {
         isSyncing = false
+        syncActivityLabel = ""
+        syncActivityDetail = ""
+        val shouldSyncAgain = syncCompleted && (syncQueued || pendingSyncCount > 0)
+        syncQueued = false
+        if (shouldSyncAgain) scheduleSyncAfterLocalChange()
       }
     }
   }
@@ -639,8 +760,16 @@ class NotesController(
   }
 
   private fun scheduleSyncAfterLocalChange() {
-    if (!hasToken || isArchiveBusy) return
+    if (!hasToken) return
+    if (isArchiveBusy) {
+      syncQueued = true
+      return
+    }
     repository.enqueueBackgroundSync()
+    if (isSyncing) {
+      syncQueued = true
+      return
+    }
     autoSyncJob?.cancel()
     autoSyncJob = scope.launch {
       delay(600)
@@ -661,8 +790,12 @@ class NotesController(
       hasToken = true
       syncNow()
     } catch (error: AuthException) {
+      repository.recordSyncError(error, "Session resume")
+      refresh()
       expireSession(error.message ?: "Login expired")
     } catch (error: Throwable) {
+      repository.recordSyncError(error, "Session resume")
+      refresh()
       syncMessage = error.message ?: "Sync failed"
     }
   }
@@ -692,12 +825,58 @@ class NotesController(
     remoteSyncEnabled = false
     remoteSyncState = "unknown"
     remoteSyncError = ""
+    syncQueued = false
+    autoSyncJob?.cancel()
+    autoSyncJob = null
   }
 
   fun saveApiBaseUrl() {
-    repository.setApiBaseUrl(apiBaseUrl)
-    notify("info", "Sync server saved", apiBaseUrl)
+    val normalized = apiBaseUrl.trim().trimEnd('/')
+    if (!isHttpApiUrl(normalized)) {
+      notify("error", "Invalid API URL", "Use the Author HTTP API URL, not a database URL.")
+      return
+    }
+    val previous = repository.getApiBaseUrl().trim().trimEnd('/')
+    val changed = normalized != previous
+    apiBaseUrl = normalized
+    repository.setApiBaseUrl(normalized)
+    if (changed && hasToken) {
+      clearLocalSession("Sign in to sync with this server.", openLogin = true)
+    }
+    notify("info", "API URL saved", normalized)
+    refreshServerConfig(showNotification = true)
   }
+
+  fun useBuildApiBaseUrl() {
+    apiBaseUrl = BuildConfig.DEFAULT_API_BASE_URL
+    saveApiBaseUrl()
+  }
+
+  fun refreshServerConfig(showNotification: Boolean = false) {
+    scope.launch {
+      try {
+        refreshServerConfigNow()
+        if (showNotification) notify("success", "Server config loaded", serverApiBaseUrl)
+      } catch (error: Throwable) {
+        val message = error.message ?: "Could not reach sync API"
+        serverConfigError = message
+        if (showNotification) notify("error", "Server config failed", message)
+      }
+    }
+  }
+
+  private suspend fun refreshServerConfigNow() {
+    val config = repository.loadServerConfig()
+    serverApiBaseUrl = config.apiBaseUrl
+    serverRemoteDatabaseConfigured = config.remoteDatabaseConfigured
+    serverRemoteSyncEnabled = config.remoteSyncEnabled
+    serverConfigError = ""
+  }
+
+  private fun isHttpApiUrl(value: String): Boolean =
+    runCatching { java.net.URL(value) }.getOrNull()?.let { parsed ->
+      parsed.protocol in setOf("http", "https") && !parsed.host.isNullOrBlank()
+    } == true
 
   fun dismissNotification(id: String) {
     notifications = notifications.filterNot { it.id == id }

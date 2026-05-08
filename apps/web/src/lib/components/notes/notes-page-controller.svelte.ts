@@ -11,6 +11,7 @@ import {
   adoptLocalWorkspaceForAccount,
   assignNoteToNotebook,
   assertLocalWorkspaceCanUseAccount,
+  clearSyncError,
   clearLocalWorkspace,
   clearStoredSession,
   createBlankNote,
@@ -28,6 +29,7 @@ import {
   loadNotebooks,
   loadPendingConflicts,
   loadPendingSyncCount,
+  loadSyncDebugInfo,
   loadTrash,
   moveNoteToTrash,
   notebookNameExists,
@@ -35,6 +37,7 @@ import {
   renameNotebook,
   reencryptLocalNotes,
   recordLastSyncPass,
+  recordSyncError,
   restoreNote,
   resolveConflict,
   getLoginHint,
@@ -52,7 +55,7 @@ import {
   updateAccount,
   validateSession
 } from '$lib/client/api-client';
-import { login, runSync, signup } from '$lib/client/sync';
+import { login, runSync, signup, type SyncProgress } from '$lib/client/sync';
 import {
   countNotesByNotebook,
   countWords,
@@ -290,6 +293,9 @@ export interface SettingsModalModel {
   remoteSyncEnabled: boolean;
   remoteSyncState: RemoteSyncState | 'unknown';
   remoteSyncError: string;
+  syncDebugTitle: string;
+  syncDebugDetail: string;
+  syncDebugLog: string;
   syncNow: () => void | Promise<void>;
   saveAccountProfile: () => void | Promise<void>;
   changeAccountPassword: () => void | Promise<void>;
@@ -386,6 +392,62 @@ function formatSyncPassDetail(pass: {
   ].join(', ');
 }
 
+function formatSyncDebugLog(debug: {
+  lastErrorAt: string | null;
+  lastErrorMessage: string;
+  lastErrorStack: string;
+}): string {
+  if (!debug.lastErrorAt && !debug.lastErrorMessage) {
+    return 'No sync errors recorded on this browser.';
+  }
+
+  return [
+    `Time: ${debug.lastErrorAt ? formatSyncPassTime(debug.lastErrorAt) : 'Unknown'}`,
+    `Message: ${debug.lastErrorMessage || 'Sync failed'}`,
+    debug.lastErrorStack ? `\n${debug.lastErrorStack}` : ''
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function pluralizeSyncCount(value: number, singular: string): string {
+  return `${value} ${singular}${value === 1 ? '' : 's'}`;
+}
+
+function syncProgressCopy(progress: SyncProgress): {
+  label: string;
+  detail: string;
+} {
+  if (progress.phase === 'preparing') {
+    return {
+      label: 'Preparing sync',
+      detail: 'Checking local changes before the network pass'
+    };
+  }
+
+  if (progress.phase === 'pushing') {
+    return {
+      label: 'Pushing local changes',
+      detail:
+        progress.total === 0
+          ? 'No local changes to push'
+          : progress.pushed === 0
+            ? `Sending ${pluralizeSyncCount(progress.total, 'local change')}`
+            : `${progress.pushed} of ${progress.total} local changes pushed`
+    };
+  }
+
+  return {
+    label: 'Pulling remote changes',
+    detail:
+      progress.pulled === 0
+        ? 'Checking for remote changes'
+        : `${pluralizeSyncCount(progress.pulled, 'remote change')} pulled${
+            progress.hasMore ? ', checking for more' : ''
+          }`
+  };
+}
+
 function formatMetadataDate(iso: string | null): string {
   if (!iso) return 'Not synced yet';
   return new Date(iso).toLocaleString(undefined, {
@@ -451,6 +513,8 @@ export class NotesPageController
   linkingNoteId = $state<string | null>(null);
   selectedNotebookMenuOpen = $state(false);
   syncMessage = $state('Sign in to sync');
+  syncActivityLabel = $state('');
+  syncActivityDetail = $state('');
   remoteSyncEnabled = $state(false);
   remoteSyncState = $state<RemoteSyncState | 'unknown'>('unknown');
   remoteSyncError = $state('');
@@ -506,6 +570,11 @@ export class NotesPageController
     pushed: 0,
     pulled: 0,
     conflicts: 0
+  });
+  syncDebugInfo = $state({
+    lastErrorAt: null as string | null,
+    lastErrorMessage: '',
+    lastErrorStack: ''
   });
 
   titleInput: HTMLInputElement | null = null;
@@ -568,6 +637,8 @@ export class NotesPageController
       hasSession: this.hasToken,
       pendingSyncCount: this.pendingSyncCount,
       syncMessage: this.syncMessage,
+      syncActivityLabel: this.syncActivityLabel,
+      syncActivityDetail: this.syncActivityDetail,
       remoteSyncEnabled: this.remoteSyncEnabled,
       remoteSyncState: this.remoteSyncState,
       remoteSyncError: this.remoteSyncError
@@ -579,6 +650,16 @@ export class NotesPageController
       : 'No completed pass yet'
   );
   lastSyncPassDetail = $derived(formatSyncPassDetail(this.lastSyncPass));
+  syncDebugTitle = $derived(
+    this.syncDebugInfo.lastErrorAt
+      ? formatSyncPassTime(this.syncDebugInfo.lastErrorAt)
+      : 'No sync errors recorded'
+  );
+  syncDebugDetail = $derived(
+    this.syncDebugInfo.lastErrorMessage ||
+      'The last caught sync error will appear here.'
+  );
+  syncDebugLog = $derived(formatSyncDebugLog(this.syncDebugInfo));
   contextNote = $derived(this.getContextNote(this.contextMenu));
   contextNotebook = $derived(this.getContextNotebook(this.contextMenu));
   selectedDeviceName = $derived(
@@ -1358,10 +1439,10 @@ export class NotesPageController
       this.retrySyncTimer = null;
     }
     this.isSyncing = true;
-    this.syncMessage = 'Saving locally';
+    this.updateSyncProgress({ phase: 'preparing' });
     let syncCompleted = false;
     try {
-      const result = await runSync(token);
+      const result = await runSync(token, this.updateSyncProgress);
       this.syncMessage =
         result.conflicts > 0
           ? `${result.conflicts} conflict${result.conflicts === 1 ? '' : 's'}`
@@ -1372,15 +1453,18 @@ export class NotesPageController
         pulled: result.pulled,
         conflicts: result.conflicts
       };
+      await clearSyncError();
       await recordLastSyncPass(this.lastSyncPass);
       await this.refresh();
       await this.refreshRemoteSyncStatus(token);
       this.pollRemoteSyncStatusIfBusy();
       syncCompleted = true;
     } catch (error) {
-      this.handleSyncError(error);
+      await this.handleSyncError(error);
     } finally {
       this.isSyncing = false;
+      this.syncActivityLabel = '';
+      this.syncActivityDetail = '';
       const shouldSyncAgain =
         syncCompleted && (this.syncQueued || this.pendingSyncCount > 0);
       this.syncQueued = false;
@@ -1834,7 +1918,7 @@ export class NotesPageController
       }
       await this.syncNow();
     } catch (error) {
-      this.handleSyncError(error);
+      await this.handleSyncError(error);
     }
   };
 
@@ -1846,7 +1930,8 @@ export class NotesPageController
       conflicts,
       devices,
       pendingSyncCount,
-      lastSyncPass
+      lastSyncPass,
+      syncDebugInfo
     ] = await Promise.all([
       loadNotes(),
       loadNotebooks(),
@@ -1854,7 +1939,8 @@ export class NotesPageController
       loadPendingConflicts(),
       loadDevices(),
       loadPendingSyncCount(),
-      loadLastSyncPass()
+      loadLastSyncPass(),
+      loadSyncDebugInfo()
     ]);
 
     this.notes = notes;
@@ -1864,6 +1950,7 @@ export class NotesPageController
     this.devices = devices;
     this.pendingSyncCount = pendingSyncCount;
     this.lastSyncPass = lastSyncPass;
+    this.syncDebugInfo = syncDebugInfo;
     this.refreshSelectedNote(notes, trash);
     this.pruneSelectedNotes(notes, trash);
   };
@@ -2223,6 +2310,13 @@ export class NotesPageController
     }, SYNC_RETRY_DELAY_MS);
   };
 
+  private updateSyncProgress = (progress: SyncProgress) => {
+    const copy = syncProgressCopy(progress);
+    this.syncActivityLabel = copy.label;
+    this.syncActivityDetail = copy.detail;
+    this.syncMessage = copy.label;
+  };
+
   private refreshRemoteSyncStatus = async (
     token = getStoredSession()?.token ?? null
   ) => {
@@ -2232,7 +2326,13 @@ export class NotesPageController
       this.remoteSyncEnabled = status.remote.enabled;
       this.remoteSyncState = status.remote.state;
       this.remoteSyncError = status.remote.lastError ?? '';
+      if (status.remote.lastError) {
+        await recordSyncError(status.remote.lastError, 'Remote sync');
+        await this.refresh();
+      }
     } catch (error) {
+      await recordSyncError(error, 'Remote sync status');
+      await this.refresh();
       if (error instanceof AuthError) {
         this.expireSession(error.message);
         return;
@@ -2275,7 +2375,10 @@ export class NotesPageController
     this.notify('error', 'Session ended', displayMessage);
   };
 
-  private handleSyncError = (error: unknown) => {
+  private handleSyncError = async (error: unknown) => {
+    await recordSyncError(error, 'Sync');
+    await this.refresh();
+
     if (error instanceof AuthError) {
       this.expireSession(error.message);
       return;

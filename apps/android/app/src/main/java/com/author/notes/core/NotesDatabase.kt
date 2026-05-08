@@ -169,6 +169,10 @@ class NotesDatabase(context: Context) : SQLiteOpenHelper(context, "author-notes.
     SQLiteDatabase.CONFLICT_REPLACE
   )
 
+  fun deleteMeta(key: String) {
+    writableDatabase.delete("sync_meta", "key = ?", arrayOf(key))
+  }
+
   fun clearAll() {
     writableDatabase.transaction {
       delete("notes", null, null)
@@ -343,4 +347,3 @@ private inline fun SQLiteDatabase.transaction(block: SQLiteDatabase.() -> Unit) 
     endTransaction()
   }
 }
-

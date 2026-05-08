@@ -164,8 +164,15 @@ async function mergeRemoteNote(remote: Note, syncedAt: string): Promise<void> {
     remote,
     remoteStored
   );
+  const republishDevice = shouldRepublishEncryption
+    ? await getOrCreateDevice()
+    : null;
   const remoteLocal: LocalNote = {
     ...remoteStored,
+    deviceId: republishDevice?.id ?? remoteStored.deviceId,
+    version: republishDevice
+      ? nextVersionAfter(remote.version)
+      : remoteStored.version,
     syncStatus: shouldRepublishEncryption ? 'pending' : 'synced',
     lastSyncedVersion: remote.version,
     lastSyncedAt: syncedAt

@@ -2,6 +2,7 @@ import type { Device, Note, Notebook } from '@author/schema';
 
 export const API_PATHS = {
   health: '/api/health',
+  config: '/api/config',
   authLogin: '/api/auth/login',
   authSignup: '/api/auth/signup',
   authValidate: '/api/auth/validate',
@@ -71,6 +72,14 @@ export interface HealthResponse {
   ok: true;
   service: 'author-notes';
   time: string;
+}
+
+export interface ConfigResponse {
+  apiBaseUrl: string;
+  remote: {
+    enabled: boolean;
+    configured: boolean;
+  };
 }
 
 export interface EntityChange<T> {

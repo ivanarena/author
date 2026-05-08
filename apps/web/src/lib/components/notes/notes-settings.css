@@ -225,6 +225,34 @@
   line-height: 1.35;
 }
 
+.sync-debug-card small {
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.sync-debug-log {
+  width: 100%;
+  min-height: 120px;
+  margin-top: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  resize: vertical;
+  color: var(--text);
+  background: var(--paper);
+  font:
+    11px/1.45 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    'Liberation Mono',
+    'Courier New',
+    monospace;
+  white-space: pre-wrap;
+}
+
 .settings-action {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

@@ -113,7 +113,7 @@ export function buildNotesMarkdownArchive(
     });
 
   return {
-    rootName: `author-notes-${exportedAt.slice(0, 10)}-md-frontmatter`,
+    rootName: `author-${exportedAt.slice(0, 10)}-md-frontmatter`,
     files
   };
 }
@@ -372,6 +372,7 @@ function safePathSegment(value: string): string {
 function isArchiveRootName(value: string): boolean {
   return (
     value.startsWith('nn-export') ||
+    /^author-\d{4}-\d{2}-\d{2}-md-frontmatter$/.test(value) ||
     /^author-notes-\d{4}-\d{2}-\d{2}-md-frontmatter$/.test(value)
   );
 }

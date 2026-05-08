@@ -76,7 +76,8 @@ data class Workspace(
   val devices: List<Device>,
   val conflicts: List<LocalConflict>,
   val pendingSyncCount: Int,
-  val lastSyncPass: LastSyncPass
+  val lastSyncPass: LastSyncPass,
+  val syncDebugInfo: SyncDebugInfo
 )
 
 data class LastSyncPass(
@@ -84,6 +85,12 @@ data class LastSyncPass(
   val pushed: Int,
   val pulled: Int,
   val conflicts: Int
+)
+
+data class SyncDebugInfo(
+  val lastErrorAt: String?,
+  val lastErrorMessage: String,
+  val lastErrorStack: String
 )
 
 data class AuthUser(
@@ -103,9 +110,30 @@ data class SyncRunResult(
   val conflicts: Int
 )
 
+enum class SyncProgressPhase {
+  PREPARING,
+  PUSHING,
+  PULLING
+}
+
+data class SyncProgress(
+  val phase: SyncProgressPhase,
+  val pushed: Int = 0,
+  val pulled: Int = 0,
+  val total: Int = 0,
+  val batchSize: Int = 0,
+  val pageSize: Int = 0,
+  val hasMore: Boolean = false
+)
+
 data class RemoteSyncInfo(
   val enabled: Boolean,
   val state: String,
   val lastError: String?
 )
 
+data class ServerConfig(
+  val apiBaseUrl: String,
+  val remoteSyncEnabled: Boolean,
+  val remoteDatabaseConfigured: Boolean
+)

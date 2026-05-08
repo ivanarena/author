@@ -91,9 +91,9 @@ The best free fit for this app is Turso because it is SQLite-compatible and the 
 
 ```sh
 turso auth login
-turso db create author-notes
-turso db show --url author-notes
-turso db tokens create author-notes
+turso db create author
+turso db show --url author
+turso db tokens create author
 ```
 
 Then set:
@@ -113,6 +113,18 @@ NOTES_CLEANUP_ENABLED=true
 Do not expose the Turso token to browser code. It belongs only in the SvelteKit server environment.
 
 For a self-hosted app with a remote database, keep the app container on your server and set the Turso variables in `.env`. Only the server talks to Turso; browser sync still talks to your `/api/*` endpoints.
+
+Android sync follows the same rule: the APK talks to the Author HTTP API, and that server mirrors to Turso when `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` are set. Configure the Android API endpoint at build time with:
+
+```env
+AUTHOR_NOTES_API_URL=https://your-author-api.example.com
+```
+
+For local emulator development, use `AUTHOR_NOTES_API_URL=http://10.0.2.2:5173`.
+`ANDROID_SYNC_API_URL`, `ANDROID_SYNC_SERVER_URL`, and `NOTES_SYNC_SERVER_URL`
+are still accepted as backwards-compatible aliases. Do not set this value to
+`TURSO_DATABASE_URL`; Android never receives the Turso auth token and does not
+talk directly to Turso.
 
 ## Users
 

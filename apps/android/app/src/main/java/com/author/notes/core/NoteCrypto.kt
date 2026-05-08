@@ -14,28 +14,36 @@ import javax.crypto.spec.SecretKeySpec
 private const val ENCRYPTION_PREFIX = "enc:v1:"
 private const val KEY_MATERIAL_KEY = "author-notes-encryption-key-material-v1"
 private const val USERNAME_KEY = "author-notes-username"
+private const val LOCAL_KEY_PREFIX = "local:v2:"
 private const val FALLBACK_KEY_MATERIAL = "author-notes:local:v1"
 private const val PASSWORD_KDF_ITERATIONS = 210_000
 private const val PASSWORD_KDF_SALT_PREFIX = "author-notes:password-key:v2"
 
-class NoteCrypto(private val prefs: SharedPreferences) {
+class NoteCrypto(
+  private val prefs: SharedPreferences,
+  private val securePrefs: SecurePreferenceStore
+) {
   private val random = SecureRandom()
 
   fun isEncryptedText(value: String): Boolean = value.startsWith(ENCRYPTION_PREFIX)
 
-  fun getEncryptionKeyMaterial(): String =
-    prefs.getString(KEY_MATERIAL_KEY, null) ?: FALLBACK_KEY_MATERIAL
+  fun getEncryptionKeyMaterial(): String {
+    securePrefs.getString(KEY_MATERIAL_KEY)?.let { return it }
+    val generated = generateLocalKeyMaterial()
+    securePrefs.putString(KEY_MATERIAL_KEY, generated)
+    return generated
+  }
 
-  fun hasStoredEncryptionKeyMaterial(): Boolean = prefs.contains(KEY_MATERIAL_KEY)
+  fun hasStoredEncryptionKeyMaterial(): Boolean = securePrefs.contains(KEY_MATERIAL_KEY)
 
   fun clearStoredEncryptionKeyMaterial() {
-    prefs.edit().remove(KEY_MATERIAL_KEY).apply()
+    securePrefs.remove(KEY_MATERIAL_KEY)
   }
 
   fun rememberEncryptionPassword(username: String, password: String): Pair<String, String> {
     val previous = getEncryptionKeyMaterial()
     val next = keyMaterialFromPassword(username, password)
-    prefs.edit().putString(KEY_MATERIAL_KEY, next).apply()
+    securePrefs.putString(KEY_MATERIAL_KEY, next)
     return previous to next
   }
 
@@ -52,6 +60,12 @@ class NoteCrypto(private val prefs: SharedPreferences) {
       .generateSecret(passwordKey)
       .encoded
     return "password:v2:$PASSWORD_KDF_ITERATIONS:${base64UrlEncode(derived)}:legacy:${base64UrlEncode(legacyDigest)}"
+  }
+
+  private fun generateLocalKeyMaterial(): String {
+    val key = ByteArray(32)
+    random.nextBytes(key)
+    return "$LOCAL_KEY_PREFIX${base64UrlEncode(key)}"
   }
 
   fun encryptText(value: String, keyMaterial: String = getEncryptionKeyMaterial()): String {
@@ -133,4 +147,3 @@ fun base64UrlEncode(bytes: ByteArray): String =
 
 fun base64UrlDecode(value: String): ByteArray =
   Base64.decode(value, Base64.URL_SAFE or Base64.NO_WRAP)
-

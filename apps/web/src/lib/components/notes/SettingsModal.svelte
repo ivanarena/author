@@ -440,7 +440,12 @@
           <div class="sync-overview" aria-live="polite">
             <div class="sync-overview-card">
               <span>Status</span>
-              <strong>{model.syncIndicator.label}</strong>
+              <strong
+                class="sync-card-status"
+                class:syncing={model.syncIndicator.kind === 'syncing'}
+              >
+                {model.syncIndicator.label}
+              </strong>
               {#if model.syncIndicator.detail}
                 <small>{model.syncIndicator.detail}</small>
               {/if}
@@ -470,6 +475,17 @@
                 {/if}
               </div>
             {/if}
+            <div class="sync-overview-card wide sync-debug-card">
+              <span>Debug</span>
+              <strong>{model.syncDebugTitle}</strong>
+              <small>{model.syncDebugDetail}</small>
+              <textarea
+                class="sync-debug-log"
+                aria-label="Sync debug log"
+                readonly
+                value={model.syncDebugLog}
+              ></textarea>
+            </div>
           </div>
 
           <div class="settings-actions">
@@ -484,7 +500,7 @@
                   {model.isArchiveBusy
                     ? 'Sync paused'
                     : model.isSyncing
-                      ? 'Syncing'
+                      ? model.syncIndicator.label
                       : 'Sync now'}
                 </span>
               </button>

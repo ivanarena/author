@@ -4,6 +4,7 @@ import type {
   AuthLoginResponse,
   AuthSignupRequest,
   AuthValidateResponse,
+  ConfigResponse,
   DeleteAccountRequest,
   HealthResponse,
   PasswordChangeRequest,
@@ -23,6 +24,7 @@ import {
   createUserAccount,
   deleteSessionFromRequest,
   deleteUserAccount,
+  mirrorUserForLocalSession,
   normalizeUsername,
   requireAuth,
   sessionFromRequest,
@@ -30,6 +32,7 @@ import {
   unauthorized
 } from './auth';
 import {
+  getPublicApiBaseUrl,
   getRemoteDatabaseConfig,
   shouldSyncRemoteDatabase,
   shouldTrustProxyHeaders
@@ -54,7 +57,6 @@ const MAX_FAILED_LOGIN_ATTEMPTS = 8;
 const MAX_LOGIN_ATTEMPT_KEYS = 500;
 const MAX_LOGIN_BODY_BYTES = 16 * 1024;
 const MAX_SYNC_BODY_BYTES = 5 * 1024 * 1024;
-const LOGIN_REMOTE_SYNC_GRACE_MS = 500;
 const REMOTE_SYNC_RETRY_BASE_MS = 5_000;
 const REMOTE_SYNC_RETRY_MAX_MS = 5 * 60_000;
 const REMOTE_SYNC_PENDING_KEY = 'remote.sync.pending';
@@ -121,6 +123,27 @@ function remoteSyncSnapshot(): SyncStatusResponse['remote'] {
     lastSyncedAt: enabled ? remoteSyncStatus.lastSyncedAt : null,
     lastError: enabled ? remoteSyncStatus.lastError : null
   };
+}
+
+function requestOrigin(request: Request): string {
+  const requestUrl = new URL(request.url);
+  if (!shouldTrustProxyHeaders()) return requestUrl.origin;
+
+  const forwardedProto = request.headers
+    .get('x-forwarded-proto')
+    ?.split(',')[0]
+    ?.trim();
+  const forwardedHost =
+    request.headers.get('x-forwarded-host')?.split(',')[0]?.trim() ??
+    request.headers.get('host')?.trim();
+  if (forwardedProto && forwardedHost) {
+    return `${forwardedProto}://${forwardedHost}`;
+  }
+  return requestUrl.origin;
+}
+
+function publicApiBaseUrl(request: Request): string {
+  return getPublicApiBaseUrl() ?? requestOrigin(request);
 }
 
 function setRemoteSyncState(
@@ -208,25 +231,6 @@ async function syncRemoteWithFreshConnection(): Promise<boolean> {
     return false;
   } finally {
     db?.close();
-  }
-}
-
-async function waitForRemoteSync(
-  remoteSync: Promise<boolean>,
-  timeoutMs: number
-): Promise<boolean> {
-  if (!shouldSyncRemoteDatabase()) return true;
-
-  let timeout: ReturnType<typeof setTimeout> | null = null;
-  try {
-    return await Promise.race([
-      remoteSync,
-      new Promise<false>((resolve) => {
-        timeout = setTimeout(() => resolve(false), timeoutMs);
-      })
-    ]);
-  } finally {
-    if (timeout) clearTimeout(timeout);
   }
 }
 
@@ -564,6 +568,17 @@ api.get(API_PATHS.health, (c) =>
   } satisfies HealthResponse)
 );
 
+api.get(API_PATHS.config, (c) => {
+  const remoteConfig = getRemoteDatabaseConfig();
+  return c.json({
+    apiBaseUrl: publicApiBaseUrl(c.req.raw),
+    remote: {
+      enabled: shouldSyncRemoteDatabase(),
+      configured: remoteConfig !== null
+    }
+  } satisfies ConfigResponse);
+});
+
 api.post(API_PATHS.authLogin, async (c) => {
   const parsed = await jsonOrSizeError<AuthLoginRequest>(
     c.req.raw,
@@ -585,21 +600,68 @@ api.post(API_PATHS.authLogin, async (c) => {
     );
   }
 
-  const remoteSync = syncRemoteWithFreshConnection();
-  await waitForRemoteSync(remoteSync, LOGIN_REMOTE_SYNC_GRACE_MS);
+  let remoteUser: Awaited<ReturnType<typeof authenticateUser>> = null;
+  const remoteConfig = shouldSyncRemoteDatabase()
+    ? getRemoteDatabaseConfig()
+    : null;
+  if (remoteConfig) {
+    let remote: NotesDb | null = null;
+    try {
+      remote = await openConfiguredDatabase(remoteConfig);
+      remoteUser = await authenticateUser(remote, body.username, body.password);
+    } catch (error) {
+      console.warn(
+        'Remote login failed:',
+        error instanceof Error ? error.message : error
+      );
+      return c.json({ error: 'Remote login failed' }, 503);
+    } finally {
+      remote?.close();
+    }
+    if (!remoteUser) {
+      recordFailedLogin(attemptKey);
+      return c.json({ error: 'Invalid username or password' }, 401);
+    }
+  }
 
   const db = await openLocalDatabase();
   try {
-    const user = await authenticateUser(db, body.username, body.password);
+    if (remoteUser && remoteConfig && !(await syncRemoteBestEffort(db))) {
+      const remote = await openConfiguredDatabase(remoteConfig);
+      try {
+        if (
+          !(await mirrorUserForLocalSession(remote, db, remoteUser.username))
+        ) {
+          return c.json(
+            { error: 'Could not prepare local session for this account' },
+            503
+          );
+        }
+      } finally {
+        remote.close();
+      }
+      await queueRemoteSyncAfter();
+    }
+
+    const user = remoteUser
+      ? await authenticateUser(db, remoteUser.username, body.password)
+      : await authenticateUser(db, body.username, body.password);
     if (!user) {
       recordFailedLogin(attemptKey);
-      return c.json({ error: 'Invalid username or password' }, 401);
+      return c.json(
+        {
+          error: remoteUser
+            ? 'Could not prepare local session for this account'
+            : 'Invalid username or password'
+        },
+        remoteUser ? 503 : 401
+      );
     }
     clearFailedLogins(attemptKey);
 
     await upsertDevice(db, body.device, undefined, user.username);
     const session = await createAuthSession(db, user, body.device.id);
-    await queueRemoteSyncAfter(remoteSync);
+    await queueRemoteSyncAfter();
     return c.json({
       token: session.token,
       user,
@@ -628,7 +690,9 @@ api.post(API_PATHS.authSignup, async (c) => {
     return c.json({ error: 'Invalid signup payload' }, 400);
   }
 
-  const remoteConfig = getRemoteDatabaseConfig();
+  const remoteConfig = shouldSyncRemoteDatabase()
+    ? getRemoteDatabaseConfig()
+    : null;
   if (!remoteConfig) {
     return c.json({ error: 'Signup requires remote database access' }, 503);
   }

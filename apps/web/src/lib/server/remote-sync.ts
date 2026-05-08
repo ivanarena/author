@@ -683,11 +683,18 @@ async function syncEntityOwnerOneWay(
   let cursor =
     Number.isSafeInteger(storedCursor) && storedCursor >= 0 ? storedCursor : 0;
   let hasMore = true;
+  let resetCursor = false;
 
   while (hasMore) {
     const snapshot = await pullMirrorChangesSinceRevision(source, cursor, {
       ownerUsername
     });
+    if (snapshot.serverRevision < cursor && !resetCursor) {
+      resetCursor = true;
+      cursor = 0;
+      await setSyncMeta(target, ownerCursorKey, '0');
+      continue;
+    }
     const nextCursor = safeRevisionCursor(
       snapshot.serverRevision,
       cursor,

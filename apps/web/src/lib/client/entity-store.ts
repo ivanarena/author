@@ -288,6 +288,12 @@ export interface LastSyncPass {
   conflicts: number;
 }
 
+export interface SyncDebugInfo {
+  lastErrorAt: string | null;
+  lastErrorMessage: string;
+  lastErrorStack: string;
+}
+
 export async function recordLastSyncPass(
   stats: Omit<LastSyncPass, 'completedAt'>,
   completedAt = nowIso()
@@ -297,6 +303,27 @@ export async function recordLastSyncPass(
     { key: 'lastSyncPassPushed', value: String(stats.pushed) },
     { key: 'lastSyncPassPulled', value: String(stats.pulled) },
     { key: 'lastSyncPassConflicts', value: String(stats.conflicts) }
+  ]);
+}
+
+export async function recordSyncError(
+  error: unknown,
+  source = 'Sync'
+): Promise<void> {
+  await localDb.syncMeta.bulkPut([
+    { key: 'lastSyncErrorAt', value: nowIso() },
+    { key: 'lastSyncErrorSource', value: source },
+    { key: 'lastSyncErrorMessage', value: syncErrorMessage(error) },
+    { key: 'lastSyncErrorStack', value: syncErrorStack(error) }
+  ]);
+}
+
+export async function clearSyncError(): Promise<void> {
+  await Promise.all([
+    localDb.syncMeta.delete('lastSyncErrorAt'),
+    localDb.syncMeta.delete('lastSyncErrorSource'),
+    localDb.syncMeta.delete('lastSyncErrorMessage'),
+    localDb.syncMeta.delete('lastSyncErrorStack')
   ]);
 }
 
@@ -319,6 +346,35 @@ export async function loadLastSyncPass(): Promise<LastSyncPass> {
     pulled: syncMetaNumber(pulled?.value),
     conflicts: syncMetaNumber(conflicts?.value)
   };
+}
+
+export async function loadSyncDebugInfo(): Promise<SyncDebugInfo> {
+  const [lastErrorAt, source, message, stack] = await Promise.all([
+    localDb.syncMeta.get('lastSyncErrorAt'),
+    localDb.syncMeta.get('lastSyncErrorSource'),
+    localDb.syncMeta.get('lastSyncErrorMessage'),
+    localDb.syncMeta.get('lastSyncErrorStack')
+  ]);
+  const prefix = source?.value ? `${source.value}: ` : '';
+
+  return {
+    lastErrorAt: lastErrorAt?.value ?? null,
+    lastErrorMessage: message?.value ? `${prefix}${message.value}` : '',
+    lastErrorStack: stack?.value ?? ''
+  };
+}
+
+function syncErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message || error.name;
+  if (typeof error === 'string') return error;
+  return 'Sync failed';
+}
+
+function syncErrorStack(error: unknown): string {
+  if (error instanceof Error) {
+    return error.stack ?? `${error.name}: ${error.message}`;
+  }
+  return String(error);
 }
 
 export async function loadNotes(): Promise<LocalNote[]> {

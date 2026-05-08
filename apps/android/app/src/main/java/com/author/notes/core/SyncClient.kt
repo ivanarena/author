@@ -14,6 +14,16 @@ class AuthException(message: String = "Login expired") : Exception(message)
 class SyncHttpException(val status: Int, message: String) : Exception(message)
 
 class SyncClient(private val baseUrlProvider: () -> String) {
+  fun loadServerConfig(): ServerConfig {
+    val json = requestJson("/api/config", "GET")
+    val remote = json.optJSONObject("remote") ?: JSONObject()
+    return ServerConfig(
+      apiBaseUrl = (json.optNullableString("apiBaseUrl") ?: apiUrl("/")).trimEnd('/'),
+      remoteSyncEnabled = remote.optBoolean("enabled", false),
+      remoteDatabaseConfigured = remote.optBoolean("configured", false)
+    )
+  }
+
   fun validateSession(token: String): Pair<AuthUser, String?> {
     val json = requestJson("/api/auth/validate", "GET", token = token)
     val user = json.getJSONObject("user")
@@ -116,20 +126,24 @@ class SyncClient(private val baseUrlProvider: () -> String) {
         setRequestProperty("content-type", "application/json")
       }
     }
-    if (body != null) {
-      OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use { it.write(body.toString()) }
-    }
+    try {
+      if (body != null) {
+        OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use { it.write(body.toString()) }
+      }
 
-    val status = connection.responseCode
-    val text = readResponse(connection, status)
-    if (status !in 200..299) {
-      val message = runCatching { JSONObject(text).optString("error") }.getOrNull()
-        ?.takeIf { it.isNotBlank() }
-        ?: "Sync failed: $status"
-      if (status == 401) throw AuthException(message)
-      throw SyncHttpException(status, message)
+      val status = connection.responseCode
+      val text = readResponse(connection, status)
+      if (status !in 200..299) {
+        val message = runCatching { JSONObject(text).optString("error") }.getOrNull()
+          ?.takeIf { it.isNotBlank() }
+          ?: "Sync failed: $status"
+        if (status == 401) throw AuthException(message)
+        throw SyncHttpException(status, message)
+      }
+      return if (text.isBlank()) JSONObject() else JSONObject(text)
+    } finally {
+      connection.disconnect()
     }
-    return if (text.isBlank()) JSONObject() else JSONObject(text)
   }
 
   private fun readResponse(connection: HttpURLConnection, status: Int): String {
@@ -160,4 +174,3 @@ private fun parseLoginResponse(json: JSONObject): LoginResponse {
     expiresAt = json.optNullableString("expiresAt")
   )
 }
-

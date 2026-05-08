@@ -23,7 +23,8 @@
     "test:e2e": "aube -F @author/web run test:e2e",
     "deps:check": "aube check",
     "seed": "aube -F @author/web run seed",
-    "mock:browser": "aube -F @author/web run mock:browser"
+    "mock:browser": "aube -F @author/web run mock:browser",
+    "emulator:window": "scripts/android-emulator-window.sh"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

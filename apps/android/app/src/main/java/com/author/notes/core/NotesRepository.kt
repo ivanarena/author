@@ -19,6 +19,9 @@ private const val THEME_KEY = "author-notes-theme"
 private const val SORT_KEY = "author-notes-sort"
 private const val COMPACT_VIEW_KEY = "author-notes-compact-view"
 private const val EDITOR_ZOOM_KEY = "author-notes-editor-zoom"
+private const val EDITOR_FONT_KEY = "author-notes-editor-font"
+private const val EDITOR_TEXT_SIZE_KEY = "author-notes-editor-text-size"
+private const val EDITOR_LINE_HEIGHT_KEY = "author-notes-editor-line-height"
 private const val API_BASE_URL_KEY = "author-notes-api-base-url"
 private const val LOCAL_WORKSPACE_OWNER_KEY = "localWorkspaceOwner"
 private const val ENCRYPTION_AUDIT_VERSION_KEY = "localEncryptionAuditVersion"
@@ -29,6 +32,17 @@ private const val LAST_SYNC_ERROR_MESSAGE_KEY = "lastSyncErrorMessage"
 private const val LAST_SYNC_ERROR_STACK_KEY = "lastSyncErrorStack"
 private const val PUSH_BATCH_SIZE = 250
 private const val PULL_BATCH_SIZE = 1000
+private val THEMES = setOf(
+  "light",
+  "light-mint",
+  "light-rose",
+  "light-lavender",
+  "dark",
+  "dark-mint",
+  "dark-rose",
+  "dark-lavender"
+)
+private val FONTS = setOf("kedebideri", "system-sans", "system-serif", "mono")
 
 class NotesRepository(context: Context) {
   private val appContext = context.applicationContext
@@ -39,11 +53,14 @@ class NotesRepository(context: Context) {
   private val crypto = NoteCrypto(prefs, securePrefs)
   private val syncClient = SyncClient { getApiBaseUrl() }
 
-  fun getTheme(): String = prefs.getString(THEME_KEY, null)
-    ?: if ((appContext.resources.configuration.uiMode and 0x30) == 0x20) "dark" else "light"
+  fun getTheme(): String {
+    val stored = prefs.getString(THEME_KEY, null)
+    if (stored in THEMES) return stored ?: "light"
+    return if ((appContext.resources.configuration.uiMode and 0x30) == 0x20) "dark" else "light"
+  }
 
   fun setTheme(theme: String) {
-    prefs.edit().putString(THEME_KEY, theme).apply()
+    prefs.edit().putString(THEME_KEY, if (theme in THEMES) theme else "light").apply()
   }
 
   fun getSort(): String = prefs.getString(SORT_KEY, "date-desc") ?: "date-desc"
@@ -62,6 +79,29 @@ class NotesRepository(context: Context) {
 
   fun setEditorZoom(value: Float) {
     prefs.edit().putFloat(EDITOR_ZOOM_KEY, value.coerceIn(0.8f, 1.4f)).apply()
+  }
+
+  fun getEditorFont(): String {
+    val stored = prefs.getString(EDITOR_FONT_KEY, null)
+    return if (stored in FONTS) stored ?: "kedebideri" else "kedebideri"
+  }
+
+  fun setEditorFont(value: String) {
+    prefs.edit().putString(EDITOR_FONT_KEY, if (value in FONTS) value else "kedebideri").apply()
+  }
+
+  fun getEditorTextSize(): Float =
+    prefs.getFloat(EDITOR_TEXT_SIZE_KEY, 16f).coerceIn(14f, 22f)
+
+  fun setEditorTextSize(value: Float) {
+    prefs.edit().putFloat(EDITOR_TEXT_SIZE_KEY, value.coerceIn(14f, 22f)).apply()
+  }
+
+  fun getEditorLineHeight(): Float =
+    prefs.getFloat(EDITOR_LINE_HEIGHT_KEY, 1.75f).coerceIn(1.35f, 2.1f)
+
+  fun setEditorLineHeight(value: Float) {
+    prefs.edit().putFloat(EDITOR_LINE_HEIGHT_KEY, value.coerceIn(1.35f, 2.1f)).apply()
   }
 
   fun getApiBaseUrl(): String = prefs.getString(API_BASE_URL_KEY, BuildConfig.DEFAULT_API_BASE_URL) ?: BuildConfig.DEFAULT_API_BASE_URL

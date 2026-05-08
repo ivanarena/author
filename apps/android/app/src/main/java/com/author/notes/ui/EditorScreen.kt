@@ -83,8 +83,11 @@ private fun EditorPane(controller: NotesController, modifier: Modifier = Modifie
   val text = MaterialTheme.colorScheme.onSurface
   val muted = text.copy(alpha = 0.52f)
   val compactScreen = LocalConfiguration.current.screenWidthDp < 720
-  val titleSize = ((if (compactScreen) 38 else 58) * controller.editorZoom).sp
-  val titleLineHeight = ((if (compactScreen) 44 else 63) * controller.editorZoom).sp
+  val titleSize = (controller.editorTextSize * (if (compactScreen) 2.38f else 3.62f) * controller.editorZoom).sp
+  val titleLineHeight = (controller.editorTextSize * (if (compactScreen) 2.75f else 3.94f) * controller.editorZoom).sp
+  val bodySize = (controller.editorTextSize * controller.editorZoom).sp
+  val bodyLineHeight = (controller.editorTextSize * controller.editorLineHeight * controller.editorZoom).sp
+  val fontFamily = LocalAppFontFamily.current
 
   Column(
     modifier
@@ -103,7 +106,7 @@ private fun EditorPane(controller: NotesController, modifier: Modifier = Modifie
           fontSize = titleSize,
           fontWeight = FontWeight.Bold,
           lineHeight = titleLineHeight,
-          fontFamily = AppFontFamily
+          fontFamily = fontFamily
         ),
         modifier = Modifier.fillMaxWidth(),
         decorationBox = { inner ->
@@ -113,7 +116,7 @@ private fun EditorPane(controller: NotesController, modifier: Modifier = Modifie
               color = muted.copy(alpha = 0.38f),
               fontSize = titleSize,
               fontWeight = FontWeight.Bold,
-              fontFamily = AppFontFamily
+              fontFamily = fontFamily
             )
           }
           inner()
@@ -126,9 +129,9 @@ private fun EditorPane(controller: NotesController, modifier: Modifier = Modifie
         readOnly = controller.selectedNote?.trashedAt != null,
         textStyle = TextStyle(
           color = text,
-          fontSize = (16 * controller.editorZoom).sp,
-          lineHeight = (28 * controller.editorZoom).sp,
-          fontFamily = AppFontFamily
+          fontSize = bodySize,
+          lineHeight = bodyLineHeight,
+          fontFamily = fontFamily
         ),
         modifier = Modifier
           .fillMaxWidth()
@@ -139,8 +142,8 @@ private fun EditorPane(controller: NotesController, modifier: Modifier = Modifie
             Text(
               "Body",
               color = muted.copy(alpha = 0.38f),
-              fontSize = (16 * controller.editorZoom).sp,
-              fontFamily = AppFontFamily
+              fontSize = bodySize,
+              fontFamily = fontFamily
             )
           }
           inner()

@@ -245,6 +245,7 @@
   min-height: var(--control-height);
   border: 0;
   padding: 0 12px;
+  background: transparent;
   color: var(--muted);
   text-align: left;
   transition:
@@ -260,8 +261,7 @@
 }
 
 .profile-quick-action:hover,
-.profile-quick-action:focus-visible,
-.profile-quick-action.primary {
+.profile-quick-action:focus-visible {
   border-color: transparent;
   background: var(--hover);
   color: var(--text);
@@ -390,11 +390,15 @@ aside {
 }
 
 .icon-button:hover,
-.icon-button:focus-visible,
+.icon-button:focus-visible {
+  color: var(--text);
+  border-color: transparent;
+  background: var(--hover);
+}
+
 .active.icon-button {
   color: var(--text);
   border-color: transparent;
-  background: transparent;
 }
 
 .menu-trigger,
@@ -465,7 +469,7 @@ aside {
   color: var(--muted);
   font-size: 12px;
   font-weight: 600;
-  background: var(--panel);
+  background: transparent;
   -webkit-backdrop-filter: var(--surface-blur);
   backdrop-filter: var(--surface-blur);
   transition:
@@ -494,11 +498,11 @@ aside {
   top: calc(100% + 8px);
   right: 0;
   display: grid;
-  gap: 4px;
-  width: 180px;
+  gap: 6px;
+  width: 192px;
   border: 0;
   border-radius: var(--radius-lg);
-  padding: 6px;
+  padding: 10px;
   background: var(--panel);
   box-shadow: var(--shadow-soft);
   -webkit-backdrop-filter: var(--surface-blur);
@@ -513,7 +517,8 @@ aside {
   align-items: center;
   min-height: 34px;
   border: 0;
-  padding: 0 8px;
+  padding: 0 10px;
+  background: transparent;
   color: var(--muted);
   text-align: left;
   transition:
@@ -529,9 +534,12 @@ aside {
 }
 
 .sort-popover button:hover,
-.sort-popover button:focus-visible,
-.sort-popover button.active {
+.sort-popover button:focus-visible {
   background: var(--hover);
+  color: var(--text);
+}
+
+.sort-popover button.active {
   color: var(--text);
 }
 
@@ -542,7 +550,7 @@ aside {
   border: 0;
   border-radius: var(--radius-lg);
   padding: 16px;
-  background: var(--panel);
+  background: var(--field);
   -webkit-backdrop-filter: var(--surface-blur);
   backdrop-filter: var(--surface-blur);
   box-shadow: none;
@@ -566,7 +574,7 @@ aside {
   border: 0;
   border-radius: var(--radius-lg);
   padding: 0 12px 0 16px;
-  background: var(--panel);
+  background: var(--field);
   color: var(--muted);
   -webkit-backdrop-filter: var(--surface-blur);
   backdrop-filter: var(--surface-blur);
@@ -602,7 +610,7 @@ aside {
   border: 0;
   border-radius: var(--radius-md);
   padding: 0 14px;
-  background: var(--panel);
+  background: var(--field);
   color: var(--text);
   font-size: 13px;
   -webkit-backdrop-filter: var(--surface-blur);
@@ -632,7 +640,6 @@ aside {
 
 .active {
   border-color: transparent;
-  background: var(--hover);
   box-shadow: none;
 }
 

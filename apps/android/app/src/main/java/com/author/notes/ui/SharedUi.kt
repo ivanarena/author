@@ -83,14 +83,14 @@ internal fun NavRow(
 ) {
   val rowColor by animateColorAsState(
     targetValue = if (active) activeColor() else Color.Transparent,
-    animationSpec = tween(durationMillis = 260),
+    animationSpec = tween(durationMillis = AppMotion.Medium),
     label = "nav-row-color"
   )
   Surface(
     modifier = Modifier
       .fillMaxWidth()
       .clip(RoundedCornerShape(8.dp))
-      .animateContentSize(tween(260))
+      .animateContentSize(tween(AppMotion.Medium))
       .clickable(onClick = onClick),
     color = rowColor,
     shape = RoundedCornerShape(8.dp)
@@ -151,7 +151,7 @@ internal fun AppDropdownMenu(
 internal fun ActionRow(icon: ImageVector, label: String, onClick: () -> Unit) {
   val rowColor by animateColorAsState(
     targetValue = fieldColor(),
-    animationSpec = tween(durationMillis = 240),
+    animationSpec = tween(durationMillis = AppMotion.Fast),
     label = "action-row-color"
   )
   Surface(
@@ -202,7 +202,7 @@ internal fun MiniField(
     placeholder = { Text(placeholder) },
     singleLine = true,
     modifier = modifier,
-    textStyle = TextStyle(fontSize = 14.sp, fontFamily = AppFontFamily),
+    textStyle = TextStyle(fontSize = 14.sp, fontFamily = LocalAppFontFamily.current),
     shape = RoundedCornerShape(14.dp),
     colors = textFieldColors()
   )
@@ -217,7 +217,7 @@ internal fun PasswordField(value: String, placeholder: String, onChange: (String
     singleLine = true,
     visualTransformation = PasswordVisualTransformation(),
     modifier = Modifier.fillMaxWidth(),
-    textStyle = TextStyle(fontSize = 14.sp, fontFamily = AppFontFamily),
+    textStyle = TextStyle(fontSize = 14.sp, fontFamily = LocalAppFontFamily.current),
     shape = RoundedCornerShape(14.dp),
     colors = textFieldColors()
   )
@@ -251,7 +251,7 @@ internal fun appCheckboxColors() = CheckboxDefaults.colors(
 internal fun SmallTextButton(label: String, active: Boolean = false, onClick: () -> Unit) {
   val buttonColor by animateColorAsState(
     targetValue = if (active) activeColor() else Color.Transparent,
-    animationSpec = tween(durationMillis = 220),
+    animationSpec = tween(durationMillis = AppMotion.Fast),
     label = "small-button-color"
   )
   TextButton(
@@ -274,7 +274,7 @@ internal fun GlassIcon(
 ) {
   val iconColor by animateColorAsState(
     targetValue = if (active) activeColor() else Color.Transparent,
-    animationSpec = tween(durationMillis = 220),
+    animationSpec = tween(durationMillis = AppMotion.Fast),
     label = "icon-button-color"
   )
   IconButton(
@@ -294,11 +294,11 @@ internal fun GlassPanel(
 ) {
   val panel by animateColorAsState(
     targetValue = if (active) activeColor() else panelColor(),
-    animationSpec = tween(durationMillis = 260),
+    animationSpec = tween(durationMillis = AppMotion.Medium),
     label = "panel-color"
   )
   Surface(
-    modifier = modifier.animateContentSize(tween(260)),
+    modifier = modifier.animateContentSize(tween(AppMotion.Medium)),
     color = panel,
     shape = RoundedCornerShape(8.dp),
     border = null,
@@ -309,16 +309,16 @@ internal fun GlassPanel(
 }
 
 @Composable
-internal fun fieldColor(): Color = if (isLightTheme()) Color(0xFFF2F2EF) else Color(0xFF242424)
+internal fun fieldColor(): Color = MaterialTheme.colorScheme.surfaceVariant
 
 @Composable
-internal fun panelColor(): Color = if (isLightTheme()) Color(0xFFF7F7F4) else Color(0xFF1D1D1D)
+internal fun panelColor(): Color = MaterialTheme.colorScheme.surface
 
 @Composable
-internal fun activeColor(): Color = if (isLightTheme()) Color(0xFFE8E8E4) else Color(0xFF2D2D2D)
+internal fun activeColor(): Color = MaterialTheme.colorScheme.primary.copy(alpha = if (isLightTheme()) 0.11f else 0.18f)
 
 @Composable
-internal fun menuColor(): Color = if (isLightTheme()) Color.White else Color(0xFF242424)
+internal fun menuColor(): Color = MaterialTheme.colorScheme.surface
 
 @Composable
 internal fun toolbarColor(): Color = MaterialTheme.colorScheme.background

@@ -78,6 +78,7 @@ import {
   getStoredEditorLineHeight,
   getStoredEditorTextSize,
   getStoredEditorZoom,
+  applyAppFont,
   getStoredSort,
   MAX_EDITOR_LINE_HEIGHT,
   MAX_EDITOR_TEXT_SIZE,
@@ -863,24 +864,28 @@ export class NotesPageController
   };
 
   handleWindowClick = (event: MouseEvent) => {
-    this.closeContextMenu();
     if (!(event.target instanceof Element)) return;
+    const target = event.target;
+    const insideContextMenu = Boolean(target.closest('.context-menu'));
+    if (!insideContextMenu) {
+      this.closeContextMenu();
+    }
     if (
-      !event.target.closest(
-        '.batch-actions, .batch-popover, .link-popover, .row-actions'
+      !target.closest(
+        '.menu-dock, .batch-actions, .batch-popover, .link-popover, .row-actions, .context-menu'
       )
     ) {
       this.closeNotebookMenus();
     }
-    if (!event.target.closest('.profile-menu')) {
+    if (!target.closest('.profile-menu')) {
       this.closeAccountMenu();
     }
     if (!this.settingsOpen) return;
     if (
-      event.target.closest('.settings-modal') ||
-      event.target.closest('.login-layer') ||
-      event.target.closest('.login-modal') ||
-      event.target.closest('.profile-menu')
+      target.closest('.settings-modal') ||
+      target.closest('.login-layer') ||
+      target.closest('.login-modal') ||
+      target.closest('.profile-menu')
     )
       return;
     this.closeSettings();
@@ -1985,6 +1990,7 @@ export class NotesPageController
     this.compactView = getStoredCompactView();
     this.editorZoom = getStoredEditorZoom();
     this.editorFont = getStoredEditorFont();
+    applyAppFont(this.editorFont);
     this.editorTextSize = getStoredEditorTextSize();
     this.editorLineHeight = getStoredEditorLineHeight();
     const storedSession = getStoredSession();

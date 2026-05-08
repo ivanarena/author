@@ -25,7 +25,7 @@ internal fun AuthorApp(
   onExport: () -> Unit,
   onImport: () -> Unit
 ) {
-  AuthorTheme(dark = controller.theme == "dark") {
+  AuthorTheme(theme = controller.theme, font = controller.editorFont) {
     AuthorScaffold(controller, onExport, onImport)
   }
 }
@@ -64,7 +64,7 @@ private fun AppPage(
   Box(Modifier.fillMaxSize()) {
     Crossfade(
       targetState = controller.currentPage,
-      animationSpec = tween(durationMillis = 320),
+      animationSpec = tween(durationMillis = AppMotion.Slow),
       label = "page-crossfade"
     ) { page ->
       when (page) {

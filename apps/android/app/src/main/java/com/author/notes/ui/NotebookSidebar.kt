@@ -59,11 +59,11 @@ internal fun NotebookSidebar(
     }
     AnimatedVisibility(
       visible = controller.newNotebookOpen,
-      enter = fadeIn(tween(220)) + expandVertically(tween(280)),
-      exit = fadeOut(tween(180)) + shrinkVertically(tween(240))
+      enter = fadeIn(tween(AppMotion.Medium)) + expandVertically(tween(AppMotion.Slow)),
+      exit = fadeOut(tween(AppMotion.Fast)) + shrinkVertically(tween(AppMotion.Medium))
     ) {
       GlassPanel(Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(8.dp).animateContentSize(tween(260)), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(8.dp).animateContentSize(tween(AppMotion.Medium)), verticalAlignment = Alignment.CenterVertically) {
           MiniField(controller.notebookNameValue, "Notebook name", Modifier.weight(1f)) {
             controller.notebookNameValue = it
             controller.notebookError = ""

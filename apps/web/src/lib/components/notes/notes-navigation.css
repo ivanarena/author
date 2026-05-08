@@ -157,7 +157,7 @@ textarea::-webkit-scrollbar {
   border: 0;
   border-radius: var(--radius-md);
   padding: 0 14px;
-  background: var(--panel);
+  background: var(--field);
   color: var(--text);
   font-size: 13px;
   -webkit-backdrop-filter: var(--surface-blur);
@@ -205,6 +205,7 @@ textarea::-webkit-scrollbar {
   border: 0;
   border-radius: var(--radius-md);
   padding: 0 8px;
+  background: transparent;
   color: var(--muted);
   font-size: 12px;
   font-weight: 600;
@@ -269,11 +270,11 @@ textarea::-webkit-scrollbar {
   top: 72px;
   left: 16px;
   display: grid;
-  gap: 8px;
+  gap: 10px;
   width: min(260px, calc(100% - 32px));
   border: 0;
   border-radius: var(--radius-lg);
-  padding: 12px;
+  padding: 14px;
   background: var(--panel);
   box-shadow: var(--shadow-soft);
   -webkit-backdrop-filter: var(--surface-blur);
@@ -289,6 +290,7 @@ textarea::-webkit-scrollbar {
   min-height: var(--control-height);
   border-color: transparent;
   padding: 0 10px;
+  background: transparent;
   text-align: left;
   transition:
     background-color var(--motion-fast) var(--motion-ease),
@@ -373,6 +375,7 @@ textarea::-webkit-scrollbar {
   min-height: 112px;
   padding: 18px;
   border: 0;
+  background: transparent;
   line-height: 1.45;
   text-align: left;
 }
@@ -531,7 +534,7 @@ textarea::-webkit-scrollbar {
   width: min(260px, calc(100% - 36px));
   border: 0;
   border-radius: var(--radius-lg);
-  padding: 14px;
+  padding: 16px;
   background: var(--panel);
   box-shadow: var(--shadow-soft);
   -webkit-backdrop-filter: var(--surface-blur);
@@ -541,7 +544,7 @@ textarea::-webkit-scrollbar {
 
 .notebook-link-menu {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .notebook-link-menu button {
@@ -552,6 +555,7 @@ textarea::-webkit-scrollbar {
   min-height: var(--control-height);
   border-color: transparent;
   padding: 0 12px;
+  background: transparent;
   text-align: left;
   transition:
     background-color var(--motion-fast) var(--motion-ease),

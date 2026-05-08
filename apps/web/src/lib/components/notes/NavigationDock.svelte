@@ -163,6 +163,7 @@
     role="group"
     aria-label="Navigation menus"
     onpointerenter={model.openMenus}
+    onpointerdown={model.openMenus}
     onfocusin={model.openMenus}
   >
     <NotebookSidebar {model} />

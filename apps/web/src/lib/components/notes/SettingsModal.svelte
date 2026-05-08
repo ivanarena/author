@@ -37,6 +37,7 @@
   let newPasswordVisible = $state(false);
   let confirmPasswordVisible = $state(false);
   let deletePasswordVisible = $state(false);
+  let fontMenuOpen = $state(false);
 
   const themeOptions: Array<{ value: Theme; label: string }> = [
     { value: 'light', label: 'Light' },
@@ -48,6 +49,33 @@
     { value: 'dark-rose', label: 'Dark rose' },
     { value: 'dark-lavender', label: 'Dark lavender' }
   ];
+
+  const selectedFontOption = $derived(
+    model.editorFontOptions.find(
+      (option) => option.value === model.editorFont
+    ) ?? model.editorFontOptions[0]
+  );
+
+  function rangeProgress(value: number, min: number, max: number): string {
+    return `${((value - min) / (max - min)) * 100}%`;
+  }
+
+  function closeFontMenuOnBlur(event: FocusEvent): void {
+    const nextTarget = event.relatedTarget;
+    if (
+      nextTarget instanceof Node &&
+      event.currentTarget instanceof HTMLElement &&
+      event.currentTarget.contains(nextTarget)
+    ) {
+      return;
+    }
+    fontMenuOpen = false;
+  }
+
+  function chooseFont(font: EditorFont): void {
+    model.setEditorFont(font);
+    fontMenuOpen = false;
+  }
 </script>
 
 <div class="settings-layer" role="presentation">
@@ -657,25 +685,63 @@
             </div>
           </div>
 
-          <div class="settings-action-group" aria-label="Editor typography">
+          <div class="settings-action-group" aria-label="Typography">
             <div class="settings-action-group-heading">
               <span>Typography</span>
             </div>
-            <label class="settings-select-row">
-              <span>Font</span>
-              <select
-                value={model.editorFont}
-                onchange={(event) =>
-                  model.setEditorFont(
-                    (event.currentTarget as HTMLSelectElement)
-                      .value as EditorFont
-                  )}
+            <div class="settings-select-row settings-font-row">
+              <span id="font-select-label">Font</span>
+              <div
+                class="font-menu"
+                role="group"
+                aria-labelledby="font-select-label"
+                onfocusout={closeFontMenuOnBlur}
               >
-                {#each model.editorFontOptions as option}
-                  <option value={option.value}>{option.label}</option>
-                {/each}
-              </select>
-            </label>
+                <button
+                  class="font-trigger"
+                  type="button"
+                  aria-haspopup="listbox"
+                  aria-expanded={fontMenuOpen}
+                  onclick={() => (fontMenuOpen = !fontMenuOpen)}
+                >
+                  <span style={`font-family: ${selectedFontOption.css}`}
+                    >{selectedFontOption.label}</span
+                  >
+                  <ChevronRight
+                    size={14}
+                    strokeWidth={1.8}
+                    class={fontMenuOpen ? 'open' : undefined}
+                  />
+                </button>
+                {#if fontMenuOpen}
+                  <div
+                    class="font-popover"
+                    role="listbox"
+                    aria-labelledby="font-select-label"
+                    tabindex="-1"
+                  >
+                    {#each model.editorFontOptions as option}
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={model.editorFont === option.value}
+                        class:active={model.editorFont === option.value}
+                        onclick={() => chooseFont(option.value)}
+                      >
+                        <span style={`font-family: ${option.css}`}
+                          >{option.label}</span
+                        >
+                        <Check
+                          size={13}
+                          strokeWidth={1.8}
+                          opacity={model.editorFont === option.value ? 1 : 0}
+                        />
+                      </button>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
+            </div>
             <label class="settings-range-row">
               <span>Text size</span>
               <input
@@ -684,6 +750,11 @@
                 max={model.maxEditorTextSize}
                 step="1"
                 value={model.editorTextSize}
+                style={`--range-progress: ${rangeProgress(
+                  model.editorTextSize,
+                  model.minEditorTextSize,
+                  model.maxEditorTextSize
+                )}`}
                 oninput={(event) =>
                   model.setEditorTextSize(
                     Number((event.currentTarget as HTMLInputElement).value)
@@ -699,6 +770,11 @@
                 max={model.maxEditorLineHeight}
                 step="0.05"
                 value={model.editorLineHeight}
+                style={`--range-progress: ${rangeProgress(
+                  model.editorLineHeight,
+                  model.minEditorLineHeight,
+                  model.maxEditorLineHeight
+                )}`}
                 oninput={(event) =>
                   model.setEditorLineHeight(
                     Number((event.currentTarget as HTMLInputElement).value)

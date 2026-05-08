@@ -6,7 +6,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -126,9 +128,9 @@ private fun SettingsSectionSelector(
     Triple("account", "Account", Icons.Outlined.AccountCircle),
     Triple("sync", "Sync", Icons.Outlined.Refresh),
     Triple("data", "Data", Icons.Outlined.Download),
-    Triple("appearance", "Appearance", if (controller.theme == "dark") Icons.Outlined.LightMode else Icons.Outlined.DarkMode)
+    Triple("appearance", "Appearance", if (controller.theme.startsWith("dark")) Icons.Outlined.LightMode else Icons.Outlined.DarkMode)
   )
-  Column(modifier.animateContentSize(tween(260)), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+  Column(modifier.animateContentSize(tween(AppMotion.Medium)), verticalArrangement = Arrangement.spacedBy(6.dp)) {
     sections.forEach { (id, label, icon) ->
       SettingsNavRow(icon, label, active = activeSettingsSection(controller.settingsSection) == id) {
         controller.settingsSection = id
@@ -146,7 +148,7 @@ private fun SettingsNavRow(
 ) {
   val rowColor by animateColorAsState(
     targetValue = if (active) activeColor() else fieldColor(),
-    animationSpec = tween(durationMillis = 260),
+    animationSpec = tween(durationMillis = AppMotion.Medium),
     label = "settings-nav-color"
   )
   Surface(
@@ -180,7 +182,7 @@ private fun SettingsContent(
   Column(
     Modifier
       .fillMaxWidth()
-      .animateContentSize(tween(300)),
+      .animateContentSize(tween(AppMotion.Slow)),
     verticalArrangement = Arrangement.spacedBy(14.dp)
   ) {
     when (section) {
@@ -348,11 +350,118 @@ private fun DataSettings(
 private fun AppearanceSettings(controller: NotesController) {
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
     ActionRow(Icons.Outlined.FolderOpen, "Compact notes") { controller.toggleCompactView() }
-    ActionRow(if (controller.theme == "dark") Icons.Outlined.LightMode else Icons.Outlined.DarkMode, if (controller.theme == "dark") "Light mode" else "Dark mode") { controller.toggleTheme() }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-      GlassIcon(Icons.Outlined.ZoomOut, "Zoom out") { controller.zoomEditor(-1) }
-      Text("Zoom ${(controller.editorZoom * 100).toInt()}%", modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f))
-      GlassIcon(Icons.Outlined.ZoomIn, "Zoom in") { controller.zoomEditor(1) }
+    ActionRow(
+      if (controller.theme.startsWith("dark")) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
+      if (controller.theme.startsWith("dark")) "Light mode" else "Dark mode"
+    ) { controller.toggleTheme() }
+    SettingsChoiceGroup("Themes") {
+      ThemeChoices.forEach { choice ->
+        AppearanceChoice(choice.label, controller.theme == choice.value) {
+          controller.setThemeChoice(choice.value)
+        }
+      }
     }
+    SettingsChoiceGroup("Font") {
+      FontChoices.forEach { choice ->
+        AppearanceChoice(choice.label, controller.editorFont == choice.value) {
+          controller.chooseEditorFont(choice.value)
+        }
+      }
+    }
+    SettingsStepper("Text size", "${controller.editorTextSize.toInt()}sp") {
+      GlassIcon(Icons.Outlined.ZoomOut, "Smaller text", enabled = controller.editorTextSize > 14f) {
+        controller.adjustEditorTextSize(-1f)
+      }
+      GlassIcon(Icons.Outlined.ZoomIn, "Larger text", enabled = controller.editorTextSize < 22f) {
+        controller.adjustEditorTextSize(1f)
+      }
+    }
+    SettingsStepper("Line height", String.format("%.2f", controller.editorLineHeight)) {
+      GlassIcon(Icons.Outlined.ZoomOut, "Tighter lines", enabled = controller.editorLineHeight > 1.35f) {
+        controller.adjustEditorLineHeight(-0.05f)
+      }
+      GlassIcon(Icons.Outlined.ZoomIn, "Looser lines", enabled = controller.editorLineHeight < 2.1f) {
+        controller.adjustEditorLineHeight(0.05f)
+      }
+    }
+    SettingsStepper("Editor zoom", "${(controller.editorZoom * 100).toInt()}%") {
+      GlassIcon(Icons.Outlined.ZoomOut, "Zoom out", enabled = controller.editorZoom > 0.8f) {
+        controller.zoomEditor(-1)
+      }
+      GlassIcon(Icons.Outlined.ZoomIn, "Zoom in", enabled = controller.editorZoom < 1.4f) {
+        controller.zoomEditor(1)
+      }
+    }
+  }
+}
+
+@Composable
+private fun SettingsChoiceGroup(label: String, content: @Composable ColumnScope.() -> Unit) {
+  Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Text(
+      label,
+      color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+      fontSize = 12.sp,
+      fontWeight = FontWeight.SemiBold
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp), content = content)
+  }
+}
+
+@Composable
+private fun AppearanceChoice(label: String, active: Boolean, onClick: () -> Unit) {
+  val rowColor by animateColorAsState(
+    targetValue = if (active) activeColor() else fieldColor(),
+    animationSpec = tween(durationMillis = AppMotion.Medium),
+    label = "appearance-choice-color"
+  )
+  Surface(
+    color = rowColor,
+    shape = RoundedCornerShape(8.dp)
+  ) {
+    Row(
+      Modifier
+        .fillMaxWidth()
+        .heightIn(min = 40.dp)
+        .clickable(onClick = onClick)
+        .padding(horizontal = 12.dp, vertical = 8.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+      Text(
+        label,
+        modifier = Modifier.weight(1f),
+        fontSize = 14.sp,
+        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal
+      )
+      Icon(
+        Icons.Outlined.Check,
+        null,
+        modifier = Modifier.size(16.dp),
+        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (active) 0.72f else 0f)
+      )
+    }
+  }
+}
+
+@Composable
+private fun SettingsStepper(
+  label: String,
+  value: String,
+  controls: @Composable RowScope.() -> Unit
+) {
+  Row(
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(8.dp)
+  ) {
+    Column(Modifier.weight(1f)) {
+      Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+      Text(
+        value,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+        fontSize = 12.sp
+      )
+    }
+    controls()
   }
 }

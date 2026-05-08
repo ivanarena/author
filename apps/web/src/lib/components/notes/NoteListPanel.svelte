@@ -99,6 +99,7 @@
           model.toggleAllVisibleNotes(
             (event.currentTarget as HTMLInputElement).checked
           )}
+        onclick={(event) => event.stopPropagation()}
       />
       <span
         >{model.allVisibleNotesSelected ? 'Deselect all' : 'Select all'}</span
@@ -262,6 +263,7 @@
               <input
                 type="checkbox"
                 checked={model.selectedNoteIds.has(note.id)}
+                onclick={(event) => event.stopPropagation()}
                 onchange={(event) =>
                   model.toggleNoteSelection(
                     note,

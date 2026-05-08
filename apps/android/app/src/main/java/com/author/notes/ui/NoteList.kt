@@ -71,8 +71,8 @@ internal fun NoteListPanel(controller: NotesController, modifier: Modifier = Mod
     }
     AnimatedVisibility(
       visible = controller.selectedNoteIds.isNotEmpty(),
-      enter = fadeIn(tween(220)) + expandVertically(tween(260)),
-      exit = fadeOut(tween(180)) + shrinkVertically(tween(220))
+      enter = fadeIn(tween(AppMotion.Medium)) + expandVertically(tween(AppMotion.Slow)),
+      exit = fadeOut(tween(AppMotion.Fast)) + shrinkVertically(tween(AppMotion.Medium))
     ) {
       Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         Text("${controller.selectedNoteIds.size} selected", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
@@ -113,7 +113,7 @@ internal fun NoteListPanel(controller: NotesController, modifier: Modifier = Mod
 private fun SearchNotesField(controller: NotesController, modifier: Modifier = Modifier) {
   val textColor = MaterialTheme.colorScheme.onSurface
   Surface(
-    modifier = modifier.animateContentSize(tween(260)),
+    modifier = modifier.animateContentSize(tween(AppMotion.Medium)),
     color = fieldColor(),
     shape = RoundedCornerShape(18.dp)
   ) {
@@ -138,7 +138,7 @@ private fun SearchNotesField(controller: NotesController, modifier: Modifier = M
         textStyle = TextStyle(
           color = textColor,
           fontSize = 14.sp,
-          fontFamily = AppFontFamily
+          fontFamily = LocalAppFontFamily.current
         ),
         modifier = Modifier.weight(1f),
         decorationBox = { inner ->
@@ -156,8 +156,8 @@ private fun SearchNotesField(controller: NotesController, modifier: Modifier = M
       )
       AnimatedVisibility(
         visible = controller.searchValue.isNotBlank(),
-        enter = fadeIn(tween(180)),
-        exit = fadeOut(tween(160))
+        enter = fadeIn(tween(AppMotion.Fast)),
+        exit = fadeOut(tween(AppMotion.Fast))
       ) {
         Box(
           modifier = Modifier
@@ -273,7 +273,7 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
   val selecting = controller.selectedNoteIds.isNotEmpty()
   val rowColor by animateColorAsState(
     targetValue = if (active || selected) activeColor() else Color.Transparent,
-    animationSpec = tween(durationMillis = 260),
+    animationSpec = tween(durationMillis = AppMotion.Medium),
     label = "note-row-color"
   )
 
@@ -281,7 +281,7 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
     modifier = Modifier
       .fillMaxWidth()
       .clip(RoundedCornerShape(8.dp))
-      .animateContentSize(tween(260))
+      .animateContentSize(tween(AppMotion.Medium))
       .clickable {
         if (selecting) {
           controller.toggleSelection(note, !selected)

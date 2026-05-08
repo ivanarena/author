@@ -46,6 +46,9 @@ class NotesController(
   var noteSort by mutableStateOf(repository.getSort())
   var compactView by mutableStateOf(repository.getCompactView())
   var editorZoom by mutableStateOf(repository.getEditorZoom())
+  var editorFont by mutableStateOf(repository.getEditorFont())
+  var editorTextSize by mutableStateOf(repository.getEditorTextSize())
+  var editorLineHeight by mutableStateOf(repository.getEditorLineHeight())
   var theme by mutableStateOf(repository.getTheme())
   var currentPage by mutableStateOf("editor")
   var loginOpen by mutableStateOf(false)
@@ -309,8 +312,28 @@ class NotesController(
   }
 
   fun toggleTheme() {
-    theme = if (theme == "dark") "light" else "dark"
+    theme = if (theme.startsWith("dark")) "light" else "dark"
     repository.setTheme(theme)
+  }
+
+  fun setThemeChoice(value: String) {
+    theme = value
+    repository.setTheme(theme)
+  }
+
+  fun chooseEditorFont(value: String) {
+    editorFont = value
+    repository.setEditorFont(value)
+  }
+
+  fun adjustEditorTextSize(delta: Float) {
+    editorTextSize = (editorTextSize + delta).coerceIn(14f, 22f)
+    repository.setEditorTextSize(editorTextSize)
+  }
+
+  fun adjustEditorLineHeight(delta: Float) {
+    editorLineHeight = (editorLineHeight + delta).coerceIn(1.35f, 2.1f)
+    repository.setEditorLineHeight(editorLineHeight)
   }
 
   fun toggleSelection(note: LocalNote, selected: Boolean) {

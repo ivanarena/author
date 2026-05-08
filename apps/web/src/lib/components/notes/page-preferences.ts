@@ -83,12 +83,20 @@ export function getStoredEditorFont(): EditorFont {
 
 export function setStoredEditorFont(font: EditorFont): void {
   localStorage.setItem(EDITOR_FONT_KEY, font);
+  applyAppFont(font);
 }
 
 export function getEditorFontCss(font: EditorFont): string {
   return (
     EDITOR_FONT_OPTIONS.find((option) => option.value === font)?.css ??
     EDITOR_FONT_OPTIONS[0].css
+  );
+}
+
+export function applyAppFont(font: EditorFont): void {
+  document.documentElement.style.setProperty(
+    '--app-font',
+    getEditorFontCss(font)
   );
 }
 

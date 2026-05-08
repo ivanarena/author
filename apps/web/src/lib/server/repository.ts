@@ -51,7 +51,7 @@ type PullOptions = {
   limit?: number | null;
 };
 
-const DEFAULT_PULL_LIMIT = 500;
+const DEFAULT_PULL_LIMIT = 1000;
 const MAX_PULL_LIMIT = 1000;
 
 function pullLimit(limit: number | null | undefined): number {

@@ -24,6 +24,9 @@ import {
 } from './note-utils';
 import { getOrCreateDevice, newId, nowIso } from './local-state';
 
+const ENCRYPTION_AUDIT_META_KEY = 'localEncryptionAuditVersion';
+const ENCRYPTION_AUDIT_VERSION = 'notes-conflicts:v1';
+
 const LOCAL_WORKSPACE_OWNER_KEY = 'localWorkspaceOwner';
 
 function normalizeAccountUsername(username: string): string {
@@ -505,6 +508,9 @@ export async function adoptLocalWorkspaceForAccount({
 }
 
 export async function ensureLocalNotesEncrypted(): Promise<void> {
+  const currentAudit = await localDb.syncMeta.get(ENCRYPTION_AUDIT_META_KEY);
+  if (currentAudit?.value === ENCRYPTION_AUDIT_VERSION) return;
+
   const notes = await localDb.notes.toArray();
   const notesNeedingEncryption = notes.filter(
     (note) =>
@@ -525,6 +531,7 @@ export async function ensureLocalNotesEncrypted(): Promise<void> {
   }
 
   await ensureLocalConflictsEncrypted();
+  await markEncryptionAuditCurrent();
 }
 
 export async function reencryptLocalNotes(
@@ -546,6 +553,14 @@ export async function reencryptLocalNotes(
   }
 
   await reencryptLocalConflicts(previousMaterial, nextMaterial);
+  await markEncryptionAuditCurrent();
+}
+
+async function markEncryptionAuditCurrent(): Promise<void> {
+  await localDb.syncMeta.put({
+    key: ENCRYPTION_AUDIT_META_KEY,
+    value: ENCRYPTION_AUDIT_VERSION
+  });
 }
 
 function encryptedFieldsChanged(before: LocalNote, after: LocalNote): boolean {

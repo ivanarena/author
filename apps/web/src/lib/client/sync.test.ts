@@ -272,7 +272,7 @@ describe('client sync orchestration', () => {
       2,
       '/api/sync/pull',
       expect.objectContaining({
-        body: JSON.stringify({ since: null, sinceRevision: 0, limit: 500 })
+        body: JSON.stringify({ since: null, sinceRevision: 0, limit: 1000 })
       })
     );
     expect(saveDevices).toHaveBeenCalledWith([{ id: 'phone', name: 'Phone' }]);
@@ -411,7 +411,7 @@ describe('client sync orchestration', () => {
         body: JSON.stringify({
           since: '2026-05-01T10:00:00.000Z',
           sinceRevision: 0,
-          limit: 500
+          limit: 1000
         })
       })
     );
@@ -450,7 +450,7 @@ describe('client sync orchestration', () => {
         body: JSON.stringify({
           since: '2026-05-01T10:00:00.000Z',
           sinceRevision: 41,
-          limit: 500
+          limit: 1000
         })
       })
     );
@@ -503,7 +503,7 @@ describe('client sync orchestration', () => {
         body: JSON.stringify({
           since: '2026-05-01T10:00:00.000Z',
           sinceRevision: 41,
-          limit: 500
+          limit: 1000
         })
       })
     );
@@ -511,7 +511,7 @@ describe('client sync orchestration', () => {
       2,
       '/api/sync/pull',
       expect.objectContaining({
-        body: JSON.stringify({ since: null, sinceRevision: 0, limit: 500 })
+        body: JSON.stringify({ since: null, sinceRevision: 0, limit: 1000 })
       })
     );
     expect(localDb.syncMeta.put).toHaveBeenCalledWith({
@@ -564,14 +564,14 @@ describe('client sync orchestration', () => {
       1,
       '/api/sync/pull',
       expect.objectContaining({
-        body: JSON.stringify({ since: null, sinceRevision: 0, limit: 500 })
+        body: JSON.stringify({ since: null, sinceRevision: 0, limit: 1000 })
       })
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       '/api/sync/pull',
       expect.objectContaining({
-        body: JSON.stringify({ since: null, sinceRevision: 42, limit: 500 })
+        body: JSON.stringify({ since: null, sinceRevision: 42, limit: 1000 })
       })
     );
     expect(mergeRemoteChanges).toHaveBeenNthCalledWith(

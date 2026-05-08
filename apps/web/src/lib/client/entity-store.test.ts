@@ -163,6 +163,20 @@ describe('local note encryption sync state', () => {
     ]);
   });
 
+  it('skips the local encryption scan after a clean audit', async () => {
+    vi.mocked(localDb.syncMeta.get).mockResolvedValue({
+      key: 'localEncryptionAuditVersion',
+      value: 'notes-conflicts:v1'
+    });
+
+    await ensureLocalNotesEncrypted();
+
+    expect(localDb.notes.toArray).not.toHaveBeenCalled();
+    expect(localDb.conflicts.toArray).not.toHaveBeenCalled();
+    expect(localDb.notes.bulkPut).not.toHaveBeenCalled();
+    expect(localDb.conflicts.bulkPut).not.toHaveBeenCalled();
+  });
+
   it('marks key rotation writes as pending sync changes', async () => {
     const syncedNote: LocalNote = {
       ...note,

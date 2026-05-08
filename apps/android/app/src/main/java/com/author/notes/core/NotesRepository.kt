@@ -21,12 +21,14 @@ private const val COMPACT_VIEW_KEY = "author-notes-compact-view"
 private const val EDITOR_ZOOM_KEY = "author-notes-editor-zoom"
 private const val API_BASE_URL_KEY = "author-notes-api-base-url"
 private const val LOCAL_WORKSPACE_OWNER_KEY = "localWorkspaceOwner"
+private const val ENCRYPTION_AUDIT_VERSION_KEY = "localEncryptionAuditVersion"
+private const val ENCRYPTION_AUDIT_VERSION = "notes-conflicts:v1"
 private const val LAST_SYNC_ERROR_AT_KEY = "lastSyncErrorAt"
 private const val LAST_SYNC_ERROR_SOURCE_KEY = "lastSyncErrorSource"
 private const val LAST_SYNC_ERROR_MESSAGE_KEY = "lastSyncErrorMessage"
 private const val LAST_SYNC_ERROR_STACK_KEY = "lastSyncErrorStack"
-private const val PUSH_BATCH_SIZE = 100
-private const val PULL_BATCH_SIZE = 500
+private const val PUSH_BATCH_SIZE = 250
+private const val PULL_BATCH_SIZE = 1000
 
 class NotesRepository(context: Context) {
   private val appContext = context.applicationContext
@@ -335,6 +337,7 @@ class NotesRepository(context: Context) {
   }
 
   suspend fun ensureLocalNotesEncrypted() = withContext(Dispatchers.IO) {
+    if (db.getMeta(ENCRYPTION_AUDIT_VERSION_KEY) == ENCRYPTION_AUDIT_VERSION) return@withContext
     val notes = db.allNotes()
     val changed = notes.filter {
       !crypto.isEncryptedText(it.title) ||
@@ -342,16 +345,19 @@ class NotesRepository(context: Context) {
         it.titleHash == null ||
         it.bodyHash == null
     }
-    if (changed.isEmpty()) return@withContext
-    val device = getOrCreateDevice()
-    changed.forEach { before ->
-      val after = crypto.encryptNoteFields(crypto.decryptNoteFields(before)).copy(
-        deviceId = device.id,
-        version = before.version + 1,
-        syncStatus = if (before.syncStatus == "conflict" || before.syncStatus == "deleted") before.syncStatus else "pending"
+    if (changed.isNotEmpty()) {
+      val device = getOrCreateDevice()
+      db.putNotes(
+        changed.map { before ->
+          crypto.encryptNoteFields(crypto.decryptNoteFields(before)).copy(
+            deviceId = device.id,
+            version = before.version + 1,
+            syncStatus = if (before.syncStatus == "conflict" || before.syncStatus == "deleted") before.syncStatus else "pending"
+          )
+        }
       )
-      db.putNote(after)
     }
+    db.putMeta(ENCRYPTION_AUDIT_VERSION_KEY, ENCRYPTION_AUDIT_VERSION)
   }
 
   suspend fun login(username: String, password: String): LoginResponse = withContext(Dispatchers.IO) {
@@ -431,11 +437,15 @@ class NotesRepository(context: Context) {
       var conflicts = 0
       var pushed = 0
 
-      while (pendingNotes.isNotEmpty() || pendingNotebooks.isNotEmpty()) {
-        val notesBatch = pendingNotes.take(PUSH_BATCH_SIZE)
-        val notebooksBatch = pendingNotebooks.take(PUSH_BATCH_SIZE)
-        repeat(notesBatch.size) { pendingNotes.removeAt(0) }
-        repeat(notebooksBatch.size) { pendingNotebooks.removeAt(0) }
+      var noteBatchStart = 0
+      var notebookBatchStart = 0
+      while (noteBatchStart < pendingNotes.size || notebookBatchStart < pendingNotebooks.size) {
+        val notesBatchEnd = minOf(noteBatchStart + PUSH_BATCH_SIZE, pendingNotes.size)
+        val notebooksBatchEnd = minOf(notebookBatchStart + PUSH_BATCH_SIZE, pendingNotebooks.size)
+        val notesBatch = pendingNotes.subList(noteBatchStart, notesBatchEnd)
+        val notebooksBatch = pendingNotebooks.subList(notebookBatchStart, notebooksBatchEnd)
+        noteBatchStart = notesBatchEnd
+        notebookBatchStart = notebooksBatchEnd
         val batchSize = notesBatch.size + notebooksBatch.size
         onProgress(
           SyncProgress(
@@ -866,6 +876,7 @@ class NotesRepository(context: Context) {
       )
       db.putNote(updated)
     }
+    db.putMeta(ENCRYPTION_AUDIT_VERSION_KEY, ENCRYPTION_AUDIT_VERSION)
   }
 
   private fun deviceName(deviceId: String): String = db.getDevice(deviceId)?.name ?: deviceId

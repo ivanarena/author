@@ -24,8 +24,8 @@ import {
   saveConflict
 } from './store';
 
-const PUSH_BATCH_SIZE = 100;
-const PULL_BATCH_SIZE = 500;
+const PUSH_BATCH_SIZE = 250;
+const PULL_BATCH_SIZE = 1000;
 
 export type SyncProgress =
   | { phase: 'preparing' }
@@ -195,12 +195,27 @@ export async function runSync(
 
   let conflicts = 0;
   let pushed = 0;
-  while (pendingNotes.length || pendingNotebooks.length) {
+  let noteBatchStart = 0;
+  let notebookBatchStart = 0;
+  while (
+    noteBatchStart < pendingNotes.length ||
+    notebookBatchStart < pendingNotebooks.length
+  ) {
+    const noteBatchEnd = Math.min(
+      noteBatchStart + PUSH_BATCH_SIZE,
+      pendingNotes.length
+    );
+    const notebookBatchEnd = Math.min(
+      notebookBatchStart + PUSH_BATCH_SIZE,
+      pendingNotebooks.length
+    );
     const pushPayload: PushRequest = {
       device,
-      notes: pendingNotes.splice(0, PUSH_BATCH_SIZE),
-      notebooks: pendingNotebooks.splice(0, PUSH_BATCH_SIZE)
+      notes: pendingNotes.slice(noteBatchStart, noteBatchEnd),
+      notebooks: pendingNotebooks.slice(notebookBatchStart, notebookBatchEnd)
     };
+    noteBatchStart = noteBatchEnd;
+    notebookBatchStart = notebookBatchEnd;
     const batchSize = pushPayload.notes.length + pushPayload.notebooks.length;
     onProgress?.({
       phase: 'pushing',

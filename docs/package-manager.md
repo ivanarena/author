@@ -9,7 +9,7 @@ The repo uses `aube-lock.yaml`. Do not add other package-manager lockfiles.
 ```sh
 curl https://mise.run | sh
 mise use -g node@24
-mise use -g aube@1.4.0
+mise use -g aube@1.8.0
 ```
 
 For fish:
@@ -18,7 +18,7 @@ For fish:
 curl https://mise.run/fish | sh
 exec fish
 mise use -g node@24
-mise use -g aube@1.4.0
+mise use -g aube@1.8.0
 aube --version
 ```
 
@@ -27,7 +27,7 @@ If you already installed mise but fish cannot find it, add activation manually:
 ```fish
 echo 'mise activate fish | source' >> ~/.config/fish/config.fish
 mise activate fish | source
-mise use -g aube@1.4.0
+mise use -g aube@1.8.0
 ```
 
 Alternative Aube install paths are Homebrew, Cargo, npm, Ubuntu PPA, and Fedora/RHEL COPR. Use `aube --version` to verify.

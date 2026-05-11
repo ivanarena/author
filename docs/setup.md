@@ -5,14 +5,14 @@
 - Node.js 24 or newer
 - Aube
 
-The server uses libSQL. It always writes to a local SQLite file; when Turso is configured, the server treats it as a remote sync peer and reconciles both databases.
+The self-hosted server uses libSQL with a local SQLite file. When Turso is configured for self-hosting, the server treats it as a remote sync peer and reconciles both databases. Cloudflare Workers deployments use Turso directly as their primary database.
 
 Recommended tool install:
 
 ```sh
 curl https://mise.run | sh
 mise use -g node@24
-mise use -g aube@1.4.0
+mise use -g aube@1.8.0
 ```
 
 For fish:
@@ -21,7 +21,7 @@ For fish:
 curl https://mise.run/fish | sh
 exec fish
 mise use -g node@24
-mise use -g aube@1.4.0
+mise use -g aube@1.8.0
 aube --version
 ```
 
@@ -50,7 +50,7 @@ Signup is invite-only when a remote database is configured. The server seeds `au
 
 Leave `NOTES_TRUST_PROXY_HEADERS=false` unless your reverse proxy strips incoming `X-Forwarded-For` / `X-Real-IP` headers and sets trusted ones itself. It only affects login throttling.
 
-When Turso variables are present, the server keeps local SQLite active and mirrors local/remote records in both directions before reads and after writes. Set `NOTES_REMOTE_SYNC_ENABLED=false` to force local-only behavior temporarily.
+In Node/self-hosted runs, when Turso variables are present, the server keeps local SQLite active and mirrors local/remote records in both directions before reads and after writes. Set `NOTES_REMOTE_SYNC_ENABLED=false` to force local-only behavior temporarily.
 
 If you use direnv, put your live values in the ignored root `.env` file and run:
 
@@ -142,7 +142,7 @@ cp apps/web/.dev.vars.example apps/web/.dev.vars
 aube -F @author/web run cf:dev
 ```
 
-Do not expose the Turso token to browser code. It belongs only in the SvelteKit server or Cloudflare Worker environment.
+The `.dev.vars` file should set `NOTES_DB_PROVIDER=turso` and keep `NOTES_REMOTE_SYNC_ENABLED=false`; that matches the Worker runtime where Turso is the primary database rather than a mirror. Do not expose the Turso token to browser code. It belongs only in the SvelteKit server or Cloudflare Worker environment.
 
 ## Remote Database
 
@@ -270,9 +270,9 @@ Ship container stdout/stderr to your host logs. Remote sync failures and cleanup
 For local SQLite, stop writes first, then copy `/data/notes.sqlite` and any `-wal` / `-shm` siblings if present:
 
 ```sh
-docker compose stop author
+docker compose stop notes
 cp /path/to/data/notes.sqlite ./backup/notes.sqlite
-docker compose up -d author
+docker compose up -d notes
 ```
 
 Restore into a fresh path and smoke-check before replacing production:

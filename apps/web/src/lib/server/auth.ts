@@ -1,5 +1,4 @@
-import { createHash, pbkdf2, randomBytes, timingSafeEqual } from 'node:crypto';
-import { promisify } from 'node:util';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import {
   getAuthSessionDays,
   getLegacyAuthToken,
@@ -15,12 +14,12 @@ import {
   type NotesExecutor
 } from './db';
 
-const pbkdf2Async = promisify(pbkdf2);
-const PASSWORD_ITERATIONS = 210_000;
+const PASSWORD_ITERATIONS = 100_000;
 const PASSWORD_KEY_LENGTH = 32;
 const SESSION_TOKEN_BYTES = 32;
 const SESSION_TOUCH_INTERVAL_MS = 60_000;
 const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,62}[a-z0-9]$|^[a-z0-9]$/;
+const textEncoder = new TextEncoder();
 
 type UserRow = {
   username: string;
@@ -159,33 +158,75 @@ async function hashPassword(
   salt = randomBytes(16).toString('base64url'),
   iterations = PASSWORD_ITERATIONS
 ): Promise<{ hash: string; salt: string; iterations: number }> {
-  const derived = await pbkdf2Async(
-    password,
-    salt,
-    iterations,
-    PASSWORD_KEY_LENGTH,
-    'sha256'
-  );
+  const derived = await derivePasswordBytes(password, salt, iterations);
   return {
-    hash: derived.toString('base64url'),
+    hash: Buffer.from(derived).toString('base64url'),
     salt,
     iterations
   };
+}
+
+async function derivePasswordBytes(
+  password: string,
+  salt: string,
+  iterations: number
+): Promise<Uint8Array> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    textEncoder.encode(password),
+    'PBKDF2',
+    false,
+    ['deriveBits']
+  );
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      hash: 'SHA-256',
+      salt: textEncoder.encode(salt),
+      iterations: Number(iterations)
+    },
+    key,
+    PASSWORD_KEY_LENGTH * 8
+  );
+  return new Uint8Array(bits);
+}
+
+function constantTimeEqual(actual: Uint8Array, expected: Uint8Array): boolean {
+  if (actual.length !== expected.length) return false;
+  let difference = 0;
+  for (let index = 0; index < actual.length; index += 1) {
+    difference |= actual[index] ^ expected[index];
+  }
+  return difference === 0;
 }
 
 async function verifyPassword(
   password: string,
   row: UserRow
 ): Promise<boolean> {
-  const derived = await pbkdf2Async(
-    password,
-    row.password_salt,
-    Number(row.password_iterations),
-    PASSWORD_KEY_LENGTH,
-    'sha256'
-  );
+  let derived: Uint8Array;
+  try {
+    derived = await derivePasswordBytes(
+      password,
+      row.password_salt,
+      Number(row.password_iterations)
+    );
+  } catch (error) {
+    if (isPbkdf2IterationLimitError(error)) return false;
+    throw error;
+  }
   const stored = Buffer.from(row.password_hash, 'base64url');
-  return stored.length === derived.length && timingSafeEqual(stored, derived);
+  return constantTimeEqual(stored, derived);
+}
+
+function isPbkdf2IterationLimitError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.name === 'NotSupportedError' &&
+    /Pbkdf2 failed: iteration counts above \d+ are not supported/.test(
+      error.message
+    )
+  );
 }
 
 async function getUserRow(
@@ -231,6 +272,36 @@ async function maybeBootstrapEnvUser(
 
   await setUserPassword(db, username, password);
   return await getUserRow(db, username);
+}
+
+async function rehashUserPassword(
+  db: NotesExecutor,
+  row: UserRow,
+  password: string
+): Promise<UserRow | null> {
+  await setUserPassword(db, row.username, password);
+  return await getUserRow(db, row.username);
+}
+
+async function maybeRecoverBootstrapEnvUser(
+  db: NotesExecutor,
+  row: UserRow,
+  password: string
+): Promise<UserRow | null> {
+  if (row.password_iterations <= PASSWORD_ITERATIONS) return null;
+
+  const bootstrapUsername = normalizeUsername(getLoginUsername());
+  const bootstrapPassword = getLoginPassword();
+  if (
+    !bootstrapUsername ||
+    !bootstrapPassword ||
+    row.username !== bootstrapUsername ||
+    !tokensMatch(password, bootstrapPassword)
+  ) {
+    return null;
+  }
+
+  return await rehashUserPassword(db, row, password);
 }
 
 export async function setUserPassword(
@@ -355,9 +426,20 @@ export async function authenticateUser(
     (await getUserRow(db, normalized)) ??
     (await maybeBootstrapEnvUser(db, normalized, password));
   if (!row) return null;
-  return (await verifyPassword(password, row))
-    ? { username: normalized, displayName: row.display_name }
-    : null;
+
+  if (await verifyPassword(password, row)) {
+    const activeRow =
+      row.password_iterations > PASSWORD_ITERATIONS
+        ? ((await rehashUserPassword(db, row, password)) ?? row)
+        : row;
+    return { username: normalized, displayName: activeRow.display_name };
+  }
+
+  const recoveredRow = await maybeRecoverBootstrapEnvUser(db, row, password);
+  if (!recoveredRow || !(await verifyPassword(password, recoveredRow))) {
+    return null;
+  }
+  return { username: normalized, displayName: recoveredRow.display_name };
 }
 
 export async function createAuthSession(

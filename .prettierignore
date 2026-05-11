@@ -13,3 +13,6 @@ to_import
 *.sqlite-shm
 *.sqlite-wal
 .env
+apps/web/.env
+apps/web/.dev.vars
+apps/web/.worker-secrets.json

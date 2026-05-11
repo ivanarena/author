@@ -1,7 +1,8 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { pbkdf2Sync } from 'node:crypto';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   fixtureDevice,
   fixtureNote,
@@ -23,7 +24,6 @@ beforeEach(() => {
   delete process.env.ANDROID_SYNC_API_URL;
   delete process.env.ANDROID_SYNC_SERVER_URL;
   delete process.env.NOTES_SYNC_SERVER_URL;
-  delete process.env.NOTES_SIGNUP_ENABLED;
   delete process.env.NOTES_SIGNUP_INVITE_CODES;
   process.env.NOTES_DB_PATH = join(tempDir, 'notes.sqlite');
   process.env.NOTES_REMOTE_SYNC_ENABLED = 'false';
@@ -43,7 +43,6 @@ afterEach(() => {
   delete process.env.ANDROID_SYNC_SERVER_URL;
   delete process.env.NOTES_SYNC_SERVER_URL;
   delete process.env.NOTES_REMOTE_SYNC_ENABLED;
-  delete process.env.NOTES_SIGNUP_ENABLED;
   delete process.env.NOTES_SIGNUP_INVITE_CODES;
   delete process.env.NOTES_LOGIN_USERNAME;
   delete process.env.NOTES_LOGIN_PASSWORD;
@@ -313,15 +312,109 @@ describe('Hono API', () => {
     });
     try {
       const user = await primary.execute({
-        sql: 'SELECT username, display_name FROM users WHERE username = ?',
+        sql: 'SELECT username, display_name, password_iterations FROM users WHERE username = ?',
         args: ['worker-user']
       });
       expect(user.rows[0]).toMatchObject({
         username: 'worker-user',
-        display_name: 'Worker User'
+        display_name: 'Worker User',
+        password_iterations: 100_000
       });
     } finally {
       primary.close();
+    }
+  });
+
+  it('rehashes an older bootstrap password row to the Worker PBKDF2 ceiling', async () => {
+    const primaryPath = join(tempDir, 'worker-old-password.sqlite');
+    const workerEnv = {
+      NOTES_DB_PROVIDER: 'turso',
+      TURSO_DATABASE_URL: `file:${primaryPath}`,
+      TURSO_AUTH_TOKEN: 'test-token',
+      NOTES_REMOTE_SYNC_ENABLED: 'false',
+      NOTES_LOGIN_USERNAME: 'owner',
+      NOTES_LOGIN_PASSWORD: 'test-password'
+    };
+    const oldSalt = 'old-worker-password-salt';
+    const oldIterations = 210_000;
+    const oldHash = pbkdf2Sync(
+      'test-password',
+      oldSalt,
+      oldIterations,
+      32,
+      'sha256'
+    ).toString('base64url');
+
+    const primary = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${primaryPath}`, authToken: 'test-token' }
+    });
+    try {
+      const now = new Date().toISOString();
+      await primary.execute({
+        sql: `INSERT INTO users (
+          username, display_name, password_hash, password_salt, password_iterations, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: ['owner', 'Owner', oldHash, oldSalt, oldIterations, now, now]
+      });
+    } finally {
+      primary.close();
+    }
+
+    const originalDeriveBits = crypto.subtle.deriveBits.bind(
+      crypto.subtle
+    ) as SubtleCrypto['deriveBits'];
+    const deriveBitsSpy = vi
+      .spyOn(crypto.subtle, 'deriveBits')
+      .mockImplementation(
+        async (...args: Parameters<SubtleCrypto['deriveBits']>) => {
+          const [algorithm] = args;
+          if (
+            typeof algorithm !== 'string' &&
+            algorithm.name === 'PBKDF2' &&
+            'iterations' in algorithm &&
+            Number(algorithm.iterations) > 100_000
+          ) {
+            throw new DOMException(
+              'Pbkdf2 failed: iteration counts above 100000 are not supported (requested 210000).',
+              'NotSupportedError'
+            );
+          }
+          return await originalDeriveBits(...args);
+        }
+      );
+    try {
+      const login = await api.fetch(
+        new Request('http://localhost/api/auth/login', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            username: 'owner',
+            password: 'test-password',
+            device: fixtureDevice
+          })
+        }),
+        workerEnv
+      );
+      expect(login.status).toBe(200);
+    } finally {
+      deriveBitsSpy.mockRestore();
+    }
+
+    const updated = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${primaryPath}`, authToken: 'test-token' }
+    });
+    try {
+      const user = await updated.execute({
+        sql: 'SELECT password_iterations FROM users WHERE username = ?',
+        args: ['owner']
+      });
+      expect(user.rows[0]).toMatchObject({
+        password_iterations: 100_000
+      });
+    } finally {
+      updated.close();
     }
   });
 

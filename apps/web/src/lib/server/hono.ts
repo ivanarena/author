@@ -200,8 +200,11 @@ function clearRemoteSyncRetry(): void {
   remoteSyncRetryTimer = null;
 }
 
-async function setPersistentRemoteSyncPending(pending: boolean): Promise<void> {
-  if (!shouldSyncRemoteDatabase()) return;
+async function setPersistentRemoteSyncPending(
+  pending: boolean,
+  env?: RuntimeEnv | null
+): Promise<void> {
+  if (!shouldSyncRemoteDatabase(env)) return;
   let db: NotesDb | null = null;
   try {
     db = await openLocalDatabase();
@@ -213,8 +216,10 @@ async function setPersistentRemoteSyncPending(pending: boolean): Promise<void> {
   }
 }
 
-async function hasPersistentRemoteSyncPending(): Promise<boolean> {
-  if (!shouldSyncRemoteDatabase()) return false;
+async function hasPersistentRemoteSyncPending(
+  env?: RuntimeEnv | null
+): Promise<boolean> {
+  if (!shouldSyncRemoteDatabase(env)) return false;
   let db: NotesDb | null = null;
   try {
     db = await openLocalDatabase();
@@ -227,47 +232,54 @@ async function hasPersistentRemoteSyncPending(): Promise<boolean> {
   }
 }
 
-async function revivePersistentRemoteSyncIfPending(): Promise<void> {
+async function revivePersistentRemoteSyncIfPending(
+  env?: RuntimeEnv | null
+): Promise<void> {
   if (
     remoteSyncQueueRunning ||
     remoteSyncQueued ||
     remoteSyncRetryTimer ||
-    !(await hasPersistentRemoteSyncPending())
+    !(await hasPersistentRemoteSyncPending(env))
   ) {
     return;
   }
 
-  void queueRemoteSyncAfter();
+  void queueRemoteSyncAfter(undefined, env);
 }
 
-async function syncRemoteBestEffort(db: NotesDb): Promise<boolean> {
+async function syncRemoteBestEffort(
+  db: NotesDb,
+  env?: RuntimeEnv | null
+): Promise<boolean> {
   try {
     await syncRemoteDatabase(db);
-    await setPersistentRemoteSyncPending(false);
+    await setPersistentRemoteSyncPending(false, env);
     return true;
   } catch (error) {
     if (isRemoteMirrorSyncAlreadyRunning(error)) {
-      await setPersistentRemoteSyncPending(true);
+      await setPersistentRemoteSyncPending(true, env);
       setRemoteSyncState('queued', {
         pendingSince: new Date().toISOString(),
         lastError: null
       });
-      scheduleRemoteSyncRetry();
+      scheduleRemoteSyncRetry(env);
       return false;
     }
     reportRemoteSyncError(error);
-    await setPersistentRemoteSyncPending(true);
+    await setPersistentRemoteSyncPending(true, env);
     return false;
   }
 }
 
-async function syncRemoteWithFreshConnection(): Promise<boolean> {
-  if (!shouldSyncRemoteDatabase()) return true;
+async function syncRemoteWithFreshConnection(
+  env?: RuntimeEnv | null
+): Promise<boolean> {
+  if (!shouldSyncRemoteDatabase(env)) return true;
 
   let db: NotesDb | null = null;
   try {
     db = await openLocalDatabase();
-    return await syncRemoteBestEffort(db);
+    return await syncRemoteBestEffort(db, env);
   } catch (error) {
     reportRemoteSyncError(error);
     return false;
@@ -290,10 +302,11 @@ async function mirrorRemoteUserForLocalSession(
 }
 
 async function queueRemoteSyncAfter(
-  remoteSync?: Promise<boolean>
+  remoteSync?: Promise<boolean>,
+  env?: RuntimeEnv | null
 ): Promise<void> {
-  if (!shouldSyncRemoteDatabase()) return;
-  await setPersistentRemoteSyncPending(true);
+  if (!shouldSyncRemoteDatabase(env)) return;
+  await setPersistentRemoteSyncPending(true, env);
   clearRemoteSyncRetry();
   remoteSyncQueued = true;
   setRemoteSyncState('queued', {
@@ -309,7 +322,7 @@ async function queueRemoteSyncAfter(
       while (remoteSyncQueued) {
         remoteSyncQueued = false;
         if (!previousOk) {
-          scheduleRemoteSyncRetry();
+          scheduleRemoteSyncRetry(env);
           if (
             remoteSyncStatus.state === 'queued' &&
             remoteSyncStatus.lastError === null
@@ -328,9 +341,9 @@ async function queueRemoteSyncAfter(
           lastStartedAt: startedAt,
           lastError: null
         });
-        const ok = await syncRemoteWithFreshConnection();
+        const ok = await syncRemoteWithFreshConnection(env);
         if (!ok) {
-          scheduleRemoteSyncRetry();
+          scheduleRemoteSyncRetry(env);
           if (
             remoteSyncStatus.state === 'queued' &&
             remoteSyncStatus.lastError === null
@@ -347,7 +360,7 @@ async function queueRemoteSyncAfter(
         previousOk = true;
         remoteSyncFailureCount = 0;
         if (!remoteSyncQueued) {
-          await setPersistentRemoteSyncPending(false);
+          await setPersistentRemoteSyncPending(false, env);
         }
         setRemoteSyncState('synced', {
           pendingSince: null,
@@ -358,14 +371,14 @@ async function queueRemoteSyncAfter(
     } finally {
       remoteSyncQueueRunning = false;
       if (remoteSyncQueued) {
-        void queueRemoteSyncAfter();
+        void queueRemoteSyncAfter(undefined, env);
       }
     }
   })();
 }
 
-function scheduleRemoteSyncRetry(): void {
-  if (!shouldSyncRemoteDatabase() || remoteSyncRetryTimer) return;
+function scheduleRemoteSyncRetry(env?: RuntimeEnv | null): void {
+  if (!shouldSyncRemoteDatabase(env) || remoteSyncRetryTimer) return;
   remoteSyncFailureCount += 1;
   const delayMs = Math.min(
     REMOTE_SYNC_RETRY_BASE_MS * 2 ** (remoteSyncFailureCount - 1),
@@ -373,7 +386,7 @@ function scheduleRemoteSyncRetry(): void {
   );
   remoteSyncRetryTimer = setTimeout(() => {
     remoteSyncRetryTimer = null;
-    void queueRemoteSyncAfter();
+    void queueRemoteSyncAfter(undefined, env);
   }, delayMs);
 }
 
@@ -773,7 +786,7 @@ api.post(API_PATHS.authLogin, async (c) => {
       );
     }
     if (remoteUser && remoteConfig) {
-      await queueRemoteSyncAfter();
+      await queueRemoteSyncAfter(undefined, c.env);
     }
 
     const user = remoteUser
@@ -794,7 +807,7 @@ api.post(API_PATHS.authLogin, async (c) => {
 
     await upsertDevice(db, body.device, undefined, user.username);
     const session = await createAuthSession(db, user, body.device.id);
-    await queueRemoteSyncAfter();
+    await queueRemoteSyncAfter(undefined, c.env);
     return c.json({
       token: session.token,
       user,
@@ -947,7 +960,7 @@ api.post(API_PATHS.authSignup, async (c) => {
 
     await upsertDevice(db, body.device, undefined, user.username);
     const session = await createAuthSession(db, user, body.device.id);
-    await queueRemoteSyncAfter();
+    await queueRemoteSyncAfter(undefined, c.env);
     return c.json({
       token: session.token,
       user,
@@ -1032,7 +1045,7 @@ api.patch(API_PATHS.account, async (c) => {
       }
       return c.json({ error: 'Account updates require remote access' }, 503);
     }
-    if (!(await syncRemoteBestEffort(db))) {
+    if (!(await syncRemoteBestEffort(db, c.env))) {
       return c.json({ error: 'Could not sync before profile update' }, 503);
     }
     session = await sessionFromRequest(db, c.req.raw);
@@ -1053,14 +1066,14 @@ api.patch(API_PATHS.account, async (c) => {
       remote.close();
     }
 
-    if (!(await syncRemoteBestEffort(db))) {
+    if (!(await syncRemoteBestEffort(db, c.env))) {
       return c.json(
         { error: 'Profile saved remotely, but local offline setup failed' },
         503
       );
     }
 
-    await queueRemoteSyncAfter();
+    await queueRemoteSyncAfter(undefined, c.env);
     return c.json({
       user
     });
@@ -1107,7 +1120,7 @@ api.post(API_PATHS.accountPassword, async (c) => {
       }
       return c.json({ error: 'Password changes require remote access' }, 503);
     }
-    if (!(await syncRemoteBestEffort(db))) {
+    if (!(await syncRemoteBestEffort(db, c.env))) {
       return c.json({ error: 'Could not sync before password change' }, 503);
     }
     session = await sessionFromRequest(db, c.req.raw);
@@ -1130,14 +1143,14 @@ api.post(API_PATHS.accountPassword, async (c) => {
     }
     if (!user) return c.json({ error: 'Current password is incorrect' }, 401);
 
-    if (!(await syncRemoteBestEffort(db))) {
+    if (!(await syncRemoteBestEffort(db, c.env))) {
       return c.json(
         { error: 'Password changed remotely, but local offline setup failed' },
         503
       );
     }
 
-    await queueRemoteSyncAfter();
+    await queueRemoteSyncAfter(undefined, c.env);
     return c.json({ user });
   } finally {
     db.close();
@@ -1176,7 +1189,7 @@ api.delete(API_PATHS.account, async (c) => {
       }
       return c.json({ error: 'Account deletion requires remote access' }, 503);
     }
-    if (!(await syncRemoteBestEffort(db))) {
+    if (!(await syncRemoteBestEffort(db, c.env))) {
       return c.json({ error: 'Could not sync before account deletion' }, 503);
     }
     session = await sessionFromRequest(db, c.req.raw);
@@ -1198,7 +1211,7 @@ api.delete(API_PATHS.account, async (c) => {
     }
     if (!deleted) return c.json({ error: 'Password is incorrect' }, 401);
 
-    if (!(await syncRemoteBestEffort(db))) {
+    if (!(await syncRemoteBestEffort(db, c.env))) {
       return c.json(
         { error: 'Account deleted remotely, but local cleanup failed' },
         503
@@ -1217,8 +1230,8 @@ api.get(API_PATHS.notes, async (c) => {
     let session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
 
-    if (!(await syncRemoteBestEffort(db))) {
-      await queueRemoteSyncAfter();
+    if (!(await syncRemoteBestEffort(db, c.env))) {
+      await queueRemoteSyncAfter(undefined, c.env);
     } else {
       session = await sessionFromRequest(db, c.req.raw);
       if (!session) return unauthorized();
@@ -1235,8 +1248,8 @@ api.get(API_PATHS.notebooks, async (c) => {
     let session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
 
-    if (!(await syncRemoteBestEffort(db))) {
-      await queueRemoteSyncAfter();
+    if (!(await syncRemoteBestEffort(db, c.env))) {
+      await queueRemoteSyncAfter(undefined, c.env);
     } else {
       session = await sessionFromRequest(db, c.req.raw);
       if (!session) return unauthorized();
@@ -1253,7 +1266,7 @@ api.get(API_PATHS.syncStatus, async (c) => {
     const authError = await requireAuth(db, c.req.raw);
     if (authError) return authError;
 
-    await revivePersistentRemoteSyncIfPending();
+    await revivePersistentRemoteSyncIfPending(c.env);
     return c.json({
       remote: remoteSyncSnapshot(c)
     } satisfies SyncStatusResponse);
@@ -1276,8 +1289,8 @@ api.post(API_PATHS.syncPull, async (c) => {
     if (!parsed.ok) return parsed.response;
     const body = parsed.body ?? {};
 
-    if (!(await syncRemoteBestEffort(db))) {
-      await queueRemoteSyncAfter();
+    if (!(await syncRemoteBestEffort(db, c.env))) {
+      await queueRemoteSyncAfter(undefined, c.env);
     } else {
       session = await sessionFromRequest(db, c.req.raw);
       if (!session) return unauthorized();
@@ -1318,14 +1331,14 @@ api.post(API_PATHS.syncPush, async (c) => {
       return c.json({ error: 'Invalid push payload' }, 400);
     }
 
-    if (!(await syncRemoteBestEffort(db))) {
-      await queueRemoteSyncAfter();
+    if (!(await syncRemoteBestEffort(db, c.env))) {
+      await queueRemoteSyncAfter(undefined, c.env);
     } else {
       session = await sessionFromRequest(db, c.req.raw);
       if (!session) return unauthorized();
     }
     const response = await pushChanges(db, body, syncOwner(session));
-    await queueRemoteSyncAfter();
+    await queueRemoteSyncAfter(undefined, c.env);
     return c.json(response);
   } finally {
     db.close();
@@ -1338,15 +1351,15 @@ api.post(API_PATHS.cleanupTrash, async (c) => {
     let session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
 
-    if (!(await syncRemoteBestEffort(db))) {
-      await queueRemoteSyncAfter();
+    if (!(await syncRemoteBestEffort(db, c.env))) {
+      await queueRemoteSyncAfter(undefined, c.env);
     } else {
       session = await sessionFromRequest(db, c.req.raw);
       if (!session) return unauthorized();
     }
     const response = await cleanupTrash(db, new Date(), syncOwner(session));
-    if (!(await syncRemoteBestEffort(db))) {
-      await queueRemoteSyncAfter();
+    if (!(await syncRemoteBestEffort(db, c.env))) {
+      await queueRemoteSyncAfter(undefined, c.env);
     }
     return c.json(response);
   } finally {

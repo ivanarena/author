@@ -5,6 +5,8 @@
 **/.env
 **/.env.local
 **/.env.*.local
+**/.dev.vars
+**/.worker-secrets.json
 
 node_modules
 **/node_modules

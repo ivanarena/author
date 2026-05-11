@@ -3,7 +3,7 @@
 ```text
 apps/
   web/          SvelteKit app, IndexedDB client, Hono API, SQLite/libSQL server
-  android/      Kotlin/Compose placeholder
+  android/      Kotlin/Compose Android app
 packages/
   schema/       Shared Note, Notebook, Device contracts
   api-types/    Request and response payloads

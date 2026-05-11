@@ -2,7 +2,7 @@ FROM node:24-slim
 
 WORKDIR /app
 
-RUN npm install -g @endevco/aube@1.4.0
+RUN npm install -g @endevco/aube@1.8.0
 
 COPY package.json aube-workspace.yaml aube-lock.yaml ./
 COPY apps ./apps

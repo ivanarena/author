@@ -3,14 +3,14 @@
 [![CI](../../actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
 [![Docker](../../actions/workflows/docker.yml/badge.svg)](../../actions/workflows/docker.yml)
 ![Node 24+](https://img.shields.io/badge/node-%3E%3D24-5FA04E)
-![Aube 1.4](https://img.shields.io/badge/package_manager-aube%201.4-111827)
+![Aube 1.8](https://img.shields.io/badge/package_manager-aube%201.8-111827)
 ![Code style: Prettier](https://img.shields.io/badge/code_style-prettier-F7B93E)
 ![Lint: ESLint](https://img.shields.io/badge/lint-eslint-4B32C3)
 ![Coverage: Vitest](https://img.shields.io/badge/coverage-vitest-6E9F18)
 
 A super minimal local-first notes app for personal use.
 
-The web app opens directly into a blank note, writes instantly to IndexedDB, and syncs to a small Hono API running inside SvelteKit. The self-hosted default is local SQLite/libSQL on disk; when Turso/libSQL is configured the server keeps SQLite active and mirrors local/remote records in both directions. The data contracts live in shared packages so a future Kotlin Android app can implement the same model and sync protocol.
+The web app opens directly into a blank note, writes instantly to IndexedDB, and syncs to a small Hono API running inside SvelteKit. The self-hosted default is local SQLite/libSQL on disk; when Turso/libSQL is configured the server keeps SQLite active and mirrors local/remote records in both directions. Cloudflare Workers deployments use Turso directly as their primary database. The data contracts live in shared packages so the Kotlin Android app can implement the same model and sync protocol.
 
 ## Quick Start
 
@@ -19,7 +19,7 @@ Install Node.js 24 or newer and Aube first. The recommended path is `mise`:
 ```sh
 curl https://mise.run | sh
 mise use -g node@24
-mise use -g aube@1.4.0
+mise use -g aube@1.8.0
 aube --version
 ```
 
@@ -67,7 +67,7 @@ For production hardening, reverse-proxy TLS, backup/restore drills, metrics, and
 ## Monorepo
 
 - `apps/web` is the SvelteKit web app, local Dexie store, Hono API, and self-host server.
-- `apps/android` is a placeholder for the future Kotlin app.
+- `apps/android` is the Kotlin/Compose Android app.
 - `packages/schema` defines Note, Notebook, Device, and shared sync metadata types.
 - `packages/api-types` defines API request and response contracts.
 - `packages/sync-spec` contains executable sync helpers plus protocol docs.

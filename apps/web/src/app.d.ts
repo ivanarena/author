@@ -15,7 +15,11 @@ declare global {
         NOTES_SIGNUP_INVITE_CODES?: string;
         NOTES_REMOTE_SYNC_ENABLED?: string;
         NOTES_CLEANUP_ENABLED?: string;
+        NOTES_CLEANUP_RUN_ON_START?: string;
+        NOTES_CLEANUP_INTERVAL_MINUTES?: string;
         NOTES_TRUST_PROXY_HEADERS?: string;
+        NOTES_LEGACY_AUTH_TOKEN_ENABLED?: string;
+        NOTES_AUTH_TOKEN?: string;
         AUTHOR_NOTES_API_URL?: string;
       };
     }

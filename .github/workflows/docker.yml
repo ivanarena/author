@@ -14,6 +14,10 @@ permissions:
   id-token: write
   security-events: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  TRIVY_VERSION: 0.70.0
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -50,13 +54,31 @@ jobs:
           provenance: ${{ github.event_name != 'pull_request' }}
 
       - name: Scan image
-        uses: aquasecurity/trivy-action@v0.33.1
-        with:
-          image-ref: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
-          format: sarif
-          output: trivy-results.sarif
-          severity: CRITICAL,HIGH
-          exit-code: '0'
+        env:
+          IMAGE_REF: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+        run: |
+          mkdir -p "${HOME}/.cache/trivy"
+
+          image_src=remote
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            image_src=docker
+          fi
+
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${PWD}:/work" \
+            -v "${HOME}/.cache/trivy:/root/.cache" \
+            -v "${HOME}/.docker:/root/.docker:ro" \
+            "aquasec/trivy:${TRIVY_VERSION}" image \
+            --image-src "${image_src}" \
+            --format sarif \
+            --output /work/trivy-results.sarif \
+            --scanners vuln \
+            --severity CRITICAL,HIGH \
+            --pkg-types os,library \
+            --exit-code 0 \
+            --timeout 10m \
+            "${IMAGE_REF}"
 
       - name: Upload scan results
         uses: github/codeql-action/upload-sarif@v4

@@ -189,13 +189,14 @@ talk directly to Turso.
 
 ## Android APK Update Notifications
 
-The Android app is sideloaded, so it checks GitHub periodically instead of relying on Play Store update delivery. On startup the app only schedules recurring background work; the network update check itself runs later in WorkManager and does not block app launch. The default interval is 12 hours.
+The Android app is sideloaded, so it checks GitHub instead of relying on Play Store update delivery. On startup the app schedules a delayed background check, then recurring background checks after that; the network update check itself runs later in WorkManager and does not block app launch. The default startup delay is 10 minutes, and the default recurring interval is 12 hours.
 
 The default check URL reads the Android version from `main`:
 
 ```env
 ANDROID_UPDATE_CHECK_URL=https://raw.githubusercontent.com/ivanarena/author/main/apps/android/app/build.gradle.kts
 ANDROID_UPDATE_DOWNLOAD_URL=https://github.com/ivanarena/author/releases/latest
+ANDROID_UPDATE_STARTUP_DELAY_MINUTES=10
 ANDROID_UPDATE_CHECK_INTERVAL_HOURS=12
 ```
 

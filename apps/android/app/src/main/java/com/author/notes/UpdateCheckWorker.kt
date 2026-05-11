@@ -11,7 +11,9 @@ import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -27,6 +29,7 @@ private const val UPDATE_NOTIFICATION_ID = 2001
 private const val UPDATE_PREFS = "author_update_check"
 private const val LAST_NOTIFIED_VERSION_CODE = "lastNotifiedVersionCode"
 private const val UNIQUE_PERIODIC_WORK_NAME = "author-android-update-check"
+private const val UNIQUE_STARTUP_WORK_NAME = "author-android-update-check-after-startup"
 
 class UpdateCheckWorker(
   appContext: Context,
@@ -145,6 +148,11 @@ class UpdateCheckWorker(
         .setConstraints(constraints)
         .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
         .build()
+      val startup = OneTimeWorkRequestBuilder<UpdateCheckWorker>()
+        .setConstraints(constraints)
+        .setInitialDelay(BuildConfig.UPDATE_STARTUP_DELAY_MINUTES, TimeUnit.MINUTES)
+        .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+        .build()
 
       WorkManager.getInstance(appContext)
         .enqueueUniquePeriodicWork(
@@ -152,6 +160,8 @@ class UpdateCheckWorker(
           ExistingPeriodicWorkPolicy.UPDATE,
           periodic
         )
+      WorkManager.getInstance(appContext)
+        .enqueueUniqueWork(UNIQUE_STARTUP_WORK_NAME, ExistingWorkPolicy.KEEP, startup)
     }
 
     private fun createChannel(context: Context) {

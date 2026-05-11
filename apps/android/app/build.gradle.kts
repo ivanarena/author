@@ -68,6 +68,10 @@ val androidUpdateCheckIntervalHours = configValue("ANDROID_UPDATE_CHECK_INTERVAL
   ?.toLongOrNull()
   ?.coerceIn(1, 168)
   ?: 12
+val androidUpdateStartupDelayMinutes = configValue("ANDROID_UPDATE_STARTUP_DELAY_MINUTES")
+  ?.toLongOrNull()
+  ?.coerceIn(1, 120)
+  ?: 10
 val releaseSigningConfigured = listOf(
   releaseKeystorePath,
   releaseKeystorePassword,
@@ -121,6 +125,7 @@ android {
     buildConfigField("String", "UPDATE_CHECK_URL", buildConfigString(androidUpdateCheckUrl))
     buildConfigField("String", "UPDATE_DOWNLOAD_URL", buildConfigString(androidUpdateDownloadUrl))
     buildConfigField("long", "UPDATE_CHECK_INTERVAL_HOURS", "${androidUpdateCheckIntervalHours}L")
+    buildConfigField("long", "UPDATE_STARTUP_DELAY_MINUTES", "${androidUpdateStartupDelayMinutes}L")
     manifestPlaceholders["usesCleartextTraffic"] = "false"
   }
 

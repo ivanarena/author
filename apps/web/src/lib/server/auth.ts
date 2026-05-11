@@ -4,7 +4,8 @@ import {
   getAuthSessionDays,
   getLegacyAuthToken,
   getLoginPassword,
-  getLoginUsername
+  getLoginUsername,
+  getSignupInviteCodes
 } from './config';
 import {
   get,
@@ -35,6 +36,10 @@ type SessionRow = {
   expires_at: string;
 };
 
+type InvitationCodeRow = {
+  code: string;
+};
+
 export interface AuthUser {
   username: string;
   displayName: string | null;
@@ -50,6 +55,46 @@ export interface CreatedAuthSession extends AuthSession {
   token: string;
   expiresAt: string;
   legacy: false;
+}
+
+function cleanInviteCode(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+export async function hasSignupInviteCodes(
+  db: NotesExecutor
+): Promise<boolean> {
+  if (getSignupInviteCodes().length > 0) return true;
+  const row = await get(
+    db,
+    `SELECT code
+     FROM invitation_codes
+     WHERE disabled_at IS NULL
+     LIMIT 1`
+  );
+  return row !== null;
+}
+
+export async function isValidSignupInviteCode(
+  db: NotesExecutor,
+  value: unknown
+): Promise<boolean> {
+  const candidate = cleanInviteCode(value);
+  if (!candidate) return false;
+  if (getSignupInviteCodes().includes(candidate)) return true;
+
+  const row = (await get(
+    db,
+    `SELECT code
+     FROM invitation_codes
+     WHERE code = ?
+       AND disabled_at IS NULL
+     LIMIT 1`,
+    [candidate]
+  )) as InvitationCodeRow | null;
+  return row !== null;
 }
 
 export function tokenFromRequest(request: Request): string | null {

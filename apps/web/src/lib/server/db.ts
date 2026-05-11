@@ -22,6 +22,7 @@ const initializedDatabases = new Map<string, Promise<void>>();
 const databaseWriteQueues = new Map<string, Promise<void>>();
 const databaseWriteKeys = new WeakMap<NotesDb, string>();
 const LEGACY_OWNER_USERNAME = 'legacy-token';
+const DEFAULT_SIGNUP_INVITE_CODE = 'authorprivatefriendsonly';
 const WRITE_TRANSACTION_MAX_ATTEMPTS = 6;
 const WRITE_TRANSACTION_RETRY_BASE_MS = 25;
 
@@ -69,6 +70,15 @@ const schemaSql = `
 
   CREATE INDEX IF NOT EXISTS users_updated_at_idx
     ON users(updated_at);
+
+  CREATE TABLE IF NOT EXISTS invitation_codes (
+    code TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    disabled_at TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS invitation_codes_active_idx
+    ON invitation_codes(disabled_at);
 
   CREATE TABLE IF NOT EXISTS sync_meta (
     key TEXT PRIMARY KEY,
@@ -537,8 +547,36 @@ export const SERVER_MIGRATIONS: ServerMigration[] = [
            ON notebooks(owner_username, deleted_at, name_hash)`
       );
     }
+  },
+  {
+    version: 6,
+    name: 'invitation-codes',
+    rollback:
+      'Restore from the pre-upgrade backup or disable codes by setting disabled_at on invitation_codes rows.',
+    up: async (db) => {
+      await exec(
+        db,
+        `CREATE TABLE IF NOT EXISTS invitation_codes (
+           code TEXT PRIMARY KEY,
+           created_at TEXT NOT NULL,
+           disabled_at TEXT
+         );
+         CREATE INDEX IF NOT EXISTS invitation_codes_active_idx
+           ON invitation_codes(disabled_at);`
+      );
+    }
   }
 ];
+
+async function seedDefaultInvitationCodes(db: NotesDb): Promise<void> {
+  await run(
+    db,
+    `INSERT INTO invitation_codes (code, created_at, disabled_at)
+     VALUES (?, ?, NULL)
+     ON CONFLICT(code) DO UPDATE SET disabled_at = NULL`,
+    [DEFAULT_SIGNUP_INVITE_CODE, new Date().toISOString()]
+  );
+}
 
 async function ensureSchemaMigrationsTable(db: NotesDb): Promise<void> {
   await exec(
@@ -587,6 +625,7 @@ export async function runPendingMigrations(db: NotesDb): Promise<void> {
 export async function initializeDatabase(db: NotesDb): Promise<void> {
   await exec(db, schemaSql);
   await runPendingMigrations(db);
+  await seedDefaultInvitationCodes(db);
   await seedEntityChanges(db);
 }
 

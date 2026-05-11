@@ -24,6 +24,8 @@ import {
   createUserAccount,
   deleteSessionFromRequest,
   deleteUserAccount,
+  hasSignupInviteCodes,
+  isValidSignupInviteCode,
   mirrorUserForLocalSession,
   normalizeUsername,
   requireAuth,
@@ -34,9 +36,6 @@ import {
 import {
   getPublicApiBaseUrl,
   getRemoteDatabaseConfig,
-  isSignupEnabled,
-  isSignupInviteRequired,
-  isValidSignupInviteCode,
   shouldSyncRemoteDatabase,
   shouldTrustProxyHeaders
 } from './config';
@@ -653,19 +652,26 @@ api.get(API_PATHS.metrics, (c) =>
   })
 );
 
-api.get(API_PATHS.config, (c) => {
+api.get(API_PATHS.config, async (c) => {
   const remoteConfig = getRemoteDatabaseConfig();
-  return c.json({
-    apiBaseUrl: publicApiBaseUrl(c.req.raw),
-    remote: {
-      enabled: shouldSyncRemoteDatabase(),
-      configured: remoteConfig !== null
-    },
-    signup: {
-      enabled: isSignupEnabled(),
-      inviteRequired: isSignupInviteRequired()
-    }
-  } satisfies ConfigResponse);
+  const remoteEnabled = shouldSyncRemoteDatabase();
+  const db = await openLocalDatabase();
+  try {
+    const inviteConfigured = await hasSignupInviteCodes(db);
+    return c.json({
+      apiBaseUrl: publicApiBaseUrl(c.req.raw),
+      remote: {
+        enabled: remoteEnabled,
+        configured: remoteConfig !== null
+      },
+      signup: {
+        enabled: remoteEnabled && inviteConfigured,
+        inviteRequired: inviteConfigured
+      }
+    } satisfies ConfigResponse);
+  } finally {
+    db.close();
+  }
 });
 
 api.post(API_PATHS.authLogin, async (c) => {
@@ -788,19 +794,6 @@ api.post(API_PATHS.authSignup, async (c) => {
     );
   }
 
-  if (!isSignupEnabled()) {
-    recordFailedLogin(attemptKey);
-    return c.json(
-      { error: 'Signup is disabled. Create users with user:create.' },
-      403
-    );
-  }
-
-  if (!isValidSignupInviteCode(body.inviteCode)) {
-    recordFailedLogin(attemptKey);
-    return c.json({ error: 'Invalid signup invite code' }, 403);
-  }
-
   const remoteConfig = shouldSyncRemoteDatabase()
     ? getRemoteDatabaseConfig()
     : null;
@@ -809,9 +802,27 @@ api.post(API_PATHS.authSignup, async (c) => {
     return c.json({ error: 'Signup requires remote database access' }, 503);
   }
 
+  const inviteDb = await openLocalDatabase();
   const remote = await openConfiguredDatabase(remoteConfig);
   let user: Awaited<ReturnType<typeof createUserAccount>>;
   try {
+    const inviteConfigured = await hasSignupInviteCodes(inviteDb);
+    if (!inviteConfigured) {
+      recordFailedLogin(attemptKey);
+      return c.json(
+        { error: 'Signup is disabled. Create users with user:create.' },
+        403
+      );
+    }
+
+    if (
+      !(await isValidSignupInviteCode(inviteDb, body.inviteCode)) ||
+      !(await isValidSignupInviteCode(remote, body.inviteCode))
+    ) {
+      recordFailedLogin(attemptKey);
+      return c.json({ error: 'Invalid signup invite code' }, 403);
+    }
+
     const createdUser = await createUserAccount(
       remote,
       body.username,
@@ -830,6 +841,7 @@ api.post(API_PATHS.authSignup, async (c) => {
     );
   } finally {
     remote.close();
+    inviteDb.close();
   }
 
   clearFailedLogins(attemptKey);

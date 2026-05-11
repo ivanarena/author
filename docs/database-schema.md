@@ -26,6 +26,7 @@ Tables:
 - `devices`
 - `users`
 - `auth_sessions`
+- `invitation_codes`
 - `schema_migrations`
 - `notes`
 - `notebooks`

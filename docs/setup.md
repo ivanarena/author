@@ -36,7 +36,6 @@ NOTES_LOGIN_PASSWORD=change-this-local-password
 NOTES_AUTH_SESSION_DAYS=90
 NOTES_TRUST_PROXY_HEADERS=false
 NOTES_REMOTE_SYNC_ENABLED=true
-NOTES_SIGNUP_ENABLED=false
 NOTES_CLEANUP_ENABLED=true
 NOTES_CLEANUP_RUN_ON_START=true
 NOTES_CLEANUP_INTERVAL_MINUTES=1440
@@ -45,7 +44,7 @@ NOTES_CLEANUP_INTERVAL_MINUTES=1440
 `NOTES_LOGIN_USERNAME` and `NOTES_LOGIN_PASSWORD` bootstrap the first local user if it does not already exist. After login, the server returns a random session token, which the browser stores in local storage for later sync requests.
 In production, there is no fallback password; set `NOTES_LOGIN_PASSWORD` or create a user before expecting browser login to work.
 
-Signup is disabled by default. For a personal deployment, keep `NOTES_SIGNUP_ENABLED=false` and create users with `aube -F @author/web run user:create -- username --random`. If you intentionally want browser signup, set `NOTES_SIGNUP_ENABLED=true`; for invite-only signup, leave that false and set `NOTES_SIGNUP_INVITE_CODES` to a comma-separated list of invite codes.
+Signup is invite-only when a remote database is configured. The server seeds `authorprivatefriendsonly` into the local and remote `invitation_codes` tables; matching that code creates the remote account and prepares the local session. `NOTES_SIGNUP_INVITE_CODES` can add temporary env-only invite codes.
 
 `NOTES_AUTH_TOKEN` is no longer used by default. If an older client still depends on the old static bearer token, set `NOTES_LEGACY_AUTH_TOKEN_ENABLED=true` temporarily and rotate away from it.
 
@@ -81,7 +80,6 @@ NOTES_LOGIN_PASSWORD=use-a-long-random-password
 NOTES_AUTH_SESSION_DAYS=90
 NOTES_TRUST_PROXY_HEADERS=false
 NOTES_REMOTE_SYNC_ENABLED=true
-NOTES_SIGNUP_ENABLED=false
 NOTES_CLEANUP_ENABLED=true
 NOTES_CLEANUP_RUN_ON_START=true
 NOTES_CLEANUP_INTERVAL_MINUTES=1440

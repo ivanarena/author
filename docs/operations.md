@@ -2,13 +2,13 @@
 
 ## Signup
 
-Signup is closed by default. Keep `NOTES_SIGNUP_ENABLED=false` for a personal app and create users with:
+Signup is invite-only when a remote database is configured. The default invite code is seeded into local and remote `invitation_codes` tables:
 
-```sh
-aube -F @author/web run user:create -- owner --random
+```text
+authorprivatefriendsonly
 ```
 
-To allow controlled signup, set `NOTES_SIGNUP_INVITE_CODES` to comma-separated codes. Open signup requires the explicit `NOTES_SIGNUP_ENABLED=true` flag.
+Disable an invite by setting its `disabled_at` value. `NOTES_SIGNUP_INVITE_CODES` can add temporary env-only invite codes for controlled rollouts.
 
 ## TLS and Headers
 

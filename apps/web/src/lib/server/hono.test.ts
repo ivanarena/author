@@ -142,8 +142,8 @@ describe('Hono API', () => {
         configured: true
       },
       signup: {
-        enabled: false,
-        inviteRequired: false
+        enabled: true,
+        inviteRequired: true
       }
     });
     expect(JSON.stringify(body)).not.toContain('super-secret-token');
@@ -196,7 +196,6 @@ describe('Hono API', () => {
     process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
     process.env.TURSO_AUTH_TOKEN = 'test-token';
     process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
-    process.env.NOTES_SIGNUP_ENABLED = 'true';
 
     const signup = await api.fetch(
       new Request('http://localhost/api/auth/signup', {
@@ -206,6 +205,7 @@ describe('Hono API', () => {
           username: 'new-user',
           password: 'new-user-password',
           displayName: 'New User',
+          inviteCode: 'authorprivatefriendsonly',
           device: fixtureDevice
         })
       })
@@ -229,8 +229,30 @@ describe('Hono API', () => {
         username: 'new-user',
         display_name: 'New User'
       });
+      const invite = await remote.execute({
+        sql: 'SELECT code, disabled_at FROM invitation_codes WHERE code = ?',
+        args: ['authorprivatefriendsonly']
+      });
+      expect(invite.rows[0]).toMatchObject({
+        code: 'authorprivatefriendsonly',
+        disabled_at: null
+      });
     } finally {
       remote.close();
+    }
+
+    const local = await openDatabase();
+    try {
+      const invite = await local.execute({
+        sql: 'SELECT code, disabled_at FROM invitation_codes WHERE code = ?',
+        args: ['authorprivatefriendsonly']
+      });
+      expect(invite.rows[0]).toMatchObject({
+        code: 'authorprivatefriendsonly',
+        disabled_at: null
+      });
+    } finally {
+      local.close();
     }
 
     const duplicate = await api.fetch(
@@ -240,6 +262,7 @@ describe('Hono API', () => {
         body: JSON.stringify({
           username: 'new-user',
           password: 'new-user-password',
+          inviteCode: 'authorprivatefriendsonly',
           device: fixtureDevice
         })
       })
@@ -247,8 +270,8 @@ describe('Hono API', () => {
     expect(duplicate.status).toBe(409);
   });
 
-  it('keeps signup disabled by default even when Turso is configured', async () => {
-    const remotePath = join(tempDir, 'remote-disabled-signup.sqlite');
+  it('requires the seeded invite code by default when Turso is configured', async () => {
+    const remotePath = join(tempDir, 'remote-seeded-invite-signup.sqlite');
     process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
     process.env.TURSO_AUTH_TOKEN = 'test-token';
     process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
@@ -267,7 +290,7 @@ describe('Hono API', () => {
 
     expect(signup.status).toBe(403);
     await expect(signup.json()).resolves.toMatchObject({
-      error: 'Signup is disabled. Create users with user:create.'
+      error: 'Invalid signup invite code'
     });
   });
 
@@ -310,8 +333,6 @@ describe('Hono API', () => {
   });
 
   it('requires remote database access for signup', async () => {
-    process.env.NOTES_SIGNUP_ENABLED = 'true';
-
     const signup = await api.fetch(
       new Request('http://localhost/api/auth/signup', {
         method: 'POST',
@@ -319,6 +340,7 @@ describe('Hono API', () => {
         body: JSON.stringify({
           username: 'remote-required-user',
           password: 'new-user-password',
+          inviteCode: 'authorprivatefriendsonly',
           device: fixtureDevice
         })
       })

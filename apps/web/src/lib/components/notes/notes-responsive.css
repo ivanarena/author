@@ -59,61 +59,63 @@
 }
 
 @media (max-width: 1180px) {
-  :root {
-    --menu-controls-top: 16px;
-    --menu-offset-top: 82px;
-    --menu-panel-height: min(80vh, calc(100vh - 96px));
-  }
-
   .app-shell {
+    --side-menu-gap: 10px;
+    --side-menu-left: 16px;
+    --side-menu-top: 16px;
+    --side-menu-width: min(820px, calc(100vw - 32px));
     display: block;
   }
 
   .menu-dock {
     position: fixed;
-    top: 0;
-    left: 50%;
-    width: min(100vw - 18px, 920px);
-    height: 76px;
+    top: var(--side-menu-top);
+    left: var(--side-menu-left);
+    width: var(--control-height);
+    height: calc(var(--control-height) * 2 + var(--side-menu-gap));
     border-right: 0;
     background: transparent;
-    transform: translateX(-50%);
+    transform: none;
   }
 
   .menu-dock.open {
-    width: min(100vw - 18px, 920px);
-    height: min(900px, calc(var(--menu-offset-top) + var(--menu-panel-height)));
+    width: var(--side-menu-width);
+    height: calc(100vh - var(--side-menu-top) * 2);
   }
 
   .dock-buttons {
-    top: var(--menu-controls-top);
-    left: 50%;
-    flex-direction: row;
-    transform: translateX(-50%);
+    top: 0;
+    left: 0;
+    flex-direction: column;
+    transform: none;
   }
 
   .profile-menu::before {
-    position: fixed;
-    top: calc(var(--control-height) - var(--space-1));
-    left: 50%;
-    width: min(430px, calc(100vw - 40px));
-    height: calc(
-      var(--menu-offset-top) - var(--menu-controls-top) -
-        var(--control-height) + var(--space-4)
-    );
-    transform: translateX(-50%);
+    position: absolute;
+    top: 0;
+    left: 100%;
+    width: var(--side-menu-gap);
+    height: min(260px, calc(100vh - var(--side-menu-top) * 2));
+    transform: none;
   }
 
   .profile-hover-card {
-    position: fixed;
-    top: calc(var(--menu-offset-top) - var(--menu-controls-top));
-    left: 50%;
-    transform: translateX(-50%) translateY(-10px) scale(0.98);
-    transform-origin: top center;
+    position: absolute;
+    top: 0;
+    left: calc(100% + var(--side-menu-gap));
+    width: min(
+      430px,
+      calc(
+        100vw - var(--side-menu-left) - var(--control-height) -
+          var(--side-menu-gap) - 16px
+      )
+    );
+    transform: translateX(-18px) scale(0.98);
+    transform-origin: center left;
   }
 
   .profile-menu.open .profile-hover-card {
-    transform: translateX(-50%) translateY(0);
+    transform: translateX(0);
   }
 
   .menu-trigger {
@@ -130,12 +132,12 @@
   .menu-panels {
     position: absolute;
     z-index: 21;
-    top: var(--menu-offset-top);
-    left: 0;
+    top: 0;
+    left: calc(var(--control-height) + var(--side-menu-gap));
     grid-template-columns: minmax(150px, 0.42fr) minmax(0, 0.58fr);
     grid-template-rows: minmax(0, 1fr);
-    width: 100%;
-    height: var(--menu-panel-height);
+    width: calc(100% - var(--control-height) - var(--side-menu-gap));
+    height: 100%;
     padding: 14px;
     background: var(--panel);
     border: 0;
@@ -144,8 +146,8 @@
     visibility: hidden;
     opacity: 0;
     pointer-events: none;
-    transform: translateY(-10px) scale(0.98);
-    transform-origin: top center;
+    transform: translateX(-16px) scale(0.98);
+    transform-origin: center left;
     transition:
       opacity var(--motion-slow) var(--motion-ease),
       transform var(--motion-slow) var(--motion-ease),
@@ -156,17 +158,17 @@
     visibility: visible;
     opacity: 1;
     pointer-events: auto;
-    transform: translateY(0);
+    transform: translateX(0);
   }
 
   .menu-dock:has(.profile-menu.open) .menu-panels {
     visibility: hidden;
     opacity: 0;
     pointer-events: none;
-    transform: translateY(-10px) scale(0.98);
+    transform: translateX(-16px) scale(0.98);
   }
 
-  .app-shell:has(.menu-dock.open) .editor-wrap {
+  .app-shell:not(.settings-open):has(.menu-dock.open) .editor-wrap {
     margin-left: 0;
   }
 
@@ -233,7 +235,7 @@
   }
 
   .writer {
-    padding: 170px 30px 38px;
+    padding: 72px clamp(30px, 7vw, 88px) 38px clamp(72px, 10vw, 96px);
   }
 
   .title-input {
@@ -248,20 +250,50 @@
 }
 
 @media (max-width: 720px) {
+  .app-shell {
+    --side-menu-gap: 8px;
+    --side-menu-left: 8px;
+    --side-menu-top: 12px;
+    --side-menu-width: calc(100vw - 16px);
+  }
+
   .menu-panels {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(140px, 0.42fr) minmax(0, 0.58fr);
-    gap: var(--space-3);
+    grid-template-columns: 132px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    gap: var(--space-2);
+    padding: 8px;
+  }
+
+  nav,
+  .note-list {
+    --nav-trailing-width: 32px;
+  }
+
+  .nav-main,
+  .notebook-main {
+    gap: 6px;
+    padding: 0 10px;
+  }
+
+  .nav-trailing,
+  .notebook-trailing {
+    padding-right: 10px;
+  }
+
+  .notebooks,
+  .notes {
+    gap: 14px;
+    padding: 10px;
   }
 
   .notebooks {
     border-right: 0;
     border-bottom: 0;
-    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    border-radius: var(--radius-lg) 0 0 var(--radius-lg);
   }
 
   .notes {
-    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
   }
 
   .note-row {

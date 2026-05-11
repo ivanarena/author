@@ -5,8 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "vite build",
-    "preview": "vite build && vite preview --host 0.0.0.0",
+    "build": "SVELTEKIT_ADAPTER=node vite build",
+    "preview": "SVELTEKIT_ADAPTER=node vite build && vite preview --host 0.0.0.0",
+    "cf:dev": "SVELTEKIT_ADAPTER=cloudflare vite build && wrangler dev",
+    "cf:deploy": "SVELTEKIT_ADAPTER=cloudflare vite build && wrangler deploy",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
@@ -33,6 +35,7 @@
   "devDependencies": {
     "@author/test-fixtures": "workspace:*",
     "@playwright/test": "latest",
+    "@sveltejs/adapter-cloudflare": "^7.2.8",
     "@sveltejs/adapter-node": "latest",
     "@sveltejs/kit": "latest",
     "@sveltejs/vite-plugin-svelte": "latest",
@@ -42,6 +45,7 @@
     "tsx": "latest",
     "typescript": "latest",
     "vite": "latest",
-    "vitest": "latest"
+    "vitest": "latest",
+    "wrangler": "^4.90.0"
   }
 }

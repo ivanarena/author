@@ -1,0 +1,108 @@
+name: Cloudflare Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/cloudflare.yml
+      - apps/web/**
+      - packages/**
+      - package.json
+      - aube-lock.yaml
+      - aube-workspace.yaml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Worker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: |
+          for attempt in 1 2 3; do
+            npx -y @endevco/aube@1.4.0 install --frozen-lockfile && exit 0
+            sleep_seconds=$((attempt * 20))
+            echo "Dependency install failed on attempt ${attempt}; retrying in ${sleep_seconds}s..."
+            sleep "${sleep_seconds}"
+          done
+
+          npx -y @endevco/aube@1.4.0 install --frozen-lockfile
+
+      - name: Validate deployment secrets
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          NOTES_LOGIN_PASSWORD: ${{ secrets.NOTES_LOGIN_PASSWORD }}
+        run: |
+          node <<'NODE'
+          const required = [
+            'CLOUDFLARE_ACCOUNT_ID',
+            'CLOUDFLARE_API_TOKEN',
+            'TURSO_DATABASE_URL',
+            'TURSO_AUTH_TOKEN',
+            'NOTES_LOGIN_PASSWORD'
+          ];
+          const missing = required.filter((name) => !process.env[name]);
+          if (missing.length > 0) {
+            console.error(`Missing required GitHub secrets: ${missing.join(', ')}`);
+            process.exit(1);
+          }
+          NODE
+
+      - name: Deploy to Cloudflare Workers
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx -y @endevco/aube@1.4.0 -F @author/web run cf:deploy
+
+      - name: Sync Worker secrets
+        working-directory: apps/web
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          NOTES_LOGIN_PASSWORD: ${{ secrets.NOTES_LOGIN_PASSWORD }}
+          NOTES_AUTH_SESSION_DAYS: ${{ secrets.NOTES_AUTH_SESSION_DAYS }}
+          NOTES_SIGNUP_INVITE_CODES: ${{ secrets.NOTES_SIGNUP_INVITE_CODES }}
+          AUTHOR_NOTES_API_URL: ${{ secrets.AUTHOR_NOTES_API_URL }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+
+          const required = [
+            'TURSO_DATABASE_URL',
+            'TURSO_AUTH_TOKEN',
+            'NOTES_LOGIN_PASSWORD'
+          ];
+          const optional = [
+            'NOTES_AUTH_SESSION_DAYS',
+            'NOTES_SIGNUP_INVITE_CODES',
+            'AUTHOR_NOTES_API_URL'
+          ];
+
+          const secrets = {};
+          for (const name of [...required, ...optional]) {
+            if (process.env[name]) secrets[name] = process.env[name];
+          }
+          fs.writeFileSync('.worker-secrets.json', JSON.stringify(secrets));
+          NODE
+
+          trap 'rm -f .worker-secrets.json' EXIT
+          ./node_modules/.bin/wrangler secret bulk .worker-secrets.json

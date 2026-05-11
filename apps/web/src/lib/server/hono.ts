@@ -15,7 +15,7 @@ import type {
 } from '@author/api-types';
 import { API_PATHS } from '@author/api-types';
 import type { Note, Notebook, SyncStatus } from '@author/schema';
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import {
   type AuthSession,
   authenticateUser,
@@ -36,8 +36,10 @@ import {
 import {
   getPublicApiBaseUrl,
   getRemoteDatabaseConfig,
+  setRuntimeEnv,
   shouldSyncRemoteDatabase,
-  shouldTrustProxyHeaders
+  shouldTrustProxyHeaders,
+  type RuntimeEnv
 } from './config';
 import { openConfiguredDatabase, openLocalDatabase, type NotesDb } from './db';
 import {
@@ -52,7 +54,16 @@ import {
 } from './repository';
 import { syncRemoteDatabase } from './remote-sync';
 
-export const api = new Hono();
+type ApiBindings = RuntimeEnv;
+
+type ApiContext = Context<{ Bindings: ApiBindings }>;
+
+export const api = new Hono<{ Bindings: ApiBindings }>();
+
+api.use('*', async (c, next) => {
+  setRuntimeEnv(c.env);
+  await next();
+});
 
 const LOGIN_ATTEMPT_WINDOW_MS = 60_000;
 const MAX_FAILED_LOGIN_ATTEMPTS = 8;
@@ -87,6 +98,29 @@ function syncOwner(session: AuthSession): string {
   return session.user.username;
 }
 
+function isTursoPrimary(c: ApiContext): boolean {
+  return c.env?.NOTES_DB_PROVIDER === 'turso';
+}
+
+function remoteMirrorConfig(
+  c: ApiContext
+): ReturnType<typeof getRemoteDatabaseConfig> {
+  if (isTursoPrimary(c)) return null;
+  return shouldSyncRemoteDatabase(c.env)
+    ? getRemoteDatabaseConfig(c.env)
+    : null;
+}
+
+async function openPrimaryDatabase(c: ApiContext): Promise<NotesDb> {
+  if (!isTursoPrimary(c)) return await openLocalDatabase();
+
+  const config = getRemoteDatabaseConfig(c.env);
+  if (!config) {
+    throw new Error('Turso primary database is not configured');
+  }
+  return await openConfiguredDatabase(config);
+}
+
 function reportRemoteSyncError(error: unknown): void {
   if (isRemoteMirrorSyncAlreadyRunning(error)) return;
   console.warn(
@@ -117,8 +151,10 @@ const remoteSyncStatus: {
   lastError: null
 };
 
-function remoteSyncSnapshot(): SyncStatusResponse['remote'] {
-  const enabled = shouldSyncRemoteDatabase();
+function remoteSyncSnapshot(c?: ApiContext): SyncStatusResponse['remote'] {
+  const enabled = c
+    ? !isTursoPrimary(c) && shouldSyncRemoteDatabase(c.env)
+    : shouldSyncRemoteDatabase();
   return {
     enabled,
     state: enabled ? remoteSyncStatus.state : 'disabled',
@@ -146,8 +182,8 @@ function requestOrigin(request: Request): string {
   return requestUrl.origin;
 }
 
-function publicApiBaseUrl(request: Request): string {
-  return getPublicApiBaseUrl() ?? requestOrigin(request);
+function publicApiBaseUrl(request: Request, c?: ApiContext): string {
+  return getPublicApiBaseUrl(c?.env) ?? requestOrigin(request);
 }
 
 function setRemoteSyncState(
@@ -166,26 +202,28 @@ function clearRemoteSyncRetry(): void {
 
 async function setPersistentRemoteSyncPending(pending: boolean): Promise<void> {
   if (!shouldSyncRemoteDatabase()) return;
-  const db = await openLocalDatabase();
+  let db: NotesDb | null = null;
   try {
+    db = await openLocalDatabase();
     await setSyncMeta(db, REMOTE_SYNC_PENDING_KEY, pending ? '1' : '0');
   } catch (error) {
     reportRemoteSyncError(error);
   } finally {
-    db.close();
+    db?.close();
   }
 }
 
 async function hasPersistentRemoteSyncPending(): Promise<boolean> {
   if (!shouldSyncRemoteDatabase()) return false;
-  const db = await openLocalDatabase();
+  let db: NotesDb | null = null;
   try {
+    db = await openLocalDatabase();
     return (await getSyncMeta(db, REMOTE_SYNC_PENDING_KEY)) === '1';
   } catch (error) {
     reportRemoteSyncError(error);
     return false;
   } finally {
-    db.close();
+    db?.close();
   }
 }
 
@@ -413,8 +451,8 @@ function unixTimestampSeconds(value: string | null): number {
   return Number.isFinite(timestamp) ? Math.floor(timestamp / 1000) : 0;
 }
 
-function metricsBody(): string {
-  const remote = remoteSyncSnapshot();
+function metricsBody(c?: ApiContext): string {
+  const remote = remoteSyncSnapshot(c);
   const state = remote.state;
   return [
     '# HELP author_up App process liveness.',
@@ -647,25 +685,26 @@ api.get(API_PATHS.health, (c) =>
 );
 
 api.get(API_PATHS.metrics, (c) =>
-  c.text(`${metricsBody()}\n`, 200, {
+  c.text(`${metricsBody(c)}\n`, 200, {
     'content-type': 'text/plain; version=0.0.4; charset=utf-8'
   })
 );
 
 api.get(API_PATHS.config, async (c) => {
-  const remoteConfig = getRemoteDatabaseConfig();
-  const remoteEnabled = shouldSyncRemoteDatabase();
-  const db = await openLocalDatabase();
+  const remoteConfig = remoteMirrorConfig(c);
+  const remoteEnabled = remoteConfig !== null;
+  const primaryTurso = isTursoPrimary(c);
+  const db = await openPrimaryDatabase(c);
   try {
     const inviteConfigured = await hasSignupInviteCodes(db);
     return c.json({
-      apiBaseUrl: publicApiBaseUrl(c.req.raw),
+      apiBaseUrl: publicApiBaseUrl(c.req.raw, c),
       remote: {
         enabled: remoteEnabled,
         configured: remoteConfig !== null
       },
       signup: {
-        enabled: remoteEnabled && inviteConfigured,
+        enabled: (remoteEnabled || primaryTurso) && inviteConfigured,
         inviteRequired: inviteConfigured
       }
     } satisfies ConfigResponse);
@@ -696,9 +735,7 @@ api.post(API_PATHS.authLogin, async (c) => {
   }
 
   let remoteUser: Awaited<ReturnType<typeof authenticateUser>> = null;
-  const remoteConfig = shouldSyncRemoteDatabase()
-    ? getRemoteDatabaseConfig()
-    : null;
+  const remoteConfig = remoteMirrorConfig(c);
   if (remoteConfig) {
     let remote: NotesDb | null = null;
     try {
@@ -719,7 +756,7 @@ api.post(API_PATHS.authLogin, async (c) => {
     }
   }
 
-  const db = await openLocalDatabase();
+  const db = await openPrimaryDatabase(c);
   try {
     if (
       remoteUser &&
@@ -794,15 +831,66 @@ api.post(API_PATHS.authSignup, async (c) => {
     );
   }
 
-  const remoteConfig = shouldSyncRemoteDatabase()
-    ? getRemoteDatabaseConfig()
-    : null;
+  const remoteConfig = remoteMirrorConfig(c);
+  const primaryTurso = isTursoPrimary(c);
+  if (!remoteConfig && !primaryTurso) {
+    recordFailedLogin(attemptKey);
+    return c.json({ error: 'Signup requires remote database access' }, 503);
+  }
+
+  if (!remoteConfig && primaryTurso) {
+    const db = await openPrimaryDatabase(c);
+    try {
+      const inviteConfigured = await hasSignupInviteCodes(db);
+      if (!inviteConfigured) {
+        recordFailedLogin(attemptKey);
+        return c.json(
+          { error: 'Signup is disabled. Create users with user:create.' },
+          403
+        );
+      }
+
+      if (!(await isValidSignupInviteCode(db, body.inviteCode))) {
+        recordFailedLogin(attemptKey);
+        return c.json({ error: 'Invalid signup invite code' }, 403);
+      }
+
+      const user = await createUserAccount(
+        db,
+        body.username,
+        body.password,
+        body.displayName
+      );
+      if (!user) {
+        recordFailedLogin(attemptKey);
+        return c.json({ error: 'Username is already taken' }, 409);
+      }
+
+      clearFailedLogins(attemptKey);
+      await upsertDevice(db, body.device, undefined, user.username);
+      const session = await createAuthSession(db, user, body.device.id);
+      return c.json({
+        token: session.token,
+        user,
+        device: body.device,
+        expiresAt: session.expiresAt
+      } satisfies AuthLoginResponse);
+    } catch (error) {
+      return c.json(
+        { error: error instanceof Error ? error.message : 'Signup failed' },
+        400
+      );
+    } finally {
+      db.close();
+    }
+  }
+
   if (!remoteConfig) {
     recordFailedLogin(attemptKey);
     return c.json({ error: 'Signup requires remote database access' }, 503);
   }
 
-  const inviteDb = await openLocalDatabase();
+  const inviteDb = await openPrimaryDatabase(c);
   const remote = await openConfiguredDatabase(remoteConfig);
   let user: Awaited<ReturnType<typeof createUserAccount>>;
   try {
@@ -846,7 +934,7 @@ api.post(API_PATHS.authSignup, async (c) => {
 
   clearFailedLogins(attemptKey);
 
-  const db = await openLocalDatabase();
+  const db = await openPrimaryDatabase(c);
   try {
     if (
       !(await mirrorRemoteUserForLocalSession(remoteConfig, db, user.username))
@@ -877,7 +965,7 @@ api.post(API_PATHS.authSignup, async (c) => {
 });
 
 api.get(API_PATHS.authValidate, async (c) => {
-  const db = await openLocalDatabase();
+  const db = await openPrimaryDatabase(c);
   try {
     const session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
@@ -894,7 +982,7 @@ api.get(API_PATHS.authValidate, async (c) => {
 });
 
 api.post(API_PATHS.authLogout, async (c) => {
-  const db = await openLocalDatabase();
+  const db = await openPrimaryDatabase(c);
   try {
     const authError = await requireAuth(db, c.req.raw);
     if (authError) return authError;
@@ -906,7 +994,7 @@ api.post(API_PATHS.authLogout, async (c) => {
 });
 
 api.get(API_PATHS.account, async (c) => {
-  const db = await openLocalDatabase();
+  const db = await openPrimaryDatabase(c);
   try {
     const session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
@@ -917,7 +1005,7 @@ api.get(API_PATHS.account, async (c) => {
 });
 
 api.patch(API_PATHS.account, async (c) => {
-  const db = await openLocalDatabase();
+  const db = await openPrimaryDatabase(c);
   try {
     let session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
@@ -931,8 +1019,17 @@ api.patch(API_PATHS.account, async (c) => {
     );
     if (!parsed.ok) return parsed.response;
     const body = parsed.body ?? {};
-    const remoteConfig = getRemoteDatabaseConfig();
+    const remoteConfig = remoteMirrorConfig(c);
     if (!remoteConfig) {
+      if (isTursoPrimary(c)) {
+        return c.json({
+          user: await updateUserProfile(
+            db,
+            session.user.username,
+            body.displayName
+          )
+        });
+      }
       return c.json({ error: 'Account updates require remote access' }, 503);
     }
     if (!(await syncRemoteBestEffort(db))) {
@@ -973,7 +1070,7 @@ api.patch(API_PATHS.account, async (c) => {
 });
 
 api.post(API_PATHS.accountPassword, async (c) => {
-  const db = await openLocalDatabase();
+  const db = await openPrimaryDatabase(c);
   try {
     let session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
@@ -994,8 +1091,20 @@ api.post(API_PATHS.accountPassword, async (c) => {
       return c.json({ error: 'Invalid password payload' }, 400);
     }
 
-    const remoteConfig = getRemoteDatabaseConfig();
+    const remoteConfig = remoteMirrorConfig(c);
     if (!remoteConfig) {
+      if (isTursoPrimary(c)) {
+        const user = await changeUserPassword(
+          db,
+          session.user.username,
+          body.currentPassword,
+          body.newPassword
+        );
+        if (!user) {
+          return c.json({ error: 'Current password is incorrect' }, 401);
+        }
+        return c.json({ user });
+      }
       return c.json({ error: 'Password changes require remote access' }, 503);
     }
     if (!(await syncRemoteBestEffort(db))) {
@@ -1036,7 +1145,7 @@ api.post(API_PATHS.accountPassword, async (c) => {
 });
 
 api.delete(API_PATHS.account, async (c) => {
-  const db = await openLocalDatabase();
+  const db = await openPrimaryDatabase(c);
   try {
     let session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
@@ -1054,8 +1163,17 @@ api.delete(API_PATHS.account, async (c) => {
       return c.json({ error: 'Invalid delete payload' }, 400);
     }
 
-    const remoteConfig = getRemoteDatabaseConfig();
+    const remoteConfig = remoteMirrorConfig(c);
     if (!remoteConfig) {
+      if (isTursoPrimary(c)) {
+        const deleted = await deleteUserAccount(
+          db,
+          session.user.username,
+          body.password
+        );
+        if (!deleted) return c.json({ error: 'Password is incorrect' }, 401);
+        return c.json({ ok: true });
+      }
       return c.json({ error: 'Account deletion requires remote access' }, 503);
     }
     if (!(await syncRemoteBestEffort(db))) {
@@ -1094,7 +1212,7 @@ api.delete(API_PATHS.account, async (c) => {
 });
 
 api.get(API_PATHS.notes, async (c) => {
-  const db = await openLocalDatabase();
+  const db = await openPrimaryDatabase(c);
   try {
     let session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
@@ -1112,7 +1230,7 @@ api.get(API_PATHS.notes, async (c) => {
 });
 
 api.get(API_PATHS.notebooks, async (c) => {
-  const db = await openLocalDatabase();
+  const db = await openPrimaryDatabase(c);
   try {
     let session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
@@ -1130,14 +1248,14 @@ api.get(API_PATHS.notebooks, async (c) => {
 });
 
 api.get(API_PATHS.syncStatus, async (c) => {
-  const db = await openLocalDatabase();
+  const db = await openPrimaryDatabase(c);
   try {
     const authError = await requireAuth(db, c.req.raw);
     if (authError) return authError;
 
     await revivePersistentRemoteSyncIfPending();
     return c.json({
-      remote: remoteSyncSnapshot()
+      remote: remoteSyncSnapshot(c)
     } satisfies SyncStatusResponse);
   } finally {
     db.close();
@@ -1145,7 +1263,7 @@ api.get(API_PATHS.syncStatus, async (c) => {
 });
 
 api.post(API_PATHS.syncPull, async (c) => {
-  const db = await openLocalDatabase();
+  const db = await openPrimaryDatabase(c);
   try {
     let session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
@@ -1178,7 +1296,7 @@ api.post(API_PATHS.syncPull, async (c) => {
 });
 
 api.post(API_PATHS.syncPush, async (c) => {
-  const db = await openLocalDatabase();
+  const db = await openPrimaryDatabase(c);
   try {
     let session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
@@ -1215,7 +1333,7 @@ api.post(API_PATHS.syncPush, async (c) => {
 });
 
 api.post(API_PATHS.cleanupTrash, async (c) => {
-  const db = await openLocalDatabase();
+  const db = await openPrimaryDatabase(c);
   try {
     let session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();

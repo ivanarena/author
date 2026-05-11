@@ -1,13 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import {
-  createClient,
-  type Client,
-  type InArgs,
-  type Row,
-  type Transaction
-} from '@libsql/client';
+import type { Client, InArgs, Row, Transaction } from '@libsql/client';
 import {
   getLocalDatabaseConfig,
   getLoginUsername,
@@ -284,9 +275,8 @@ export async function get(
 }
 
 function databaseInitKey(config: DatabaseConfig): string {
-  return config.provider === 'local'
-    ? `local:${config.filePath}`
-    : `turso:${config.client.url}`;
+  if (config.provider === 'local') return `local:${config.filePath}`;
+  return `turso:${config.client.url}`;
 }
 
 async function enableConnectionPragmas(db: NotesDb): Promise<void> {
@@ -629,6 +619,14 @@ export async function initializeDatabase(db: NotesDb): Promise<void> {
   await seedEntityChanges(db);
 }
 
+async function openLibsqlClient(config: {
+  url: string;
+  authToken?: string;
+}): Promise<Client> {
+  const { createClient } = await import('@libsql/client');
+  return createClient(config);
+}
+
 async function ensureDatabaseInitialized(
   config: DatabaseConfig
 ): Promise<void> {
@@ -640,7 +638,7 @@ async function ensureDatabaseInitialized(
   }
 
   const initialize = (async () => {
-    const db = createClient(config.client);
+    const db = await openLibsqlClient(config.client);
     try {
       await initializeDatabase(db);
     } finally {
@@ -661,11 +659,13 @@ export async function openConfiguredDatabase(
   config: DatabaseConfig
 ): Promise<NotesDb> {
   if (config.provider === 'local') {
+    const { mkdirSync } = await import('node:fs');
+    const { dirname } = await import('node:path');
     mkdirSync(dirname(config.filePath), { recursive: true });
   }
 
   await ensureDatabaseInitialized(config);
-  const db = createClient(config.client);
+  const db = await openLibsqlClient(config.client);
   databaseWriteKeys.set(db, databaseInitKey(config));
   await enableConnectionPragmas(db);
   return db;
@@ -680,9 +680,12 @@ export async function openLocalDatabase(): Promise<NotesDb> {
 }
 
 export async function openMemoryDatabase(): Promise<NotesDb> {
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
   const tempDir = mkdtempSync(join(tmpdir(), 'author-notes-'));
   const filePath = join(tempDir, 'test.sqlite');
-  const db = createClient({ url: `file:${filePath}` });
+  const db = await openLibsqlClient({ url: `file:${filePath}` });
   databaseWriteKeys.set(db, `local:${filePath}`);
   const close = db.close.bind(db);
   db.close = () => {

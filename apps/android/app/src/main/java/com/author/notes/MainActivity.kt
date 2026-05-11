@@ -1,6 +1,9 @@
 package com.author.notes
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -16,6 +19,10 @@ import com.author.notes.ui.NotesController
 class MainActivity : ComponentActivity() {
   private lateinit var controller: NotesController
 
+  private val notificationPermissionLauncher = registerForActivityResult(
+    ActivityResultContracts.RequestPermission()
+  ) {}
+
   private val exportLauncher = registerForActivityResult(
     ActivityResultContracts.CreateDocument("application/zip")
   ) { uri: Uri? ->
@@ -30,6 +37,7 @@ class MainActivity : ComponentActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    requestNotificationPermission()
     enableEdgeToEdge()
     setContent {
       val scope = rememberCoroutineScope()
@@ -45,5 +53,12 @@ class MainActivity : ComponentActivity() {
         onImport = { importLauncher.launch(arrayOf("text/markdown", "text/plain", "application/octet-stream")) }
       )
     }
+  }
+
+  private fun requestNotificationPermission() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+    if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
+
+    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
   }
 }

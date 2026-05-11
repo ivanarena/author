@@ -11,4 +11,5 @@ test-results
 *.sqlite-shm
 *.sqlite-wal
 .env
+apps/web/.worker-secrets.json
 .DS_Store

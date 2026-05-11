@@ -270,6 +270,61 @@ describe('Hono API', () => {
     expect(duplicate.status).toBe(409);
   });
 
+  it('uses Turso as the primary database when running with Worker env', async () => {
+    const primaryPath = join(tempDir, 'worker-primary.sqlite');
+    const workerEnv = {
+      NOTES_DB_PROVIDER: 'turso',
+      TURSO_DATABASE_URL: `file:${primaryPath}`,
+      TURSO_AUTH_TOKEN: 'test-token',
+      NOTES_REMOTE_SYNC_ENABLED: 'false',
+      NOTES_LOGIN_USERNAME: 'owner',
+      NOTES_LOGIN_PASSWORD: 'test-password'
+    };
+
+    const config = await api.fetch(
+      new Request('http://localhost/api/config'),
+      workerEnv
+    );
+    expect(config.status).toBe(200);
+    await expect(config.json()).resolves.toMatchObject({
+      remote: { enabled: false, configured: false },
+      signup: { enabled: true, inviteRequired: true }
+    });
+
+    const signup = await api.fetch(
+      new Request('http://localhost/api/auth/signup', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'worker-user',
+          password: 'worker-user-password',
+          displayName: 'Worker User',
+          inviteCode: 'authorprivatefriendsonly',
+          device: fixtureDevice
+        })
+      }),
+      workerEnv
+    );
+    expect(signup.status).toBe(200);
+
+    const primary = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${primaryPath}`, authToken: 'test-token' }
+    });
+    try {
+      const user = await primary.execute({
+        sql: 'SELECT username, display_name FROM users WHERE username = ?',
+        args: ['worker-user']
+      });
+      expect(user.rows[0]).toMatchObject({
+        username: 'worker-user',
+        display_name: 'Worker User'
+      });
+    } finally {
+      primary.close();
+    }
+  });
+
   it('requires the seeded invite code by default when Turso is configured', async () => {
     const remotePath = join(tempDir, 'remote-seeded-invite-signup.sqlite');
     process.env.TURSO_DATABASE_URL = `file:${remotePath}`;

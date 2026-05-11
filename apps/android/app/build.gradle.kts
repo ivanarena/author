@@ -60,6 +60,14 @@ val releaseKeystorePath = configValue("ANDROID_RELEASE_KEYSTORE_PATH")
 val releaseKeystorePassword = configValue("ANDROID_RELEASE_KEYSTORE_PASSWORD")
 val releaseKeyAlias = configValue("ANDROID_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = configValue("ANDROID_RELEASE_KEY_PASSWORD")
+val androidUpdateCheckUrl = configValue("ANDROID_UPDATE_CHECK_URL")
+  ?: "https://raw.githubusercontent.com/ivanarena/author/main/apps/android/app/build.gradle.kts"
+val androidUpdateDownloadUrl = configValue("ANDROID_UPDATE_DOWNLOAD_URL")
+  ?: "https://github.com/ivanarena/author/releases/latest"
+val androidUpdateCheckIntervalHours = configValue("ANDROID_UPDATE_CHECK_INTERVAL_HOURS")
+  ?.toLongOrNull()
+  ?.coerceIn(1, 168)
+  ?: 12
 val releaseSigningConfigured = listOf(
   releaseKeystorePath,
   releaseKeystorePassword,
@@ -110,6 +118,9 @@ android {
     buildConfigField("String", "DEFAULT_API_BASE_URL", buildConfigString(defaultApiBaseUrl))
     buildConfigField("String", "DEFAULT_API_BASE_URL_SOURCE", buildConfigString(defaultApiBaseUrlSource))
     buildConfigField("boolean", "DEFAULT_API_BASE_URL_CONFIGURED", (configuredApiBaseUrl != null).toString())
+    buildConfigField("String", "UPDATE_CHECK_URL", buildConfigString(androidUpdateCheckUrl))
+    buildConfigField("String", "UPDATE_DOWNLOAD_URL", buildConfigString(androidUpdateDownloadUrl))
+    buildConfigField("long", "UPDATE_CHECK_INTERVAL_HOURS", "${androidUpdateCheckIntervalHours}L")
     manifestPlaceholders["usesCleartextTraffic"] = "false"
   }
 

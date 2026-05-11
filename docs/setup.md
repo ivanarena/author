@@ -89,9 +89,66 @@ Back up the Docker volume or bind-mount `/data` somewhere you already back up.
 
 Run exactly one app instance for a given SQLite database. The server has in-process write serialization and remote-sync queues; two containers pointed at the same local SQLite file can race those queues.
 
+## Cloudflare Workers and Turso
+
+For the fastest free hosted setup with the cleanest sync behavior, deploy the SvelteKit app to Cloudflare Workers and use Turso as the primary SQLite/libSQL database.
+
+Create the Turso database:
+
+```sh
+turso auth login
+turso db create author
+turso db show --url author
+turso db tokens create author
+```
+
+Set the Worker secrets:
+
+```sh
+cd apps/web
+aube exec wrangler secret put TURSO_DATABASE_URL
+aube exec wrangler secret put TURSO_AUTH_TOKEN
+aube exec wrangler secret put NOTES_LOGIN_PASSWORD
+```
+
+`apps/web/wrangler.jsonc` sets `NOTES_DB_PROVIDER=turso`, so Cloudflare Workers use Turso directly as the primary database. The app initializes the Turso schema on first API access, using the same idempotent schema/migration code as local SQLite.
+
+Then deploy:
+
+```sh
+cd apps/web
+aube run cf:deploy
+```
+
+For GitHub Actions deploys, add these repository secrets:
+
+- `CLOUDFLARE_ACCOUNT_ID`: your Cloudflare account ID.
+- `CLOUDFLARE_API_TOKEN`: an API token allowed to deploy Workers.
+- `TURSO_DATABASE_URL`: the Turso database URL from `turso db show --url author`.
+- `TURSO_AUTH_TOKEN`: the Turso database token from `turso db tokens create author`.
+- `NOTES_LOGIN_PASSWORD`: the production login password.
+- `NOTES_AUTH_SESSION_DAYS`: optional session lifetime.
+- `NOTES_SIGNUP_INVITE_CODES`: optional extra comma-separated invite codes.
+- `AUTHOR_NOTES_API_URL`: optional public API URL override.
+
+The workflow deploys the Worker and then syncs the GitHub app secrets into Cloudflare Worker secrets with `wrangler secret bulk`. If you deploy manually, run the `wrangler secret put` commands above once before using the app.
+
+The `Cloudflare Deploy` workflow runs on pushes to `main` that touch the web app, shared packages, or lockfile, and can also be started manually from the Actions tab.
+
+For local Cloudflare-style development:
+
+```sh
+cp apps/web/.dev.vars.example apps/web/.dev.vars
+aube -F @author/web run cf:dev
+```
+
+Do not expose the Turso token to browser code. It belongs only in the SvelteKit server or Cloudflare Worker environment.
+
 ## Remote Database
 
-The best free fit for this app is Turso because it is SQLite-compatible and the app already uses libSQL. The deployed API still keeps a local SQLite database active; Turso is an optional remote copy that is reconciled before reads and after writes.
+For Docker/self-hosted deployments, Turso can also be used as an optional remote mirror. The deployed Docker API keeps a local SQLite database active; Turso is reconciled before reads and after writes.
+
+If you did not already create a Turso database for Cloudflare:
 
 ```sh
 turso auth login
@@ -129,6 +186,32 @@ For local emulator development, use `AUTHOR_NOTES_API_URL=http://10.0.2.2:5173`.
 are still accepted as backwards-compatible aliases. Do not set this value to
 `TURSO_DATABASE_URL`; Android never receives the Turso auth token and does not
 talk directly to Turso.
+
+## Android APK Update Notifications
+
+The Android app is sideloaded, so it checks GitHub periodically instead of relying on Play Store update delivery. On startup the app only schedules recurring background work; the network update check itself runs later in WorkManager and does not block app launch. The default interval is 12 hours.
+
+The default check URL reads the Android version from `main`:
+
+```env
+ANDROID_UPDATE_CHECK_URL=https://raw.githubusercontent.com/ivanarena/author/main/apps/android/app/build.gradle.kts
+ANDROID_UPDATE_DOWNLOAD_URL=https://github.com/ivanarena/author/releases/latest
+ANDROID_UPDATE_CHECK_INTERVAL_HOURS=12
+```
+
+When the remote `versionCode` is higher than the installed APK's `versionCode`, the app posts a local notification. Tapping it opens `ANDROID_UPDATE_DOWNLOAD_URL`.
+
+For a private GitHub repo, prefer publishing a small public JSON manifest instead of embedding a GitHub token in the APK:
+
+```json
+{
+  "versionCode": 2,
+  "versionName": "1.1",
+  "apkUrl": "https://github.com/ivanarena/author/releases/latest"
+}
+```
+
+Point `ANDROID_UPDATE_CHECK_URL` at that JSON file. Clients need to launch the app once after installing this build and allow Android notifications; Android may delay periodic background work, so this is near-periodic notification rather than instant push.
 
 ## Users
 

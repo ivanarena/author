@@ -3,3 +3,6 @@ packages:
   - packages/*
 onlyBuiltDependencies:
   - esbuild
+allowBuilds:
+  sharp: false
+  workerd: true

@@ -56,6 +56,16 @@ val defaultApiBaseUrl = configuredApiBaseUrl
   ?: "http://10.0.2.2:${configValue("PORT") ?: "5173"}"
 val defaultApiBaseUrlSource = if (configuredApiBaseUrl != null) "build-time" else "local-emulator-default"
 val remoteDatabaseConfigured = configValue("TURSO_DATABASE_URL") != null && configValue("TURSO_AUTH_TOKEN") != null
+val releaseKeystorePath = configValue("ANDROID_RELEASE_KEYSTORE_PATH")
+val releaseKeystorePassword = configValue("ANDROID_RELEASE_KEYSTORE_PASSWORD")
+val releaseKeyAlias = configValue("ANDROID_RELEASE_KEY_ALIAS")
+val releaseKeyPassword = configValue("ANDROID_RELEASE_KEY_PASSWORD")
+val releaseSigningConfigured = listOf(
+  releaseKeystorePath,
+  releaseKeystorePassword,
+  releaseKeyAlias,
+  releaseKeyPassword
+).all { it != null }
 
 if (configuredApiBaseUrl == null && remoteDatabaseConfigured) {
   logger.warn("Turso is configured, but Android sync API URL is not. Using the local emulator URL; set AUTHOR_NOTES_API_URL or ANDROID_SYNC_API_URL for device/release builds.")
@@ -95,10 +105,23 @@ android {
     versionCode = 1
     versionName = "1.0"
 
+    testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
     buildConfigField("String", "DEFAULT_API_BASE_URL", buildConfigString(defaultApiBaseUrl))
     buildConfigField("String", "DEFAULT_API_BASE_URL_SOURCE", buildConfigString(defaultApiBaseUrlSource))
     buildConfigField("boolean", "DEFAULT_API_BASE_URL_CONFIGURED", (configuredApiBaseUrl != null).toString())
     manifestPlaceholders["usesCleartextTraffic"] = "false"
+  }
+
+  signingConfigs {
+    if (releaseSigningConfigured) {
+      create("release") {
+        storeFile = file(releaseKeystorePath!!)
+        storePassword = releaseKeystorePassword
+        keyAlias = releaseKeyAlias
+        keyPassword = releaseKeyPassword
+      }
+    }
   }
 
   buildTypes {
@@ -107,6 +130,9 @@ android {
     }
     release {
       manifestPlaceholders["usesCleartextTraffic"] = "false"
+      if (releaseSigningConfigured) {
+        signingConfig = signingConfigs.getByName("release")
+      }
     }
   }
 
@@ -135,6 +161,11 @@ dependencies {
   coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 
   testImplementation("junit:junit:4.13.2")
+  testImplementation("org.json:json:20240303")
+
+  androidTestImplementation("androidx.test:core:1.7.0")
+  androidTestImplementation("androidx.test:runner:1.7.0")
+  androidTestImplementation("androidx.test.ext:junit:1.3.0")
 
   debugImplementation("androidx.compose.ui:ui-tooling")
 }

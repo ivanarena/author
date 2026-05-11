@@ -17,10 +17,13 @@ class SyncClient(private val baseUrlProvider: () -> String) {
   fun loadServerConfig(): ServerConfig {
     val json = requestJson("/api/config", "GET")
     val remote = json.optJSONObject("remote") ?: JSONObject()
+    val signup = json.optJSONObject("signup") ?: JSONObject()
     return ServerConfig(
       apiBaseUrl = (json.optNullableString("apiBaseUrl") ?: apiUrl("/")).trimEnd('/'),
       remoteSyncEnabled = remote.optBoolean("enabled", false),
-      remoteDatabaseConfigured = remote.optBoolean("configured", false)
+      remoteDatabaseConfigured = remote.optBoolean("configured", false),
+      signupEnabled = signup.optBoolean("enabled", false),
+      signupInviteRequired = signup.optBoolean("inviteRequired", false)
     )
   }
 
@@ -39,11 +42,12 @@ class SyncClient(private val baseUrlProvider: () -> String) {
     return parseLoginResponse(requestJson("/api/auth/login", "POST", body = body))
   }
 
-  fun signup(username: String, password: String, displayName: String?, device: Device): LoginResponse {
+  fun signup(username: String, password: String, displayName: String?, inviteCode: String?, device: Device): LoginResponse {
     val body = JSONObject()
       .put("username", username)
       .put("password", password)
       .putNullable("displayName", displayName)
+      .putNullable("inviteCode", inviteCode)
       .put("device", deviceToJson(device))
     return parseLoginResponse(requestJson("/api/auth/signup", "POST", body = body))
   }

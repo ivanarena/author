@@ -2,6 +2,7 @@ package com.author.notes.ui
 
 import android.content.ContentResolver
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -64,6 +65,9 @@ class NotesController(
   var loginPasswordValue by mutableStateOf("")
   var signupDisplayNameValue by mutableStateOf("")
   var signupConfirmPasswordValue by mutableStateOf("")
+  var signupInviteCodeValue by mutableStateOf("")
+  var signupEnabled by mutableStateOf(false)
+  var signupInviteRequired by mutableStateOf(false)
   var loginError by mutableStateOf("")
   var isLoggingIn by mutableStateOf(false)
   var hasToken by mutableStateOf(repository.getStoredSession() != null)
@@ -138,21 +142,27 @@ class NotesController(
   }
 
   fun openLogin(mode: String = "signin") {
-    authMode = mode
+    authMode = if (mode == "signup" && signupEnabled) "signup" else "signin"
     loginUsernameValue = repository.getLoginHint()
     loginPasswordValue = ""
     signupDisplayNameValue = ""
     signupConfirmPasswordValue = ""
+    signupInviteCodeValue = ""
     loginError = ""
     loginOpen = true
   }
 
   fun chooseAuthMode(mode: String) {
     if (isLoggingIn || authMode == mode) return
+    if (mode == "signup" && !signupEnabled) {
+      loginError = "Signup is disabled"
+      return
+    }
     authMode = mode
     loginError = ""
     loginPasswordValue = ""
     signupConfirmPasswordValue = ""
+    signupInviteCodeValue = ""
     if (mode == "signin") {
       signupDisplayNameValue = ""
       loginUsernameValue = repository.getLoginHint()
@@ -507,14 +517,28 @@ class NotesController(
       loginError = "Passwords do not match"
       return
     }
+    if (authMode == "signup" && !signupEnabled) {
+      loginError = "Signup is disabled"
+      return
+    }
+    if (authMode == "signup" && signupInviteRequired && signupInviteCodeValue.isBlank()) {
+      loginError = "Invite code required"
+      return
+    }
     scope.launch {
       isLoggingIn = true
       loginError = ""
       try {
+        val wasSignup = authMode == "signup"
         val previousUsername = repository.getStoredSession()?.user?.username ?: repository.getLoginHint().ifBlank { null }
         repository.assertLocalWorkspaceCanUseAccount(username, previousUsername)
-        val response = if (authMode == "signup") {
-          repository.signup(username, password, signupDisplayNameValue.ifBlank { null })
+        val response = if (wasSignup) {
+          repository.signup(
+            username,
+            password,
+            signupDisplayNameValue.ifBlank { null },
+            signupInviteCodeValue.trim().ifBlank { null }
+          )
         } else {
           repository.login(username, password)
         }
@@ -523,9 +547,13 @@ class NotesController(
         applyUser(response.user)
         loginOpen = false
         hasToken = true
+        authMode = "signin"
+        loginPasswordValue = ""
+        signupDisplayNameValue = ""
+        signupConfirmPasswordValue = ""
+        signupInviteCodeValue = ""
         syncMessage = "Signed in"
-        notify("success", if (authMode == "signup") "Account created" else "Signed in", "Syncing local and remote notes.")
-        refresh()
+        notify("success", if (wasSignup) "Account created" else "Signed in", "Syncing local and remote notes.")
         syncNow()
       } catch (error: Throwable) {
         loginError = error.message ?: "Login failed"
@@ -729,7 +757,8 @@ class NotesController(
       try {
         val files = uris.mapNotNull { uri ->
           val text = resolver.openInputStream(uri)?.use { String(it.readBytes(), Charsets.UTF_8) } ?: return@mapNotNull null
-          MarkdownInputFile(displayName(uri, resolver), displayName(uri, resolver), text)
+          val name = displayName(uri, resolver)
+          MarkdownInputFile(name, importPath(uri, name), text)
         }
         val result = repository.importMarkdownFiles(files)
         importBanner = result.summary()
@@ -845,7 +874,9 @@ class NotesController(
     accountError = ""
     loginUsernameValue = repository.getLoginHint()
     loginPasswordValue = ""
+    signupDisplayNameValue = ""
     signupConfirmPasswordValue = ""
+    signupInviteCodeValue = ""
     loginOpen = openLogin
     syncMessage = if (message.isBlank()) "Sign in to sync" else message
     remoteSyncEnabled = false
@@ -896,6 +927,14 @@ class NotesController(
     serverApiBaseUrl = config.apiBaseUrl
     serverRemoteDatabaseConfigured = config.remoteDatabaseConfigured
     serverRemoteSyncEnabled = config.remoteSyncEnabled
+    signupEnabled = config.signupEnabled
+    signupInviteRequired = config.signupInviteRequired
+    if (!signupEnabled && authMode == "signup") {
+      authMode = "signin"
+      signupDisplayNameValue = ""
+      signupConfirmPasswordValue = ""
+      signupInviteCodeValue = ""
+    }
     serverConfigError = ""
   }
 
@@ -921,5 +960,20 @@ class NotesController(
       if (cursor.moveToFirst()) cursor.getString(0) else null
     }
     return fromCursor ?: uri.lastPathSegment?.substringAfterLast('/') ?: "note.md"
+  }
+
+  private fun importPath(uri: Uri, displayName: String): String {
+    val candidates = listOfNotNull(
+      runCatching { DocumentsContract.getDocumentId(uri) }.getOrNull(),
+      uri.path,
+      uri.lastPathSegment
+    )
+    return candidates
+      .asSequence()
+      .map { Uri.decode(it) ?: it }
+      .map { it.substringAfter("/document/", it).substringAfter(':', it) }
+      .map { it.replace('\\', '/').trim('/') }
+      .firstOrNull { it.endsWith(displayName) }
+      ?: displayName
   }
 }

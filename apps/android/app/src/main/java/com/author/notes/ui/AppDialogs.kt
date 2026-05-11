@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -25,13 +24,15 @@ import com.author.notes.core.LocalConflict
 internal fun LoginDialog(controller: NotesController) {
   AlertDialog(
     onDismissRequest = { if (!controller.isLoggingIn) controller.loginOpen = false },
-    containerColor = MaterialTheme.colorScheme.surface,
+    containerColor = MaterialTheme.colorScheme.background,
     title = { Text(if (controller.authMode == "signup") "Create account" else "Sign in") },
     text = {
       Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
           SmallTextButton("Sign in", active = controller.authMode == "signin") { controller.chooseAuthMode("signin") }
-          SmallTextButton("Sign up", active = controller.authMode == "signup") { controller.chooseAuthMode("signup") }
+          if (controller.signupEnabled) {
+            SmallTextButton("Sign up", active = controller.authMode == "signup") { controller.chooseAuthMode("signup") }
+          }
         }
         MiniField(controller.loginUsernameValue, "Username", Modifier.fillMaxWidth()) {
           controller.loginUsernameValue = it
@@ -49,6 +50,12 @@ internal fun LoginDialog(controller: NotesController) {
             controller.signupConfirmPasswordValue = it
             controller.loginError = ""
           }
+          if (controller.signupInviteRequired) {
+            MiniField(controller.signupInviteCodeValue, "Invite code", Modifier.fillMaxWidth()) {
+              controller.signupInviteCodeValue = it
+              controller.loginError = ""
+            }
+          }
         }
         if (controller.loginError.isNotBlank()) {
           Text(controller.loginError, color = messageColor(), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
@@ -56,7 +63,7 @@ internal fun LoginDialog(controller: NotesController) {
       }
     },
     confirmButton = {
-      Button(onClick = { controller.submitLogin() }, enabled = !controller.isLoggingIn && !controller.isArchiveBusy) {
+      TextButton(onClick = { controller.submitLogin() }, enabled = !controller.isLoggingIn && !controller.isArchiveBusy) {
         Text(
           if (controller.isLoggingIn) {
             "Working"
@@ -81,7 +88,7 @@ internal fun ConflictDialog(controller: NotesController, conflict: LocalConflict
 
   AlertDialog(
     onDismissRequest = {},
-    containerColor = MaterialTheme.colorScheme.surface,
+    containerColor = MaterialTheme.colorScheme.background,
     title = { Text("Sync conflict") },
     text = {
       Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

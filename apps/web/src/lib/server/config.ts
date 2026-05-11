@@ -73,6 +73,32 @@ export function shouldSyncRemoteDatabase(): boolean {
   return Boolean(getRemoteDatabaseConfig());
 }
 
+export function getSignupInviteCodes(): string[] {
+  return (process.env.NOTES_SIGNUP_INVITE_CODES ?? '')
+    .split(',')
+    .map((code) => code.trim())
+    .filter(Boolean);
+}
+
+export function isSignupEnabled(): boolean {
+  return (
+    process.env.NOTES_SIGNUP_ENABLED === 'true' ||
+    getSignupInviteCodes().length > 0
+  );
+}
+
+export function isSignupInviteRequired(): boolean {
+  return getSignupInviteCodes().length > 0;
+}
+
+export function isValidSignupInviteCode(value: unknown): boolean {
+  const inviteCodes = getSignupInviteCodes();
+  if (inviteCodes.length === 0) return true;
+  if (typeof value !== 'string') return false;
+  const candidate = value.trim();
+  return candidate.length > 0 && inviteCodes.includes(candidate);
+}
+
 export function getPublicApiBaseUrl(): string | null {
   const value =
     process.env.AUTHOR_NOTES_API_URL ??

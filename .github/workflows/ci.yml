@@ -73,6 +73,12 @@ jobs:
         run: ./gradlew :app:assembleDebug
         working-directory: apps/android
 
+      - name: Android release validation
+        run: ./gradlew :app:lintRelease :app:assembleRelease
+        working-directory: apps/android
+        env:
+          AUTHOR_NOTES_API_URL: https://author.example.invalid
+
       - name: Upload coverage report
         uses: actions/upload-artifact@v5
         if: always()
@@ -87,3 +93,22 @@ jobs:
 
       - name: Production build
         run: npx -y @endevco/aube@1.4.0 run build
+
+  android-connected:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Android connected tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          script: cd apps/android && ./gradlew :app:connectedDebugAndroidTest

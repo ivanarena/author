@@ -34,6 +34,9 @@ import {
 import {
   getPublicApiBaseUrl,
   getRemoteDatabaseConfig,
+  isSignupEnabled,
+  isSignupInviteRequired,
+  isValidSignupInviteCode,
   shouldSyncRemoteDatabase,
   shouldTrustProxyHeaders
 } from './config';
@@ -54,6 +57,7 @@ export const api = new Hono();
 
 const LOGIN_ATTEMPT_WINDOW_MS = 60_000;
 const MAX_FAILED_LOGIN_ATTEMPTS = 8;
+const MAX_SIGNUP_ATTEMPTS = 4;
 const MAX_LOGIN_ATTEMPT_KEYS = 500;
 const MAX_LOGIN_BODY_BYTES = 16 * 1024;
 const MAX_SYNC_BODY_BYTES = 5 * 1024 * 1024;
@@ -71,6 +75,7 @@ let remoteSyncRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let remoteSyncFailureCount = 0;
 let remoteSyncQueueRunning = false;
 let remoteSyncQueued = false;
+const serverStartedAt = Date.now();
 
 class RequestBodyTooLargeError extends Error {
   constructor() {
@@ -234,6 +239,19 @@ async function syncRemoteWithFreshConnection(): Promise<boolean> {
   }
 }
 
+async function mirrorRemoteUserForLocalSession(
+  remoteConfig: NonNullable<ReturnType<typeof getRemoteDatabaseConfig>>,
+  db: NotesDb,
+  username: string
+): Promise<boolean> {
+  const remote = await openConfiguredDatabase(remoteConfig);
+  try {
+    return (await mirrorUserForLocalSession(remote, db, username)) !== null;
+  } finally {
+    remote.close();
+  }
+}
+
 async function queueRemoteSyncAfter(
   remoteSync?: Promise<boolean>
 ): Promise<void> {
@@ -336,6 +354,13 @@ function loginAttemptKey(
   return `${ip}:${normalizeUsername(username) ?? 'unknown'}`;
 }
 
+function signupAttemptKey(
+  request: Request,
+  username: string | null | undefined
+): string {
+  return `signup:${loginAttemptKey(request, username)}`;
+}
+
 function pruneLoginAttempts(now = Date.now()): void {
   for (const [key, attempt] of loginAttempts) {
     if (attempt.resetAt <= now) loginAttempts.delete(key);
@@ -348,13 +373,17 @@ function pruneLoginAttempts(now = Date.now()): void {
   }
 }
 
-function isLoginRateLimited(key: string, now = Date.now()): boolean {
+function isLoginRateLimited(
+  key: string,
+  now = Date.now(),
+  maxAttempts = MAX_FAILED_LOGIN_ATTEMPTS
+): boolean {
   const attempt = loginAttempts.get(key);
   if (!attempt || attempt.resetAt <= now) {
     loginAttempts.delete(key);
     return false;
   }
-  return attempt.count >= MAX_FAILED_LOGIN_ATTEMPTS;
+  return attempt.count >= maxAttempts;
 }
 
 function recordFailedLogin(key: string, now = Date.now()): void {
@@ -373,6 +402,55 @@ function recordFailedLogin(key: string, now = Date.now()): void {
 
 function clearFailedLogins(key: string): void {
   loginAttempts.delete(key);
+}
+
+function metricLine(name: string, value: string | number): string {
+  return `${name} ${value}`;
+}
+
+function unixTimestampSeconds(value: string | null): number {
+  if (!value) return 0;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? Math.floor(timestamp / 1000) : 0;
+}
+
+function metricsBody(): string {
+  const remote = remoteSyncSnapshot();
+  const state = remote.state;
+  return [
+    '# HELP author_up App process liveness.',
+    '# TYPE author_up gauge',
+    metricLine('author_up', 1),
+    '# HELP author_uptime_seconds Seconds since the server process started.',
+    '# TYPE author_uptime_seconds gauge',
+    metricLine(
+      'author_uptime_seconds',
+      Math.max(0, Math.floor((Date.now() - serverStartedAt) / 1000))
+    ),
+    '# HELP author_remote_sync_enabled Whether remote database sync is enabled.',
+    '# TYPE author_remote_sync_enabled gauge',
+    metricLine('author_remote_sync_enabled', remote.enabled ? 1 : 0),
+    '# HELP author_remote_sync_state Current remote sync state.',
+    '# TYPE author_remote_sync_state gauge',
+    ...(['disabled', 'queued', 'syncing', 'synced', 'error'] as const).map(
+      (candidate) =>
+        `author_remote_sync_state{state="${candidate}"} ${
+          state === candidate ? 1 : 0
+        }`
+    ),
+    '# HELP author_remote_sync_last_success_timestamp_seconds Last successful remote sync timestamp.',
+    '# TYPE author_remote_sync_last_success_timestamp_seconds gauge',
+    metricLine(
+      'author_remote_sync_last_success_timestamp_seconds',
+      unixTimestampSeconds(remote.lastSyncedAt)
+    ),
+    '# HELP author_remote_sync_pending Whether a remote sync is queued or running.',
+    '# TYPE author_remote_sync_pending gauge',
+    metricLine(
+      'author_remote_sync_pending',
+      state === 'queued' || state === 'syncing' ? 1 : 0
+    )
+  ].join('\n');
 }
 
 function hasDevicePayload(
@@ -569,6 +647,12 @@ api.get(API_PATHS.health, (c) =>
   } satisfies HealthResponse)
 );
 
+api.get(API_PATHS.metrics, (c) =>
+  c.text(`${metricsBody()}\n`, 200, {
+    'content-type': 'text/plain; version=0.0.4; charset=utf-8'
+  })
+);
+
 api.get(API_PATHS.config, (c) => {
   const remoteConfig = getRemoteDatabaseConfig();
   return c.json({
@@ -576,6 +660,10 @@ api.get(API_PATHS.config, (c) => {
     remote: {
       enabled: shouldSyncRemoteDatabase(),
       configured: remoteConfig !== null
+    },
+    signup: {
+      enabled: isSignupEnabled(),
+      inviteRequired: isSignupInviteRequired()
     }
   } satisfies ConfigResponse);
 });
@@ -627,20 +715,21 @@ api.post(API_PATHS.authLogin, async (c) => {
 
   const db = await openLocalDatabase();
   try {
-    if (remoteUser && remoteConfig && !(await syncRemoteBestEffort(db))) {
-      const remote = await openConfiguredDatabase(remoteConfig);
-      try {
-        if (
-          !(await mirrorUserForLocalSession(remote, db, remoteUser.username))
-        ) {
-          return c.json(
-            { error: 'Could not prepare local session for this account' },
-            503
-          );
-        }
-      } finally {
-        remote.close();
-      }
+    if (
+      remoteUser &&
+      remoteConfig &&
+      !(await mirrorRemoteUserForLocalSession(
+        remoteConfig,
+        db,
+        remoteUser.username
+      ))
+    ) {
+      return c.json(
+        { error: 'Could not prepare local session for this account' },
+        503
+      );
+    }
+    if (remoteUser && remoteConfig) {
       await queueRemoteSyncAfter();
     }
 
@@ -691,10 +780,32 @@ api.post(API_PATHS.authSignup, async (c) => {
     return c.json({ error: 'Invalid signup payload' }, 400);
   }
 
+  const attemptKey = signupAttemptKey(c.req.raw, body.username);
+  if (isLoginRateLimited(attemptKey, Date.now(), MAX_SIGNUP_ATTEMPTS)) {
+    return c.json(
+      { error: 'Too many signup attempts. Try again shortly.' },
+      429
+    );
+  }
+
+  if (!isSignupEnabled()) {
+    recordFailedLogin(attemptKey);
+    return c.json(
+      { error: 'Signup is disabled. Create users with user:create.' },
+      403
+    );
+  }
+
+  if (!isValidSignupInviteCode(body.inviteCode)) {
+    recordFailedLogin(attemptKey);
+    return c.json({ error: 'Invalid signup invite code' }, 403);
+  }
+
   const remoteConfig = shouldSyncRemoteDatabase()
     ? getRemoteDatabaseConfig()
     : null;
   if (!remoteConfig) {
+    recordFailedLogin(attemptKey);
     return c.json({ error: 'Signup requires remote database access' }, 503);
   }
 
@@ -708,6 +819,7 @@ api.post(API_PATHS.authSignup, async (c) => {
       body.displayName
     );
     if (!createdUser) {
+      recordFailedLogin(attemptKey);
       return c.json({ error: 'Username is already taken' }, 409);
     }
     user = createdUser;
@@ -720,10 +832,13 @@ api.post(API_PATHS.authSignup, async (c) => {
     remote.close();
   }
 
+  clearFailedLogins(attemptKey);
+
   const db = await openLocalDatabase();
   try {
-    const synced = await syncRemoteBestEffort(db);
-    if (!synced) {
+    if (
+      !(await mirrorRemoteUserForLocalSession(remoteConfig, db, user.username))
+    ) {
       return c.json(
         { error: 'Account created, but local offline setup failed' },
         503

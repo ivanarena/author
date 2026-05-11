@@ -38,3 +38,26 @@ The emulator starts with a visible window and no boot animation. Set
 The app is implemented with Kotlin and Jetpack Compose. Local changes are saved
 first in the on-device SQLite database, then pushed/pulled through the same sync
 protocol as the web app.
+
+## Release Validation
+
+Release builds require an HTTPS Author API URL:
+
+```sh
+AUTHOR_NOTES_API_URL=https://notes.example.com ./gradlew :app:lintRelease :app:assembleRelease
+```
+
+Optional signing environment variables:
+
+```env
+ANDROID_RELEASE_KEYSTORE_PATH=/secure/path/author-release.jks
+ANDROID_RELEASE_KEYSTORE_PASSWORD=change-this
+ANDROID_RELEASE_KEY_ALIAS=author
+ANDROID_RELEASE_KEY_PASSWORD=change-this
+```
+
+CI validates debug compile/lint/unit/APK, release lint/unit/APK, and connected debug instrumentation tests. Run connected tests locally with an emulator booted:
+
+```sh
+./gradlew :app:connectedDebugAndroidTest
+```

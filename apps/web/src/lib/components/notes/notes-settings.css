@@ -25,10 +25,8 @@
   border: 0;
   border-radius: var(--radius-panel);
   padding: 0;
-  background: var(--panel);
+  background: var(--paper);
   box-shadow: var(--shadow-soft);
-  -webkit-backdrop-filter: var(--surface-blur);
-  backdrop-filter: var(--surface-blur);
   animation: menu-in var(--motion-slow) var(--motion-ease);
 }
 
@@ -87,9 +85,7 @@
   align-content: start;
   gap: 4px;
   padding: 16px 12px;
-  background: var(--panel);
-  -webkit-backdrop-filter: var(--surface-blur);
-  backdrop-filter: var(--surface-blur);
+  background: transparent;
 }
 
 .settings-menu-item {
@@ -188,11 +184,10 @@
   display: grid;
   gap: 4px;
   min-width: 0;
+  border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: 12px;
-  background: var(--field);
-  -webkit-backdrop-filter: var(--surface-blur);
-  backdrop-filter: var(--surface-blur);
+  background: transparent;
 }
 
 .sync-overview-card.wide {
@@ -238,12 +233,12 @@
   width: 100%;
   min-height: 120px;
   margin-top: 6px;
-  border: 0;
+  border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   padding: 10px;
   resize: vertical;
   color: var(--text);
-  background: var(--paper);
+  background: transparent;
   font:
     11px/1.45 ui-monospace,
     SFMono-Regular,
@@ -482,8 +477,8 @@
 .settings-select-row select {
   min-width: 0;
   height: var(--control-height);
-  border: 0;
-  background-color: var(--field);
+  border: 1px solid var(--line);
+  background-color: transparent;
   color: var(--text);
 }
 
@@ -504,10 +499,10 @@
   width: 100%;
   min-width: 0;
   min-height: var(--control-height);
-  border: 0;
+  border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: 0 12px;
-  background: var(--field);
+  background: transparent;
   color: var(--text);
   text-align: left;
 }
@@ -515,7 +510,7 @@
 .font-trigger:hover,
 .font-trigger:focus-visible,
 .font-menu:focus-within .font-trigger {
-  background: var(--field);
+  background: var(--hover);
   color: var(--text);
 }
 
@@ -547,7 +542,7 @@
   border: 0;
   border-radius: var(--radius-lg);
   padding: 10px;
-  background: var(--panel);
+  background: var(--paper);
   box-shadow: var(--shadow-soft);
   animation: menu-in var(--motion-slow) var(--motion-ease);
 }
@@ -608,12 +603,10 @@
 .settings-progress {
   display: grid;
   gap: 10px;
-  border: 0;
+  border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: 12px;
-  background: var(--field);
-  -webkit-backdrop-filter: var(--surface-blur);
-  backdrop-filter: var(--surface-blur);
+  background: transparent;
 }
 
 .settings-progress div:first-child {
@@ -662,12 +655,10 @@
   gap: 10px;
   align-items: start;
   min-width: 0;
-  border: 0;
+  border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: 11px 12px;
-  background: var(--field);
-  -webkit-backdrop-filter: var(--surface-blur);
-  backdrop-filter: var(--surface-blur);
+  background: transparent;
 }
 
 .import-result-banner.success {
@@ -729,7 +720,13 @@
 }
 
 .settings-panel .menu-form input,
-.login-modal .login-form input,
+.login-modal .login-form input {
+  border: 1px solid var(--line);
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 .auth-mode-tabs {
   border: 0;
 }
@@ -764,7 +761,7 @@
   place-items: center;
   border: 0;
   border-radius: var(--radius-md);
-  background: var(--field);
+  background: transparent;
   color: var(--text);
 }
 
@@ -802,8 +799,8 @@
   min-width: 0;
   border: 0;
   border-radius: var(--radius-md);
-  padding: 4px;
-  background: var(--field);
+  padding: 0;
+  background: transparent;
 }
 
 .auth-mode-tabs button {

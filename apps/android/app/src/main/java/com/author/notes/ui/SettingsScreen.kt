@@ -1,10 +1,11 @@
 package com.author.notes.ui
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -29,6 +31,7 @@ import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Refresh
@@ -36,16 +39,24 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material.icons.outlined.ZoomIn
 import androidx.compose.material.icons.outlined.ZoomOut
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -146,13 +157,9 @@ private fun SettingsNavRow(
   active: Boolean,
   onClick: () -> Unit
 ) {
-  val rowColor by animateColorAsState(
-    targetValue = if (active) activeColor() else fieldColor(),
-    animationSpec = tween(durationMillis = AppMotion.Medium),
-    label = "settings-nav-color"
-  )
+  val contentColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f)
   Surface(
-    color = rowColor,
+    color = Color.Transparent,
     shape = RoundedCornerShape(8.dp)
   ) {
     Row(
@@ -164,8 +171,8 @@ private fun SettingsNavRow(
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-      Icon(icon, null, modifier = Modifier.size(17.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (active) 0.82f else 0.58f))
-      Text(label, fontSize = 14.sp, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
+      Icon(icon, null, modifier = Modifier.size(17.dp), tint = contentColor)
+      Text(label, color = contentColor, fontSize = 14.sp, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
     }
   }
 }
@@ -354,20 +361,8 @@ private fun AppearanceSettings(controller: NotesController) {
       if (controller.theme.startsWith("dark")) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
       if (controller.theme.startsWith("dark")) "Light mode" else "Dark mode"
     ) { controller.toggleTheme() }
-    SettingsChoiceGroup("Themes") {
-      ThemeChoices.forEach { choice ->
-        AppearanceChoice(choice.label, controller.theme == choice.value) {
-          controller.setThemeChoice(choice.value)
-        }
-      }
-    }
-    SettingsChoiceGroup("Font") {
-      FontChoices.forEach { choice ->
-        AppearanceChoice(choice.label, controller.editorFont == choice.value) {
-          controller.chooseEditorFont(choice.value)
-        }
-      }
-    }
+    ThemeDotPicker(controller)
+    FontDropdown(controller)
     SettingsStepper("Text size", "${controller.editorTextSize.toInt()}sp") {
       GlassIcon(Icons.Outlined.ZoomOut, "Smaller text", enabled = controller.editorTextSize > 14f) {
         controller.adjustEditorTextSize(-1f)
@@ -396,6 +391,92 @@ private fun AppearanceSettings(controller: NotesController) {
 }
 
 @Composable
+private fun ThemeDotPicker(controller: NotesController) {
+  SettingsChoiceGroup("Themes") {
+    ThemeChoices.chunked(4).forEach { row ->
+      Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        row.forEach { choice ->
+          ThemeDot(choice, active = controller.theme == choice.value) {
+            controller.setThemeChoice(choice.value)
+          }
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun ThemeDot(choice: ThemeChoice, active: Boolean, onClick: () -> Unit) {
+  val borderColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.62f)
+  Surface(
+    modifier = Modifier
+      .size(34.dp)
+      .semantics {
+        contentDescription = choice.label
+        stateDescription = if (active) "Selected" else "Not selected"
+      }
+      .clickable(onClick = onClick),
+    color = themeDotColor(choice.value),
+    contentColor = themeDotContentColor(choice.value),
+    shape = CircleShape,
+    border = BorderStroke(if (active) 2.dp else 1.dp, borderColor)
+  ) {
+    Box(contentAlignment = Alignment.Center) {
+      if (active) {
+        Icon(Icons.Outlined.Check, null, modifier = Modifier.size(16.dp))
+      }
+    }
+  }
+}
+
+@Composable
+private fun FontDropdown(controller: NotesController) {
+  var open by remember { mutableStateOf(false) }
+  val selected = FontChoices.find { it.value == controller.editorFont } ?: FontChoices.first()
+
+  SettingsChoiceGroup("Font") {
+    Box {
+      Surface(
+        modifier = Modifier
+          .fillMaxWidth()
+          .clickable { open = true },
+        color = Color.Transparent,
+        shape = RoundedCornerShape(8.dp)
+      ) {
+        Row(
+          Modifier
+            .heightIn(min = 42.dp)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+          Text(
+            selected.label,
+            modifier = Modifier.weight(1f),
+            fontSize = 14.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+          )
+          Icon(Icons.Outlined.ExpandMore, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f))
+        }
+      }
+      AppDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+        FontChoices.forEach { choice ->
+          DropdownMenuItem(
+            text = { Text(choice.label) },
+            leadingIcon = { MenuCheck(controller.editorFont == choice.value) },
+            onClick = {
+              controller.chooseEditorFont(choice.value)
+              open = false
+            }
+          )
+        }
+      }
+    }
+  }
+}
+
+@Composable
 private fun SettingsChoiceGroup(label: String, content: @Composable ColumnScope.() -> Unit) {
   Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
     Text(
@@ -405,42 +486,6 @@ private fun SettingsChoiceGroup(label: String, content: @Composable ColumnScope.
       fontWeight = FontWeight.SemiBold
     )
     Column(verticalArrangement = Arrangement.spacedBy(4.dp), content = content)
-  }
-}
-
-@Composable
-private fun AppearanceChoice(label: String, active: Boolean, onClick: () -> Unit) {
-  val rowColor by animateColorAsState(
-    targetValue = if (active) activeColor() else fieldColor(),
-    animationSpec = tween(durationMillis = AppMotion.Medium),
-    label = "appearance-choice-color"
-  )
-  Surface(
-    color = rowColor,
-    shape = RoundedCornerShape(8.dp)
-  ) {
-    Row(
-      Modifier
-        .fillMaxWidth()
-        .heightIn(min = 40.dp)
-        .clickable(onClick = onClick)
-        .padding(horizontal = 12.dp, vertical = 8.dp),
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-      Text(
-        label,
-        modifier = Modifier.weight(1f),
-        fontSize = 14.sp,
-        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal
-      )
-      Icon(
-        Icons.Outlined.Check,
-        null,
-        modifier = Modifier.size(16.dp),
-        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (active) 0.72f else 0f)
-      )
-    }
   }
 }
 
@@ -464,4 +509,21 @@ private fun SettingsStepper(
     }
     controls()
   }
+}
+
+private fun themeDotColor(theme: String): Color = when (theme) {
+  "light-mint" -> Color(0xFF527E5F)
+  "light-rose" -> Color(0xFF985966)
+  "light-lavender" -> Color(0xFF655B91)
+  "dark" -> Color(0xFF202020)
+  "dark-mint" -> Color(0xFFA7D7B4)
+  "dark-rose" -> Color(0xFFE7B1BC)
+  "dark-lavender" -> Color(0xFFC8BEEF)
+  else -> Color(0xFFF8F7F3)
+}
+
+private fun themeDotContentColor(theme: String): Color = when (theme) {
+  "light", "light-mint", "light-rose", "light-lavender" -> Color(0xFF202020)
+  "dark" -> Color(0xFFF4F4F2)
+  else -> Color(0xFF111111)
 }

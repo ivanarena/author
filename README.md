@@ -62,6 +62,8 @@ docker compose up -d --build
 
 The container stores SQLite data at `/data/notes.sqlite`.
 
+For production hardening, reverse-proxy TLS, backup/restore drills, metrics, and image signing notes, see `docs/operations.md`.
+
 ## Monorepo
 
 - `apps/web` is the SvelteKit web app, local Dexie store, Hono API, and self-host server.

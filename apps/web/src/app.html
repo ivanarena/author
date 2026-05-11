@@ -4,6 +4,37 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#f8f7f3" />
+    <script>
+      (() => {
+        try {
+          const themes = new Set([
+            'light',
+            'light-mint',
+            'light-rose',
+            'light-lavender',
+            'dark',
+            'dark-mint',
+            'dark-rose',
+            'dark-lavender'
+          ]);
+          const stored = localStorage.getItem('author-notes-theme');
+          const theme = themes.has(stored)
+            ? stored
+            : matchMedia('(prefers-color-scheme: dark)').matches
+              ? 'dark'
+              : 'light';
+          document.documentElement.dataset.theme = theme;
+          document
+            .querySelector('meta[name="theme-color"]')
+            ?.setAttribute(
+              'content',
+              theme.startsWith('dark') ? '#111111' : '#f8f7f3'
+            );
+        } catch {
+          document.documentElement.dataset.theme = 'light';
+        }
+      })();
+    </script>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     %sveltekit.head%
   </head>

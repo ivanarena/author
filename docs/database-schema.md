@@ -26,6 +26,7 @@ Tables:
 - `devices`
 - `users`
 - `auth_sessions`
+- `schema_migrations`
 - `notes`
 - `notebooks`
 - `entity_changes`
@@ -51,3 +52,7 @@ Active notebook names are treated as unique after trimming and case-folding. The
 Moving a note to Trash sets `trashedAt` and keeps the row syncable. Cleanup permanently removes notes whose `trashedAt` is older than 90 days, after writing a final snapshot and an `entity_tombstones` row. Tombstones let stale offline clients receive `deleted_remotely` conflicts instead of recreating cleaned-up rows.
 
 The server starts a cleanup scheduler unless `NOTES_CLEANUP_ENABLED=false`. It runs on startup by default and then every `NOTES_CLEANUP_INTERVAL_MINUTES`.
+
+## Migrations
+
+Server schema upgrades are tracked in `schema_migrations`. Each migration has a forward-only implementation and rollback notes in `apps/web/src/lib/server/db.ts`. Rollback means restoring the pre-upgrade SQLite/Turso backup, then rerunning `aube -F @author/web run db:check` before sending traffic back to the app.

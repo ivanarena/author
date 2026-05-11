@@ -244,7 +244,7 @@ private fun NoteMetadataDialog(
 ) {
   AlertDialog(
     onDismissRequest = onDismiss,
-    containerColor = MaterialTheme.colorScheme.surface,
+    containerColor = MaterialTheme.colorScheme.background,
     title = { Text("Metadata") },
     text = {
       Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

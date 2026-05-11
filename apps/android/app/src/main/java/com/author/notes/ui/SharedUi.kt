@@ -1,9 +1,7 @@
 package com.author.notes.ui
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -31,12 +29,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
@@ -81,24 +77,28 @@ internal fun NavRow(
   trailing: @Composable (() -> Unit)? = null,
   onClick: () -> Unit
 ) {
-  val rowColor by animateColorAsState(
-    targetValue = if (active) activeColor() else Color.Transparent,
-    animationSpec = tween(durationMillis = AppMotion.Medium),
-    label = "nav-row-color"
-  )
+  val contentColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
   Surface(
     modifier = Modifier
       .fillMaxWidth()
       .clip(RoundedCornerShape(8.dp))
       .animateContentSize(tween(AppMotion.Medium))
       .clickable(onClick = onClick),
-    color = rowColor,
+    color = Color.Transparent,
     shape = RoundedCornerShape(8.dp)
   ) {
     Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-      Icon(icon, null, modifier = Modifier.size(16.dp))
+      Icon(icon, null, modifier = Modifier.size(16.dp), tint = contentColor)
       Spacer(Modifier.width(8.dp))
-      Text(label, modifier = Modifier.weight(1f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+      Text(
+        label,
+        modifier = Modifier.weight(1f),
+        color = contentColor,
+        fontSize = 14.sp,
+        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+      )
       Text(count, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f), fontSize = 12.sp)
       if (trailing != null) Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) { trailing() }
     }
@@ -137,8 +137,7 @@ internal fun AppDropdownMenu(
     expanded = expanded,
     onDismissRequest = onDismissRequest,
     modifier = modifier
-      .clip(RoundedCornerShape(16.dp))
-      .background(menuColor()),
+      .clip(RoundedCornerShape(16.dp)),
     shape = RoundedCornerShape(16.dp),
     containerColor = menuColor(),
     tonalElevation = 0.dp,
@@ -149,16 +148,11 @@ internal fun AppDropdownMenu(
 
 @Composable
 internal fun ActionRow(icon: ImageVector, label: String, onClick: () -> Unit) {
-  val rowColor by animateColorAsState(
-    targetValue = fieldColor(),
-    animationSpec = tween(durationMillis = AppMotion.Fast),
-    label = "action-row-color"
-  )
   Surface(
     modifier = Modifier
       .fillMaxWidth()
       .clip(RoundedCornerShape(8.dp)),
-    color = rowColor,
+    color = Color.Transparent,
     shape = RoundedCornerShape(8.dp)
   ) {
     Row(
@@ -225,17 +219,17 @@ internal fun PasswordField(value: String, placeholder: String, onChange: (String
 
 @Composable
 internal fun textFieldColors() = TextFieldDefaults.colors(
-  focusedContainerColor = fieldColor(),
-  unfocusedContainerColor = fieldColor(),
-  disabledContainerColor = fieldColor(),
+  focusedContainerColor = Color.Transparent,
+  unfocusedContainerColor = Color.Transparent,
+  disabledContainerColor = Color.Transparent,
   focusedTextColor = MaterialTheme.colorScheme.onSurface,
   unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
   focusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
   unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
   cursorColor = MaterialTheme.colorScheme.onSurface,
-  focusedIndicatorColor = Color.Transparent,
-  unfocusedIndicatorColor = Color.Transparent,
-  disabledIndicatorColor = Color.Transparent
+  focusedIndicatorColor = MaterialTheme.colorScheme.primary,
+  unfocusedIndicatorColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.72f),
+  disabledIndicatorColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.42f)
 )
 
 @Composable
@@ -249,18 +243,16 @@ internal fun appCheckboxColors() = CheckboxDefaults.colors(
 
 @Composable
 internal fun SmallTextButton(label: String, active: Boolean = false, onClick: () -> Unit) {
-  val buttonColor by animateColorAsState(
-    targetValue = if (active) activeColor() else Color.Transparent,
-    animationSpec = tween(durationMillis = AppMotion.Fast),
-    label = "small-button-color"
-  )
   TextButton(
     onClick = onClick,
-    modifier = Modifier
-      .clip(RoundedCornerShape(8.dp))
-      .background(buttonColor)
+    modifier = Modifier.clip(RoundedCornerShape(8.dp))
   ) {
-    Text(label, fontSize = 12.sp)
+    Text(
+      label,
+      color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+      fontSize = 12.sp,
+      fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal
+    )
   }
 }
 
@@ -272,17 +264,16 @@ internal fun GlassIcon(
   enabled: Boolean = true,
   onClick: () -> Unit
 ) {
-  val iconColor by animateColorAsState(
-    targetValue = if (active) activeColor() else Color.Transparent,
-    animationSpec = tween(durationMillis = AppMotion.Fast),
-    label = "icon-button-color"
-  )
   IconButton(
     onClick = onClick,
-    enabled = enabled,
-    modifier = Modifier.background(iconColor, RoundedCornerShape(8.dp))
+    enabled = enabled
   ) {
-    Icon(icon, label, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 0.72f else 0.32f))
+    Icon(
+      icon,
+      label,
+      modifier = Modifier.size(18.dp),
+      tint = if (active && enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 0.72f else 0.32f)
+    )
   }
 }
 
@@ -292,14 +283,9 @@ internal fun GlassPanel(
   active: Boolean = false,
   content: @Composable () -> Unit
 ) {
-  val panel by animateColorAsState(
-    targetValue = if (active) activeColor() else panelColor(),
-    animationSpec = tween(durationMillis = AppMotion.Medium),
-    label = "panel-color"
-  )
   Surface(
     modifier = modifier.animateContentSize(tween(AppMotion.Medium)),
-    color = panel,
+    color = Color.Transparent,
     shape = RoundedCornerShape(8.dp),
     border = null,
     tonalElevation = 0.dp,
@@ -309,22 +295,10 @@ internal fun GlassPanel(
 }
 
 @Composable
-internal fun fieldColor(): Color = MaterialTheme.colorScheme.surfaceVariant
-
-@Composable
-internal fun panelColor(): Color = MaterialTheme.colorScheme.surface
-
-@Composable
-internal fun activeColor(): Color = MaterialTheme.colorScheme.primary.copy(alpha = if (isLightTheme()) 0.11f else 0.18f)
-
-@Composable
-internal fun menuColor(): Color = MaterialTheme.colorScheme.surface
+internal fun menuColor(): Color = MaterialTheme.colorScheme.background
 
 @Composable
 internal fun toolbarColor(): Color = MaterialTheme.colorScheme.background
-
-@Composable
-internal fun isLightTheme(): Boolean = MaterialTheme.colorScheme.background.luminance() > 0.5f
 
 @Composable
 internal fun messageColor(): Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f)

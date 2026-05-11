@@ -64,6 +64,27 @@ class NoteUtilsTest {
     )
   }
 
+  @Test
+  fun recordsDifferUsesHashesAndNotebookMembershipForSyncConflicts() {
+    val local = note(
+      "sync",
+      title = "Encrypted title",
+      body = "Encrypted body",
+      notebookIds = listOf("work"),
+      notebookId = "work"
+    ).copy(titleHash = "hash:title:1", bodyHash = "hash:body:1")
+    val sameEncryptedWithDifferentCiphertext = local.copy(
+      title = "Different ciphertext title",
+      body = "Different ciphertext body"
+    )
+    val changedBodyHash = sameEncryptedWithDifferentCiphertext.copy(bodyHash = "hash:body:2")
+    val changedNotebook = sameEncryptedWithDifferentCiphertext.copy(notebookIds = listOf("personal"))
+
+    assertEquals(false, recordsDiffer(local, sameEncryptedWithDifferentCiphertext))
+    assertEquals(true, recordsDiffer(local, changedBodyHash))
+    assertEquals(true, recordsDiffer(local, changedNotebook))
+  }
+
   private fun note(
     id: String,
     title: String,

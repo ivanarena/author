@@ -51,6 +51,7 @@ import {
   AuthError,
   changePassword,
   deleteAccount,
+  loadConfig,
   loadSyncStatus,
   logout,
   updateAccount,
@@ -322,6 +323,9 @@ export interface SettingsModalModel {
   loginPasswordValue: string;
   signupDisplayNameValue: string;
   signupConfirmPasswordValue: string;
+  signupInviteCodeValue: string;
+  signupEnabled: boolean;
+  signupInviteRequired: boolean;
   loginError: string;
   isLoggingIn: boolean;
   pendingSyncCount: number;
@@ -605,6 +609,9 @@ export class NotesPageController
   loginPasswordValue = $state('');
   signupDisplayNameValue = $state('');
   signupConfirmPasswordValue = $state('');
+  signupInviteCodeValue = $state('');
+  signupEnabled = $state(false);
+  signupInviteRequired = $state(false);
   loginError = $state('');
   renamingNotebookId = $state<string | null>(null);
   renameNotebookValue = $state('');
@@ -1048,10 +1055,12 @@ export class NotesPageController
     this.settingsOpen = false;
     this.loginOpen = true;
     this.authMode = 'signin';
+    void this.refreshPublicConfig();
     this.loginUsernameValue = getLoginHint();
     this.loginPasswordValue = '';
     this.signupDisplayNameValue = '';
     this.signupConfirmPasswordValue = '';
+    this.signupInviteCodeValue = '';
     this.loginError = '';
     this.closeAccountMenu();
     this.closeContextMenu();
@@ -1666,10 +1675,12 @@ export class NotesPageController
     this.loginOpen = true;
     this.newNotebookOpen = false;
     this.authMode = 'signin';
+    void this.refreshPublicConfig();
     this.loginUsernameValue = getLoginHint();
     this.loginPasswordValue = '';
     this.signupDisplayNameValue = '';
     this.signupConfirmPasswordValue = '';
+    this.signupInviteCodeValue = '';
     this.loginError = '';
     this.closeAccountMenu();
   };
@@ -1679,15 +1690,21 @@ export class NotesPageController
     this.loginOpen = false;
     this.loginPasswordValue = '';
     this.signupConfirmPasswordValue = '';
+    this.signupInviteCodeValue = '';
     this.loginError = '';
   };
 
   setAuthMode = (mode: AuthMode) => {
     if (this.isLoggingIn || this.authMode === mode) return;
+    if (mode === 'signup' && !this.signupEnabled) {
+      this.loginError = 'Signup is disabled';
+      return;
+    }
     this.authMode = mode;
     this.loginError = '';
     this.loginPasswordValue = '';
     this.signupConfirmPasswordValue = '';
+    this.signupInviteCodeValue = '';
     if (mode === 'signin') {
       this.signupDisplayNameValue = '';
       this.loginUsernameValue = getLoginHint();
@@ -1761,6 +1778,18 @@ export class NotesPageController
       this.loginError = 'Passwords do not match';
       return;
     }
+    if (this.authMode === 'signup' && !this.signupEnabled) {
+      this.loginError = 'Signup is disabled';
+      return;
+    }
+    if (
+      this.authMode === 'signup' &&
+      this.signupInviteRequired &&
+      !this.signupInviteCodeValue.trim()
+    ) {
+      this.loginError = 'Invite code required';
+      return;
+    }
 
     this.isLoggingIn = true;
     this.loginError = '';
@@ -1772,7 +1801,12 @@ export class NotesPageController
       await assertLocalWorkspaceCanUseAccount(username, previousUsername);
       const session =
         this.authMode === 'signup'
-          ? await signup(username, password, this.signupDisplayNameValue)
+          ? await signup(
+              username,
+              password,
+              this.signupDisplayNameValue,
+              this.signupInviteCodeValue.trim() || null
+            )
           : await login(username, password);
       const encryption = await rememberEncryptionPassword(
         session.user.username,
@@ -1801,13 +1835,13 @@ export class NotesPageController
       this.loginPasswordValue = '';
       this.signupDisplayNameValue = '';
       this.signupConfirmPasswordValue = '';
+      this.signupInviteCodeValue = '';
       this.syncMessage = 'Signed in';
       this.notify(
         'success',
         this.accountMessage,
         'Syncing local and remote notes.'
       );
-      await this.refresh();
       shouldSync = true;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Login failed';
@@ -1997,6 +2031,7 @@ export class NotesPageController
     this.accountUsername = storedSession?.user.username ?? '';
     this.accountDisplayName = storedSession?.user.displayName ?? '';
     this.loginUsernameValue = getLoginHint();
+    await this.refreshPublicConfig();
     await ensureLocalNotesEncrypted();
     await this.refresh();
     this.openDraftNote();
@@ -2004,6 +2039,24 @@ export class NotesPageController
     this.hasToken = Boolean(storedSession?.token);
     if (storedSession?.token) {
       await this.resumeOnlineSession(storedSession.token);
+    }
+  };
+
+  private refreshPublicConfig = async () => {
+    try {
+      const config = await loadConfig();
+      this.signupEnabled = config.signup.enabled;
+      this.signupInviteRequired = config.signup.inviteRequired;
+      if (!this.signupEnabled && this.authMode === 'signup') {
+        this.authMode = 'signin';
+        this.signupDisplayNameValue = '';
+        this.signupConfirmPasswordValue = '';
+        this.signupInviteCodeValue = '';
+      }
+    } catch {
+      this.signupEnabled = false;
+      this.signupInviteRequired = false;
+      if (this.authMode === 'signup') this.authMode = 'signin';
     }
   };
 
@@ -2297,6 +2350,7 @@ export class NotesPageController
     this.loginPasswordValue = '';
     this.signupDisplayNameValue = '';
     this.signupConfirmPasswordValue = '';
+    this.signupInviteCodeValue = '';
     this.loginError = '';
     this.loginOpen = openLogin;
     this.accountMenuOpen = false;

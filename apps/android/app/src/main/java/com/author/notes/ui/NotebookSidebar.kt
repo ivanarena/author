@@ -163,7 +163,7 @@ private fun NotebookActionsMenu(controller: NotesController, notebook: LocalNote
 private fun DeleteNotebookDialog(controller: NotesController, notebook: LocalNotebook) {
   AlertDialog(
     onDismissRequest = { controller.deletingNotebookId = null },
-    containerColor = MaterialTheme.colorScheme.surface,
+    containerColor = MaterialTheme.colorScheme.background,
     title = { Text("Delete notebook?") },
     text = { Text("Notes in ${notebook.name} will move to Trash.") },
     confirmButton = {

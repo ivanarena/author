@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -23,7 +22,6 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -117,14 +115,8 @@ private fun AccountSummary(controller: NotesController) {
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-      Surface(
-        modifier = Modifier.size(48.dp),
-        color = activeColor(),
-        shape = RoundedCornerShape(24.dp)
-      ) {
-        Box(contentAlignment = Alignment.Center) {
-          Icon(Icons.Outlined.AccountCircle, null, modifier = Modifier.size(28.dp))
-        }
+      Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+        Icon(Icons.Outlined.AccountCircle, null, modifier = Modifier.size(28.dp))
       }
       Column(Modifier.weight(1f)) {
         Text(

@@ -11,6 +11,8 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write
+  security-events: write
 
 jobs:
   publish:
@@ -34,11 +36,37 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=tag
-            type=sha
+            type=sha,format=long,prefix=sha-
 
       - uses: docker/build-push-action@v6
+        id: build
         with:
           context: .
           push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          sbom: ${{ github.event_name != 'pull_request' }}
+          provenance: ${{ github.event_name != 'pull_request' }}
+
+      - name: Scan image
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: '0'
+
+      - name: Upload scan results
+        uses: github/codeql-action/upload-sarif@v4
+        if: github.event_name != 'pull_request' && hashFiles('trivy-results.sarif') != ''
+        with:
+          sarif_file: trivy-results.sarif
+
+      - uses: sigstore/cosign-installer@v4.1.2
+        if: github.event_name != 'pull_request'
+
+      - name: Sign image
+        if: github.event_name != 'pull_request'
+        run: cosign sign --yes ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}

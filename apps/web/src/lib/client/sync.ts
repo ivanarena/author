@@ -349,13 +349,15 @@ export async function login(
 export async function signup(
   username: string,
   password: string,
-  displayName: string | null = null
+  displayName: string | null = null,
+  inviteCode: string | null = null
 ): Promise<AuthLoginResponse> {
   const device = await getOrCreateDevice();
   const body: AuthSignupRequest = {
     username,
     password,
     displayName,
+    inviteCode,
     device
   };
   return await signupWithDevice(body);

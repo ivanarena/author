@@ -75,6 +75,12 @@ const schemaSql = `
     value TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS schema_migrations (
+    version INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    applied_at TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS entity_changes (
     revision INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_username TEXT NOT NULL DEFAULT 'legacy-token',
@@ -474,24 +480,113 @@ async function seedEntityChanges(db: NotesDb): Promise<void> {
   );
 }
 
-export async function initializeDatabase(db: NotesDb): Promise<void> {
-  await exec(db, schemaSql);
-  if (!(await hasColumn(db, 'users', 'display_name'))) {
-    await run(db, 'ALTER TABLE users ADD COLUMN display_name TEXT');
-  }
-  await migrateLegacyMarkdownColumns(db);
-  await migrateNotebookIds(db);
-  await migrateSyncOwnershipAndHashes(db);
-  for (const table of ['notebooks', 'notebook_versions']) {
-    if (!(await hasColumn(db, table, 'name_hash'))) {
-      await run(db, `ALTER TABLE ${table} ADD COLUMN name_hash TEXT`);
+export interface ServerMigration {
+  version: number;
+  name: string;
+  rollback: string;
+  up: (db: NotesDb) => Promise<void>;
+}
+
+export const SERVER_MIGRATIONS: ServerMigration[] = [
+  {
+    version: 1,
+    name: 'users-display-name',
+    rollback:
+      'Restore from the pre-upgrade SQLite/Turso backup; SQLite cannot drop this column safely in place.',
+    up: async (db) => {
+      if (!(await hasColumn(db, 'users', 'display_name'))) {
+        await run(db, 'ALTER TABLE users ADD COLUMN display_name TEXT');
+      }
+    }
+  },
+  {
+    version: 2,
+    name: 'legacy-markdown-body-columns',
+    rollback:
+      'Restore from the pre-upgrade backup. This migration rewrites notes and note_versions when legacy markdown_body columns exist.',
+    up: migrateLegacyMarkdownColumns
+  },
+  {
+    version: 3,
+    name: 'note-notebook-ids',
+    rollback:
+      'Restore from the pre-upgrade backup. The notebook_ids data is derived from notebook_id for old rows.',
+    up: migrateNotebookIds
+  },
+  {
+    version: 4,
+    name: 'sync-ownership-and-field-hashes',
+    rollback:
+      'Restore from the pre-upgrade backup. Ownership defaults and hash columns are forward-only schema additions.',
+    up: migrateSyncOwnershipAndHashes
+  },
+  {
+    version: 5,
+    name: 'notebook-name-hashes',
+    rollback:
+      'Restore from the pre-upgrade backup. Existing clients can republish encrypted notebook names if needed.',
+    up: async (db) => {
+      for (const table of ['notebooks', 'notebook_versions']) {
+        if (!(await hasColumn(db, table, 'name_hash'))) {
+          await run(db, `ALTER TABLE ${table} ADD COLUMN name_hash TEXT`);
+        }
+      }
+      await run(
+        db,
+        `CREATE INDEX IF NOT EXISTS notebooks_active_name_hash_idx
+           ON notebooks(owner_username, deleted_at, name_hash)`
+      );
     }
   }
+];
+
+async function ensureSchemaMigrationsTable(db: NotesDb): Promise<void> {
+  await exec(
+    db,
+    `CREATE TABLE IF NOT EXISTS schema_migrations (
+       version INTEGER PRIMARY KEY,
+       name TEXT NOT NULL,
+       applied_at TEXT NOT NULL
+     );`
+  );
+}
+
+export async function appliedMigrationVersions(
+  db: NotesDb
+): Promise<Set<number>> {
+  await ensureSchemaMigrationsTable(db);
+  const rows = await all(db, 'SELECT version FROM schema_migrations');
+  return new Set(rows.map((row) => Number(row.version)));
+}
+
+async function recordMigration(
+  db: NotesDb,
+  migration: ServerMigration
+): Promise<void> {
   await run(
     db,
-    `CREATE INDEX IF NOT EXISTS notebooks_active_name_hash_idx
-       ON notebooks(owner_username, deleted_at, name_hash)`
+    `INSERT INTO schema_migrations (version, name, applied_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(version) DO UPDATE SET
+       name = excluded.name,
+       applied_at = excluded.applied_at`,
+    [migration.version, migration.name, new Date().toISOString()]
   );
+}
+
+export async function runPendingMigrations(db: NotesDb): Promise<void> {
+  const applied = await appliedMigrationVersions(db);
+  for (const migration of SERVER_MIGRATIONS) {
+    if (applied.has(migration.version)) continue;
+    await migration.up(db);
+    await recordMigration(db, migration);
+    applied.add(migration.version);
+  }
+}
+
+export async function initializeDatabase(db: NotesDb): Promise<void> {
+  await exec(db, schemaSql);
+  await runPendingMigrations(db);
   await seedEntityChanges(db);
 }
 

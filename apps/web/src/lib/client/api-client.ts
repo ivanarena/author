@@ -6,6 +6,7 @@ import {
   type AuthLoginResponse,
   type AuthSignupRequest,
   type AuthValidateResponse,
+  type ConfigResponse,
   type DeleteAccountRequest,
   type PasswordChangeRequest,
   type PullRequest,
@@ -114,6 +115,14 @@ export function createApiClient(options: ApiClientOptions = {}) {
   const { requestJson, authedGet, authedPost } = createRequestHelpers(options);
 
   return {
+    async loadConfig(): Promise<ConfigResponse> {
+      return await requestJson<ConfigResponse>(
+        API_PATHS.config,
+        {},
+        'Config failed'
+      );
+    },
+
     async validateSession(token: string): Promise<AuthValidateResponse> {
       return await authedGet<AuthValidateResponse>(
         API_PATHS.authValidate,
@@ -250,6 +259,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
 
 export const apiClient = createApiClient();
 
+export const loadConfig = apiClient.loadConfig;
 export const validateSession = apiClient.validateSession;
 export const loadSyncStatus = apiClient.loadSyncStatus;
 export const pushSyncChanges = apiClient.pushSyncChanges;

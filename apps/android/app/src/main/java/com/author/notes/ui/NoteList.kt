@@ -1,7 +1,6 @@
 package com.author.notes.ui
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -114,7 +113,7 @@ private fun SearchNotesField(controller: NotesController, modifier: Modifier = M
   val textColor = MaterialTheme.colorScheme.onSurface
   Surface(
     modifier = modifier.animateContentSize(tween(AppMotion.Medium)),
-    color = fieldColor(),
+    color = Color.Transparent,
     shape = RoundedCornerShape(18.dp)
   ) {
     Row(
@@ -271,11 +270,7 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
   val active = controller.selectedNote?.id == note.id
   val selected = controller.selectedNoteIds.contains(note.id)
   val selecting = controller.selectedNoteIds.isNotEmpty()
-  val rowColor by animateColorAsState(
-    targetValue = if (active || selected) activeColor() else Color.Transparent,
-    animationSpec = tween(durationMillis = AppMotion.Medium),
-    label = "note-row-color"
-  )
+  val titleColor = if (active || selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
 
   Surface(
     modifier = Modifier
@@ -289,7 +284,7 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
           controller.selectNote(note)
         }
       },
-    color = rowColor,
+    color = Color.Transparent,
     shape = RoundedCornerShape(8.dp)
   ) {
     Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -302,7 +297,15 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
       }
       Column(Modifier.weight(1f).padding(horizontal = if (selecting) 8.dp else 4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-          Text(noteDisplayTitle(note), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+          Text(
+            noteDisplayTitle(note),
+            color = titleColor,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 14.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+          )
           if (controller.compactView) {
             Text(relativeAge(note.updatedAt), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f))
           }

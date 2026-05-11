@@ -136,5 +136,7 @@ data class RemoteSyncInfo(
 data class ServerConfig(
   val apiBaseUrl: String,
   val remoteSyncEnabled: Boolean,
-  val remoteDatabaseConfigured: Boolean
+  val remoteDatabaseConfigured: Boolean,
+  val signupEnabled: Boolean,
+  val signupInviteRequired: Boolean
 )

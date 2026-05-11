@@ -1,9 +1,18 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { resolveDatabasePath } from './config';
-import { openDatabase, run } from './db';
+import {
+  appliedMigrationVersions,
+  get,
+  openConfiguredDatabase,
+  openDatabase,
+  openMemoryDatabase,
+  run,
+  runPendingMigrations,
+  SERVER_MIGRATIONS
+} from './db';
 
 const ENV_KEYS = [
   'NOTES_DB_PROVIDER',
@@ -66,5 +75,74 @@ describe('server database config', () => {
     expect(resolveDatabasePath('/data/notes.sqlite', true)).toBe(
       resolve('/data/notes.sqlite')
     );
+  });
+});
+
+describe('server database migrations', () => {
+  it('records all versioned migrations and remains idempotent', async () => {
+    const db = await openMemoryDatabase();
+    try {
+      expect(await appliedMigrationVersions(db)).toEqual(
+        new Set(SERVER_MIGRATIONS.map((migration) => migration.version))
+      );
+
+      const before = await get(
+        db,
+        'SELECT count(*) AS count FROM schema_migrations'
+      );
+      await runPendingMigrations(db);
+      const after = await get(
+        db,
+        'SELECT count(*) AS count FROM schema_migrations'
+      );
+
+      expect(Number(after?.count)).toBe(Number(before?.count));
+    } finally {
+      db.close();
+    }
+  });
+
+  it('restores a copied SQLite backup into a fresh database path', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'author-notes-restore-'));
+    const sourcePath = join(tempDir, 'source.sqlite');
+    const backupPath = join(tempDir, 'backup.sqlite');
+    const restoredPath = join(tempDir, 'restored.sqlite');
+
+    try {
+      const source = await openConfiguredDatabase({
+        provider: 'local',
+        filePath: sourcePath,
+        client: { url: `file:${sourcePath}` }
+      });
+      try {
+        await run(
+          source,
+          'INSERT INTO devices (id, name, last_seen_at) VALUES (?, ?, ?)',
+          ['backup-device', 'Backup Device', '2026-05-10T10:00:00.000Z']
+        );
+      } finally {
+        source.close();
+      }
+
+      copyFileSync(sourcePath, backupPath);
+      copyFileSync(backupPath, restoredPath);
+
+      const restored = await openConfiguredDatabase({
+        provider: 'local',
+        filePath: restoredPath,
+        client: { url: `file:${restoredPath}` }
+      });
+      try {
+        await expect(
+          get(restored, 'SELECT name FROM devices WHERE id = ?', [
+            'backup-device'
+          ])
+        ).resolves.toMatchObject({ name: 'Backup Device' });
+      } finally {
+        restored.close();
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });

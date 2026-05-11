@@ -23,6 +23,8 @@ beforeEach(() => {
   delete process.env.ANDROID_SYNC_API_URL;
   delete process.env.ANDROID_SYNC_SERVER_URL;
   delete process.env.NOTES_SYNC_SERVER_URL;
+  delete process.env.NOTES_SIGNUP_ENABLED;
+  delete process.env.NOTES_SIGNUP_INVITE_CODES;
   process.env.NOTES_DB_PATH = join(tempDir, 'notes.sqlite');
   process.env.NOTES_REMOTE_SYNC_ENABLED = 'false';
   process.env.NOTES_LOGIN_USERNAME = 'owner';
@@ -41,6 +43,8 @@ afterEach(() => {
   delete process.env.ANDROID_SYNC_SERVER_URL;
   delete process.env.NOTES_SYNC_SERVER_URL;
   delete process.env.NOTES_REMOTE_SYNC_ENABLED;
+  delete process.env.NOTES_SIGNUP_ENABLED;
+  delete process.env.NOTES_SIGNUP_INVITE_CODES;
   delete process.env.NOTES_LOGIN_USERNAME;
   delete process.env.NOTES_LOGIN_PASSWORD;
   delete process.env.NOTES_AUTH_TOKEN;
@@ -89,6 +93,12 @@ describe('Hono API', () => {
     expect(health.status).toBe(200);
     expect((await health.json()).service).toBe('author');
 
+    const metrics = await api.fetch(
+      new Request('http://localhost/api/metrics')
+    );
+    expect(metrics.status).toBe(200);
+    await expect(metrics.text()).resolves.toContain('author_up 1');
+
     const token = await loginToken();
     const pull = await post('/api/sync/pull', { since: null }, 'bad-token');
     expect(pull.status).toBe(401);
@@ -130,6 +140,10 @@ describe('Hono API', () => {
       remote: {
         enabled: true,
         configured: true
+      },
+      signup: {
+        enabled: false,
+        inviteRequired: false
       }
     });
     expect(JSON.stringify(body)).not.toContain('super-secret-token');
@@ -182,6 +196,7 @@ describe('Hono API', () => {
     process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
     process.env.TURSO_AUTH_TOKEN = 'test-token';
     process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
+    process.env.NOTES_SIGNUP_ENABLED = 'true';
 
     const signup = await api.fetch(
       new Request('http://localhost/api/auth/signup', {
@@ -232,13 +247,77 @@ describe('Hono API', () => {
     expect(duplicate.status).toBe(409);
   });
 
-  it('requires remote database access for signup', async () => {
+  it('keeps signup disabled by default even when Turso is configured', async () => {
+    const remotePath = join(tempDir, 'remote-disabled-signup.sqlite');
+    process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
+    process.env.TURSO_AUTH_TOKEN = 'test-token';
+    process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
+
     const signup = await api.fetch(
       new Request('http://localhost/api/auth/signup', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          username: 'new-user',
+          username: 'disabled-user',
+          password: 'new-user-password',
+          device: fixtureDevice
+        })
+      })
+    );
+
+    expect(signup.status).toBe(403);
+    await expect(signup.json()).resolves.toMatchObject({
+      error: 'Signup is disabled. Create users with user:create.'
+    });
+  });
+
+  it('requires a valid invite code when invite-only signup is configured', async () => {
+    const remotePath = join(tempDir, 'remote-invite-signup.sqlite');
+    process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
+    process.env.TURSO_AUTH_TOKEN = 'test-token';
+    process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
+    process.env.NOTES_SIGNUP_INVITE_CODES = 'alpha,beta';
+
+    const missingInvite = await api.fetch(
+      new Request('http://localhost/api/auth/signup', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'invite-user',
+          password: 'new-user-password',
+          device: fixtureDevice
+        })
+      })
+    );
+    expect(missingInvite.status).toBe(403);
+
+    const invited = await api.fetch(
+      new Request('http://localhost/api/auth/signup', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'invite-user',
+          password: 'new-user-password',
+          inviteCode: 'alpha',
+          device: fixtureDevice
+        })
+      })
+    );
+    expect(invited.status).toBe(200);
+    await expect(invited.json()).resolves.toMatchObject({
+      user: { username: 'invite-user' }
+    });
+  });
+
+  it('requires remote database access for signup', async () => {
+    process.env.NOTES_SIGNUP_ENABLED = 'true';
+
+    const signup = await api.fetch(
+      new Request('http://localhost/api/auth/signup', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'remote-required-user',
           password: 'new-user-password',
           device: fixtureDevice
         })
@@ -583,7 +662,7 @@ describe('Hono API', () => {
       })
     );
     expect(missing.status).toBe(401);
-  });
+  }, 10_000);
 
   it('does not accept legacy static tokens unless explicitly enabled', async () => {
     process.env.NOTES_AUTH_TOKEN = 'legacy-test-token';

@@ -8,11 +8,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.NoteAdd
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
@@ -85,12 +82,5 @@ private fun AppPage(
 private fun PageFloatingAction(controller: NotesController) {
   if (controller.currentPage != "notes") return
 
-  FloatingActionButton(
-    onClick = { controller.newNote() },
-    containerColor = MaterialTheme.colorScheme.primary,
-    contentColor = MaterialTheme.colorScheme.onPrimary,
-    shape = RoundedCornerShape(18.dp)
-  ) {
-    Icon(Icons.AutoMirrored.Outlined.NoteAdd, "New note")
-  }
+  GlassIcon(Icons.AutoMirrored.Outlined.NoteAdd, "New note") { controller.newNote() }
 }

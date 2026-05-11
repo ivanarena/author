@@ -422,8 +422,8 @@ class NotesRepository(context: Context) {
     syncClient.login(username, password, getOrCreateDevice())
   }
 
-  suspend fun signup(username: String, password: String, displayName: String?): LoginResponse = withContext(Dispatchers.IO) {
-    syncClient.signup(username, password, displayName, getOrCreateDevice())
+  suspend fun signup(username: String, password: String, displayName: String?, inviteCode: String?): LoginResponse = withContext(Dispatchers.IO) {
+    syncClient.signup(username, password, displayName, inviteCode, getOrCreateDevice())
   }
 
   suspend fun assertLocalWorkspaceCanUseAccount(username: String, previousUsername: String?) = withContext(Dispatchers.IO) {

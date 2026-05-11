@@ -2,6 +2,7 @@ import type { Device, Note, Notebook } from '@author/schema';
 
 export const API_PATHS = {
   health: '/api/health',
+  metrics: '/api/metrics',
   config: '/api/config',
   authLogin: '/api/auth/login',
   authSignup: '/api/auth/signup',
@@ -29,6 +30,7 @@ export interface AuthSignupRequest {
   username: string;
   password: string;
   displayName?: string | null;
+  inviteCode?: string | null;
   device: Device;
 }
 
@@ -79,6 +81,10 @@ export interface ConfigResponse {
   remote: {
     enabled: boolean;
     configured: boolean;
+  };
+  signup: {
+    enabled: boolean;
+    inviteRequired: boolean;
   };
 }
 

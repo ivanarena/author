@@ -36,28 +36,30 @@
     </div>
   </div>
 
-  <div class="auth-mode-tabs" role="tablist" aria-label="Authentication mode">
-    <button
-      type="button"
-      role="tab"
-      aria-selected={model.authMode === 'signin'}
-      class:active={model.authMode === 'signin'}
-      disabled={model.isLoggingIn}
-      onclick={() => model.setAuthMode('signin')}
-    >
-      Sign in
-    </button>
-    <button
-      type="button"
-      role="tab"
-      aria-selected={model.authMode === 'signup'}
-      class:active={model.authMode === 'signup'}
-      disabled={model.isLoggingIn}
-      onclick={() => model.setAuthMode('signup')}
-    >
-      Sign up
-    </button>
-  </div>
+  {#if model.signupEnabled}
+    <div class="auth-mode-tabs" role="tablist" aria-label="Authentication mode">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={model.authMode === 'signin'}
+        class:active={model.authMode === 'signin'}
+        disabled={model.isLoggingIn}
+        onclick={() => model.setAuthMode('signin')}
+      >
+        Sign in
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={model.authMode === 'signup'}
+        class:active={model.authMode === 'signup'}
+        disabled={model.isLoggingIn}
+        onclick={() => model.setAuthMode('signup')}
+      >
+        Sign up
+      </button>
+    </div>
+  {/if}
 
   <div class="field-grid auth-field-grid">
     <div class="field-row">
@@ -153,6 +155,21 @@
           </button>
         </div>
       </div>
+      {#if model.signupInviteRequired}
+        <div class="field-row">
+          <label for="signup-invite-code">Invite code</label>
+          <input
+            id="signup-invite-code"
+            type="text"
+            bind:value={model.signupInviteCodeValue}
+            autocomplete="one-time-code"
+            placeholder="Invite code"
+            required
+            disabled={model.isLoggingIn}
+            oninput={() => (model.loginError = '')}
+          />
+        </div>
+      {/if}
     </div>
   {/if}
 

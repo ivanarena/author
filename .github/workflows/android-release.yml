@@ -1,0 +1,129 @@
+name: Android Release APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Git tag to build and attach the signed APK to
+        required: true
+        type: string
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+
+jobs:
+  signed-apk:
+    name: Signed APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Validate release configuration
+        env:
+          AUTHOR_NOTES_API_URL: ${{ vars.AUTHOR_NOTES_API_URL }}
+          ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          ANDROID_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+          ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: |
+          missing=0
+          for name in \
+            AUTHOR_NOTES_API_URL \
+            ANDROID_RELEASE_KEYSTORE_BASE64 \
+            ANDROID_RELEASE_KEYSTORE_PASSWORD \
+            ANDROID_RELEASE_KEY_ALIAS \
+            ANDROID_RELEASE_KEY_PASSWORD
+          do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::${name} is not configured"
+              missing=1
+            fi
+          done
+
+          case "${AUTHOR_NOTES_API_URL:-}" in
+            https://*) ;;
+            *)
+              echo "::error::AUTHOR_NOTES_API_URL must be an HTTPS URL"
+              missing=1
+              ;;
+          esac
+
+          exit "$missing"
+
+      - name: Restore release keystore
+        env:
+          ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          signing_dir="${RUNNER_TEMP}/android-signing"
+          keystore_path="${signing_dir}/author-release.p12"
+          mkdir -p "$signing_dir"
+          printf '%s' "$ANDROID_RELEASE_KEYSTORE_BASE64" | base64 -d > "$keystore_path"
+          chmod 600 "$keystore_path"
+          echo "ANDROID_RELEASE_KEYSTORE_PATH=$keystore_path" >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        working-directory: apps/android
+        env:
+          AUTHOR_NOTES_API_URL: ${{ vars.AUTHOR_NOTES_API_URL }}
+          ANDROID_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+          ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: ./gradlew :app:lintRelease :app:assembleRelease
+
+      - name: Verify APK signature
+        id: verify
+        env:
+          APK_PATH: apps/android/app/build/outputs/apk/release/app-release.apk
+        run: |
+          apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
+          "$apksigner" verify --verbose --print-certs "$APK_PATH"
+          sha256="$(sha256sum "$APK_PATH" | cut -d ' ' -f 1)"
+          echo "apk_sha256=$sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare release asset
+        id: asset
+        env:
+          APK_PATH: apps/android/app/build/outputs/apk/release/app-release.apk
+        run: |
+          safe_tag="${RELEASE_TAG//\//-}"
+          asset_path="${RUNNER_TEMP}/author-notes-${safe_tag}-release-signed.apk"
+          cp "$APK_PATH" "$asset_path"
+          echo "asset_path=$asset_path" >> "$GITHUB_OUTPUT"
+          echo "asset_name=$(basename "$asset_path")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload signed APK artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: ${{ steps.asset.outputs.asset_name }}
+          path: ${{ steps.asset.outputs.asset_path }}
+
+      - name: Attach signed APK to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASSET_PATH: ${{ steps.asset.outputs.asset_path }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$ASSET_PATH" --clobber
+          else
+            gh release create "$RELEASE_TAG" "$ASSET_PATH" \
+              --title "Author ${RELEASE_TAG}" \
+              --generate-notes \
+              --latest
+          fi

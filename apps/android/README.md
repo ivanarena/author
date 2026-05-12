@@ -56,6 +56,12 @@ ANDROID_RELEASE_KEY_ALIAS=author
 ANDROID_RELEASE_KEY_PASSWORD=change-this
 ```
 
+The GitHub signed APK workflow uses the same signing values from repository
+secrets. Store the keystore as base64 in `ANDROID_RELEASE_KEYSTORE_BASE64`, then
+set `ANDROID_RELEASE_KEYSTORE_PASSWORD`, `ANDROID_RELEASE_KEY_ALIAS`, and
+`ANDROID_RELEASE_KEY_PASSWORD`. The public production API endpoint belongs in
+the `AUTHOR_NOTES_API_URL` repository variable.
+
 CI validates debug compile/lint/unit/APK, release lint/unit/APK, and connected debug instrumentation tests. Run connected tests locally with an emulator booted:
 
 ```sh

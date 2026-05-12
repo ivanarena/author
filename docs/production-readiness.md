@@ -49,7 +49,8 @@ AUTHOR_NOTES_API_URL=https://notes.example.com ./gradlew :app:lintRelease :app:a
 Release APKs must use an HTTPS `AUTHOR_NOTES_API_URL`. The Android app talks to
 the Author HTTP API only; Turso credentials never belong in the APK. For signed
 releases, set the `ANDROID_RELEASE_*` variables documented in
-`apps/android/README.md`.
+`apps/android/README.md`. GitHub release builds also require
+`ANDROID_RELEASE_KEYSTORE_BASE64` plus the signing password and alias secrets.
 
 ## Operational Checks
 

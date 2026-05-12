@@ -42,15 +42,14 @@ jobs:
             type=sha,format=long,prefix=sha-
 
       - uses: docker/build-push-action@v6
-        id: build
+        id: build-for-scan
         with:
           context: .
-          push: ${{ github.event_name != 'pull_request' }}
-          load: ${{ github.event_name == 'pull_request' }}
+          load: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          sbom: ${{ github.event_name != 'pull_request' }}
-          provenance: ${{ github.event_name != 'pull_request' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Scan image
         env:
@@ -58,24 +57,19 @@ jobs:
         run: |
           mkdir -p "${HOME}/.cache/trivy"
 
-          image_src=remote
-          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
-            image_src=docker
-          fi
-
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "${PWD}:/work" \
             -v "${HOME}/.cache/trivy:/root/.cache" \
             -v "${HOME}/.docker:/root/.docker:ro" \
             "aquasec/trivy:${TRIVY_VERSION}" image \
-            --image-src "${image_src}" \
+            --image-src docker \
             --format sarif \
             --output /work/trivy-results.sarif \
             --scanners vuln \
             --severity CRITICAL,HIGH \
             --pkg-types os,library \
-            --exit-code 0 \
+            --exit-code 1 \
             --timeout 10m \
             "${IMAGE_REF}"
 
@@ -86,9 +80,21 @@ jobs:
           name: trivy-results
           path: trivy-results.sarif
 
+      - uses: docker/build-push-action@v6
+        id: publish
+        if: github.event_name != 'pull_request'
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: true
+          cache-from: type=gha
+
       - uses: sigstore/cosign-installer@v4.1.2
         if: github.event_name != 'pull_request'
 
       - name: Sign image
         if: github.event_name != 'pull_request'
-        run: cosign sign --yes ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+        run: cosign sign --yes ghcr.io/${{ github.repository }}@${{ steps.publish.outputs.digest }}

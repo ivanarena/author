@@ -34,7 +34,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -48,7 +49,7 @@ internal fun PageHeader(
   leading: @Composable RowScope.() -> Unit = {},
   actions: @Composable RowScope.() -> Unit = {}
 ) {
-  val compactScreen = LocalConfiguration.current.screenWidthDp < 720
+  val compactScreen = isCompactWindow()
   Surface(color = toolbarColor()) {
     Row(
       Modifier
@@ -66,7 +67,15 @@ internal fun PageHeader(
 }
 
 @Composable
-internal fun pageHorizontalPadding(): Dp = if (LocalConfiguration.current.screenWidthDp < 720) 20.dp else 32.dp
+internal fun isCompactWindow(): Boolean {
+  val width = with(LocalDensity.current) {
+    LocalWindowInfo.current.containerSize.width.toDp()
+  }
+  return width < 720.dp
+}
+
+@Composable
+internal fun pageHorizontalPadding(): Dp = if (isCompactWindow()) 20.dp else 32.dp
 
 @Composable
 internal fun NavRow(

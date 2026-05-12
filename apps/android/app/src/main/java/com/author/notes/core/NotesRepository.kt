@@ -3,6 +3,7 @@ package com.author.notes.core
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
+import androidx.core.content.edit
 import com.author.notes.BuildConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -60,25 +61,25 @@ class NotesRepository(context: Context) {
   }
 
   fun setTheme(theme: String) {
-    prefs.edit().putString(THEME_KEY, if (theme in THEMES) theme else "light").apply()
+    prefs.edit { putString(THEME_KEY, if (theme in THEMES) theme else "light") }
   }
 
   fun getSort(): String = prefs.getString(SORT_KEY, "date-desc") ?: "date-desc"
 
   fun setSort(sort: String) {
-    prefs.edit().putString(SORT_KEY, sort).apply()
+    prefs.edit { putString(SORT_KEY, sort) }
   }
 
   fun getCompactView(): Boolean = prefs.getBoolean(COMPACT_VIEW_KEY, false)
 
   fun setCompactView(value: Boolean) {
-    prefs.edit().putBoolean(COMPACT_VIEW_KEY, value).apply()
+    prefs.edit { putBoolean(COMPACT_VIEW_KEY, value) }
   }
 
   fun getEditorZoom(): Float = prefs.getFloat(EDITOR_ZOOM_KEY, 1f).coerceIn(0.8f, 1.4f)
 
   fun setEditorZoom(value: Float) {
-    prefs.edit().putFloat(EDITOR_ZOOM_KEY, value.coerceIn(0.8f, 1.4f)).apply()
+    prefs.edit { putFloat(EDITOR_ZOOM_KEY, value.coerceIn(0.8f, 1.4f)) }
   }
 
   fun getEditorFont(): String {
@@ -87,25 +88,25 @@ class NotesRepository(context: Context) {
   }
 
   fun setEditorFont(value: String) {
-    prefs.edit().putString(EDITOR_FONT_KEY, if (value in FONTS) value else "kedebideri").apply()
+    prefs.edit { putString(EDITOR_FONT_KEY, if (value in FONTS) value else "kedebideri") }
   }
 
   fun getEditorTextSize(): Float = prefs.getFloat(EDITOR_TEXT_SIZE_KEY, 16f).coerceIn(14f, 22f)
 
   fun setEditorTextSize(value: Float) {
-    prefs.edit().putFloat(EDITOR_TEXT_SIZE_KEY, value.coerceIn(14f, 22f)).apply()
+    prefs.edit { putFloat(EDITOR_TEXT_SIZE_KEY, value.coerceIn(14f, 22f)) }
   }
 
   fun getEditorLineHeight(): Float = prefs.getFloat(EDITOR_LINE_HEIGHT_KEY, 1.75f).coerceIn(1.35f, 2.1f)
 
   fun setEditorLineHeight(value: Float) {
-    prefs.edit().putFloat(EDITOR_LINE_HEIGHT_KEY, value.coerceIn(1.35f, 2.1f)).apply()
+    prefs.edit { putFloat(EDITOR_LINE_HEIGHT_KEY, value.coerceIn(1.35f, 2.1f)) }
   }
 
   fun getApiBaseUrl(): String = prefs.getString(API_BASE_URL_KEY, BuildConfig.DEFAULT_API_BASE_URL) ?: BuildConfig.DEFAULT_API_BASE_URL
 
   fun setApiBaseUrl(value: String) {
-    prefs.edit().putString(API_BASE_URL_KEY, value.trim()).apply()
+    prefs.edit { putString(API_BASE_URL_KEY, value.trim()) }
   }
 
   fun getLoginHint(): String = prefs.getString(USERNAME_KEY, null)
@@ -126,20 +127,20 @@ class NotesRepository(context: Context) {
 
   fun setStoredSession(session: StoredSession) {
     securePrefs.putString(TOKEN_KEY, session.token)
-    prefs.edit()
-      .putString(USERNAME_KEY, session.user.username)
-      .putString(LAST_USERNAME_KEY, session.user.username)
-      .putNullableString(DISPLAY_NAME_KEY, session.user.displayName)
-      .putNullableString(SESSION_EXPIRES_KEY, session.expiresAt)
-      .apply()
+    prefs.edit {
+      putString(USERNAME_KEY, session.user.username)
+      putString(LAST_USERNAME_KEY, session.user.username)
+      putNullableString(DISPLAY_NAME_KEY, session.user.displayName)
+      putNullableString(SESSION_EXPIRES_KEY, session.expiresAt)
+    }
   }
 
   fun clearStoredSession() {
-    prefs.edit()
-      .remove(USERNAME_KEY)
-      .remove(DISPLAY_NAME_KEY)
-      .remove(SESSION_EXPIRES_KEY)
-      .apply()
+    prefs.edit {
+      remove(USERNAME_KEY)
+      remove(DISPLAY_NAME_KEY)
+      remove(SESSION_EXPIRES_KEY)
+    }
     securePrefs.remove(TOKEN_KEY)
     crypto.clearStoredEncryptionKeyMaterial()
   }
@@ -154,7 +155,7 @@ class NotesRepository(context: Context) {
     var id = prefs.getString(DEVICE_KEY, null)
     if (id == null) {
       id = newId()
-      prefs.edit().putString(DEVICE_KEY, id).apply()
+      prefs.edit { putString(DEVICE_KEY, id) }
     }
     db.getDevice(id) ?: Device(id, deviceName()).also { db.putDevice(it) }
   }
@@ -1038,7 +1039,7 @@ class NotesRepository(context: Context) {
     }
 
     val deviceId = prefs.getString(DEVICE_KEY, null) ?: newId().also {
-      prefs.edit().putString(DEVICE_KEY, it).apply()
+      prefs.edit { putString(DEVICE_KEY, it) }
     }
     val device = db.getDevice(deviceId) ?: Device(deviceId, deviceName()).also { db.putDevice(it) }
     val notebookIdByName = db.allNotebooks().map { crypto.decryptNotebookFields(it) }

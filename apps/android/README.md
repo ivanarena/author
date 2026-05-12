@@ -61,3 +61,5 @@ CI validates debug compile/lint/unit/APK, release lint/unit/APK, and connected d
 ```sh
 ./gradlew :app:connectedDebugAndroidTest
 ```
+
+The full cross-app release checklist lives in `../../docs/production-readiness.md`.

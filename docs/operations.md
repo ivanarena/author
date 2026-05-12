@@ -40,4 +40,4 @@ Turso backups should be restored through Turso first, then checked with the app 
 
 ## Containers
 
-The Docker workflow builds as non-root, emits SBOM/provenance, scans with Trivy, and signs pushed GHCR images with keyless Cosign. The scan reports findings without failing CI by default; review high/critical findings before public deployments.
+The Docker workflow builds as non-root, scans the local image with Trivy before publishing, fails CI on high or critical findings, emits SBOM/provenance for pushed images, and signs pushed GHCR images with keyless Cosign. Review the uploaded SARIF artifact before public deployments.

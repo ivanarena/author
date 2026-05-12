@@ -7,6 +7,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "SVELTEKIT_ADAPTER=node vite build",
     "preview": "SVELTEKIT_ADAPTER=node vite build && vite preview --host 0.0.0.0",
+    "cf:build": "SVELTEKIT_ADAPTER=cloudflare vite build",
     "cf:dev": "SVELTEKIT_ADAPTER=cloudflare vite build && wrangler dev",
     "cf:deploy": "SVELTEKIT_ADAPTER=cloudflare vite build && wrangler deploy",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
@@ -20,32 +21,33 @@
     "sync:bench": "tsx scripts/benchmark-sync.ts",
     "mock:browser": "tsx scripts/prefill-browser.ts",
     "cleanup": "tsx scripts/cleanup-trash.ts",
-    "prepare": "svelte-kit sync || true"
+    "prepare": "command -v svelte-kit >/dev/null 2>&1 && svelte-kit sync || true"
   },
   "dependencies": {
     "@author/api-types": "workspace:*",
     "@author/schema": "workspace:*",
     "@author/sync-spec": "workspace:*",
     "@fontsource/kedebideri": "^5.2.2",
-    "@libsql/client": "latest",
-    "dexie": "latest",
-    "hono": "latest",
-    "lucide-svelte": "latest"
+    "@libsql/client": "^0.17.3",
+    "dexie": "^4.4.2",
+    "hono": "^4.12.18",
+    "lucide-svelte": "^1.0.1"
   },
   "devDependencies": {
     "@author/test-fixtures": "workspace:*",
-    "@playwright/test": "latest",
+    "@playwright/test": "^1.59.1",
     "@sveltejs/adapter-cloudflare": "^7.2.8",
-    "@sveltejs/adapter-node": "latest",
-    "@sveltejs/kit": "latest",
-    "@sveltejs/vite-plugin-svelte": "latest",
-    "@types/node": "latest",
-    "svelte": "latest",
-    "svelte-check": "latest",
-    "tsx": "latest",
-    "typescript": "latest",
-    "vite": "latest",
-    "vitest": "latest",
+    "@sveltejs/adapter-node": "^5.5.4",
+    "@sveltejs/kit": "^2.59.1",
+    "@sveltejs/vite-plugin-svelte": "^7.1.2",
+    "@types/node": "^25.6.2",
+    "@vitest/coverage-v8": "^4.1.6",
+    "svelte": "^5.55.5",
+    "svelte-check": "^4.4.8",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.12",
+    "vitest": "^4.1.6",
     "wrangler": "^4.90.0"
   }
 }

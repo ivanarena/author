@@ -2,14 +2,13 @@
 set -eu
 
 aube() {
-  npx -y @endevco/aube@1.4.0 "$@"
+  npx -y @endevco/aube@1.8.0 "$@"
 }
 
 aube exec lint-staged
-aube run format
-aube run lint
+aube run quality
 
 (
   cd apps/android
-  ./gradlew spotlessApply :app:compileDebugKotlin :app:lintDebug :app:testDebugUnitTest
+  ./gradlew spotlessCheck :app:compileDebugKotlin :app:lintDebug :app:testDebugUnitTest
 )

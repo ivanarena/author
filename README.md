@@ -51,6 +51,13 @@ aube -F @author/web run build  # Production web build
 aube run emulator:window       # Start the Android emulator with a visible window and no boot animation
 ```
 
+## Production Readiness
+
+Use `docs/production-readiness.md` as the release checklist for web, API,
+Docker, and Android. It centralizes the commands and deployment requirements;
+the focused setup and operations details remain in `docs/setup.md` and
+`docs/operations.md`.
+
 ## Self-Hosting
 
 Copy the root env example and change the secrets:

@@ -3,6 +3,7 @@ package com.author.notes.core
 import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import androidx.core.content.edit
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -24,11 +25,11 @@ class SecurePreferenceStore(private val prefs: SharedPreferences) {
   }
 
   fun putString(key: String, value: String) {
-    prefs.edit().putString(key, encrypt(value)).apply()
+    prefs.edit { putString(key, encrypt(value)) }
   }
 
   fun remove(key: String) {
-    prefs.edit().remove(key).apply()
+    prefs.edit { remove(key) }
   }
 
   fun contains(key: String): Boolean = prefs.contains(key)

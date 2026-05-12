@@ -6,7 +6,8 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
+import androidx.core.content.edit
+import androidx.core.net.toUri
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -114,11 +115,11 @@ class UpdateCheckWorker(
       .build()
 
     manager.notify(UPDATE_NOTIFICATION_ID, notification)
-    prefs.edit().putInt(LAST_NOTIFIED_VERSION_CODE, update.versionCode).apply()
+    prefs.edit { putInt(LAST_NOTIFIED_VERSION_CODE, update.versionCode) }
   }
 
   private fun updateIntent(downloadUrl: String): PendingIntent {
-    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(downloadUrl.ifBlank { BuildConfig.UPDATE_DOWNLOAD_URL }))
+    val intent = Intent(Intent.ACTION_VIEW, downloadUrl.ifBlank { BuildConfig.UPDATE_DOWNLOAD_URL }.toUri())
       .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     return PendingIntent.getActivity(
       applicationContext,

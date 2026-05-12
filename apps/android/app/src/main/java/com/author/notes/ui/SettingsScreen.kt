@@ -53,7 +53,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -63,6 +62,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.author.notes.BuildConfig
+import java.util.Locale
 
 @Composable
 internal fun SettingsPage(
@@ -70,7 +70,7 @@ internal fun SettingsPage(
   onExport: () -> Unit,
   onImport: () -> Unit
 ) {
-  val compactScreen = LocalConfiguration.current.screenWidthDp < 720
+  val compactScreen = isCompactWindow()
   val showingMenu = compactScreen && controller.settingsSection == "menu"
   val section = activeSettingsSection(controller.settingsSection)
 
@@ -371,7 +371,7 @@ private fun AppearanceSettings(controller: NotesController) {
         controller.adjustEditorTextSize(1f)
       }
     }
-    SettingsStepper("Line height", String.format("%.2f", controller.editorLineHeight)) {
+    SettingsStepper("Line height", String.format(Locale.ROOT, "%.2f", controller.editorLineHeight)) {
       GlassIcon(Icons.Outlined.ZoomOut, "Tighter lines", enabled = controller.editorLineHeight > 1.35f) {
         controller.adjustEditorLineHeight(-0.05f)
       }

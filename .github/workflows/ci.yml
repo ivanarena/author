@@ -28,31 +28,39 @@ jobs:
       - name: Install dependencies
         run: |
           for attempt in 1 2 3; do
-            npx -y @endevco/aube@${AUBE_VERSION} install --frozen-lockfile && exit 0
+            npx -y "@endevco/aube@${AUBE_VERSION}" install --frozen-lockfile && exit 0
             sleep_seconds=$((attempt * 20))
             echo "Dependency install failed on attempt ${attempt}; retrying in ${sleep_seconds}s..."
             sleep "${sleep_seconds}"
           done
 
-          npx -y @endevco/aube@${AUBE_VERSION} install --frozen-lockfile
+          npx -y "@endevco/aube@${AUBE_VERSION}" install --frozen-lockfile
 
       - name: Dependency graph check
-        run: npx -y @endevco/aube@${AUBE_VERSION} run deps:check
+        run: npx -y "@endevco/aube@${AUBE_VERSION}" run deps:check
+
+      - name: Dependency audit
+        run: |
+          npx -y "@endevco/aube@${AUBE_VERSION}" audit --prod
+          npx -y "@endevco/aube@${AUBE_VERSION}" audit --audit-level high
+
+      - name: Deprecation check
+        run: npx -y "@endevco/aube@${AUBE_VERSION}" deprecations --transitive --exit-code
 
       - name: Typecheck
-        run: npx -y @endevco/aube@${AUBE_VERSION} run check
+        run: npx -y "@endevco/aube@${AUBE_VERSION}" run check
 
       - name: Format check
-        run: npx -y @endevco/aube@${AUBE_VERSION} run format:check
+        run: npx -y "@endevco/aube@${AUBE_VERSION}" run format:check
 
       - name: Lint
-        run: npx -y @endevco/aube@${AUBE_VERSION} run lint
+        run: npx -y "@endevco/aube@${AUBE_VERSION}" run lint
 
       - name: Unit tests
-        run: npx -y @endevco/aube@${AUBE_VERSION} run test
+        run: npx -y "@endevco/aube@${AUBE_VERSION}" run test
 
       - name: Coverage
-        run: npx -y @endevco/aube@${AUBE_VERSION} run test:coverage
+        run: npx -y "@endevco/aube@${AUBE_VERSION}" run test:coverage
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v5
@@ -68,10 +76,13 @@ jobs:
         working-directory: apps/web
 
       - name: Browser sync tests
-        run: npx -y @endevco/aube@${AUBE_VERSION} -F @author/web run test:e2e
+        run: npx -y "@endevco/aube@${AUBE_VERSION}" -F @author/web run test:e2e
 
       - name: Production build
-        run: npx -y @endevco/aube@${AUBE_VERSION} run build
+        run: npx -y "@endevco/aube@${AUBE_VERSION}" run build
+
+      - name: Cloudflare Worker build
+        run: npx -y "@endevco/aube@${AUBE_VERSION}" -F @author/web run cf:build
 
   android:
     name: Android
@@ -86,6 +97,10 @@ jobs:
           cache: gradle
 
       - uses: android-actions/setup-android@v3
+
+      - name: Format check
+        run: ./gradlew spotlessCheck
+        working-directory: apps/android
 
       - name: Compile and test
         run: ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest :app:assembleDebug

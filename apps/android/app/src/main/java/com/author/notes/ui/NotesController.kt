@@ -5,6 +5,8 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.author.notes.BuildConfig
@@ -46,10 +48,10 @@ class NotesController(
   var searchValue by mutableStateOf("")
   var noteSort by mutableStateOf(repository.getSort())
   var compactView by mutableStateOf(repository.getCompactView())
-  var editorZoom by mutableStateOf(repository.getEditorZoom())
+  var editorZoom by mutableFloatStateOf(repository.getEditorZoom())
   var editorFont by mutableStateOf(repository.getEditorFont())
-  var editorTextSize by mutableStateOf(repository.getEditorTextSize())
-  var editorLineHeight by mutableStateOf(repository.getEditorLineHeight())
+  var editorTextSize by mutableFloatStateOf(repository.getEditorTextSize())
+  var editorLineHeight by mutableFloatStateOf(repository.getEditorLineHeight())
   var theme by mutableStateOf(repository.getTheme())
   var currentPage by mutableStateOf("editor")
   var loginOpen by mutableStateOf(false)
@@ -92,7 +94,7 @@ class NotesController(
   var syncActivityDetail by mutableStateOf("")
   var isSyncing by mutableStateOf(false)
   var isWorkspaceLoading by mutableStateOf(true)
-  var pendingSyncCount by mutableStateOf(0)
+  var pendingSyncCount by mutableIntStateOf(0)
   var lastSyncPassTitle by mutableStateOf("No completed pass yet")
   var lastSyncPassDetail by mutableStateOf("Sync has not completed on this device.")
   var syncDebugTitle by mutableStateOf("No sync errors recorded")

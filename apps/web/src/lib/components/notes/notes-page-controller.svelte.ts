@@ -2,7 +2,6 @@ import { onMount, tick } from 'svelte';
 import type { Device } from '@author/schema';
 import type { RemoteSyncState } from '@author/api-types';
 import type { LocalConflict, LocalNote, LocalNotebook } from '$lib/client/db';
-import type { StoredTheme } from '$lib/client/local-state';
 import {
   hasStoredEncryptionKeyMaterial,
   rememberEncryptionPassword
@@ -66,11 +65,34 @@ import {
   groupNotesByDateRange,
   sortNotes,
   syncIndicatorState,
-  type NoteGroup,
-  type NoteSort,
-  type SyncIndicator
+  type NoteSort
 } from '$lib/client/view-model';
 import { pushEditorHistory, sameEditorSnapshot } from './editor-history';
+import {
+  editorMetadataRowsForNote,
+  formatSyncDebugLog,
+  formatSyncPassDetail,
+  formatSyncPassTime,
+  metadataRowsForNote,
+  syncProgressCopy
+} from './notes-controller-copy';
+import type {
+  AppNotification,
+  ArchiveOperation,
+  AuthMode,
+  ConflictChoice,
+  ConflictDialogModel,
+  ContextMenuModel,
+  EditorPaneModel,
+  ImportBanner,
+  MetadataRow,
+  NavigationDockModel,
+  NotesFilterId,
+  NotificationStackModel,
+  SettingsModalModel,
+  SettingsSection,
+  Theme
+} from './notes-controller-models';
 import {
   EDITOR_FONT_OPTIONS,
   getEditorFontCss,
@@ -97,305 +119,27 @@ import {
   type EditorFont,
   zoomPercent as formatZoomPercent
 } from './page-preferences';
-import type {
-  ContextMenuState,
-  EditorSnapshot,
-  NoteCallback,
-  NotebookAssignmentCallback,
-  NotebookCallback
-} from './ui-types';
+import type { ContextMenuState, EditorSnapshot } from './ui-types';
 
-export type NotesFilterId = 'all' | 'unfiled' | 'trash' | (string & {});
-export type Theme = StoredTheme;
-export type AuthMode = 'signin' | 'signup';
-export type SettingsSection =
-  | 'account'
-  | 'sync'
-  | 'data'
-  | 'appearance'
-  | 'legal';
-export type ConflictChoice =
-  | 'keep-newer'
-  | 'keep-older'
-  | 'keep-local'
-  | 'keep-remote'
-  | 'duplicate-both';
-
-export interface ArchiveOperation {
-  label: string;
-  detail: string;
-  progress: number;
-}
-
-export interface ImportBanner {
-  kind: 'success' | 'error';
-  title: string;
-  message: string;
-}
-
-export interface AppNotification {
-  id: string;
-  kind: 'success' | 'error' | 'info';
-  title: string;
-  message: string;
-}
-
-export interface NotebookSidebarModel {
-  notes: LocalNote[];
-  notebooks: LocalNotebook[];
-  trash: LocalNote[];
-  notebookCounts: Map<string, number>;
-  unfiledCount: number;
-  filterId: NotesFilterId;
-  newNotebookOpen: boolean;
-  notebookNameValue: string;
-  notebookError: string;
-  renamingNotebookId: string | null;
-  renameNotebookValue: string;
-  renameNotebookError: string;
-  deletingNotebookId: string | null;
-  toggleNewNotebookMenu: () => void;
-  submitNewNotebookMenu: () => void | Promise<void>;
-  openNotebookContext: (event: MouseEvent, notebook: LocalNotebook) => void;
-  startRenameNotebook: NotebookCallback;
-  cancelRenameNotebook: () => void;
-  submitRenameNotebook: NotebookCallback;
-  askDeleteNotebook: NotebookCallback;
-  cancelDeleteNotebook: () => void;
-  confirmDeleteNotebook: NotebookCallback;
-}
-
-export interface NoteListPanelModel {
-  visibleNoteGroups: NoteGroup[];
-  visibleNotes: LocalNote[];
-  notebooks: LocalNotebook[];
-  selectedNote: LocalNote | null;
-  selectedNoteIds: Set<string>;
-  selectedNoteCount: number;
-  selectedVisibleNoteCount: number;
-  allVisibleNotesSelected: boolean;
-  someVisibleNotesSelected: boolean;
-  selectedActiveNoteCount: number;
-  selectedTrashedNoteCount: number;
-  compactView: boolean;
-  linkingNoteId: string | null;
-  selectedNotebookMenuOpen: boolean;
-  noteSort: NoteSort;
-  searchValue: string;
-  currentTime: Date;
-  syncIndicator: SyncIndicator;
-  newNote: () => void | Promise<void>;
-  changeSort: (event: Event) => void;
-  setNoteSort: (sort: NoteSort) => void;
-  selectNote: NoteCallback;
-  toggleNoteSelection: (note: LocalNote, selected: boolean) => void;
-  toggleAllVisibleNotes: (selected: boolean) => void;
-  clearSelectedNotes: () => void;
-  toggleSelectedNotebookMenu: () => void;
-  toggleNotebookMenuForNote: NoteCallback;
-  assignNotebookForSelected: (
-    notebookId: string | null
-  ) => void | Promise<void>;
-  selectedNotesHaveNotebook: (notebookId: string | null) => boolean;
-  trashSelectedNotes: () => void | Promise<void>;
-  restoreSelectedNotes: () => void | Promise<void>;
-  deleteSelectedNotesPermanently: () => void | Promise<void>;
-  openNoteContext: (event: MouseEvent, note: LocalNote) => void;
-  restoreNoteFromRow: NoteCallback;
-  deleteNotePermanentlyFromRow: NoteCallback;
-  trashNote: NoteCallback;
-  assignNotebookForNote: NotebookAssignmentCallback;
-  notebookNamesForNote: (note: LocalNote) => string[];
-}
-
-export interface NavigationDockModel
-  extends NotebookSidebarModel, NoteListPanelModel {
-  menusOpen: boolean;
-  accountMenuOpen: boolean;
-  settingsOpen: boolean;
-  hasToken: boolean;
-  accountUsername: string;
-  accountDisplayName: string;
-  accountMessage: string;
-  accountError: string;
-  accountProfileEditing: boolean;
-  accountPasswordEditing: boolean;
-  accountDeleteEditing: boolean;
-  currentPasswordValue: string;
-  newPasswordValue: string;
-  confirmPasswordValue: string;
-  deletePasswordValue: string;
-  isAccountBusy: boolean;
-  isSyncing: boolean;
-  isArchiveBusy: boolean;
-  theme: Theme;
-  openMenus: () => void;
-  scheduleMenusClose: () => void;
-  closeMenusOnBlur: (event: FocusEvent) => void;
-  openAccountMenu: () => void;
-  scheduleAccountMenuClose: () => void;
-  closeAccountMenuOnBlur: (event: FocusEvent) => void;
-  toggleMenus: () => void;
-  closeAccountMenu: () => void;
-  syncNow: () => void | Promise<void>;
-  saveAccountProfile: () => void | Promise<void>;
-  changeAccountPassword: () => void | Promise<void>;
-  logoutAccount: () => void | Promise<void>;
-  deleteAccount: () => void | Promise<void>;
-  openLoginSettings: () => void;
-  toggleTheme: () => void;
-  openSettingsModal: (section?: SettingsSection) => void;
-}
-
-export interface EditorPaneModel {
-  selectedNote: LocalNote | null;
-  titleValue: string;
-  bodyValue: string;
-  titleInput: HTMLInputElement | null;
-  bodyTextarea: HTMLTextAreaElement | null;
-  currentTime: Date;
-  wordCount: number;
-  undoStack: EditorSnapshot[];
-  redoStack: EditorSnapshot[];
-  editorZoom: number;
-  editorFont: EditorFont;
-  editorFontCss: string;
-  editorTextSize: number;
-  editorLineHeight: number;
-  canUndoEditor: boolean;
-  canRedoEditor: boolean;
-  selectedDeviceName: string;
-  editorMetadataRows: MetadataRow[];
-  minEditorZoom: number;
-  maxEditorZoom: number;
-  minEditorTextSize: number;
-  maxEditorTextSize: number;
-  minEditorLineHeight: number;
-  maxEditorLineHeight: number;
-  editorFontOptions: typeof EDITOR_FONT_OPTIONS;
-  zoomPercent: () => string;
-  zoomEditor: (direction: -1 | 1) => void;
-  handleTitleKeydown: (event: KeyboardEvent) => void;
-  handleEditorInput: (event: Event, field: 'title' | 'body') => void;
-  undoEditorHistory: () => void;
-  redoEditorHistory: () => void;
-  openEditorContext: (event: MouseEvent) => void;
-}
-
-export interface SettingsModalModel {
-  settingsModal: HTMLElement | null;
-  importMarkdownInput: HTMLInputElement | null;
-  hasToken: boolean;
-  accountUsername: string;
-  accountDisplayName: string;
-  accountMessage: string;
-  accountError: string;
-  accountProfileEditing: boolean;
-  accountPasswordEditing: boolean;
-  accountDeleteEditing: boolean;
-  currentPasswordValue: string;
-  newPasswordValue: string;
-  confirmPasswordValue: string;
-  deletePasswordValue: string;
-  isAccountBusy: boolean;
-  isSyncing: boolean;
-  isImporting: boolean;
-  isArchiveBusy: boolean;
-  archiveOperation: ArchiveOperation | null;
-  importBanner: ImportBanner | null;
-  compactView: boolean;
-  theme: Theme;
-  settingsSection: SettingsSection;
-  editorZoom: number;
-  editorFont: EditorFont;
-  editorTextSize: number;
-  editorLineHeight: number;
-  minEditorZoom: number;
-  maxEditorZoom: number;
-  minEditorTextSize: number;
-  maxEditorTextSize: number;
-  minEditorLineHeight: number;
-  maxEditorLineHeight: number;
-  editorFontOptions: typeof EDITOR_FONT_OPTIONS;
-  loginOpen: boolean;
-  authMode: AuthMode;
-  loginUsernameValue: string;
-  loginPasswordValue: string;
-  signupDisplayNameValue: string;
-  signupConfirmPasswordValue: string;
-  signupInviteCodeValue: string;
-  signupEnabled: boolean;
-  signupInviteRequired: boolean;
-  loginError: string;
-  isLoggingIn: boolean;
-  pendingSyncCount: number;
-  syncIndicator: SyncIndicator;
-  lastSyncPassTitle: string;
-  lastSyncPassDetail: string;
-  remoteSyncEnabled: boolean;
-  remoteSyncState: RemoteSyncState | 'unknown';
-  remoteSyncError: string;
-  syncDebugTitle: string;
-  syncDebugDetail: string;
-  syncDebugLog: string;
-  syncNow: () => void | Promise<void>;
-  saveAccountProfile: () => void | Promise<void>;
-  changeAccountPassword: () => void | Promise<void>;
-  logoutAccount: () => void | Promise<void>;
-  deleteAccount: () => void | Promise<void>;
-  toggleLoginMenu: () => void;
-  closeLoginModal: () => void;
-  startAccountProfileEdit: () => void;
-  cancelAccountProfileEdit: () => void;
-  startAccountPasswordEdit: () => void;
-  cancelAccountPasswordEdit: () => void;
-  startAccountDeleteEdit: () => void;
-  cancelAccountDeleteEdit: () => void;
-  setSettingsSection: (section: SettingsSection) => void;
-  exportMarkdown: () => void | Promise<void>;
-  startMarkdownImport: () => void;
-  handleMarkdownImport: (event: Event) => void | Promise<void>;
-  toggleCompactView: () => void;
-  toggleTheme: () => void;
-  setThemeChoice: (theme: Theme) => void;
-  setEditorFont: (font: EditorFont) => void;
-  setEditorTextSize: (size: number) => void;
-  setEditorLineHeight: (lineHeight: number) => void;
-  zoomEditor: (direction: -1 | 1) => void;
-  zoomPercent: () => string;
-  submitLoginMenu: () => void | Promise<void>;
-  setAuthMode: (mode: AuthMode) => void;
-  closeSettings: () => void;
-}
-
-export interface ContextMenuModel {
-  contextMenu: ContextMenuState;
-  contextNote: LocalNote | null;
-  contextNotebook: LocalNotebook | null;
-  notebooks: LocalNotebook[];
-  contextRenameNotebook: NotebookCallback;
-  contextDeleteNotebook: NotebookCallback;
-  contextTrashNote: NoteCallback;
-  contextRestoreNote: NoteCallback;
-  contextDeleteNotePermanently: NoteCallback;
-  contextNoteMetadataRows: (note: LocalNote) => MetadataRow[];
-  contextAssignNotebookForNote: NotebookAssignmentCallback;
-  contextCreateNotebookForNote: (
-    note: LocalNote,
-    name: string
-  ) => Promise<string | null>;
-}
-
-export interface ConflictDialogModel {
-  activeConflict: LocalConflict | null;
-  conflictMessage: (conflict: LocalConflict) => string;
-  resolveActiveConflict: (choice: ConflictChoice) => void | Promise<void>;
-}
-
-export interface NotificationStackModel {
-  notifications: AppNotification[];
-  dismissNotification: (id: string) => void;
-}
+export type {
+  AppNotification,
+  ArchiveOperation,
+  AuthMode,
+  ConflictChoice,
+  ConflictDialogModel,
+  ContextMenuModel,
+  EditorPaneModel,
+  ImportBanner,
+  MetadataRow,
+  NavigationDockModel,
+  NoteListPanelModel,
+  NotebookSidebarModel,
+  NotesFilterId,
+  NotificationStackModel,
+  SettingsModalModel,
+  SettingsSection,
+  Theme
+} from './notes-controller-models';
 
 const EMPTY_NOTEBOOK_FILTERS = new Set<NotesFilterId>([
   'all',
@@ -406,154 +150,6 @@ const MAX_EDITOR_HISTORY = 120;
 const AUTO_SYNC_DELAY_MS = 600;
 const SYNC_RETRY_DELAY_MS = 12_000;
 const ONLINE_SESSION_SYNC_MS = 60_000;
-
-export interface MetadataRow {
-  label: string;
-  value: string;
-}
-
-function formatSyncPassTime(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  });
-}
-
-function formatSyncCount(value: number, label: string): string {
-  const count = Number.isFinite(value) ? value : 0;
-  return `${count} ${label}${count === 1 ? '' : 's'}`;
-}
-
-function formatSyncPassDetail(pass: {
-  completedAt: string | null;
-  pushed: number;
-  pulled: number;
-  conflicts: number;
-}): string {
-  if (!pass.completedAt) return 'Sync has not completed in this browser.';
-  return [
-    formatSyncCount(pass.pushed, 'pushed change'),
-    formatSyncCount(pass.pulled, 'pulled change'),
-    formatSyncCount(pass.conflicts, 'conflict')
-  ].join(', ');
-}
-
-function formatSyncDebugLog(debug: {
-  lastErrorAt: string | null;
-  lastErrorMessage: string;
-  lastErrorStack: string;
-}): string {
-  if (!debug.lastErrorAt && !debug.lastErrorMessage) {
-    return 'No sync errors recorded on this browser.';
-  }
-
-  return [
-    `Time: ${debug.lastErrorAt ? formatSyncPassTime(debug.lastErrorAt) : 'Unknown'}`,
-    `Message: ${debug.lastErrorMessage || 'Sync failed'}`,
-    debug.lastErrorStack ? `\n${debug.lastErrorStack}` : ''
-  ]
-    .filter(Boolean)
-    .join('\n');
-}
-
-function pluralizeSyncCount(value: number, singular: string): string {
-  return `${value} ${singular}${value === 1 ? '' : 's'}`;
-}
-
-function syncProgressCopy(progress: SyncProgress): {
-  label: string;
-  detail: string;
-} {
-  if (progress.phase === 'preparing') {
-    return {
-      label: 'Preparing sync',
-      detail: 'Checking local changes before the network pass'
-    };
-  }
-
-  if (progress.phase === 'pushing') {
-    return {
-      label: 'Pushing local changes',
-      detail:
-        progress.total === 0
-          ? 'No local changes to push'
-          : progress.pushed === 0
-            ? `Sending ${pluralizeSyncCount(progress.total, 'local change')}`
-            : `${progress.pushed} of ${progress.total} local changes pushed`
-    };
-  }
-
-  return {
-    label: 'Pulling remote changes',
-    detail:
-      progress.pulled === 0
-        ? 'Checking for remote changes'
-        : `${pluralizeSyncCount(progress.pulled, 'remote change')} pulled${
-            progress.hasMore ? ', checking for more' : ''
-          }`
-  };
-}
-
-function formatMetadataDate(iso: string | null): string {
-  if (!iso) return 'Not synced yet';
-  return new Date(iso).toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  });
-}
-
-function noteSyncStatusLabel(note: LocalNote): string {
-  if (note.syncStatus === 'synced') return 'Synced';
-  if (note.syncStatus === 'conflict') return 'Conflict';
-  if (note.syncStatus === 'deleted') return 'Deleted';
-  return 'Pending sync';
-}
-
-function formatLastSynced(iso: string | null, deviceName: string): string {
-  if (!iso) return 'Not synced yet';
-  return `${formatMetadataDate(iso)} by ${deviceName}`;
-}
-
-function metadataRowsForNote(
-  note: LocalNote,
-  wordCount = countWords(`${note.title} ${note.body}`),
-  deviceName = 'Unknown device'
-): MetadataRow[] {
-  return [
-    { label: 'Status', value: noteSyncStatusLabel(note) },
-    {
-      label: 'Last synced',
-      value: formatLastSynced(note.lastSyncedAt, deviceName)
-    },
-    { label: 'Last updated', value: formatMetadataDate(note.updatedAt) },
-    { label: 'Created', value: formatMetadataDate(note.createdAt) },
-    {
-      label: 'Words',
-      value: `${wordCount} ${wordCount === 1 ? 'word' : 'words'}`
-    }
-  ];
-}
-
-function editorMetadataRowsForNote(
-  note: LocalNote,
-  deviceName: string
-): MetadataRow[] {
-  return [
-    { label: 'Status', value: noteSyncStatusLabel(note) },
-    {
-      label: 'Last synced',
-      value:
-        note.lastSyncedAt === null
-          ? 'Not synced yet'
-          : `Synced ${formatLastSynced(note.lastSyncedAt, deviceName)}`
-    },
-    {
-      label: 'Last updated',
-      value: `Updated ${formatMetadataDate(note.updatedAt)}`
-    },
-    { label: 'Created', value: `Created ${formatMetadataDate(note.createdAt)}` }
-  ];
-}
 
 export class NotesPageController
   implements
@@ -668,6 +264,8 @@ export class NotesPageController
   private accountMenuCloseTimer: ReturnType<typeof setTimeout> | null = null;
   private remoteStatusTimer: ReturnType<typeof setTimeout> | null = null;
   private notificationTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private draftCreatePromise: Promise<LocalNote> | null = null;
+  private editorSessionId = 0;
   private syncQueued = false;
   private lastHistorySnapshot: EditorSnapshot = { title: '', body: '' };
 
@@ -901,6 +499,7 @@ export class NotesPageController
   selectNote = async (note: LocalNote) => {
     this.closeMenus();
     await this.flushPendingSave();
+    this.editorSessionId += 1;
     this.selectedNote = note;
     this.closeNotebookMenus();
     this.titleValue = note.title;
@@ -2179,6 +1778,7 @@ export class NotesPageController
 
   private openDraftNote = () => {
     this.clearPendingSave();
+    this.editorSessionId += 1;
     this.selectedNote = null;
     this.closeNotebookMenus();
     this.titleValue = '';
@@ -2280,22 +1880,53 @@ export class NotesPageController
   };
 
   private saveEditorNow = async (noteId: string | null) => {
-    if (noteId) {
+    const currentNoteId = noteId ?? this.selectedNote?.id ?? null;
+
+    if (currentNoteId) {
       const updated = await updateNoteContent(
-        noteId,
+        currentNoteId,
         this.titleValue,
         this.bodyValue
       );
-      if (updated && this.selectedNote?.id === noteId) {
+      if (updated && this.selectedNote?.id === currentNoteId) {
         this.selectedNote = updated;
       }
     } else if (this.titleValue.trim() || this.bodyValue.trim()) {
-      const note = await createBlankNote({
-        title: this.titleValue,
-        body: this.bodyValue,
-        notebookId: this.draftNotebookId()
-      });
-      this.selectedNote = note;
+      const draftSessionId = this.editorSessionId;
+      if (!this.draftCreatePromise) {
+        this.draftCreatePromise = createBlankNote({
+          title: this.titleValue,
+          body: this.bodyValue,
+          notebookId: this.draftNotebookId()
+        });
+      }
+
+      const draftCreatePromise = this.draftCreatePromise;
+      try {
+        const note = await draftCreatePromise;
+        const stillEditingDraft =
+          this.editorSessionId === draftSessionId &&
+          (this.selectedNote === null || this.selectedNote.id === note.id);
+        if (stillEditingDraft) {
+          this.selectedNote = note;
+
+          if (
+            note.title !== this.titleValue.trim() ||
+            note.body !== this.bodyValue
+          ) {
+            const updated = await updateNoteContent(
+              note.id,
+              this.titleValue,
+              this.bodyValue
+            );
+            if (updated) this.selectedNote = updated;
+          }
+        }
+      } finally {
+        if (this.draftCreatePromise === draftCreatePromise) {
+          this.draftCreatePromise = null;
+        }
+      }
     }
 
     await this.refresh();

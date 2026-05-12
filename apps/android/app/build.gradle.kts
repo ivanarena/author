@@ -108,12 +108,12 @@ if (releaseBuildRequested) {
 
 android {
   namespace = "com.author.notes"
-  compileSdk = 36
+  compileSdk = 37
 
   defaultConfig {
     applicationId = "com.author.notes"
     minSdk = 26
-    targetSdk = 36
+    targetSdk = 37
     versionCode = 1
     versionName = "1.0"
 
@@ -167,6 +167,7 @@ dependencies {
   androidTestImplementation(composeBom)
 
   implementation("androidx.activity:activity-compose:1.13.0")
+  implementation("androidx.core:core-ktx:1.18.0")
   implementation("androidx.compose.foundation:foundation")
   implementation("androidx.compose.material:material-icons-extended")
   implementation("androidx.compose.material3:material3")
@@ -177,7 +178,7 @@ dependencies {
   coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 
   testImplementation("junit:junit:4.13.2")
-  testImplementation("org.json:json:20240303")
+  testImplementation("org.json:json:20251224")
 
   androidTestImplementation("androidx.test:core:1.7.0")
   androidTestImplementation("androidx.test:runner:1.7.0")

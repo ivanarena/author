@@ -41,7 +41,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -59,7 +58,7 @@ internal fun EditorPage(controller: NotesController) {
 
 @Composable
 private fun EditorTopBar(controller: NotesController) {
-  val compactScreen = LocalConfiguration.current.screenWidthDp < 720
+  val compactScreen = isCompactWindow()
   Surface(color = toolbarColor()) {
     Row(
       Modifier
@@ -82,7 +81,7 @@ private fun EditorTopBar(controller: NotesController) {
 private fun EditorPane(controller: NotesController, modifier: Modifier = Modifier) {
   val text = MaterialTheme.colorScheme.onSurface
   val muted = text.copy(alpha = 0.52f)
-  val compactScreen = LocalConfiguration.current.screenWidthDp < 720
+  val compactScreen = isCompactWindow()
   val titleSize = (controller.editorTextSize * (if (compactScreen) 2.38f else 3.62f) * controller.editorZoom).sp
   val titleLineHeight = (controller.editorTextSize * (if (compactScreen) 2.75f else 3.94f) * controller.editorZoom).sp
   val bodySize = (controller.editorTextSize * controller.editorZoom).sp

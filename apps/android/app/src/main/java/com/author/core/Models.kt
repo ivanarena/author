@@ -1,9 +1,6 @@
 package com.author.core
 
-data class Device(
-  val id: String,
-  val name: String
-)
+data class Device(val id: String, val name: String)
 
 data class LocalNote(
   val id: String,
@@ -21,7 +18,7 @@ data class LocalNote(
   val version: Int,
   val syncStatus: String,
   val lastSyncedVersion: Int,
-  val lastSyncedAt: String?
+  val lastSyncedAt: String?,
 )
 
 data class LocalNotebook(
@@ -35,7 +32,7 @@ data class LocalNotebook(
   val version: Int,
   val syncStatus: String,
   val lastSyncedVersion: Int,
-  val lastSyncedAt: String?
+  val lastSyncedAt: String?,
 )
 
 data class ConflictVersion<T>(
@@ -45,7 +42,7 @@ data class ConflictVersion<T>(
   val updatedAt: String,
   val version: Int,
   val previewText: String,
-  val record: T
+  val record: T,
 )
 
 data class SyncConflict<T>(
@@ -54,7 +51,7 @@ data class SyncConflict<T>(
   val entityId: String,
   val reason: String,
   val local: ConflictVersion<T>,
-  val remote: ConflictVersion<T>
+  val remote: ConflictVersion<T>,
 )
 
 data class LocalConflict(
@@ -64,7 +61,7 @@ data class LocalConflict(
   val status: String,
   val createdAt: String,
   val noteConflict: SyncConflict<LocalNote>?,
-  val notebookConflict: SyncConflict<LocalNotebook>?
+  val notebookConflict: SyncConflict<LocalNotebook>?,
 ) {
   val reason: String
     get() = noteConflict?.reason ?: notebookConflict?.reason ?: ""
@@ -78,50 +75,39 @@ data class Workspace(
   val conflicts: List<LocalConflict>,
   val pendingSyncCount: Int,
   val lastSyncPass: LastSyncPass,
-  val syncDebugInfo: SyncDebugInfo
+  val syncDebugInfo: SyncDebugInfo,
 )
 
 data class LastSyncPass(
   val completedAt: String?,
   val pushed: Int,
   val pulled: Int,
-  val conflicts: Int
+  val conflicts: Int,
 )
 
 data class SyncDebugInfo(
   val lastErrorAt: String?,
   val lastErrorMessage: String,
-  val lastErrorStack: String
+  val lastErrorStack: String,
 )
 
 data class AuthUser(
   val username: String,
   val email: String?,
   val displayName: String?,
-  val twoFactorEnabled: Boolean
+  val twoFactorEnabled: Boolean,
 )
 
-data class StoredSession(
-  val token: String,
-  val user: AuthUser,
-  val expiresAt: String?
-)
+data class StoredSession(val token: String, val user: AuthUser, val expiresAt: String?)
 
-data class TotpSetup(
-  val secret: String,
-  val otpauthUrl: String
-)
+data class TotpSetup(val secret: String, val otpauthUrl: String)
 
-data class SyncRunResult(
-  val pushed: Int,
-  val pulled: Int,
-  val conflicts: Int
-)
+data class SyncRunResult(val pushed: Int, val pulled: Int, val conflicts: Int)
 
 enum class SyncProgressPhase {
   PREPARING,
   PUSHING,
-  PULLING
+  PULLING,
 }
 
 data class SyncProgress(
@@ -131,19 +117,15 @@ data class SyncProgress(
   val total: Int = 0,
   val batchSize: Int = 0,
   val pageSize: Int = 0,
-  val hasMore: Boolean = false
+  val hasMore: Boolean = false,
 )
 
-data class RemoteSyncInfo(
-  val enabled: Boolean,
-  val state: String,
-  val lastError: String?
-)
+data class RemoteSyncInfo(val enabled: Boolean, val state: String, val lastError: String?)
 
 data class ServerConfig(
   val apiBaseUrl: String,
   val remoteSyncEnabled: Boolean,
   val remoteDatabaseConfigured: Boolean,
   val signupEnabled: Boolean,
-  val signupEmailRequired: Boolean
+  val signupEmailRequired: Boolean,
 )

@@ -53,20 +53,21 @@ class SecurePreferenceStore(private val prefs: SharedPreferences) {
 
   private fun secretKey(): SecretKey {
     val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-    (keyStore.getEntry(SECURE_PREF_ALIAS, null) as? KeyStore.SecretKeyEntry)
-      ?.secretKey
-      ?.let { return it }
+    (keyStore.getEntry(SECURE_PREF_ALIAS, null) as? KeyStore.SecretKeyEntry)?.secretKey?.let {
+      return it
+    }
 
     val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
-    val spec = KeyGenParameterSpec.Builder(
-      SECURE_PREF_ALIAS,
-      KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
-    )
-      .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-      .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-      .setKeySize(256)
-      .setRandomizedEncryptionRequired(true)
-      .build()
+    val spec =
+      KeyGenParameterSpec.Builder(
+          SECURE_PREF_ALIAS,
+          KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+        )
+        .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+        .setKeySize(256)
+        .setRandomizedEncryptionRequired(true)
+        .build()
     keyGenerator.init(spec)
     return keyGenerator.generateKey()
   }

@@ -7,11 +7,12 @@ import org.junit.Test
 class NoteUtilsTest {
   @Test
   fun filterNotesForViewHandlesSystemFiltersAndNotebookIds() {
-    val notes = listOf(
-      note("a", title = "Alpha"),
-      note("b", title = "Bravo", notebookIds = listOf("work")),
-      note("c", title = "Charlie", notebookId = "legacy")
-    )
+    val notes =
+      listOf(
+        note("a", title = "Alpha"),
+        note("b", title = "Bravo", notebookIds = listOf("work")),
+        note("c", title = "Charlie", notebookId = "legacy"),
+      )
     val trash = listOf(note("t", title = "Trashed", trashedAt = "2026-05-07T12:00:00Z"))
 
     assertEquals(listOf("a", "b", "c"), filterNotesForView(notes, trash, "all").map { it.id })
@@ -23,10 +24,11 @@ class NoteUtilsTest {
 
   @Test
   fun filterNotesBySearchMatchesTitleAndBodyCaseInsensitively() {
-    val notes = listOf(
-      note("a", title = "Meeting", body = "Roadmap decisions"),
-      note("b", title = "Ideas", body = "tiny durable sparks")
-    )
+    val notes =
+      listOf(
+        note("a", title = "Meeting", body = "Roadmap decisions"),
+        note("b", title = "Ideas", body = "tiny durable sparks"),
+      )
 
     assertEquals(listOf("a"), filterNotesBySearch(notes, "roadmap").map { it.id })
     assertEquals(listOf("b"), filterNotesBySearch(notes, "IDEAS").map { it.id })
@@ -35,11 +37,12 @@ class NoteUtilsTest {
 
   @Test
   fun sortNotesUsesExpectedModes() {
-    val notes = listOf(
-      note("old", title = "Zed", updatedAt = "2026-05-05T12:00:00Z"),
-      note("middle", title = "alpha", updatedAt = "2026-05-06T12:00:00Z"),
-      note("new", title = "Beta", updatedAt = "2026-05-07T12:00:00Z")
-    )
+    val notes =
+      listOf(
+        note("old", title = "Zed", updatedAt = "2026-05-05T12:00:00Z"),
+        note("middle", title = "alpha", updatedAt = "2026-05-06T12:00:00Z"),
+        note("new", title = "Beta", updatedAt = "2026-05-07T12:00:00Z"),
+      )
 
     assertEquals(listOf("new", "middle", "old"), sortNotes(notes, "date-desc").map { it.id })
     assertEquals(listOf("middle", "new", "old"), sortNotes(notes, "az").map { it.id })
@@ -49,36 +52,40 @@ class NoteUtilsTest {
   @Test
   fun groupNotesByDateRangeGroupsOnlyDateSort() {
     val now = Instant.parse("2026-05-07T12:00:00Z")
-    val notes = listOf(
-      note("today", title = "Today", updatedAt = "2026-05-07T10:00:00Z"),
-      note("yesterday", title = "Yesterday", updatedAt = "2026-05-06T10:00:00Z")
-    )
+    val notes =
+      listOf(
+        note("today", title = "Today", updatedAt = "2026-05-07T10:00:00Z"),
+        note("yesterday", title = "Yesterday", updatedAt = "2026-05-06T10:00:00Z"),
+      )
 
     assertEquals(
       listOf("Today" to listOf("today"), "Yesterday" to listOf("yesterday")),
-      groupNotesByDateRange(notes, "date-desc", now).map { (label, group) -> label to group.map { it.id } }
+      groupNotesByDateRange(notes, "date-desc", now).map { (label, group) ->
+        label to group.map { it.id }
+      },
     )
     assertEquals(
       listOf("A-Z" to listOf("today", "yesterday")),
-      groupNotesByDateRange(notes, "az", now).map { (label, group) -> label to group.map { it.id } }
+      groupNotesByDateRange(notes, "az", now).map { (label, group) -> label to group.map { it.id } },
     )
   }
 
   @Test
   fun recordsDifferUsesHashesAndNotebookMembershipForSyncConflicts() {
-    val local = note(
-      "sync",
-      title = "Encrypted title",
-      body = "Encrypted body",
-      notebookIds = listOf("work"),
-      notebookId = "work"
-    ).copy(titleHash = "hash:title:1", bodyHash = "hash:body:1")
-    val sameEncryptedWithDifferentCiphertext = local.copy(
-      title = "Different ciphertext title",
-      body = "Different ciphertext body"
-    )
+    val local =
+      note(
+          "sync",
+          title = "Encrypted title",
+          body = "Encrypted body",
+          notebookIds = listOf("work"),
+          notebookId = "work",
+        )
+        .copy(titleHash = "hash:title:1", bodyHash = "hash:body:1")
+    val sameEncryptedWithDifferentCiphertext =
+      local.copy(title = "Different ciphertext title", body = "Different ciphertext body")
     val changedBodyHash = sameEncryptedWithDifferentCiphertext.copy(bodyHash = "hash:body:2")
-    val changedNotebook = sameEncryptedWithDifferentCiphertext.copy(notebookIds = listOf("personal"))
+    val changedNotebook =
+      sameEncryptedWithDifferentCiphertext.copy(notebookIds = listOf("personal"))
 
     assertEquals(false, recordsDiffer(local, sameEncryptedWithDifferentCiphertext))
     assertEquals(true, recordsDiffer(local, changedBodyHash))
@@ -92,23 +99,24 @@ class NoteUtilsTest {
     notebookIds: List<String> = emptyList(),
     notebookId: String? = null,
     updatedAt: String = "2026-05-07T12:00:00Z",
-    trashedAt: String? = null
-  ) = LocalNote(
-    id = id,
-    title = title,
-    body = body,
-    titleHash = null,
-    bodyHash = null,
-    notebookIds = notebookIds,
-    notebookId = notebookId,
-    createdAt = "2026-05-01T12:00:00Z",
-    updatedAt = updatedAt,
-    deletedAt = null,
-    trashedAt = trashedAt,
-    deviceId = "test-device",
-    version = 1,
-    syncStatus = "synced",
-    lastSyncedVersion = 1,
-    lastSyncedAt = null
-  )
+    trashedAt: String? = null,
+  ) =
+    LocalNote(
+      id = id,
+      title = title,
+      body = body,
+      titleHash = null,
+      bodyHash = null,
+      notebookIds = notebookIds,
+      notebookId = notebookId,
+      createdAt = "2026-05-01T12:00:00Z",
+      updatedAt = updatedAt,
+      deletedAt = null,
+      trashedAt = trashedAt,
+      deviceId = "test-device",
+      version = 1,
+      syncStatus = "synced",
+      lastSyncedVersion = 1,
+      lastSyncedAt = null,
+    )
 }

@@ -29,12 +29,20 @@ internal fun LoginDialog(controller: NotesController) {
     text = {
       Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-          SmallTextButton("Sign in", active = controller.authMode == "signin") { controller.chooseAuthMode("signin") }
+          SmallTextButton("Sign in", active = controller.authMode == "signin") {
+            controller.chooseAuthMode("signin")
+          }
           if (controller.signupEnabled) {
-            SmallTextButton("Sign up", active = controller.authMode == "signup") { controller.chooseAuthMode("signup") }
+            SmallTextButton("Sign up", active = controller.authMode == "signup") {
+              controller.chooseAuthMode("signup")
+            }
           }
         }
-        MiniField(controller.loginUsernameValue, if (controller.authMode == "signup") "Username" else "Username or email", Modifier.fillMaxWidth()) {
+        MiniField(
+          controller.loginUsernameValue,
+          if (controller.authMode == "signup") "Username" else "Username or email",
+          Modifier.fillMaxWidth(),
+        ) {
           controller.loginUsernameValue = it
           controller.loginError = ""
         }
@@ -61,12 +69,20 @@ internal fun LoginDialog(controller: NotesController) {
           }
         }
         if (controller.loginError.isNotBlank()) {
-          Text(controller.loginError, color = messageColor(), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+          Text(
+            controller.loginError,
+            color = messageColor(),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+          )
         }
       }
     },
     confirmButton = {
-      TextButton(onClick = { controller.submitLogin() }, enabled = !controller.isLoggingIn && !controller.isArchiveBusy) {
+      TextButton(
+        onClick = { controller.submitLogin() },
+        enabled = !controller.isLoggingIn && !controller.isArchiveBusy,
+      ) {
         Text(
           if (controller.isLoggingIn) {
             "Working"
@@ -78,9 +94,7 @@ internal fun LoginDialog(controller: NotesController) {
         )
       }
     },
-    dismissButton = {
-      TextButton(onClick = { controller.loginOpen = false }) { Text("Cancel") }
-    }
+    dismissButton = { TextButton(onClick = { controller.loginOpen = false }) { Text("Cancel") } },
   )
 }
 
@@ -95,11 +109,19 @@ internal fun ConflictDialog(controller: NotesController, conflict: LocalConflict
     title = { Text("Sync conflict") },
     text = {
       Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(if (conflict.reason == "duplicate_name") "A notebook with this name already exists. Choose one version or duplicate both." else "Choose which version to keep. Both versions are preserved until you decide.")
-        val localName = noteConflict?.local?.deviceName ?: notebookConflict?.local?.deviceName ?: "Local"
-        val localPreview = noteConflict?.local?.previewText ?: notebookConflict?.local?.previewText ?: ""
-        val remoteName = noteConflict?.remote?.deviceName ?: notebookConflict?.remote?.deviceName ?: "Remote"
-        val remotePreview = noteConflict?.remote?.previewText ?: notebookConflict?.remote?.previewText ?: ""
+        Text(
+          if (conflict.reason == "duplicate_name")
+            "A notebook with this name already exists. Choose one version or duplicate both."
+          else "Choose which version to keep. Both versions are preserved until you decide."
+        )
+        val localName =
+          noteConflict?.local?.deviceName ?: notebookConflict?.local?.deviceName ?: "Local"
+        val localPreview =
+          noteConflict?.local?.previewText ?: notebookConflict?.local?.previewText ?: ""
+        val remoteName =
+          noteConflict?.remote?.deviceName ?: notebookConflict?.remote?.deviceName ?: "Remote"
+        val remotePreview =
+          noteConflict?.remote?.previewText ?: notebookConflict?.remote?.previewText ?: ""
         InfoTile(localName, localPreview, "")
         InfoTile(remoteName, remotePreview, "")
       }
@@ -116,31 +138,36 @@ internal fun ConflictDialog(controller: NotesController, conflict: LocalConflict
           SmallTextButton("Duplicate both") { controller.resolveConflict("duplicate-both") }
         }
       }
-    }
+    },
   )
 }
 
 @Composable
 internal fun NotificationStack(controller: NotesController) {
   Column(
-    Modifier
-      .fillMaxWidth()
-      .padding(top = 8.dp),
+    Modifier.fillMaxWidth().padding(top = 8.dp),
     horizontalAlignment = Alignment.CenterHorizontally,
-    verticalArrangement = Arrangement.spacedBy(8.dp)
+    verticalArrangement = Arrangement.spacedBy(8.dp),
   ) {
     controller.notifications.forEach { notification ->
       GlassPanel(Modifier.width(360.dp)) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-          Text(notification.title, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f))
-          GlassIcon(Icons.Outlined.Close, "Dismiss") { controller.dismissNotification(notification.id) }
+          Text(
+            notification.title,
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp,
+            modifier = Modifier.weight(1f),
+          )
+          GlassIcon(Icons.Outlined.Close, "Dismiss") {
+            controller.dismissNotification(notification.id)
+          }
         }
         if (notification.message.isNotBlank()) {
           Text(
             notification.message,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
             fontSize = 12.sp,
-            modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp)
+            modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp),
           )
         }
       }

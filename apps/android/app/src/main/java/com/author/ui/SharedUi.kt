@@ -47,17 +47,16 @@ import androidx.compose.ui.unit.sp
 @Composable
 internal fun PageHeader(
   leading: @Composable RowScope.() -> Unit = {},
-  actions: @Composable RowScope.() -> Unit = {}
+  actions: @Composable RowScope.() -> Unit = {},
 ) {
   val compactScreen = isCompactWindow()
   Surface(color = toolbarColor()) {
     Row(
-      Modifier
-        .fillMaxWidth()
+      Modifier.fillMaxWidth()
         .heightIn(min = if (compactScreen) 56.dp else 64.dp)
         .padding(horizontal = pageHorizontalPadding(), vertical = 10.dp),
       verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(8.dp)
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
       leading()
       Spacer(Modifier.weight(1f))
@@ -68,14 +67,11 @@ internal fun PageHeader(
 
 @Composable
 internal fun isCompactWindow(): Boolean {
-  val width = with(LocalDensity.current) {
-    LocalWindowInfo.current.containerSize.width.toDp()
-  }
+  val width = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() }
   return width < 720.dp
 }
 
-@Composable
-internal fun pageHorizontalPadding(): Dp = if (isCompactWindow()) 20.dp else 32.dp
+@Composable internal fun pageHorizontalPadding(): Dp = if (isCompactWindow()) 20.dp else 32.dp
 
 @Composable
 internal fun NavRow(
@@ -84,19 +80,24 @@ internal fun NavRow(
   count: String,
   active: Boolean,
   trailing: @Composable (() -> Unit)? = null,
-  onClick: () -> Unit
+  onClick: () -> Unit,
 ) {
-  val contentColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
+  val contentColor =
+    if (active) MaterialTheme.colorScheme.primary
+    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
   Surface(
-    modifier = Modifier
-      .fillMaxWidth()
-      .clip(RoundedCornerShape(8.dp))
-      .animateContentSize(tween(AppMotion.Medium))
-      .clickable(onClick = onClick),
+    modifier =
+      Modifier.fillMaxWidth()
+        .clip(RoundedCornerShape(8.dp))
+        .animateContentSize(tween(AppMotion.Medium))
+        .clickable(onClick = onClick),
     color = Color.Transparent,
-    shape = RoundedCornerShape(8.dp)
+    shape = RoundedCornerShape(8.dp),
   ) {
-    Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+      Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
       Icon(icon, null, modifier = Modifier.size(16.dp), tint = contentColor)
       Spacer(Modifier.width(8.dp))
       Text(
@@ -106,7 +107,7 @@ internal fun NavRow(
         fontSize = 14.sp,
         fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
         maxLines = 1,
-        overflow = TextOverflow.Ellipsis
+        overflow = TextOverflow.Ellipsis,
       )
       Text(count, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f), fontSize = 12.sp)
       if (trailing != null) Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) { trailing() }
@@ -121,7 +122,7 @@ internal fun DropdownSectionLabel(label: String) {
     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
     fontSize = 12.sp,
     fontWeight = FontWeight.Bold,
-    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 4.dp)
+    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 4.dp),
   )
 }
 
@@ -131,7 +132,8 @@ internal fun MenuCheck(visible: Boolean) {
     Icons.Outlined.Check,
     null,
     modifier = Modifier.size(18.dp),
-    tint = if (visible) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.76f) else Color.Transparent
+    tint =
+      if (visible) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.76f) else Color.Transparent,
   )
 }
 
@@ -140,39 +142,40 @@ internal fun AppDropdownMenu(
   expanded: Boolean,
   onDismissRequest: () -> Unit,
   modifier: Modifier = Modifier,
-  content: @Composable ColumnScope.() -> Unit
+  content: @Composable ColumnScope.() -> Unit,
 ) {
   DropdownMenu(
     expanded = expanded,
     onDismissRequest = onDismissRequest,
-    modifier = modifier
-      .clip(RoundedCornerShape(16.dp)),
+    modifier = modifier.clip(RoundedCornerShape(16.dp)),
     shape = RoundedCornerShape(16.dp),
     containerColor = menuColor(),
     tonalElevation = 0.dp,
     shadowElevation = 8.dp,
-    content = content
+    content = content,
   )
 }
 
 @Composable
 internal fun ActionRow(icon: ImageVector, label: String, onClick: () -> Unit) {
   Surface(
-    modifier = Modifier
-      .fillMaxWidth()
-      .clip(RoundedCornerShape(8.dp)),
+    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)),
     color = Color.Transparent,
-    shape = RoundedCornerShape(8.dp)
+    shape = RoundedCornerShape(8.dp),
   ) {
     Row(
-      Modifier
-        .fillMaxWidth()
+      Modifier.fillMaxWidth()
         .heightIn(min = 42.dp)
         .clickable(onClick = onClick)
         .padding(horizontal = 12.dp, vertical = 9.dp),
-      verticalAlignment = Alignment.CenterVertically
+      verticalAlignment = Alignment.CenterVertically,
     ) {
-      Icon(icon, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f))
+      Icon(
+        icon,
+        null,
+        modifier = Modifier.size(16.dp),
+        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+      )
       Spacer(Modifier.width(8.dp))
       Text(label, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
@@ -183,10 +186,26 @@ internal fun ActionRow(icon: ImageVector, label: String, onClick: () -> Unit) {
 internal fun InfoTile(label: String, value: String, detail: String) {
   GlassPanel(Modifier.fillMaxWidth()) {
     Column(Modifier.padding(10.dp)) {
-      Text(label, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-      Text(value.ifBlank { " " }, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+      Text(
+        label,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+        fontSize = 12.sp,
+        fontWeight = FontWeight.SemiBold,
+      )
+      Text(
+        value.ifBlank { " " },
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+      )
       if (detail.isNotBlank()) {
-        Text(detail, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f), fontSize = 12.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        Text(
+          detail,
+          color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+          fontSize = 12.sp,
+          maxLines = 3,
+          overflow = TextOverflow.Ellipsis,
+        )
       }
     }
   }
@@ -197,7 +216,7 @@ internal fun MiniField(
   value: String,
   placeholder: String,
   modifier: Modifier = Modifier,
-  onChange: (String) -> Unit
+  onChange: (String) -> Unit,
 ) {
   TextField(
     value = value,
@@ -207,7 +226,7 @@ internal fun MiniField(
     modifier = modifier,
     textStyle = TextStyle(fontSize = 14.sp, fontFamily = LocalAppFontFamily.current),
     shape = RoundedCornerShape(14.dp),
-    colors = textFieldColors()
+    colors = textFieldColors(),
   )
 }
 
@@ -222,45 +241,46 @@ internal fun PasswordField(value: String, placeholder: String, onChange: (String
     modifier = Modifier.fillMaxWidth(),
     textStyle = TextStyle(fontSize = 14.sp, fontFamily = LocalAppFontFamily.current),
     shape = RoundedCornerShape(14.dp),
-    colors = textFieldColors()
+    colors = textFieldColors(),
   )
 }
 
 @Composable
-internal fun textFieldColors() = TextFieldDefaults.colors(
-  focusedContainerColor = Color.Transparent,
-  unfocusedContainerColor = Color.Transparent,
-  disabledContainerColor = Color.Transparent,
-  focusedTextColor = MaterialTheme.colorScheme.onSurface,
-  unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-  focusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
-  unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
-  cursorColor = MaterialTheme.colorScheme.onSurface,
-  focusedIndicatorColor = MaterialTheme.colorScheme.primary,
-  unfocusedIndicatorColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.72f),
-  disabledIndicatorColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.42f)
-)
+internal fun textFieldColors() =
+  TextFieldDefaults.colors(
+    focusedContainerColor = Color.Transparent,
+    unfocusedContainerColor = Color.Transparent,
+    disabledContainerColor = Color.Transparent,
+    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+    focusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
+    unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
+    cursorColor = MaterialTheme.colorScheme.onSurface,
+    focusedIndicatorColor = MaterialTheme.colorScheme.primary,
+    unfocusedIndicatorColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.72f),
+    disabledIndicatorColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.42f),
+  )
 
 @Composable
-internal fun appCheckboxColors() = CheckboxDefaults.colors(
-  checkedColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.82f),
-  uncheckedColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
-  checkmarkColor = MaterialTheme.colorScheme.background,
-  disabledCheckedColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.28f),
-  disabledUncheckedColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f)
-)
+internal fun appCheckboxColors() =
+  CheckboxDefaults.colors(
+    checkedColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.82f),
+    uncheckedColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
+    checkmarkColor = MaterialTheme.colorScheme.background,
+    disabledCheckedColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.28f),
+    disabledUncheckedColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f),
+  )
 
 @Composable
 internal fun SmallTextButton(label: String, active: Boolean = false, onClick: () -> Unit) {
-  TextButton(
-    onClick = onClick,
-    modifier = Modifier.clip(RoundedCornerShape(8.dp))
-  ) {
+  TextButton(onClick = onClick, modifier = Modifier.clip(RoundedCornerShape(8.dp))) {
     Text(
       label,
-      color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+      color =
+        if (active) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
       fontSize = 12.sp,
-      fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal
+      fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
     )
   }
 }
@@ -271,17 +291,16 @@ internal fun GlassIcon(
   label: String,
   active: Boolean = false,
   enabled: Boolean = true,
-  onClick: () -> Unit
+  onClick: () -> Unit,
 ) {
-  IconButton(
-    onClick = onClick,
-    enabled = enabled
-  ) {
+  IconButton(onClick = onClick, enabled = enabled) {
     Icon(
       icon,
       label,
       modifier = Modifier.size(18.dp),
-      tint = if (active && enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 0.72f else 0.32f)
+      tint =
+        if (active && enabled) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 0.72f else 0.32f),
     )
   }
 }
@@ -290,7 +309,7 @@ internal fun GlassIcon(
 internal fun GlassPanel(
   modifier: Modifier = Modifier,
   active: Boolean = false,
-  content: @Composable () -> Unit
+  content: @Composable () -> Unit,
 ) {
   Surface(
     modifier = modifier.animateContentSize(tween(AppMotion.Medium)),
@@ -299,21 +318,22 @@ internal fun GlassPanel(
     border = null,
     tonalElevation = 0.dp,
     shadowElevation = 0.dp,
-    content = content
+    content = content,
   )
 }
 
-@Composable
-internal fun menuColor(): Color = MaterialTheme.colorScheme.background
+@Composable internal fun menuColor(): Color = MaterialTheme.colorScheme.background
 
-@Composable
-internal fun toolbarColor(): Color = MaterialTheme.colorScheme.background
+@Composable internal fun toolbarColor(): Color = MaterialTheme.colorScheme.background
 
 @Composable
 internal fun messageColor(): Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f)
 
 @Composable
-internal fun statusColor(label: String): Color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (label.contains("Local only", true)) 0.52f else 0.72f)
+internal fun statusColor(label: String): Color =
+  MaterialTheme.colorScheme.onSurface.copy(
+    alpha = if (label.contains("Local only", true)) 0.52f else 0.72f
+  )
 
 @Composable
 internal fun SyncActivityIndicator(active: Boolean, modifier: Modifier = Modifier) {
@@ -322,6 +342,6 @@ internal fun SyncActivityIndicator(active: Boolean, modifier: Modifier = Modifie
     modifier = modifier.size(12.dp),
     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
     trackColor = Color.Transparent,
-    strokeWidth = 1.5.dp
+    strokeWidth = 1.5.dp,
   )
 }

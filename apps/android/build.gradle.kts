@@ -5,25 +5,16 @@ plugins {
 }
 
 spotless {
-  val ktlintEditorConfig = mapOf(
-    "indent_size" to "2",
-    "continuation_indent_size" to "2",
-    "ktlint_code_style" to "android_studio",
-    "ktlint_standard_max-line-length" to "disabled",
-    "ktlint_standard_function-naming" to "disabled",
-    "ktlint_standard_property-naming" to "disabled"
-  )
-
   kotlin {
     target("app/src/**/*.kt")
-    ktlint("1.7.1").editorConfigOverride(ktlintEditorConfig)
+    ktfmt().googleStyle()
     trimTrailingWhitespace()
     endWithNewline()
   }
 
   kotlinGradle {
     target("*.gradle.kts", "app/*.gradle.kts")
-    ktlint("1.7.1").editorConfigOverride(ktlintEditorConfig)
+    ktfmt().googleStyle()
     trimTrailingWhitespace()
     endWithNewline()
   }

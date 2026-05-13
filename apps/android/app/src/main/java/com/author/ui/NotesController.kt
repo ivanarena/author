@@ -23,7 +23,6 @@ import com.author.core.SyncProgress
 import com.author.core.SyncProgressPhase
 import com.author.core.formatDateTime
 import com.author.core.noteNotebookIds
-import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -31,10 +30,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class NotesController(
-  private val repository: NotesRepository,
-  private val scope: CoroutineScope
-) {
+class NotesController(private val repository: NotesRepository, private val scope: CoroutineScope) {
   var notes by mutableStateOf<List<LocalNote>>(emptyList())
   var notebooks by mutableStateOf<List<LocalNotebook>>(emptyList())
   var trash by mutableStateOf<List<LocalNote>>(emptyList())
@@ -77,7 +73,8 @@ class NotesController(
   var accountUsername by mutableStateOf(repository.getStoredSession()?.user?.username ?: "")
   var accountEmail by mutableStateOf(repository.getStoredSession()?.user?.email ?: "")
   var accountDisplayName by mutableStateOf(repository.getStoredSession()?.user?.displayName ?: "")
-  var accountTwoFactorEnabled by mutableStateOf(repository.getStoredSession()?.user?.twoFactorEnabled ?: false)
+  var accountTwoFactorEnabled by
+    mutableStateOf(repository.getStoredSession()?.user?.twoFactorEnabled ?: false)
   var accountMessage by mutableStateOf("")
   var accountError by mutableStateOf("")
   var accountProfileEditing by mutableStateOf(false)
@@ -129,9 +126,10 @@ class NotesController(
         refresh()
         isWorkspaceLoading = false
         runCatching {
-          repository.ensureLocalNotesEncrypted()
-          refresh()
-        }.onFailure { repository.recordSyncError(it, "Local workspace") }
+            repository.ensureLocalNotesEncrypted()
+            refresh()
+          }
+          .onFailure { repository.recordSyncError(it, "Local workspace") }
         runCatching { refreshServerConfigNow() }
           .onFailure { serverConfigError = it.message ?: "Could not reach sync API" }
         repository.getStoredSession()?.let { resumeSession(it.token) }
@@ -190,19 +188,26 @@ class NotesController(
     devices = workspace.devices
     conflicts = workspace.conflicts
     pendingSyncCount = workspace.pendingSyncCount
-    lastSyncPassTitle = workspace.lastSyncPass.completedAt?.let { formatDateTime(it) } ?: "No completed pass yet"
-    lastSyncPassDetail = if (workspace.lastSyncPass.completedAt == null) {
-      "Sync has not completed on this device."
-    } else {
-      "${workspace.lastSyncPass.pushed} pushed, ${workspace.lastSyncPass.pulled} pulled, ${workspace.lastSyncPass.conflicts} conflicts"
-    }
-    syncDebugTitle = workspace.syncDebugInfo.lastErrorAt?.let { formatDateTime(it) } ?: "No sync errors recorded"
-    syncDebugDetail = workspace.syncDebugInfo.lastErrorMessage.ifBlank { "The last caught sync error will appear here." }
-    syncDebugLog = formatSyncDebugLog(
-      workspace.syncDebugInfo.lastErrorAt,
-      workspace.syncDebugInfo.lastErrorMessage,
-      workspace.syncDebugInfo.lastErrorStack
-    )
+    lastSyncPassTitle =
+      workspace.lastSyncPass.completedAt?.let { formatDateTime(it) } ?: "No completed pass yet"
+    lastSyncPassDetail =
+      if (workspace.lastSyncPass.completedAt == null) {
+        "Sync has not completed on this device."
+      } else {
+        "${workspace.lastSyncPass.pushed} pushed, ${workspace.lastSyncPass.pulled} pulled, ${workspace.lastSyncPass.conflicts} conflicts"
+      }
+    syncDebugTitle =
+      workspace.syncDebugInfo.lastErrorAt?.let { formatDateTime(it) } ?: "No sync errors recorded"
+    syncDebugDetail =
+      workspace.syncDebugInfo.lastErrorMessage.ifBlank {
+        "The last caught sync error will appear here."
+      }
+    syncDebugLog =
+      formatSyncDebugLog(
+        workspace.syncDebugInfo.lastErrorAt,
+        workspace.syncDebugInfo.lastErrorMessage,
+        workspace.syncDebugInfo.lastErrorStack,
+      )
     selectedNoteIds = selectedNoteIds.filter { id -> (notes + trash).any { it.id == id } }.toSet()
     if (selectedId != null) {
       val refreshed = (notes + trash).firstOrNull { it.id == selectedId }
@@ -217,47 +222,56 @@ class NotesController(
   private fun formatSyncDebugLog(
     lastErrorAt: String?,
     lastErrorMessage: String,
-    lastErrorStack: String
+    lastErrorStack: String,
   ): String {
     if (lastErrorAt == null && lastErrorMessage.isBlank()) {
       return "No sync errors recorded on this device."
     }
 
     return listOf(
-      "Time: ${lastErrorAt?.let { formatDateTime(it) } ?: "Unknown"}",
-      "Message: ${lastErrorMessage.ifBlank { "Sync failed" }}",
-      lastErrorStack.takeIf { it.isNotBlank() }?.let { "\n$it" }.orEmpty()
-    ).filter { it.isNotBlank() }.joinToString("\n")
+        "Time: ${lastErrorAt?.let { formatDateTime(it) } ?: "Unknown"}",
+        "Message: ${lastErrorMessage.ifBlank { "Sync failed" }}",
+        lastErrorStack.takeIf { it.isNotBlank() }?.let { "\n$it" }.orEmpty(),
+      )
+      .filter { it.isNotBlank() }
+      .joinToString("\n")
   }
 
-  private fun pluralizeSyncCount(value: Int, singular: String): String = "$value $singular${if (value == 1) "" else "s"}"
+  private fun pluralizeSyncCount(value: Int, singular: String): String =
+    "$value $singular${if (value == 1) "" else "s"}"
 
   private fun updateSyncProgress(progress: SyncProgress) {
-    val (label, detail) = when (progress.phase) {
-      SyncProgressPhase.PREPARING -> "Preparing sync" to "Checking local changes before the network pass"
-      SyncProgressPhase.PUSHING -> {
-        val detail = when {
-          progress.total == 0 -> "No local changes to push"
-          progress.pushed == 0 -> "Sending ${pluralizeSyncCount(progress.total, "local change")}"
-          else -> "${progress.pushed} of ${progress.total} local changes pushed"
+    val (label, detail) =
+      when (progress.phase) {
+        SyncProgressPhase.PREPARING ->
+          "Preparing sync" to "Checking local changes before the network pass"
+        SyncProgressPhase.PUSHING -> {
+          val detail =
+            when {
+              progress.total == 0 -> "No local changes to push"
+              progress.pushed == 0 ->
+                "Sending ${pluralizeSyncCount(progress.total, "local change")}"
+              else -> "${progress.pushed} of ${progress.total} local changes pushed"
+            }
+          "Pushing local changes" to detail
         }
-        "Pushing local changes" to detail
-      }
-      SyncProgressPhase.PULLING -> {
-        val detail = if (progress.pulled == 0) {
-          "Checking for remote changes"
-        } else {
-          "${pluralizeSyncCount(progress.pulled, "remote change")} pulled${if (progress.hasMore) ", checking for more" else ""}"
+        SyncProgressPhase.PULLING -> {
+          val detail =
+            if (progress.pulled == 0) {
+              "Checking for remote changes"
+            } else {
+              "${pluralizeSyncCount(progress.pulled, "remote change")} pulled${if (progress.hasMore) ", checking for more" else ""}"
+            }
+          "Pulling remote changes" to detail
         }
-        "Pulling remote changes" to detail
       }
-    }
     syncActivityLabel = label
     syncActivityDetail = detail
     syncMessage = label
   }
 
-  fun deviceName(deviceId: String?): String = deviceId?.let { id -> devices.firstOrNull { it.id == id }?.name ?: id } ?: "Unknown device"
+  fun deviceName(deviceId: String?): String =
+    deviceId?.let { id -> devices.firstOrNull { it.id == id }?.name ?: id } ?: "Unknown device"
 
   fun selectNote(note: LocalNote) {
     navigateTo("editor")
@@ -363,7 +377,9 @@ class NotesController(
   }
 
   fun toggleAllVisible(selected: Boolean) {
-    selectedNoteIds = if (selected) selectedNoteIds + visibleNotes.map { it.id } else selectedNoteIds - visibleNotes.map { it.id }.toSet()
+    selectedNoteIds =
+      if (selected) selectedNoteIds + visibleNotes.map { it.id }
+      else selectedNoteIds - visibleNotes.map { it.id }.toSet()
   }
 
   fun clearSelection() {
@@ -378,9 +394,9 @@ class NotesController(
         return@launch
       }
       filterId = notebook.id
-      selectedNote?.takeIf { it.trashedAt == null }?.let {
-        selectedNote = repository.assignNoteToNotebook(it.id, notebook.id, true)
-      }
+      selectedNote
+        ?.takeIf { it.trashedAt == null }
+        ?.let { selectedNote = repository.assignNoteToNotebook(it.id, notebook.id, true) }
       notebookNameValue = ""
       notebookError = ""
       newNotebookOpen = false
@@ -442,7 +458,8 @@ class NotesController(
       flushPendingSave()
       repository.moveNoteToTrash(note.id)
       refresh()
-      if (selectedNote?.id == note.id) notes.firstOrNull { it.id != note.id }?.let(::selectNote) ?: openDraftNote()
+      if (selectedNote?.id == note.id)
+        notes.firstOrNull { it.id != note.id }?.let(::selectNote) ?: openDraftNote()
       scheduleSyncAfterLocalChange()
     }
   }
@@ -463,7 +480,9 @@ class NotesController(
       repository.deleteNotePermanently(note.id)
       selectedNoteIds = selectedNoteIds - note.id
       refresh()
-      if (selectedNote?.id == note.id) (if (filterId == "trash") trash.firstOrNull() else notes.firstOrNull())?.let(::selectNote) ?: openDraftNote()
+      if (selectedNote?.id == note.id)
+        (if (filterId == "trash") trash.firstOrNull() else notes.firstOrNull())?.let(::selectNote)
+          ?: openDraftNote()
       scheduleSyncAfterLocalChange()
     }
   }
@@ -493,7 +512,9 @@ class NotesController(
       selectedNoteIds = selectedNoteIds - targetIds
       filterId = "all"
       refresh()
-      targets.firstOrNull()?.let { target -> notes.firstOrNull { it.id == target.id }?.let(::selectNote) }
+      targets.firstOrNull()?.let { target ->
+        notes.firstOrNull { it.id == target.id }?.let(::selectNote)
+      }
       scheduleSyncAfterLocalChange()
     }
   }
@@ -508,7 +529,8 @@ class NotesController(
       selectedNoteIds = selectedNoteIds - targetIds
       refresh()
       if (selectedNote?.id in targetIds) {
-        (if (filterId == "trash") trash.firstOrNull() else notes.firstOrNull())?.let(::selectNote) ?: openDraftNote()
+        (if (filterId == "trash") trash.firstOrNull() else notes.firstOrNull())?.let(::selectNote)
+          ?: openDraftNote()
       }
       scheduleSyncAfterLocalChange()
     }
@@ -542,17 +564,20 @@ class NotesController(
       loginError = ""
       try {
         val wasSignup = authMode == "signup"
-        val previousUsername = repository.getStoredSession()?.user?.username ?: repository.getLoginHint().ifBlank { null }
-        val response = if (wasSignup) {
-          repository.signup(
-            username,
-            signupEmailValue,
-            password,
-            signupDisplayNameValue.ifBlank { null }
-          )
-        } else {
-          repository.login(username, password, loginTotpCodeValue.trim().ifBlank { null })
-        }
+        val previousUsername =
+          repository.getStoredSession()?.user?.username
+            ?: repository.getLoginHint().ifBlank { null }
+        val response =
+          if (wasSignup) {
+            repository.signup(
+              username,
+              signupEmailValue,
+              password,
+              signupDisplayNameValue.ifBlank { null },
+            )
+          } else {
+            repository.login(username, password, loginTotpCodeValue.trim().ifBlank { null })
+          }
         try {
           repository.assertLocalWorkspaceCanUseAccount(response.user.username, previousUsername)
         } catch (error: Throwable) {
@@ -560,7 +585,9 @@ class NotesController(
           throw error
         }
         repository.rememberPasswordAndAdopt(response.user.username, password, previousUsername)
-        repository.setStoredSession(StoredSession(response.token, response.user, response.expiresAt))
+        repository.setStoredSession(
+          StoredSession(response.token, response.user, response.expiresAt)
+        )
         applyUser(response.user)
         loginOpen = false
         hasToken = true
@@ -571,7 +598,11 @@ class NotesController(
         signupDisplayNameValue = ""
         signupConfirmPasswordValue = ""
         syncMessage = "Signed in"
-        notify("success", if (wasSignup) "Account created" else "Signed in", "Syncing local and remote notes.")
+        notify(
+          "success",
+          if (wasSignup) "Account created" else "Signed in",
+          "Syncing local and remote notes.",
+        )
         syncNow()
       } catch (error: Throwable) {
         loginError = error.message ?: "Login failed"
@@ -598,7 +629,10 @@ class NotesController(
         return@launch
       }
       if (!repository.hasStoredEncryptionKeyMaterial()) {
-        repository.recordSyncError(IllegalStateException("Sign in again to sync encrypted notes"), "Sync")
+        repository.recordSyncError(
+          IllegalStateException("Sign in again to sync encrypted notes"),
+          "Sync",
+        )
         refresh()
         expireSession("Sign in again to sync encrypted notes")
         return@launch
@@ -608,12 +642,12 @@ class NotesController(
       var syncCompleted = false
       try {
         flushPendingSave()
-        val result = repository.runSync(token) { progress ->
-          withContext(Dispatchers.Main) {
-            updateSyncProgress(progress)
+        val result =
+          repository.runSync(token) { progress ->
+            withContext(Dispatchers.Main) { updateSyncProgress(progress) }
           }
-        }
-        syncMessage = if (result.conflicts > 0) "${result.conflicts} conflicts" else "Local changes saved"
+        syncMessage =
+          if (result.conflicts > 0) "${result.conflicts} conflicts" else "Local changes saved"
         refresh()
         try {
           val remote = repository.loadSyncStatus(token)
@@ -661,7 +695,8 @@ class NotesController(
     val token = repository.getStoredSession()?.token ?: return
     scope.launch {
       try {
-        val user = repository.updateAccount(token, accountDisplayName, accountEmail.ifBlank { null })
+        val user =
+          repository.updateAccount(token, accountDisplayName, accountEmail.ifBlank { null })
         val session = repository.getStoredSession()
         if (session != null) repository.setStoredSession(session.copy(user = user))
         applyUser(user)
@@ -726,11 +761,17 @@ class NotesController(
     }
     scope.launch {
       try {
-        val user = if (accountTwoFactorEnabled) {
-          repository.disableTotp(token, accountTotpPasswordValue, accountTotpCodeValue)
-        } else {
-          repository.enableTotp(token, accountTotpPasswordValue, accountTotpSecret, accountTotpCodeValue)
-        }
+        val user =
+          if (accountTwoFactorEnabled) {
+            repository.disableTotp(token, accountTotpPasswordValue, accountTotpCodeValue)
+          } else {
+            repository.enableTotp(
+              token,
+              accountTotpPasswordValue,
+              accountTotpSecret,
+              accountTotpCodeValue,
+            )
+          }
         clearLocalSession("2FA changed. Sign in again to keep syncing.", openLogin = true)
         loginUsernameValue = user.username
         notify("success", "2FA changed", "Sign in again to keep syncing.")
@@ -824,13 +865,9 @@ class NotesController(
     preparedExport = null
     if (uri == null) return
     scope.launch {
-      runCatching {
-        resolver.openOutputStream(uri)?.use { it.write(bytes) }
-      }.onSuccess {
-        notify("success", "Export complete", "Markdown ZIP saved.")
-      }.onFailure {
-        notify("error", "Export failed", it.message ?: "Could not write file")
-      }
+      runCatching { resolver.openOutputStream(uri)?.use { it.write(bytes) } }
+        .onSuccess { notify("success", "Export complete", "Markdown ZIP saved.") }
+        .onFailure { notify("error", "Export failed", it.message ?: "Could not write file") }
     }
   }
 
@@ -839,16 +876,21 @@ class NotesController(
     scope.launch {
       isArchiveBusy = true
       try {
-        val files = uris.mapNotNull { uri ->
-          val text = resolver.openInputStream(uri)?.use { String(it.readBytes(), Charsets.UTF_8) } ?: return@mapNotNull null
-          val name = displayName(uri, resolver)
-          MarkdownInputFile(name, importPath(uri, name), text)
-        }
+        val files =
+          uris.mapNotNull { uri ->
+            val text =
+              resolver.openInputStream(uri)?.use { String(it.readBytes(), Charsets.UTF_8) }
+                ?: return@mapNotNull null
+            val name = displayName(uri, resolver)
+            MarkdownInputFile(name, importPath(uri, name), text)
+          }
         val result = repository.importMarkdownFiles(files)
         importBanner = result.summary()
         notify("success", "Import succeeded", result.summary())
         refresh()
-        result.noteIds.firstOrNull()?.let { id -> notes.firstOrNull { it.id == id }?.let(::selectNote) }
+        result.noteIds.firstOrNull()?.let { id ->
+          notes.firstOrNull { it.id == id }?.let(::selectNote)
+        }
         scheduleSyncAfterLocalChange()
       } catch (error: Throwable) {
         importBanner = error.message ?: "Import failed"
@@ -865,11 +907,12 @@ class NotesController(
     selectedNote?.let {
       selectedNote = it.copy(title = titleValue.trim(), body = bodyValue, syncStatus = "pending")
     }
-    saveJob = scope.launch {
-      delay(120)
-      saveJob = null
-      saveEditorNow()
-    }
+    saveJob =
+      scope.launch {
+        delay(120)
+        saveJob = null
+        saveEditorNow()
+      }
   }
 
   private suspend fun flushPendingSave() {
@@ -890,7 +933,8 @@ class NotesController(
     scheduleSyncAfterLocalChange()
   }
 
-  private fun draftNotebookId(): String? = if (filterId in setOf("all", "unfiled", "trash")) null else filterId
+  private fun draftNotebookId(): String? =
+    if (filterId in setOf("all", "unfiled", "trash")) null else filterId
 
   private fun resetHistory() {
     undoStack = emptyList()
@@ -910,11 +954,12 @@ class NotesController(
       return
     }
     autoSyncJob?.cancel()
-    autoSyncJob = scope.launch {
-      delay(600)
-      autoSyncJob = null
-      syncNow()
-    }
+    autoSyncJob =
+      scope.launch {
+        delay(600)
+        autoSyncJob = null
+        syncNow()
+      }
   }
 
   private suspend fun resumeSession(token: String) {
@@ -1035,9 +1080,12 @@ class NotesController(
     serverConfigError = ""
   }
 
-  private fun isHttpApiUrl(value: String): Boolean = runCatching { java.net.URL(value) }.getOrNull()?.let { parsed ->
-    parsed.protocol in setOf("http", "https") && !parsed.host.isNullOrBlank()
-  } == true
+  private fun isHttpApiUrl(value: String): Boolean =
+    runCatching { java.net.URL(value) }
+      .getOrNull()
+      ?.let { parsed ->
+        parsed.protocol in setOf("http", "https") && !parsed.host.isNullOrBlank()
+      } == true
 
   fun dismissNotification(id: String) {
     notifications = notifications.filterNot { it.id == id }
@@ -1053,24 +1101,25 @@ class NotesController(
   }
 
   private fun displayName(uri: Uri, resolver: ContentResolver): String {
-    val fromCursor = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-      if (cursor.moveToFirst()) cursor.getString(0) else null
-    }
+    val fromCursor =
+      resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+        if (cursor.moveToFirst()) cursor.getString(0) else null
+      }
     return fromCursor ?: uri.lastPathSegment?.substringAfterLast('/') ?: "note.md"
   }
 
   private fun importPath(uri: Uri, displayName: String): String {
-    val candidates = listOfNotNull(
-      runCatching { DocumentsContract.getDocumentId(uri) }.getOrNull(),
-      uri.path,
-      uri.lastPathSegment
-    )
+    val candidates =
+      listOfNotNull(
+        runCatching { DocumentsContract.getDocumentId(uri) }.getOrNull(),
+        uri.path,
+        uri.lastPathSegment,
+      )
     return candidates
       .asSequence()
       .map { Uri.decode(it) ?: it }
       .map { it.substringAfter("/document/", it).substringAfter(':', it) }
       .map { it.replace('\\', '/').trim('/') }
-      .firstOrNull { it.endsWith(displayName) }
-      ?: displayName
+      .firstOrNull { it.endsWith(displayName) } ?: displayName
   }
 }

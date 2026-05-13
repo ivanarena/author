@@ -188,7 +188,7 @@ try {
     async ({ devices, notebooks, notes }) => {
       function openDatabase(): Promise<IDBDatabase> {
         return new Promise((resolve, reject) => {
-          const request = indexedDB.open('author-notes');
+          const request = indexedDB.open('author');
           request.onsuccess = () => resolve(request.result);
           request.onerror = () => reject(request.error);
         });

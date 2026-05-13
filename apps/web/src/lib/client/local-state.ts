@@ -2,13 +2,13 @@ import type { Device } from '@author/schema';
 import { localDb } from './db';
 import { clearStoredEncryptionKeyMaterial } from './encryption';
 
-const DEVICE_KEY = 'author-notes-device-id';
-const TOKEN_KEY = 'author-notes-token';
-const USERNAME_KEY = 'author-notes-username';
-const LAST_USERNAME_KEY = 'author-notes-last-username';
-const DISPLAY_NAME_KEY = 'author-notes-display-name';
-const SESSION_EXPIRES_KEY = 'author-notes-session-expires-at';
-const THEME_KEY = 'author-notes-theme';
+const DEVICE_KEY = 'author-device-id';
+const TOKEN_KEY = 'author-token';
+const USERNAME_KEY = 'author-username';
+const LAST_USERNAME_KEY = 'author-last-username';
+const DISPLAY_NAME_KEY = 'author-display-name';
+const SESSION_EXPIRES_KEY = 'author-session-expires-at';
+const THEME_KEY = 'author-theme';
 
 export type StoredTheme =
   | 'light'

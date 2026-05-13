@@ -683,7 +683,7 @@ export async function openMemoryDatabase(): Promise<NotesDb> {
   const { mkdtempSync, rmSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
-  const tempDir = mkdtempSync(join(tmpdir(), 'author-notes-'));
+  const tempDir = mkdtempSync(join(tmpdir(), 'author-'));
   const filePath = join(tempDir, 'test.sqlite');
   const db = await openLibsqlClient({ url: `file:${filePath}` });
   databaseWriteKeys.set(db, `local:${filePath}`);

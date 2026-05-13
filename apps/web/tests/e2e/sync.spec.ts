@@ -33,7 +33,7 @@ async function browserStoredNotes(page: Page): Promise<RemoteNote[]> {
   return await page.evaluate(
     () =>
       new Promise<RemoteNote[]>((resolve, reject) => {
-        const request = indexedDB.open('author-notes');
+        const request = indexedDB.open('author');
         request.onerror = () => reject(request.error);
         request.onsuccess = () => {
           const db = request.result;
@@ -147,9 +147,9 @@ test.beforeEach(async ({ page, request }) => {
   e2eKeyMaterial = await keyMaterialFromPassword(loginUsername, loginPassword);
   await page.addInitScript(
     ({ deviceId, authToken, username, keyMaterial, keyMaterialStorageKey }) => {
-      localStorage.setItem('author-notes-device-id', deviceId);
-      localStorage.setItem('author-notes-token', authToken);
-      localStorage.setItem('author-notes-username', username);
+      localStorage.setItem('author-device-id', deviceId);
+      localStorage.setItem('author-token', authToken);
+      localStorage.setItem('author-username', username);
       localStorage.setItem(keyMaterialStorageKey, keyMaterial);
     },
     {
@@ -251,11 +251,11 @@ test('logs in from the profile menu when no session is stored', async ({
   page
 }) => {
   await page.addInitScript(() => {
-    localStorage.removeItem('author-notes-token');
-    localStorage.removeItem('author-notes-username');
-    localStorage.removeItem('author-notes-display-name');
-    localStorage.removeItem('author-notes-session-expires-at');
-    localStorage.removeItem('author-notes-encryption-key-material-v1');
+    localStorage.removeItem('author-token');
+    localStorage.removeItem('author-username');
+    localStorage.removeItem('author-display-name');
+    localStorage.removeItem('author-session-expires-at');
+    localStorage.removeItem('author-encryption-key-material-v1');
   });
 
   await page.goto('/');
@@ -269,7 +269,7 @@ test('logs in from the profile menu when no session is stored', async ({
     .click();
 
   await expect
-    .poll(() => page.evaluate(() => localStorage.getItem('author-notes-token')))
+    .poll(() => page.evaluate(() => localStorage.getItem('author-token')))
     .toEqual(expect.any(String));
   await expect(loginDialog).toBeHidden();
 
@@ -278,7 +278,7 @@ test('logs in from the profile menu when no session is stored', async ({
   await page.getByRole('menuitem', { name: 'Log out' }).click();
 
   await expect
-    .poll(() => page.evaluate(() => localStorage.getItem('author-notes-token')))
+    .poll(() => page.evaluate(() => localStorage.getItem('author-token')))
     .toBeNull();
   await page.getByRole('button', { name: 'Profile and settings' }).click();
   await expect(
@@ -291,11 +291,11 @@ test('keeps local drafts when signing in and then syncs them remote', async ({
   request
 }) => {
   await page.addInitScript(() => {
-    localStorage.removeItem('author-notes-token');
-    localStorage.removeItem('author-notes-username');
-    localStorage.removeItem('author-notes-display-name');
-    localStorage.removeItem('author-notes-session-expires-at');
-    localStorage.removeItem('author-notes-encryption-key-material-v1');
+    localStorage.removeItem('author-token');
+    localStorage.removeItem('author-username');
+    localStorage.removeItem('author-display-name');
+    localStorage.removeItem('author-session-expires-at');
+    localStorage.removeItem('author-encryption-key-material-v1');
   });
 
   await page.goto('/');

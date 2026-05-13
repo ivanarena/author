@@ -129,11 +129,39 @@ For GitHub Actions deploys, add these repository secrets:
 - `NOTES_LOGIN_PASSWORD`: the production login password.
 - `NOTES_AUTH_SESSION_DAYS`: optional session lifetime.
 - `NOTES_SIGNUP_INVITE_CODES`: optional extra comma-separated invite codes.
-- `AUTHOR_NOTES_API_URL`: optional public API URL override.
+- `AUTHOR_API_URL`: optional public API URL override.
 
 The workflow deploys the Worker and then syncs the GitHub app secrets into Cloudflare Worker secrets with `wrangler secret bulk`. If you deploy manually, run the `wrangler secret put` commands above once before using the app.
 
 The `Cloudflare Deploy` workflow runs on pushes to `main` that touch the web app, shared packages, or lockfile, and can also be started manually from the Actions tab.
+
+### Cloudflare Workers Builds
+
+If you connect the repository directly in Cloudflare Workers Builds, use a
+custom install/build command. Cloudflare's build image defaults to Node 22 and
+does not install Aube projects automatically, so the dashboard must be pointed
+at the repo's package manager and Node version.
+
+In the Worker dashboard, go to `Settings > Build` and set:
+
+```text
+Root directory: /
+Build command: npx -y @endevco/aube@1.8.0 install --frozen-lockfile && npx -y @endevco/aube@1.8.0 run cf:build
+Deploy command: ./apps/web/node_modules/.bin/wrangler deploy --config apps/web/wrangler.jsonc
+Non-production branch deploy command: ./apps/web/node_modules/.bin/wrangler versions upload --config apps/web/wrangler.jsonc
+```
+
+Add these build variables:
+
+```text
+NODE_VERSION=24
+SKIP_DEPENDENCY_INSTALL=1
+```
+
+Do not use `npm run build` or `aube run build` for Workers Builds. Those build
+the Node/self-hosted adapter output under `apps/web/build`; Workers need
+`apps/web/.svelte-kit/cloudflare/_worker.js`, which is produced by
+`cf:build`.
 
 For local Cloudflare-style development:
 
@@ -178,10 +206,10 @@ For a self-hosted app with a remote database, keep the app container on your ser
 Android sync follows the same rule: the APK talks to the Author HTTP API, and that server mirrors to Turso when `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` are set. Configure the Android API endpoint at build time with:
 
 ```env
-AUTHOR_NOTES_API_URL=https://your-author-api.example.com
+AUTHOR_API_URL=https://your-author-api.example.com
 ```
 
-For local emulator development, use `AUTHOR_NOTES_API_URL=http://10.0.2.2:5173`.
+For local emulator development, use `AUTHOR_API_URL=http://10.0.2.2:5173`.
 `ANDROID_SYNC_API_URL`, `ANDROID_SYNC_SERVER_URL`, and `NOTES_SYNC_SERVER_URL`
 are still accepted as backwards-compatible aliases. Do not set this value to
 `TURSO_DATABASE_URL`; Android never receives the Turso auth token and does not
@@ -231,7 +259,7 @@ Terminate HTTPS before the app and proxy to the container over localhost or a pr
 Caddy:
 
 ```caddyfile
-notes.example.com {
+author.example.com {
   reverse_proxy 127.0.0.1:3000
 }
 ```
@@ -241,10 +269,10 @@ Nginx:
 ```nginx
 server {
   listen 443 ssl http2;
-  server_name notes.example.com;
+  server_name author.example.com;
 
-  ssl_certificate /etc/letsencrypt/live/notes.example.com/fullchain.pem;
-  ssl_certificate_key /etc/letsencrypt/live/notes.example.com/privkey.pem;
+  ssl_certificate /etc/letsencrypt/live/author.example.com/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/author.example.com/privkey.pem;
 
   location / {
     proxy_pass http://127.0.0.1:3000;

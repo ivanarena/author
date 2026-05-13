@@ -1,11 +1,11 @@
 import type { NoteSort } from '$lib/client/view-model';
 
-const SORT_KEY = 'author-notes-sort';
-const COMPACT_VIEW_KEY = 'author-notes-compact-view';
-const EDITOR_ZOOM_KEY = 'author-notes-editor-zoom';
-const EDITOR_FONT_KEY = 'author-notes-editor-font';
-const EDITOR_TEXT_SIZE_KEY = 'author-notes-editor-text-size';
-const EDITOR_LINE_HEIGHT_KEY = 'author-notes-editor-line-height';
+const SORT_KEY = 'author-sort';
+const COMPACT_VIEW_KEY = 'author-compact-view';
+const EDITOR_ZOOM_KEY = 'author-editor-zoom';
+const EDITOR_FONT_KEY = 'author-editor-font';
+const EDITOR_TEXT_SIZE_KEY = 'author-editor-text-size';
+const EDITOR_LINE_HEIGHT_KEY = 'author-editor-line-height';
 
 export const MIN_EDITOR_ZOOM = 0.8;
 export const MAX_EDITOR_ZOOM = 1.4;

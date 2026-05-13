@@ -41,13 +41,13 @@ fun firstConfigValue(vararg names: String): String? = names.firstNotNullOfOrNull
 fun buildConfigString(value: String): String = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 val configuredApiBaseUrl = firstConfigValue(
-  "AUTHOR_NOTES_API_URL",
-  "AUTHOR_NOTES_SYNC_API_URL",
+  "AUTHOR_API_URL",
+  "AUTHOR_SYNC_API_URL",
   "ANDROID_SYNC_API_URL",
   "ANDROID_SYNC_SERVER_URL",
   "NOTES_SYNC_SERVER_URL",
-  "authorNotesApiUrl",
-  "authorNotesSyncApiUrl",
+  "authorApiUrl",
+  "authorSyncApiUrl",
   "androidSyncApiUrl",
   "androidSyncServerUrl",
   "notesSyncServerUrl"
@@ -80,11 +80,11 @@ val releaseSigningConfigured = listOf(
 ).all { it != null }
 
 if (configuredApiBaseUrl == null && remoteDatabaseConfigured) {
-  logger.warn("Turso is configured, but Android sync API URL is not. Using the local emulator URL; set AUTHOR_NOTES_API_URL or ANDROID_SYNC_API_URL for device/release builds.")
+  logger.warn("Turso is configured, but Android sync API URL is not. Using the local emulator URL; set AUTHOR_API_URL or ANDROID_SYNC_API_URL for device/release builds.")
 }
 
 require(!defaultApiBaseUrl.startsWith("libsql://")) {
-  "The Android sync API URL must be the Author HTTP API URL, not TURSO_DATABASE_URL. Use AUTHOR_NOTES_API_URL or ANDROID_SYNC_API_URL. Keep Turso credentials server-side."
+  "The Android sync API URL must be the Author HTTP API URL, not TURSO_DATABASE_URL. Use AUTHOR_API_URL or ANDROID_SYNC_API_URL. Keep Turso credentials server-side."
 }
 
 require(defaultApiBaseUrl.startsWith("http://") || defaultApiBaseUrl.startsWith("https://")) {
@@ -99,7 +99,7 @@ val releaseBuildRequested = requestedTasks.any {
 }
 if (releaseBuildRequested) {
   require(configuredApiBaseUrl != null) {
-    "Release Android builds require AUTHOR_NOTES_API_URL or ANDROID_SYNC_API_URL."
+    "Release Android builds require AUTHOR_API_URL or ANDROID_SYNC_API_URL."
   }
   require(defaultApiBaseUrl.startsWith("https://")) {
     "Release Android builds require an https:// Author API URL. Use debug builds for local http:// emulator sync."
@@ -107,11 +107,11 @@ if (releaseBuildRequested) {
 }
 
 android {
-  namespace = "com.author.notes"
+  namespace = "com.author"
   compileSdk = 37
 
   defaultConfig {
-    applicationId = "com.author.notes"
+    applicationId = "com.author"
     minSdk = 26
     targetSdk = 37
     versionCode = 1

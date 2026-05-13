@@ -1,7 +1,7 @@
 services:
   notes:
     build: .
-    image: author-notes:local
+    image: author:local
     init: true
     restart: unless-stopped
     env_file:
@@ -9,7 +9,7 @@ services:
     ports:
       - '${BIND_ADDRESS:-127.0.0.1}:${PORT:-3000}:3000'
     volumes:
-      - author-notes-data:/data
+      - author-data:/data
 
 volumes:
-  author-notes-data:
+  author-data:

@@ -3,12 +3,12 @@ import { normalizeNotebookName } from './note-utils';
 
 export const ENCRYPTION_PREFIX = 'enc:v1:';
 export const ENCRYPTION_KEY_MATERIAL_STORAGE_KEY =
-  'author-notes-encryption-key-material-v1';
+  'author-encryption-key-material-v1';
 
-const USERNAME_KEY = 'author-notes-username';
-const FALLBACK_KEY_MATERIAL = 'author-notes:local:v1';
+const USERNAME_KEY = 'author-username';
+const FALLBACK_KEY_MATERIAL = 'author:local:v1';
 const PASSWORD_KDF_ITERATIONS = 210_000;
-const PASSWORD_KDF_SALT_PREFIX = 'author-notes:password-key:v2';
+const PASSWORD_KDF_SALT_PREFIX = 'author:password-key:v2';
 
 const keyCache = new Map<string, Promise<CryptoKey>>();
 const encoder = new TextEncoder();
@@ -222,7 +222,7 @@ function encryptionKey(keyMaterial: string): Promise<CryptoKey> {
   if (cached) return cached;
 
   const key = cryptoImpl()
-    .subtle.digest('SHA-256', encoder.encode(`author-notes:${keyMaterial}`))
+    .subtle.digest('SHA-256', encoder.encode(`author:${keyMaterial}`))
     .then((digest) =>
       cryptoImpl().subtle.importKey('raw', digest, { name: 'AES-GCM' }, false, [
         'encrypt',
@@ -267,9 +267,7 @@ async function fieldHash(
 ): Promise<string> {
   const digest = await cryptoImpl().subtle.digest(
     'SHA-256',
-    encoder.encode(
-      `author-notes-field-hash:${keyMaterial}:${context}\0${value}`
-    )
+    encoder.encode(`author-field-hash:${keyMaterial}:${context}\0${value}`)
   );
   return `hash:v1:${base64UrlEncode(new Uint8Array(digest))}`;
 }

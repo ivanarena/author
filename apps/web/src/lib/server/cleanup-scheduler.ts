@@ -7,14 +7,14 @@ import { openDatabase } from './db';
 import { cleanupTrash } from './repository';
 
 declare global {
-  var __authorNotesCleanupScheduler: NodeJS.Timeout | undefined;
-  var __authorNotesCleanupRunning: boolean | undefined;
+  var __authorCleanupScheduler: NodeJS.Timeout | undefined;
+  var __authorCleanupRunning: boolean | undefined;
 }
 
 export async function runScheduledTrashCleanup(): Promise<void> {
-  if (globalThis.__authorNotesCleanupRunning) return;
+  if (globalThis.__authorCleanupRunning) return;
 
-  globalThis.__authorNotesCleanupRunning = true;
+  globalThis.__authorCleanupRunning = true;
   const db = await openDatabase();
   try {
     const result = await cleanupTrash(db);
@@ -27,12 +27,12 @@ export async function runScheduledTrashCleanup(): Promise<void> {
     console.error('Trash cleanup failed', error);
   } finally {
     db.close();
-    globalThis.__authorNotesCleanupRunning = false;
+    globalThis.__authorCleanupRunning = false;
   }
 }
 
 export function startTrashCleanupScheduler(): void {
-  if (!isCleanupSchedulerEnabled() || globalThis.__authorNotesCleanupScheduler)
+  if (!isCleanupSchedulerEnabled() || globalThis.__authorCleanupScheduler)
     return;
 
   const intervalMs = getCleanupIntervalMs();
@@ -42,8 +42,8 @@ export function startTrashCleanupScheduler(): void {
     }, 1000);
   }
 
-  globalThis.__authorNotesCleanupScheduler = setInterval(() => {
+  globalThis.__authorCleanupScheduler = setInterval(() => {
     void runScheduledTrashCleanup();
   }, intervalMs);
-  globalThis.__authorNotesCleanupScheduler.unref?.();
+  globalThis.__authorCleanupScheduler.unref?.();
 }

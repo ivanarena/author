@@ -16,11 +16,11 @@ import { getNote, pushChanges, setSyncMeta } from './repository';
 let tempDir: string;
 
 beforeEach(() => {
-  tempDir = mkdtempSync(join(tmpdir(), 'author-notes-api-'));
+  tempDir = mkdtempSync(join(tmpdir(), 'author-api-'));
   delete process.env.TURSO_DATABASE_URL;
   delete process.env.TURSO_AUTH_TOKEN;
-  delete process.env.AUTHOR_NOTES_API_URL;
-  delete process.env.AUTHOR_NOTES_SYNC_API_URL;
+  delete process.env.AUTHOR_API_URL;
+  delete process.env.AUTHOR_SYNC_API_URL;
   delete process.env.ANDROID_SYNC_API_URL;
   delete process.env.ANDROID_SYNC_SERVER_URL;
   delete process.env.NOTES_SYNC_SERVER_URL;
@@ -37,8 +37,8 @@ afterEach(() => {
   delete process.env.NOTES_DB_PATH;
   delete process.env.TURSO_DATABASE_URL;
   delete process.env.TURSO_AUTH_TOKEN;
-  delete process.env.AUTHOR_NOTES_API_URL;
-  delete process.env.AUTHOR_NOTES_SYNC_API_URL;
+  delete process.env.AUTHOR_API_URL;
+  delete process.env.AUTHOR_SYNC_API_URL;
   delete process.env.ANDROID_SYNC_API_URL;
   delete process.env.ANDROID_SYNC_SERVER_URL;
   delete process.env.NOTES_SYNC_SERVER_URL;
@@ -124,8 +124,8 @@ describe('Hono API', () => {
   });
 
   it('serves non-secret public sync configuration', async () => {
-    process.env.AUTHOR_NOTES_API_URL = 'https://notes.example.com';
-    process.env.TURSO_DATABASE_URL = 'libsql://author-notes.example.turso.io';
+    process.env.AUTHOR_API_URL = 'https://author.example.com';
+    process.env.TURSO_DATABASE_URL = 'libsql://author.example.turso.io';
     process.env.TURSO_AUTH_TOKEN = 'super-secret-token';
     process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
 
@@ -135,7 +135,7 @@ describe('Hono API', () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body).toEqual({
-      apiBaseUrl: 'https://notes.example.com',
+      apiBaseUrl: 'https://author.example.com',
       remote: {
         enabled: true,
         configured: true
@@ -147,7 +147,7 @@ describe('Hono API', () => {
     });
     expect(JSON.stringify(body)).not.toContain('super-secret-token');
     expect(JSON.stringify(body)).not.toContain('libsql://');
-    expect(JSON.stringify(body)).not.toContain('author-notes.example.turso.io');
+    expect(JSON.stringify(body)).not.toContain('author.example.turso.io');
   });
 
   it('validates active auth tokens without accepting invalid ones', async () => {

@@ -114,7 +114,7 @@ jobs:
         run: ./gradlew :app:lintRelease :app:assembleRelease
         working-directory: apps/android
         env:
-          AUTHOR_NOTES_API_URL: https://author.example.invalid
+          AUTHOR_API_URL: https://author.example.invalid
 
       - name: Upload Android reports
         uses: actions/upload-artifact@v5

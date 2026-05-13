@@ -97,7 +97,7 @@ jobs:
           NOTES_LOGIN_PASSWORD: ${{ secrets.NOTES_LOGIN_PASSWORD }}
           NOTES_AUTH_SESSION_DAYS: ${{ secrets.NOTES_AUTH_SESSION_DAYS }}
           NOTES_SIGNUP_INVITE_CODES: ${{ secrets.NOTES_SIGNUP_INVITE_CODES }}
-          AUTHOR_NOTES_API_URL: ${{ secrets.AUTHOR_NOTES_API_URL }}
+          AUTHOR_API_URL: ${{ secrets.AUTHOR_API_URL }}
         run: |
           node <<'NODE'
           const fs = require('node:fs');
@@ -110,7 +110,7 @@ jobs:
           const optional = [
             'NOTES_AUTH_SESSION_DAYS',
             'NOTES_SIGNUP_INVITE_CODES',
-            'AUTHOR_NOTES_API_URL'
+            'AUTHOR_API_URL'
           ];
 
           const secrets = {};

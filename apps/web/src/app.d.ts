@@ -20,7 +20,7 @@ declare global {
         NOTES_TRUST_PROXY_HEADERS?: string;
         NOTES_LEGACY_AUTH_TOKEN_ENABLED?: string;
         NOTES_AUTH_TOKEN?: string;
-        AUTHOR_NOTES_API_URL?: string;
+        AUTHOR_API_URL?: string;
       };
     }
   }

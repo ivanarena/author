@@ -42,11 +42,11 @@ Run these from `apps/android`:
 ./gradlew spotlessCheck
 ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest :app:assembleDebug
 ./gradlew :app:lintDebug
-AUTHOR_NOTES_API_URL=https://notes.example.com ./gradlew :app:lintRelease :app:assembleRelease
+AUTHOR_API_URL=https://author.example.com ./gradlew :app:lintRelease :app:assembleRelease
 ./gradlew :app:connectedDebugAndroidTest
 ```
 
-Release APKs must use an HTTPS `AUTHOR_NOTES_API_URL`. The Android app talks to
+Release APKs must use an HTTPS `AUTHOR_API_URL`. The Android app talks to
 the Author HTTP API only; Turso credentials never belong in the APK. For signed
 releases, set the `ANDROID_RELEASE_*` variables documented in
 `apps/android/README.md`. GitHub release builds also require

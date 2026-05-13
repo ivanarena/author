@@ -2,7 +2,7 @@
 
 ## Local IndexedDB
 
-Dexie database: `author-notes`
+Dexie database: `author`
 
 Tables:
 

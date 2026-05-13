@@ -37,7 +37,7 @@ jobs:
 
       - name: Validate release configuration
         env:
-          AUTHOR_NOTES_API_URL: ${{ vars.AUTHOR_NOTES_API_URL }}
+          AUTHOR_API_URL: ${{ vars.AUTHOR_API_URL }}
           ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
           ANDROID_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
           ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
@@ -45,7 +45,7 @@ jobs:
         run: |
           missing=0
           for name in \
-            AUTHOR_NOTES_API_URL \
+            AUTHOR_API_URL \
             ANDROID_RELEASE_KEYSTORE_BASE64 \
             ANDROID_RELEASE_KEYSTORE_PASSWORD \
             ANDROID_RELEASE_KEY_ALIAS \
@@ -57,10 +57,10 @@ jobs:
             fi
           done
 
-          case "${AUTHOR_NOTES_API_URL:-}" in
+          case "${AUTHOR_API_URL:-}" in
             https://*) ;;
             *)
-              echo "::error::AUTHOR_NOTES_API_URL must be an HTTPS URL"
+              echo "::error::AUTHOR_API_URL must be an HTTPS URL"
               missing=1
               ;;
           esac
@@ -81,7 +81,7 @@ jobs:
       - name: Build signed release APK
         working-directory: apps/android
         env:
-          AUTHOR_NOTES_API_URL: ${{ vars.AUTHOR_NOTES_API_URL }}
+          AUTHOR_API_URL: ${{ vars.AUTHOR_API_URL }}
           ANDROID_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
           ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
           ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
@@ -103,7 +103,7 @@ jobs:
           APK_PATH: apps/android/app/build/outputs/apk/release/app-release.apk
         run: |
           safe_tag="${RELEASE_TAG//\//-}"
-          asset_path="${RUNNER_TEMP}/author-notes-${safe_tag}-release-signed.apk"
+          asset_path="${RUNNER_TEMP}/author-${safe_tag}-release-signed.apk"
           cp "$APK_PATH" "$asset_path"
           echo "asset_path=$asset_path" >> "$GITHUB_OUTPUT"
           echo "asset_name=$(basename "$asset_path")" >> "$GITHUB_OUTPUT"

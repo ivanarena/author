@@ -38,7 +38,7 @@ function restoreEnv(
 describe('server database config', () => {
   it('keeps openDatabase on local SQLite even with the legacy Turso provider env set', async () => {
     const previous = new Map(ENV_KEYS.map((key) => [key, process.env[key]]));
-    const tempDir = mkdtempSync(join(tmpdir(), 'author-notes-db-config-'));
+    const tempDir = mkdtempSync(join(tmpdir(), 'author-db-config-'));
     const dbPath = join(tempDir, 'notes.sqlite');
 
     process.env.NOTES_DB_PROVIDER = 'turso';
@@ -103,7 +103,7 @@ describe('server database migrations', () => {
   });
 
   it('restores a copied SQLite backup into a fresh database path', async () => {
-    const tempDir = mkdtempSync(join(tmpdir(), 'author-notes-restore-'));
+    const tempDir = mkdtempSync(join(tmpdir(), 'author-restore-'));
     const sourcePath = join(tempDir, 'source.sqlite');
     const backupPath = join(tempDir, 'backup.sqlite');
     const restoredPath = join(tempDir, 'restored.sqlite');

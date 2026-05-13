@@ -17,7 +17,7 @@
             'dark-rose',
             'dark-lavender'
           ]);
-          const stored = localStorage.getItem('author-notes-theme');
+          const stored = localStorage.getItem('author-theme');
           const theme = themes.has(stored)
             ? stored
             : matchMedia('(prefers-color-scheme: dark)').matches

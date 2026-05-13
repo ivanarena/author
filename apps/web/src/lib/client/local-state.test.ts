@@ -113,10 +113,10 @@ describe('local browser state', () => {
 
   it('removes blank display names and falls back to system theme safely', () => {
     setDisplayName('  ');
-    expect(localStorage.getItem('author-notes-display-name')).toBeNull();
+    expect(localStorage.getItem('author-display-name')).toBeNull();
 
     expect(getTheme()).toBe('light');
-    localStorage.setItem('author-notes-theme', 'dark-rose');
+    localStorage.setItem('author-theme', 'dark-rose');
     expect(getTheme()).toBe('dark-rose');
 
     setTheme('light-mint');

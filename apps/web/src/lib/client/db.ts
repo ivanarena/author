@@ -34,7 +34,7 @@ export class NotesLocalDatabase extends Dexie {
   conflicts!: Table<LocalConflict, string>;
 
   constructor() {
-    super('author-notes');
+    super('author');
     this.version(1).stores({
       notes:
         'id, notebookId, createdAt, updatedAt, deletedAt, trashedAt, deviceId, version, syncStatus, lastSyncedVersion',

@@ -1124,7 +1124,7 @@ describe('server repository', () => {
   });
 
   it('does not run remote mirror sync when another process holds the lease', async () => {
-    const tempDir = mkdtempSync(join(tmpdir(), 'author-notes-remote-lock-'));
+    const tempDir = mkdtempSync(join(tmpdir(), 'author-remote-lock-'));
     const previousDbPath = process.env.NOTES_DB_PATH;
     const previousRemoteUrl = process.env.TURSO_DATABASE_URL;
     const previousRemoteToken = process.env.TURSO_AUTH_TOKEN;

@@ -103,8 +103,8 @@ export function getSignupInviteCodes(env?: RuntimeEnv | null): string[] {
 
 export function getPublicApiBaseUrl(env?: RuntimeEnv | null): string | null {
   const value =
-    envValue('AUTHOR_NOTES_API_URL', env) ??
-    envValue('AUTHOR_NOTES_SYNC_API_URL', env) ??
+    envValue('AUTHOR_API_URL', env) ??
+    envValue('AUTHOR_SYNC_API_URL', env) ??
     envValue('ANDROID_SYNC_API_URL', env) ??
     envValue('ANDROID_SYNC_SERVER_URL', env) ??
     envValue('NOTES_SYNC_SERVER_URL', env);

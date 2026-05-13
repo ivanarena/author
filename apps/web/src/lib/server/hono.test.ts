@@ -285,6 +285,55 @@ describe('Hono API', () => {
     expect(duplicate.status).toBe(409);
   });
 
+  it('trusts a remote-backed signup device for later OTP login', async () => {
+    const remotePath = join(tempDir, 'remote-signup-trusted.sqlite');
+    process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
+    process.env.TURSO_AUTH_TOKEN = 'test-token';
+    process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
+    process.env.NOTES_SIGNUP_ALLOWED_EMAILS = 'new@example.com';
+
+    const signup = await api.fetch(
+      new Request('http://localhost/api/auth/signup', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'new-user',
+          email: 'new@example.com',
+          password: 'new-user-password',
+          device: fixtureDevice
+        })
+      })
+    );
+    expect(signup.status).toBe(200);
+    const session = (await signup.json()) as { token: string };
+    const setup = await post('/api/account/totp/setup', {}, session.token);
+    expect(setup.status).toBe(200);
+    const setupBody = (await setup.json()) as { secret: string };
+    const enable = await post(
+      '/api/account/totp',
+      {
+        currentPassword: 'new-user-password',
+        secret: setupBody.secret,
+        totpCode: totpCode(setupBody.secret)
+      },
+      session.token
+    );
+    expect(enable.status).toBe(200);
+
+    const trustedDeviceCode = await api.fetch(
+      new Request('http://localhost/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'new-user',
+          totpCode: totpCode(setupBody.secret),
+          device: fixtureDevice
+        })
+      })
+    );
+    expect(trustedDeviceCode.status).toBe(200);
+  });
+
   it('uses Turso as the primary database when running with Worker env', async () => {
     const primaryPath = join(tempDir, 'worker-primary.sqlite');
     const workerEnv = {
@@ -667,6 +716,74 @@ describe('Hono API', () => {
     );
   });
 
+  it('revokes trusted device OTP login when a password is reset', async () => {
+    const remotePath = join(tempDir, 'trusted-reset-remote.sqlite');
+    process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
+    process.env.TURSO_AUTH_TOKEN = 'test-token';
+    process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
+
+    const seededRemote = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${remotePath}`, authToken: 'test-token' }
+    });
+    try {
+      await setUserPassword(seededRemote, 'owner', 'test-password');
+    } finally {
+      seededRemote.close();
+    }
+
+    const token = await loginToken();
+    const setup = await post('/api/account/totp/setup', {}, token);
+    expect(setup.status).toBe(200);
+    const setupBody = (await setup.json()) as { secret: string };
+    const enable = await post(
+      '/api/account/totp',
+      {
+        currentPassword: 'test-password',
+        secret: setupBody.secret,
+        totpCode: totpCode(setupBody.secret)
+      },
+      token
+    );
+    expect(enable.status).toBe(200);
+
+    const trustedBeforeReset = await api.fetch(
+      new Request('http://localhost/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'owner',
+          totpCode: totpCode(setupBody.secret),
+          device: fixtureDevice
+        })
+      })
+    );
+    expect(trustedBeforeReset.status).toBe(200);
+
+    const remote = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${remotePath}`, authToken: 'test-token' }
+    });
+    try {
+      await setUserPassword(remote, 'owner', 'new-test-password');
+    } finally {
+      remote.close();
+    }
+
+    const trustedAfterReset = await api.fetch(
+      new Request('http://localhost/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'owner',
+          totpCode: totpCode(setupBody.secret),
+          device: fixtureDevice
+        })
+      })
+    );
+    expect(trustedAfterReset.status).toBe(401);
+  });
+
   it('rejects account mutations when remote sync revokes the local session', async () => {
     const remotePath = join(tempDir, 'revoked-session-remote.sqlite');
     process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
@@ -956,6 +1073,32 @@ describe('Hono API', () => {
       })
     );
     expect(withoutCode.status).toBe(401);
+
+    const trustedDeviceCode = await api.fetch(
+      new Request('http://localhost/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'owner',
+          totpCode: totpCode(setupBody.secret),
+          device: fixtureDevice
+        })
+      })
+    );
+    expect(trustedDeviceCode.status).toBe(200);
+
+    const unknownDeviceCode = await api.fetch(
+      new Request('http://localhost/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'owner',
+          totpCode: totpCode(setupBody.secret),
+          device: { id: 'unknown-device', name: 'Unknown device' }
+        })
+      })
+    );
+    expect(unknownDeviceCode.status).toBe(401);
 
     const withCode = await api.fetch(
       new Request('http://localhost/api/auth/login', {

@@ -141,7 +141,7 @@ class NotesRepository(context: Context) {
     }
   }
 
-  fun clearStoredSession() {
+  fun clearStoredSession(clearEncryptionKeyMaterial: Boolean = false) {
     prefs.edit {
       remove(USERNAME_KEY)
       remove(EMAIL_KEY)
@@ -150,7 +150,7 @@ class NotesRepository(context: Context) {
       remove(SESSION_EXPIRES_KEY)
     }
     securePrefs.remove(TOKEN_KEY)
-    crypto.clearStoredEncryptionKeyMaterial()
+    if (clearEncryptionKeyMaterial) crypto.clearStoredEncryptionKeyMaterial()
   }
 
   fun hasStoredEncryptionKeyMaterial(): Boolean = crypto.hasStoredEncryptionKeyMaterial()
@@ -443,6 +443,13 @@ class NotesRepository(context: Context) {
     assertLocalWorkspaceCanUseAccountInternal(username, previousUsername)
     val (previous, next) = crypto.rememberEncryptionPassword(username, password)
     reencryptLocalNotesInternal(previous, next)
+    rememberLocalWorkspaceAccount(username)
+  }
+
+  suspend fun adoptWithStoredKey(username: String, previousUsername: String?) = withContext(Dispatchers.IO) {
+    assertLocalWorkspaceCanUseAccountInternal(username, previousUsername)
+    val material = crypto.getEncryptionKeyMaterial()
+    reencryptLocalNotesInternal(material, material)
     rememberLocalWorkspaceAccount(username)
   }
 

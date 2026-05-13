@@ -61,6 +61,19 @@ const schemaSql = `
   CREATE INDEX IF NOT EXISTS auth_sessions_expires_at_idx
     ON auth_sessions(expires_at);
 
+  CREATE TABLE IF NOT EXISTS trusted_auth_devices (
+    username TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_used_at TEXT NOT NULL,
+    PRIMARY KEY (username, device_id),
+    FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE,
+    FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS trusted_auth_devices_device_idx
+    ON trusted_auth_devices(device_id);
+
   CREATE INDEX IF NOT EXISTS users_updated_at_idx
     ON users(updated_at);
 
@@ -582,6 +595,28 @@ export const SERVER_MIGRATIONS: ServerMigration[] = [
         `CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique_idx
            ON users(email)
            WHERE email IS NOT NULL`
+      );
+    }
+  },
+  {
+    version: 8,
+    name: 'trusted-auth-devices',
+    rollback:
+      'Restore from the pre-upgrade backup. Trusted auth devices are recreated after password login on each browser.',
+    up: async (db) => {
+      await exec(
+        db,
+        `CREATE TABLE IF NOT EXISTS trusted_auth_devices (
+           username TEXT NOT NULL,
+           device_id TEXT NOT NULL,
+           created_at TEXT NOT NULL,
+           last_used_at TEXT NOT NULL,
+           PRIMARY KEY (username, device_id),
+           FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE,
+           FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+         );
+         CREATE INDEX IF NOT EXISTS trusted_auth_devices_device_idx
+           ON trusted_auth_devices(device_id);`
       );
     }
   }

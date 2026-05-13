@@ -59,7 +59,8 @@ releases, set the `ANDROID_RELEASE_*` variables documented in
 - Confirm scheduled SQLite backups are enabled for self-hosted Node
   deployments, and that `NOTES_BACKUP_DIR` is on storage you retain.
 - If 2FA is enabled, treat database files, mirrors, and backups as auth-secret
-  material because TOTP seeds are stored server-side for verification.
+  material because TOTP seeds and trusted auth device records are stored
+  server-side for verification.
 - Review `/api/health` and `/api/metrics` after deploy.
 - Keep exactly one app process pointed at each local SQLite database.
 - Treat Docker image scan failures as release blockers. The CI workflow scans

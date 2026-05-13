@@ -343,7 +343,7 @@ export async function runSync(
 
 export async function login(
   username: string,
-  password: string,
+  password: string | null,
   totpCode: string | null = null
 ): Promise<AuthLoginResponse> {
   const device = await getOrCreateDevice();

@@ -87,8 +87,12 @@
           type={passwordVisible ? 'text' : 'password'}
           bind:value={model.loginPasswordValue}
           autocomplete="current-password"
-          placeholder="Password"
-          required
+          placeholder={model.authMode === 'signup' ||
+          !model.deviceOtpLoginAvailable
+            ? 'Password'
+            : 'Optional'}
+          required={model.authMode === 'signup' ||
+            !model.deviceOtpLoginAvailable}
           disabled={model.isLoggingIn}
           oninput={() => (model.loginError = '')}
         />
@@ -181,7 +185,9 @@
           inputmode="numeric"
           bind:value={model.loginTotpCodeValue}
           autocomplete="one-time-code"
-          placeholder="Optional"
+          placeholder={model.deviceOtpLoginAvailable ? 'Code' : 'Optional'}
+          required={!model.loginPasswordValue.trim() &&
+            model.deviceOtpLoginAvailable}
           disabled={model.isLoggingIn}
           oninput={() => (model.loginError = '')}
         />

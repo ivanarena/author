@@ -28,6 +28,7 @@ jobs:
   deploy:
     name: Deploy Worker
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v5
 

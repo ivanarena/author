@@ -3,6 +3,7 @@ import type { Device } from '@author/schema';
 import type { RemoteSyncState } from '@author/api-types';
 import type { LocalConflict, LocalNote, LocalNotebook } from '$lib/client/db';
 import {
+  getEncryptionKeyMaterial,
   hasStoredEncryptionKeyMaterial,
   rememberEncryptionPassword
 } from '$lib/client/encryption';
@@ -211,6 +212,7 @@ export class NotesPageController
   notebookError = $state('');
   loginOpen = $state(false);
   authMode = $state<AuthMode>('signin');
+  deviceOtpLoginAvailable = $state(false);
   loginUsernameValue = $state('');
   loginPasswordValue = $state('');
   loginTotpCodeValue = $state('');
@@ -667,6 +669,7 @@ export class NotesPageController
     this.authMode = 'signin';
     void this.refreshPublicConfig();
     this.loginUsernameValue = getLoginHint();
+    this.deviceOtpLoginAvailable = hasStoredEncryptionKeyMaterial();
     this.loginPasswordValue = '';
     this.loginTotpCodeValue = '';
     this.signupEmailValue = '';
@@ -1288,6 +1291,7 @@ export class NotesPageController
     this.authMode = 'signin';
     void this.refreshPublicConfig();
     this.loginUsernameValue = getLoginHint();
+    this.deviceOtpLoginAvailable = hasStoredEncryptionKeyMaterial();
     this.loginPasswordValue = '';
     this.loginTotpCodeValue = '';
     this.signupEmailValue = '';
@@ -1314,6 +1318,7 @@ export class NotesPageController
     }
     this.authMode = mode;
     this.loginError = '';
+    this.deviceOtpLoginAvailable = hasStoredEncryptionKeyMaterial();
     this.loginPasswordValue = '';
     this.loginTotpCodeValue = '';
     this.signupConfirmPasswordValue = '';
@@ -1419,13 +1424,26 @@ export class NotesPageController
   submitLoginMenu = async () => {
     const username = this.loginUsernameValue.trim();
     const password = this.loginPasswordValue;
+    const hasPassword = Boolean(password.trim());
+    const canUseDeviceOtpLogin =
+      this.authMode === 'signin' &&
+      !hasPassword &&
+      hasStoredEncryptionKeyMaterial();
     if (this.isLoggingIn) return;
     if (!username) {
       this.loginError = 'Username required';
       return;
     }
-    if (!password.trim()) {
+    if (!hasPassword && this.authMode === 'signup') {
       this.loginError = 'Password required';
+      return;
+    }
+    if (!hasPassword && !canUseDeviceOtpLogin) {
+      this.loginError = 'Password required on first login for this device';
+      return;
+    }
+    if (canUseDeviceOtpLogin && !this.loginTotpCodeValue.trim()) {
+      this.loginError = '2FA code required';
       return;
     }
     if (
@@ -1465,7 +1483,7 @@ export class NotesPageController
             )
           : await login(
               username,
-              password,
+              hasPassword ? password : null,
               this.loginTotpCodeValue.trim() || null
             );
       try {
@@ -1477,10 +1495,12 @@ export class NotesPageController
         await logout(session.token).catch(() => undefined);
         throw error;
       }
-      const encryption = await rememberEncryptionPassword(
-        session.user.username,
-        password
-      );
+      const encryption = hasPassword
+        ? await rememberEncryptionPassword(session.user.username, password)
+        : {
+            previousMaterial: getEncryptionKeyMaterial(),
+            nextMaterial: getEncryptionKeyMaterial()
+          };
       await adoptLocalWorkspaceForAccount({
         username: session.user.username,
         fallbackOwnerUsername: previousUsername,
@@ -1497,6 +1517,7 @@ export class NotesPageController
       this.accountEmail = session.user.email ?? '';
       this.accountDisplayName = session.user.displayName ?? '';
       this.accountTwoFactorEnabled = session.user.twoFactorEnabled;
+      this.deviceOtpLoginAvailable = hasStoredEncryptionKeyMaterial();
       this.accountError = '';
       this.accountMessage =
         this.authMode === 'signup' ? 'Account created' : 'Signed in';
@@ -1719,6 +1740,7 @@ export class NotesPageController
       this.accountDeleteEditing = false;
       this.clearLocalSession({
         accountMessage: 'Account deleted',
+        clearEncryptionKeyMaterial: true,
         syncMessage: 'Sign in to sync'
       });
       this.notify('info', 'Account deleted');
@@ -1764,6 +1786,7 @@ export class NotesPageController
       storedSession?.user.twoFactorEnabled
     );
     this.loginUsernameValue = getLoginHint();
+    this.deviceOtpLoginAvailable = hasStoredEncryptionKeyMaterial();
     await this.refreshPublicConfig();
     await ensureLocalNotesEncrypted();
     await this.refresh();
@@ -2093,14 +2116,16 @@ export class NotesPageController
 
   private clearLocalSession = ({
     accountMessage = '',
+    clearEncryptionKeyMaterial = false,
     openLogin = false,
     syncMessage = 'Sign in to sync'
   }: {
     accountMessage?: string;
+    clearEncryptionKeyMaterial?: boolean;
     openLogin?: boolean;
     syncMessage?: string;
   } = {}) => {
-    clearStoredSession();
+    clearStoredSession({ clearEncryptionKeyMaterial });
     this.hasToken = false;
     this.accountUsername = '';
     this.accountEmail = '';
@@ -2121,6 +2146,7 @@ export class NotesPageController
     this.confirmPasswordValue = '';
     this.deletePasswordValue = '';
     this.loginUsernameValue = getLoginHint();
+    this.deviceOtpLoginAvailable = hasStoredEncryptionKeyMaterial();
     this.loginPasswordValue = '';
     this.loginTotpCodeValue = '';
     this.signupEmailValue = '';

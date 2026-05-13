@@ -63,6 +63,7 @@ class NotesController(
   var renameNotebookValue by mutableStateOf("")
   var deletingNotebookId by mutableStateOf<String?>(null)
   var authMode by mutableStateOf("signin")
+  var deviceOtpLoginAvailable by mutableStateOf(repository.hasStoredEncryptionKeyMaterial())
   var loginUsernameValue by mutableStateOf(repository.getLoginHint())
   var loginPasswordValue by mutableStateOf("")
   var loginTotpCodeValue by mutableStateOf("")
@@ -154,6 +155,7 @@ class NotesController(
   fun openLogin(mode: String = "signin") {
     authMode = if (mode == "signup" && signupEnabled) "signup" else "signin"
     loginUsernameValue = repository.getLoginHint()
+    deviceOtpLoginAvailable = repository.hasStoredEncryptionKeyMaterial()
     loginPasswordValue = ""
     loginTotpCodeValue = ""
     signupEmailValue = ""
@@ -171,6 +173,7 @@ class NotesController(
     }
     authMode = mode
     loginError = ""
+    deviceOtpLoginAvailable = repository.hasStoredEncryptionKeyMaterial()
     loginPasswordValue = ""
     loginTotpCodeValue = ""
     signupConfirmPasswordValue = ""
@@ -517,12 +520,23 @@ class NotesController(
   fun submitLogin() {
     val username = loginUsernameValue.trim()
     val password = loginPasswordValue
+    val hasPassword = password.isNotBlank()
+    val canUseDeviceOtpLogin =
+      authMode == "signin" && !hasPassword && repository.hasStoredEncryptionKeyMaterial()
     if (username.isEmpty()) {
       loginError = "Username required"
       return
     }
-    if (password.isBlank()) {
+    if (!hasPassword && authMode == "signup") {
       loginError = "Password required"
+      return
+    }
+    if (!hasPassword && !canUseDeviceOtpLogin) {
+      loginError = "Password required on first login for this device"
+      return
+    }
+    if (canUseDeviceOtpLogin && loginTotpCodeValue.isBlank()) {
+      loginError = "2FA code required"
       return
     }
     if (authMode == "signup" && password != signupConfirmPasswordValue) {
@@ -559,9 +573,14 @@ class NotesController(
           runCatching { repository.logout(response.token) }
           throw error
         }
-        repository.rememberPasswordAndAdopt(response.user.username, password, previousUsername)
+        if (hasPassword) {
+          repository.rememberPasswordAndAdopt(response.user.username, password, previousUsername)
+        } else {
+          repository.adoptWithStoredKey(response.user.username, previousUsername)
+        }
         repository.setStoredSession(StoredSession(response.token, response.user, response.expiresAt))
         applyUser(response.user)
+        deviceOtpLoginAvailable = repository.hasStoredEncryptionKeyMaterial()
         loginOpen = false
         hasToken = true
         authMode = "signin"
@@ -785,7 +804,7 @@ class NotesController(
       try {
         flushPendingSave()
         repository.deleteAccount(token, deletePasswordValue)
-        clearLocalSession("Account deleted")
+        clearLocalSession("Account deleted", clearEncryptionKeyMaterial = true)
         refresh()
         openDraftNote()
         notify("info", "Account deleted")
@@ -951,8 +970,12 @@ class NotesController(
     notify("error", "Session ended", message)
   }
 
-  private fun clearLocalSession(message: String, openLogin: Boolean = false) {
-    repository.clearStoredSession()
+  private fun clearLocalSession(
+    message: String,
+    openLogin: Boolean = false,
+    clearEncryptionKeyMaterial: Boolean = false
+  ) {
+    repository.clearStoredSession(clearEncryptionKeyMaterial)
     hasToken = false
     accountUsername = ""
     accountEmail = ""
@@ -969,6 +992,7 @@ class NotesController(
     accountTotpCodeValue = ""
     accountTotpPasswordValue = ""
     loginUsernameValue = repository.getLoginHint()
+    deviceOtpLoginAvailable = repository.hasStoredEncryptionKeyMaterial()
     loginPasswordValue = ""
     loginTotpCodeValue = ""
     signupEmailValue = ""

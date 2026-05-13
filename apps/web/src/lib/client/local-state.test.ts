@@ -90,7 +90,7 @@ describe('local browser state', () => {
     expect(localDb.devices.put).toHaveBeenCalledTimes(1);
   });
 
-  it('stores, hints, and clears auth session fields without losing the login hint', () => {
+  it('stores, hints, and clears auth session fields without losing the login hint or device key', () => {
     setStoredSession({
       token: 'session-token',
       user: {
@@ -118,6 +118,12 @@ describe('local browser state', () => {
 
     expect(getStoredSession()).toBeNull();
     expect(getLoginHint()).toBe('owner');
+    expect(clearStoredEncryptionKeyMaterial).not.toHaveBeenCalled();
+  });
+
+  it('can explicitly clear stored encryption key material', () => {
+    clearStoredSession({ clearEncryptionKeyMaterial: true });
+
     expect(clearStoredEncryptionKeyMaterial).toHaveBeenCalled();
   });
 

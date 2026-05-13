@@ -331,6 +331,9 @@ async function putAuthUser(
     await runSql(db, 'DELETE FROM auth_sessions WHERE username = ?', [
       user.username
     ]);
+    await runSql(db, 'DELETE FROM trusted_auth_devices WHERE username = ?', [
+      user.username
+    ]);
   }
 
   await runSql(
@@ -369,6 +372,9 @@ async function deleteAuthUserData(
   username: string
 ): Promise<void> {
   await runSql(db, 'DELETE FROM auth_sessions WHERE username = ?', [username]);
+  await runSql(db, 'DELETE FROM trusted_auth_devices WHERE username = ?', [
+    username
+  ]);
   await runSql(db, 'DELETE FROM users WHERE username = ?', [username]);
   await runSql(db, 'DELETE FROM entity_changes WHERE owner_username = ?', [
     username

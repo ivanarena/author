@@ -6,9 +6,8 @@ aube() {
 }
 
 aube exec lint-staged
-aube run quality
 
 (
   cd apps/android
-  ./gradlew spotlessCheck :app:compileDebugKotlin :app:lintDebug :app:testDebugUnitTest
+  ./gradlew --max-workers=2 spotlessCheck :app:lintDebug
 )

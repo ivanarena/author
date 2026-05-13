@@ -26,7 +26,7 @@ Tables:
 - `devices`
 - `users`
 - `auth_sessions`
-- `invitation_codes`
+- `invitation_codes` (legacy, unused by current signup)
 - `schema_migrations`
 - `notes`
 - `notebooks`

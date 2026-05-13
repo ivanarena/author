@@ -23,31 +23,32 @@ class SyncClient(private val baseUrlProvider: () -> String) {
       remoteSyncEnabled = remote.optBoolean("enabled", false),
       remoteDatabaseConfigured = remote.optBoolean("configured", false),
       signupEnabled = signup.optBoolean("enabled", false),
-      signupInviteRequired = signup.optBoolean("inviteRequired", false)
+      signupEmailRequired = signup.optBoolean("emailRequired", true)
     )
   }
 
   fun validateSession(token: String): Pair<AuthUser, String?> {
     val json = requestJson("/api/auth/validate", "GET", token = token)
     val user = json.getJSONObject("user")
-    return AuthUser(user.getString("username"), user.optNullableString("displayName")) to
+    return parseAuthUser(user) to
       json.optNullableString("expiresAt")
   }
 
-  fun login(username: String, password: String, device: Device): LoginResponse {
+  fun login(username: String, password: String, totpCode: String?, device: Device): LoginResponse {
     val body = JSONObject()
       .put("username", username)
       .put("password", password)
+      .putNullable("totpCode", totpCode)
       .put("device", deviceToJson(device))
     return parseLoginResponse(requestJson("/api/auth/login", "POST", body = body))
   }
 
-  fun signup(username: String, password: String, displayName: String?, inviteCode: String?, device: Device): LoginResponse {
+  fun signup(username: String, email: String, password: String, displayName: String?, device: Device): LoginResponse {
     val body = JSONObject()
       .put("username", username)
+      .put("email", email)
       .put("password", password)
       .putNullable("displayName", displayName)
-      .putNullable("inviteCode", inviteCode)
       .put("device", deviceToJson(device))
     return parseLoginResponse(requestJson("/api/auth/signup", "POST", body = body))
   }
@@ -101,10 +102,12 @@ class SyncClient(private val baseUrlProvider: () -> String) {
     return parsePullResponse(requestJson("/api/sync/pull", "POST", token = token, body = body))
   }
 
-  fun updateAccount(token: String, displayName: String?): AuthUser {
-    val body = JSONObject().putNullable("displayName", displayName)
+  fun updateAccount(token: String, displayName: String?, email: String?): AuthUser {
+    val body = JSONObject()
+      .putNullable("displayName", displayName)
+      .putNullable("email", email)
     val user = requestJson("/api/account", "PATCH", token = token, body = body).getJSONObject("user")
-    return AuthUser(user.getString("username"), user.optNullableString("displayName"))
+    return parseAuthUser(user)
   }
 
   fun changePassword(token: String, currentPassword: String, newPassword: String): AuthUser {
@@ -112,7 +115,29 @@ class SyncClient(private val baseUrlProvider: () -> String) {
       .put("currentPassword", currentPassword)
       .put("newPassword", newPassword)
     val user = requestJson("/api/account/password", "POST", token = token, body = body).getJSONObject("user")
-    return AuthUser(user.getString("username"), user.optNullableString("displayName"))
+    return parseAuthUser(user)
+  }
+
+  fun setupTotp(token: String): TotpSetup {
+    val json = requestJson("/api/account/totp/setup", "POST", token = token, body = JSONObject())
+    return TotpSetup(json.getString("secret"), json.getString("otpauthUrl"))
+  }
+
+  fun enableTotp(token: String, currentPassword: String, secret: String, totpCode: String): AuthUser {
+    val body = JSONObject()
+      .put("currentPassword", currentPassword)
+      .put("secret", secret)
+      .put("totpCode", totpCode)
+    val user = requestJson("/api/account/totp", "POST", token = token, body = body).getJSONObject("user")
+    return parseAuthUser(user)
+  }
+
+  fun disableTotp(token: String, currentPassword: String, totpCode: String?): AuthUser {
+    val body = JSONObject()
+      .put("currentPassword", currentPassword)
+      .putNullable("totpCode", totpCode)
+    val user = requestJson("/api/account/totp", "DELETE", token = token, body = body).getJSONObject("user")
+    return parseAuthUser(user)
   }
 
   fun logout(token: String) {
@@ -183,8 +208,15 @@ private fun parseLoginResponse(json: JSONObject): LoginResponse {
   val user = json.getJSONObject("user")
   return LoginResponse(
     token = json.getString("token"),
-    user = AuthUser(user.getString("username"), user.optNullableString("displayName")),
+    user = parseAuthUser(user),
     device = deviceFromJson(json.getJSONObject("device")),
     expiresAt = json.optNullableString("expiresAt")
   )
 }
+
+private fun parseAuthUser(user: JSONObject): AuthUser = AuthUser(
+  username = user.getString("username"),
+  email = user.optNullableString("email"),
+  displayName = user.optNullableString("displayName"),
+  twoFactorEnabled = user.optBoolean("twoFactorEnabled", false)
+)

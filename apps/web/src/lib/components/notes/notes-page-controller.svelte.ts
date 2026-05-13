@@ -50,9 +50,12 @@ import {
   AuthError,
   changePassword,
   deleteAccount,
+  disableTotp,
+  enableTotp,
   loadConfig,
   loadSyncStatus,
   logout,
+  setupTotp,
   updateAccount,
   validateSession
 } from '$lib/client/api-client';
@@ -184,11 +187,18 @@ export class NotesPageController
   isAccountBusy = $state(false);
   hasToken = $state(false);
   accountUsername = $state('');
+  accountEmail = $state('');
   accountDisplayName = $state('');
+  accountTwoFactorEnabled = $state(false);
   accountMessage = $state('');
   accountError = $state('');
   accountProfileEditing = $state(false);
   accountPasswordEditing = $state(false);
+  accountTotpEditing = $state(false);
+  accountTotpSecret = $state('');
+  accountTotpUrl = $state('');
+  accountTotpCodeValue = $state('');
+  accountTotpPasswordValue = $state('');
   accountDeleteEditing = $state(false);
   currentPasswordValue = $state('');
   newPasswordValue = $state('');
@@ -203,11 +213,12 @@ export class NotesPageController
   authMode = $state<AuthMode>('signin');
   loginUsernameValue = $state('');
   loginPasswordValue = $state('');
+  loginTotpCodeValue = $state('');
+  signupEmailValue = $state('');
   signupDisplayNameValue = $state('');
   signupConfirmPasswordValue = $state('');
-  signupInviteCodeValue = $state('');
   signupEnabled = $state(false);
-  signupInviteRequired = $state(false);
+  signupEmailRequired = $state(true);
   loginError = $state('');
   renamingNotebookId = $state<string | null>(null);
   renameNotebookValue = $state('');
@@ -657,9 +668,10 @@ export class NotesPageController
     void this.refreshPublicConfig();
     this.loginUsernameValue = getLoginHint();
     this.loginPasswordValue = '';
+    this.loginTotpCodeValue = '';
+    this.signupEmailValue = '';
     this.signupDisplayNameValue = '';
     this.signupConfirmPasswordValue = '';
-    this.signupInviteCodeValue = '';
     this.loginError = '';
     this.closeAccountMenu();
     this.closeContextMenu();
@@ -1277,9 +1289,10 @@ export class NotesPageController
     void this.refreshPublicConfig();
     this.loginUsernameValue = getLoginHint();
     this.loginPasswordValue = '';
+    this.loginTotpCodeValue = '';
+    this.signupEmailValue = '';
     this.signupDisplayNameValue = '';
     this.signupConfirmPasswordValue = '';
-    this.signupInviteCodeValue = '';
     this.loginError = '';
     this.closeAccountMenu();
   };
@@ -1288,8 +1301,8 @@ export class NotesPageController
     if (this.isLoggingIn) return;
     this.loginOpen = false;
     this.loginPasswordValue = '';
+    this.loginTotpCodeValue = '';
     this.signupConfirmPasswordValue = '';
-    this.signupInviteCodeValue = '';
     this.loginError = '';
   };
 
@@ -1302,9 +1315,10 @@ export class NotesPageController
     this.authMode = mode;
     this.loginError = '';
     this.loginPasswordValue = '';
+    this.loginTotpCodeValue = '';
     this.signupConfirmPasswordValue = '';
-    this.signupInviteCodeValue = '';
     if (mode === 'signin') {
+      this.signupEmailValue = '';
       this.signupDisplayNameValue = '';
       this.loginUsernameValue = getLoginHint();
     }
@@ -1313,6 +1327,7 @@ export class NotesPageController
   startAccountProfileEdit = () => {
     this.accountProfileEditing = true;
     this.accountPasswordEditing = false;
+    this.accountTotpEditing = false;
     this.accountDeleteEditing = false;
     this.accountError = '';
     this.accountMessage = '';
@@ -1320,6 +1335,7 @@ export class NotesPageController
 
   cancelAccountProfileEdit = () => {
     this.accountProfileEditing = false;
+    this.accountEmail = getStoredSession()?.user.email ?? '';
     this.accountDisplayName = getStoredSession()?.user.displayName ?? '';
     this.accountError = '';
   };
@@ -1327,6 +1343,7 @@ export class NotesPageController
   startAccountPasswordEdit = () => {
     this.accountPasswordEditing = true;
     this.accountProfileEditing = false;
+    this.accountTotpEditing = false;
     this.accountDeleteEditing = false;
     this.currentPasswordValue = '';
     this.newPasswordValue = '';
@@ -1343,10 +1360,51 @@ export class NotesPageController
     this.accountError = '';
   };
 
+  startAccountTotpEdit = async () => {
+    const token = getStoredSession()?.token ?? null;
+    if (!token || this.isAccountBusy) return;
+    this.accountTotpEditing = true;
+    this.accountProfileEditing = false;
+    this.accountPasswordEditing = false;
+    this.accountDeleteEditing = false;
+    this.accountTotpCodeValue = '';
+    this.accountTotpPasswordValue = '';
+    this.accountError = '';
+    this.accountMessage = '';
+    if (this.accountTwoFactorEnabled) {
+      this.accountTotpSecret = '';
+      this.accountTotpUrl = '';
+      return;
+    }
+
+    this.isAccountBusy = true;
+    try {
+      const setup = await setupTotp(token);
+      this.accountTotpSecret = setup.secret;
+      this.accountTotpUrl = setup.otpauthUrl;
+    } catch (error) {
+      this.accountError =
+        error instanceof Error ? error.message : 'Could not start 2FA setup';
+      this.accountTotpEditing = false;
+    } finally {
+      this.isAccountBusy = false;
+    }
+  };
+
+  cancelAccountTotpEdit = () => {
+    this.accountTotpEditing = false;
+    this.accountTotpSecret = '';
+    this.accountTotpUrl = '';
+    this.accountTotpCodeValue = '';
+    this.accountTotpPasswordValue = '';
+    this.accountError = '';
+  };
+
   startAccountDeleteEdit = () => {
     this.accountDeleteEditing = true;
     this.accountProfileEditing = false;
     this.accountPasswordEditing = false;
+    this.accountTotpEditing = false;
     this.deletePasswordValue = '';
     this.accountError = '';
     this.accountMessage = '';
@@ -1383,10 +1441,10 @@ export class NotesPageController
     }
     if (
       this.authMode === 'signup' &&
-      this.signupInviteRequired &&
-      !this.signupInviteCodeValue.trim()
+      this.signupEmailRequired &&
+      !this.signupEmailValue.trim()
     ) {
-      this.loginError = 'Invite code required';
+      this.loginError = 'Email required';
       return;
     }
 
@@ -1397,16 +1455,28 @@ export class NotesPageController
       const storedUsername = getStoredSession()?.user.username ?? '';
       const previousUsername =
         storedUsername.trim() || getLoginHint().trim() || null;
-      await assertLocalWorkspaceCanUseAccount(username, previousUsername);
       const session =
         this.authMode === 'signup'
           ? await signup(
               username,
+              this.signupEmailValue,
               password,
-              this.signupDisplayNameValue,
-              this.signupInviteCodeValue.trim() || null
+              this.signupDisplayNameValue
             )
-          : await login(username, password);
+          : await login(
+              username,
+              password,
+              this.loginTotpCodeValue.trim() || null
+            );
+      try {
+        await assertLocalWorkspaceCanUseAccount(
+          session.user.username,
+          previousUsername
+        );
+      } catch (error) {
+        await logout(session.token).catch(() => undefined);
+        throw error;
+      }
       const encryption = await rememberEncryptionPassword(
         session.user.username,
         password
@@ -1424,7 +1494,9 @@ export class NotesPageController
       });
       this.hasToken = true;
       this.accountUsername = session.user.username;
+      this.accountEmail = session.user.email ?? '';
       this.accountDisplayName = session.user.displayName ?? '';
+      this.accountTwoFactorEnabled = session.user.twoFactorEnabled;
       this.accountError = '';
       this.accountMessage =
         this.authMode === 'signup' ? 'Account created' : 'Signed in';
@@ -1432,9 +1504,10 @@ export class NotesPageController
       this.authMode = 'signin';
       this.loginUsernameValue = session.user.username;
       this.loginPasswordValue = '';
+      this.loginTotpCodeValue = '';
+      this.signupEmailValue = '';
       this.signupDisplayNameValue = '';
       this.signupConfirmPasswordValue = '';
-      this.signupInviteCodeValue = '';
       this.syncMessage = 'Signed in';
       this.notify(
         'success',
@@ -1473,10 +1546,13 @@ export class NotesPageController
     this.accountMessage = '';
     try {
       const response = await updateAccount(token, {
-        displayName: this.accountDisplayName
+        displayName: this.accountDisplayName,
+        email: this.accountEmail || null
       });
       this.accountUsername = response.user.username;
+      this.accountEmail = response.user.email ?? '';
       this.accountDisplayName = response.user.displayName ?? '';
+      this.accountTwoFactorEnabled = response.user.twoFactorEnabled;
       setStoredSession({
         token,
         user: response.user,
@@ -1527,7 +1603,9 @@ export class NotesPageController
         encryption.nextMaterial
       );
       this.accountUsername = response.user.username;
+      this.accountEmail = response.user.email ?? '';
       this.accountDisplayName = response.user.displayName ?? '';
+      this.accountTwoFactorEnabled = response.user.twoFactorEnabled;
       this.currentPasswordValue = '';
       this.newPasswordValue = '';
       this.confirmPasswordValue = '';
@@ -1547,6 +1625,58 @@ export class NotesPageController
       this.accountError =
         error instanceof Error ? error.message : 'Could not change password';
       this.notify('error', 'Password change failed', this.accountError);
+    } finally {
+      this.isAccountBusy = false;
+    }
+  };
+
+  saveAccountTotp = async () => {
+    const storedSession = getStoredSession();
+    const token = storedSession?.token ?? null;
+    if (!token || this.isAccountBusy) return;
+    if (!this.accountTotpPasswordValue.trim()) {
+      this.accountError = 'Current password required';
+      return;
+    }
+    if (!this.accountTotpCodeValue.trim()) {
+      this.accountError = '2FA code required';
+      return;
+    }
+
+    this.isAccountBusy = true;
+    this.accountError = '';
+    this.accountMessage = '';
+    try {
+      const response = this.accountTwoFactorEnabled
+        ? await disableTotp(token, {
+            currentPassword: this.accountTotpPasswordValue,
+            totpCode: this.accountTotpCodeValue
+          })
+        : await enableTotp(token, {
+            currentPassword: this.accountTotpPasswordValue,
+            secret: this.accountTotpSecret,
+            totpCode: this.accountTotpCodeValue
+          });
+      this.accountUsername = response.user.username;
+      this.accountEmail = response.user.email ?? '';
+      this.accountDisplayName = response.user.displayName ?? '';
+      this.accountTwoFactorEnabled = response.user.twoFactorEnabled;
+      this.accountTotpEditing = false;
+      this.accountTotpSecret = '';
+      this.accountTotpUrl = '';
+      this.accountTotpCodeValue = '';
+      this.accountTotpPasswordValue = '';
+      this.clearLocalSession({
+        accountMessage: '2FA changed. Sign in again to keep syncing.',
+        openLogin: true,
+        syncMessage: 'Sign in to sync'
+      });
+      this.loginUsernameValue = response.user.username;
+      this.notify('success', '2FA changed', 'Sign in again to keep syncing.');
+    } catch (error) {
+      this.accountError =
+        error instanceof Error ? error.message : 'Could not update 2FA';
+      this.notify('error', '2FA update failed', this.accountError);
     } finally {
       this.isAccountBusy = false;
     }
@@ -1628,7 +1758,11 @@ export class NotesPageController
     this.editorLineHeight = getStoredEditorLineHeight();
     const storedSession = getStoredSession();
     this.accountUsername = storedSession?.user.username ?? '';
+    this.accountEmail = storedSession?.user.email ?? '';
     this.accountDisplayName = storedSession?.user.displayName ?? '';
+    this.accountTwoFactorEnabled = Boolean(
+      storedSession?.user.twoFactorEnabled
+    );
     this.loginUsernameValue = getLoginHint();
     await this.refreshPublicConfig();
     await ensureLocalNotesEncrypted();
@@ -1645,16 +1779,16 @@ export class NotesPageController
     try {
       const config = await loadConfig();
       this.signupEnabled = config.signup.enabled;
-      this.signupInviteRequired = config.signup.inviteRequired;
+      this.signupEmailRequired = config.signup.emailRequired;
       if (!this.signupEnabled && this.authMode === 'signup') {
         this.authMode = 'signin';
+        this.signupEmailValue = '';
         this.signupDisplayNameValue = '';
         this.signupConfirmPasswordValue = '';
-        this.signupInviteCodeValue = '';
       }
     } catch {
       this.signupEnabled = false;
-      this.signupInviteRequired = false;
+      this.signupEmailRequired = true;
       if (this.authMode === 'signup') this.authMode = 'signin';
     }
   };
@@ -1676,7 +1810,9 @@ export class NotesPageController
       const session = await validateSession(token);
       this.hasToken = true;
       this.accountUsername = session.user.username;
+      this.accountEmail = session.user.email ?? '';
       this.accountDisplayName = session.user.displayName ?? '';
+      this.accountTwoFactorEnabled = session.user.twoFactorEnabled;
       setStoredSession({
         token,
         user: session.user,
@@ -1967,21 +2103,29 @@ export class NotesPageController
     clearStoredSession();
     this.hasToken = false;
     this.accountUsername = '';
+    this.accountEmail = '';
     this.accountDisplayName = '';
+    this.accountTwoFactorEnabled = false;
     this.accountMessage = accountMessage;
     this.accountError = '';
     this.accountProfileEditing = false;
     this.accountPasswordEditing = false;
+    this.accountTotpEditing = false;
     this.accountDeleteEditing = false;
+    this.accountTotpSecret = '';
+    this.accountTotpUrl = '';
+    this.accountTotpCodeValue = '';
+    this.accountTotpPasswordValue = '';
     this.currentPasswordValue = '';
     this.newPasswordValue = '';
     this.confirmPasswordValue = '';
     this.deletePasswordValue = '';
     this.loginUsernameValue = getLoginHint();
     this.loginPasswordValue = '';
+    this.loginTotpCodeValue = '';
+    this.signupEmailValue = '';
     this.signupDisplayNameValue = '';
     this.signupConfirmPasswordValue = '';
-    this.signupInviteCodeValue = '';
     this.loginError = '';
     this.loginOpen = openLogin;
     this.accountMenuOpen = false;

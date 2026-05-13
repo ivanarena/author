@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Login
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Download
@@ -211,6 +212,7 @@ internal fun AccountSettings(controller: NotesController, showIdentity: Boolean 
       }
       if (controller.accountProfileEditing) {
         MiniField(controller.accountDisplayName, "Nickname", Modifier.fillMaxWidth()) { controller.accountDisplayName = it }
+        MiniField(controller.accountEmail, "Email", Modifier.fillMaxWidth()) { controller.accountEmail = it }
         ActionRow(Icons.Outlined.Check, "Save profile") { controller.saveAccountProfile() }
       } else {
         ActionRow(Icons.Outlined.Edit, "Edit profile") { controller.accountProfileEditing = true }
@@ -222,6 +224,20 @@ internal fun AccountSettings(controller: NotesController, showIdentity: Boolean 
         ActionRow(Icons.Outlined.Check, "Change password") { controller.changePassword() }
       } else {
         ActionRow(Icons.Outlined.Settings, "Change password") { controller.accountPasswordEditing = true }
+      }
+      if (controller.accountTotpEditing) {
+        if (!controller.accountTwoFactorEnabled) {
+          MiniField(controller.accountTotpSecret, "2FA secret", Modifier.fillMaxWidth()) { controller.accountTotpSecret = it }
+          SelectionContainer {
+            Text(controller.accountTotpUrl, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f), fontSize = 12.sp)
+          }
+        }
+        PasswordField(controller.accountTotpPasswordValue, "Current password") { controller.accountTotpPasswordValue = it }
+        MiniField(controller.accountTotpCodeValue, "2FA code", Modifier.fillMaxWidth()) { controller.accountTotpCodeValue = it }
+        ActionRow(Icons.Outlined.Check, if (controller.accountTwoFactorEnabled) "Disable 2FA" else "Enable 2FA") { controller.saveTotp() }
+        ActionRow(Icons.Outlined.Close, "Cancel 2FA") { controller.cancelTotpEdit() }
+      } else {
+        ActionRow(Icons.Outlined.Settings, if (controller.accountTwoFactorEnabled) "Disable 2FA" else "Enable 2FA") { controller.startTotpEdit() }
       }
       if (controller.accountDeleteEditing) {
         PasswordField(controller.deletePasswordValue, "Password") { controller.deletePasswordValue = it }

@@ -65,20 +65,28 @@ class NotesController(
   var authMode by mutableStateOf("signin")
   var loginUsernameValue by mutableStateOf(repository.getLoginHint())
   var loginPasswordValue by mutableStateOf("")
+  var loginTotpCodeValue by mutableStateOf("")
+  var signupEmailValue by mutableStateOf("")
   var signupDisplayNameValue by mutableStateOf("")
   var signupConfirmPasswordValue by mutableStateOf("")
-  var signupInviteCodeValue by mutableStateOf("")
   var signupEnabled by mutableStateOf(false)
-  var signupInviteRequired by mutableStateOf(false)
+  var signupEmailRequired by mutableStateOf(true)
   var loginError by mutableStateOf("")
   var isLoggingIn by mutableStateOf(false)
   var hasToken by mutableStateOf(repository.getStoredSession() != null)
   var accountUsername by mutableStateOf(repository.getStoredSession()?.user?.username ?: "")
+  var accountEmail by mutableStateOf(repository.getStoredSession()?.user?.email ?: "")
   var accountDisplayName by mutableStateOf(repository.getStoredSession()?.user?.displayName ?: "")
+  var accountTwoFactorEnabled by mutableStateOf(repository.getStoredSession()?.user?.twoFactorEnabled ?: false)
   var accountMessage by mutableStateOf("")
   var accountError by mutableStateOf("")
   var accountProfileEditing by mutableStateOf(false)
   var accountPasswordEditing by mutableStateOf(false)
+  var accountTotpEditing by mutableStateOf(false)
+  var accountTotpSecret by mutableStateOf("")
+  var accountTotpUrl by mutableStateOf("")
+  var accountTotpCodeValue by mutableStateOf("")
+  var accountTotpPasswordValue by mutableStateOf("")
   var accountDeleteEditing by mutableStateOf(false)
   var currentPasswordValue by mutableStateOf("")
   var newPasswordValue by mutableStateOf("")
@@ -147,9 +155,10 @@ class NotesController(
     authMode = if (mode == "signup" && signupEnabled) "signup" else "signin"
     loginUsernameValue = repository.getLoginHint()
     loginPasswordValue = ""
+    loginTotpCodeValue = ""
+    signupEmailValue = ""
     signupDisplayNameValue = ""
     signupConfirmPasswordValue = ""
-    signupInviteCodeValue = ""
     loginError = ""
     loginOpen = true
   }
@@ -163,9 +172,10 @@ class NotesController(
     authMode = mode
     loginError = ""
     loginPasswordValue = ""
+    loginTotpCodeValue = ""
     signupConfirmPasswordValue = ""
-    signupInviteCodeValue = ""
     if (mode == "signin") {
+      signupEmailValue = ""
       signupDisplayNameValue = ""
       loginUsernameValue = repository.getLoginHint()
     }
@@ -523,8 +533,8 @@ class NotesController(
       loginError = "Signup is disabled"
       return
     }
-    if (authMode == "signup" && signupInviteRequired && signupInviteCodeValue.isBlank()) {
-      loginError = "Invite code required"
+    if (authMode == "signup" && signupEmailRequired && signupEmailValue.isBlank()) {
+      loginError = "Email required"
       return
     }
     scope.launch {
@@ -533,16 +543,21 @@ class NotesController(
       try {
         val wasSignup = authMode == "signup"
         val previousUsername = repository.getStoredSession()?.user?.username ?: repository.getLoginHint().ifBlank { null }
-        repository.assertLocalWorkspaceCanUseAccount(username, previousUsername)
         val response = if (wasSignup) {
           repository.signup(
             username,
+            signupEmailValue,
             password,
-            signupDisplayNameValue.ifBlank { null },
-            signupInviteCodeValue.trim().ifBlank { null }
+            signupDisplayNameValue.ifBlank { null }
           )
         } else {
-          repository.login(username, password)
+          repository.login(username, password, loginTotpCodeValue.trim().ifBlank { null })
+        }
+        try {
+          repository.assertLocalWorkspaceCanUseAccount(response.user.username, previousUsername)
+        } catch (error: Throwable) {
+          runCatching { repository.logout(response.token) }
+          throw error
         }
         repository.rememberPasswordAndAdopt(response.user.username, password, previousUsername)
         repository.setStoredSession(StoredSession(response.token, response.user, response.expiresAt))
@@ -551,9 +566,10 @@ class NotesController(
         hasToken = true
         authMode = "signin"
         loginPasswordValue = ""
+        loginTotpCodeValue = ""
+        signupEmailValue = ""
         signupDisplayNameValue = ""
         signupConfirmPasswordValue = ""
-        signupInviteCodeValue = ""
         syncMessage = "Signed in"
         notify("success", if (wasSignup) "Account created" else "Signed in", "Syncing local and remote notes.")
         syncNow()
@@ -645,7 +661,7 @@ class NotesController(
     val token = repository.getStoredSession()?.token ?: return
     scope.launch {
       try {
-        val user = repository.updateAccount(token, accountDisplayName)
+        val user = repository.updateAccount(token, accountDisplayName, accountEmail.ifBlank { null })
         val session = repository.getStoredSession()
         if (session != null) repository.setStoredSession(session.copy(user = user))
         applyUser(user)
@@ -654,6 +670,72 @@ class NotesController(
         notify("success", "Profile saved")
       } catch (error: Throwable) {
         accountError = error.message ?: "Could not save profile"
+      }
+    }
+  }
+
+  fun startTotpEdit() {
+    val token = repository.getStoredSession()?.token ?: return
+    accountTotpEditing = true
+    accountProfileEditing = false
+    accountPasswordEditing = false
+    accountDeleteEditing = false
+    accountTotpCodeValue = ""
+    accountTotpPasswordValue = ""
+    accountError = ""
+    accountMessage = ""
+    if (accountTwoFactorEnabled) {
+      accountTotpSecret = ""
+      accountTotpUrl = ""
+      return
+    }
+    scope.launch {
+      try {
+        val setup = repository.setupTotp(token)
+        accountTotpSecret = setup.secret
+        accountTotpUrl = setup.otpauthUrl
+      } catch (error: Throwable) {
+        accountError = error.message ?: "Could not start 2FA setup"
+        accountTotpEditing = false
+      }
+    }
+  }
+
+  fun cancelTotpEdit() {
+    accountTotpEditing = false
+    accountTotpSecret = ""
+    accountTotpUrl = ""
+    accountTotpCodeValue = ""
+    accountTotpPasswordValue = ""
+    accountError = ""
+  }
+
+  fun saveTotp() {
+    val token = repository.getStoredSession()?.token ?: return
+    if (accountTotpPasswordValue.isBlank()) {
+      accountError = "Current password required"
+      return
+    }
+    if (accountTotpCodeValue.isBlank()) {
+      accountError = "2FA code required"
+      return
+    }
+    if (!accountTwoFactorEnabled && accountTotpSecret.isBlank()) {
+      accountError = "2FA setup not ready"
+      return
+    }
+    scope.launch {
+      try {
+        val user = if (accountTwoFactorEnabled) {
+          repository.disableTotp(token, accountTotpPasswordValue, accountTotpCodeValue)
+        } else {
+          repository.enableTotp(token, accountTotpPasswordValue, accountTotpSecret, accountTotpCodeValue)
+        }
+        clearLocalSession("2FA changed. Sign in again to keep syncing.", openLogin = true)
+        loginUsernameValue = user.username
+        notify("success", "2FA changed", "Sign in again to keep syncing.")
+      } catch (error: Throwable) {
+        accountError = error.message ?: "Could not update 2FA"
       }
     }
   }
@@ -859,7 +941,9 @@ class NotesController(
 
   private fun applyUser(user: AuthUser) {
     accountUsername = user.username
+    accountEmail = user.email ?: ""
     accountDisplayName = user.displayName ?: ""
+    accountTwoFactorEnabled = user.twoFactorEnabled
   }
 
   private fun expireSession(message: String) {
@@ -871,14 +955,25 @@ class NotesController(
     repository.clearStoredSession()
     hasToken = false
     accountUsername = ""
+    accountEmail = ""
     accountDisplayName = ""
+    accountTwoFactorEnabled = false
     accountMessage = message
     accountError = ""
+    accountProfileEditing = false
+    accountPasswordEditing = false
+    accountTotpEditing = false
+    accountDeleteEditing = false
+    accountTotpSecret = ""
+    accountTotpUrl = ""
+    accountTotpCodeValue = ""
+    accountTotpPasswordValue = ""
     loginUsernameValue = repository.getLoginHint()
     loginPasswordValue = ""
+    loginTotpCodeValue = ""
+    signupEmailValue = ""
     signupDisplayNameValue = ""
     signupConfirmPasswordValue = ""
-    signupInviteCodeValue = ""
     loginOpen = openLogin
     syncMessage = if (message.isBlank()) "Sign in to sync" else message
     remoteSyncEnabled = false
@@ -930,12 +1025,12 @@ class NotesController(
     serverRemoteDatabaseConfigured = config.remoteDatabaseConfigured
     serverRemoteSyncEnabled = config.remoteSyncEnabled
     signupEnabled = config.signupEnabled
-    signupInviteRequired = config.signupInviteRequired
+    signupEmailRequired = config.signupEmailRequired
     if (!signupEnabled && authMode == "signup") {
       authMode = "signin"
+      signupEmailValue = ""
       signupDisplayNameValue = ""
       signupConfirmPasswordValue = ""
-      signupInviteCodeValue = ""
     }
     serverConfigError = ""
   }

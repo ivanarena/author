@@ -36,6 +36,7 @@
   let currentPasswordVisible = $state(false);
   let newPasswordVisible = $state(false);
   let confirmPasswordVisible = $state(false);
+  let totpPasswordVisible = $state(false);
   let deletePasswordVisible = $state(false);
   let fontMenuOpen = $state(false);
 
@@ -189,7 +190,7 @@
                 <strong
                   >{model.accountDisplayName || model.accountUsername}</strong
                 >
-                <span>{model.accountUsername}</span>
+                <span>{model.accountEmail || model.accountUsername}</span>
               </div>
               <button
                 class="icon-button mini account-hover-action"
@@ -219,6 +220,20 @@
                     bind:value={model.accountDisplayName}
                     placeholder="Nickname"
                     autocomplete="nickname"
+                    oninput={() => {
+                      model.accountError = '';
+                      model.accountMessage = '';
+                    }}
+                  />
+                </div>
+                <div class="field-row">
+                  <label for="account-email">Email</label>
+                  <input
+                    id="account-email"
+                    type="email"
+                    bind:value={model.accountEmail}
+                    placeholder="you@example.com"
+                    autocomplete="email"
                     oninput={() => {
                       model.accountError = '';
                       model.accountMessage = '';
@@ -383,6 +398,122 @@
               >
                 <KeyRound size={15} strokeWidth={1.8} />
                 <span>Change password</span>
+              </button>
+            {/if}
+
+            {#if model.accountTotpEditing}
+              <form
+                class="menu-form account-form"
+                aria-label="Two-factor authentication"
+                onsubmit={(event) => {
+                  event.preventDefault();
+                  void model.saveAccountTotp();
+                }}
+              >
+                <div class="settings-section-title">
+                  <KeyRound size={15} strokeWidth={1.8} />
+                  <strong>2FA</strong>
+                </div>
+                {#if !model.accountTwoFactorEnabled}
+                  <div class="field-row">
+                    <label for="totp-secret">Secret</label>
+                    <input
+                      id="totp-secret"
+                      type="text"
+                      readonly
+                      value={model.accountTotpSecret}
+                    />
+                  </div>
+                  <div class="field-row">
+                    <label for="totp-url">Setup URI</label>
+                    <input
+                      id="totp-url"
+                      type="text"
+                      readonly
+                      value={model.accountTotpUrl}
+                    />
+                  </div>
+                {/if}
+                <div class="field-row">
+                  <label for="totp-current-password">Current password</label>
+                  <div class="password-field">
+                    <input
+                      id="totp-current-password"
+                      type={totpPasswordVisible ? 'text' : 'password'}
+                      bind:value={model.accountTotpPasswordValue}
+                      autocomplete="current-password"
+                      oninput={() => (model.accountError = '')}
+                    />
+                    <button
+                      class="icon-button mini password-toggle"
+                      type="button"
+                      title={totpPasswordVisible
+                        ? 'Hide password'
+                        : 'Show password'}
+                      aria-label={totpPasswordVisible
+                        ? 'Hide password'
+                        : 'Show password'}
+                      aria-pressed={totpPasswordVisible}
+                      onclick={() =>
+                        (totpPasswordVisible = !totpPasswordVisible)}
+                    >
+                      {#if totpPasswordVisible}
+                        <EyeOff size={14} strokeWidth={1.8} />
+                      {:else}
+                        <Eye size={14} strokeWidth={1.8} />
+                      {/if}
+                    </button>
+                  </div>
+                </div>
+                <div class="field-row">
+                  <label for="totp-code">2FA code</label>
+                  <input
+                    id="totp-code"
+                    type="text"
+                    inputmode="numeric"
+                    bind:value={model.accountTotpCodeValue}
+                    autocomplete="one-time-code"
+                    oninput={() => (model.accountError = '')}
+                  />
+                </div>
+                <div class="login-actions">
+                  <button
+                    class="settings-action"
+                    type="submit"
+                    disabled={model.isAccountBusy ||
+                      (!model.accountTotpSecret &&
+                        !model.accountTwoFactorEnabled)}
+                  >
+                    <KeyRound size={15} strokeWidth={1.8} />
+                    <span
+                      >{model.accountTwoFactorEnabled
+                        ? 'Disable 2FA'
+                        : 'Enable 2FA'}</span
+                    >
+                  </button>
+                  <button
+                    class="settings-action"
+                    type="button"
+                    disabled={model.isAccountBusy}
+                    onclick={model.cancelAccountTotpEdit}
+                  >
+                    <X size={15} strokeWidth={1.9} />
+                    <span>Cancel</span>
+                  </button>
+                </div>
+              </form>
+            {:else}
+              <button
+                class="settings-action"
+                type="button"
+                onclick={model.startAccountTotpEdit}
+              >
+                <KeyRound size={15} strokeWidth={1.8} />
+                <span
+                  >{model.accountTwoFactorEnabled
+                    ? 'Disable 2FA'
+                    : 'Enable 2FA'}</span
+                >
               </button>
             {/if}
 

@@ -54,7 +54,7 @@ NOTES_BACKUP_RETENTION_COUNT=14
 `NOTES_LOGIN_USERNAME` and `NOTES_LOGIN_PASSWORD` bootstrap the first local user if it does not already exist. After login, the server returns a random session token, which the browser stores in local storage for later sync requests.
 In production, there is no fallback password; set `NOTES_LOGIN_PASSWORD` or create a user before expecting browser login to work.
 
-Signup is invite-only when a remote database is configured. The server seeds `authorprivatefriendsonly` into the local and remote `invitation_codes` tables; matching that code creates the remote account and prepares the local session. `NOTES_SIGNUP_INVITE_CODES` can add temporary env-only invite codes.
+Signup is email allow-list only when a remote database is configured. Set `NOTES_SIGNUP_ALLOWED_EMAILS` to a comma-separated list of lowercase email addresses; matching addresses can create a remote account and prepare the local session.
 
 `NOTES_AUTH_TOKEN` is no longer used by default. If an older client still depends on the old static bearer token, set `NOTES_LEGACY_AUTH_TOKEN_ENABLED=true` temporarily and rotate away from it.
 
@@ -144,7 +144,7 @@ For GitHub Actions deploys, add these repository secrets:
 - `TURSO_AUTH_TOKEN`: the Turso database token from `turso db tokens create author`.
 - `NOTES_LOGIN_PASSWORD`: the production login password.
 - `NOTES_AUTH_SESSION_DAYS`: optional session lifetime.
-- `NOTES_SIGNUP_INVITE_CODES`: optional extra comma-separated invite codes.
+- `NOTES_SIGNUP_ALLOWED_EMAILS`: optional comma-separated signup email allow list.
 - `AUTHOR_API_URL`: optional public API URL override.
 
 The workflow deploys the Worker and then syncs the GitHub app secrets into Cloudflare Worker secrets with `wrangler secret bulk`. If you deploy manually, run the `wrangler secret put` commands above once before using the app.

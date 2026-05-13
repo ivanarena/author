@@ -141,9 +141,12 @@ export {
   SyncHttpError,
   changePassword,
   deleteAccount,
+  disableTotp,
+  enableTotp,
   loadAccount,
   loadSyncStatus,
   logout,
+  setupTotp,
   updateAccount,
   validateSession
 } from './api-client';
@@ -340,24 +343,25 @@ export async function runSync(
 
 export async function login(
   username: string,
-  password: string
+  password: string,
+  totpCode: string | null = null
 ): Promise<AuthLoginResponse> {
   const device = await getOrCreateDevice();
-  return await loginWithDevice({ username, password, device });
+  return await loginWithDevice({ username, password, totpCode, device });
 }
 
 export async function signup(
   username: string,
+  email: string,
   password: string,
-  displayName: string | null = null,
-  inviteCode: string | null = null
+  displayName: string | null = null
 ): Promise<AuthLoginResponse> {
   const device = await getOrCreateDevice();
   const body: AuthSignupRequest = {
     username,
+    email,
     password,
     displayName,
-    inviteCode,
     device
   };
   return await signupWithDevice(body);

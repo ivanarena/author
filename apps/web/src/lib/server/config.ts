@@ -102,10 +102,10 @@ export function isTursoPrimaryDatabase(env?: RuntimeEnv | null): boolean {
   return envValue('NOTES_DB_PROVIDER', env) === 'turso';
 }
 
-export function getSignupInviteCodes(env?: RuntimeEnv | null): string[] {
-  return (envValue('NOTES_SIGNUP_INVITE_CODES', env) ?? '')
+export function getSignupAllowedEmails(env?: RuntimeEnv | null): string[] {
+  return (envValue('NOTES_SIGNUP_ALLOWED_EMAILS', env) ?? '')
     .split(',')
-    .map((code) => code.trim())
+    .map((email) => email.trim().toLocaleLowerCase())
     .filter(Boolean);
 }
 

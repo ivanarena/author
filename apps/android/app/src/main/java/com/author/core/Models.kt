@@ -96,13 +96,20 @@ data class SyncDebugInfo(
 
 data class AuthUser(
   val username: String,
-  val displayName: String?
+  val email: String?,
+  val displayName: String?,
+  val twoFactorEnabled: Boolean
 )
 
 data class StoredSession(
   val token: String,
   val user: AuthUser,
   val expiresAt: String?
+)
+
+data class TotpSetup(
+  val secret: String,
+  val otpauthUrl: String
 )
 
 data class SyncRunResult(
@@ -138,5 +145,5 @@ data class ServerConfig(
   val remoteSyncEnabled: Boolean,
   val remoteDatabaseConfigured: Boolean,
   val signupEnabled: Boolean,
-  val signupInviteRequired: Boolean
+  val signupEmailRequired: Boolean
 )

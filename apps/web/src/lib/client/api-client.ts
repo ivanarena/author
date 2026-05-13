@@ -13,7 +13,10 @@ import {
   type PullResponse,
   type PushRequest,
   type PushResponse,
-  type SyncStatusResponse
+  type SyncStatusResponse,
+  type TotpDisableRequest,
+  type TotpEnableRequest,
+  type TotpSetupResponse
 } from '@author/api-types';
 
 export interface ApiClientOptions {
@@ -229,6 +232,45 @@ export function createApiClient(options: ApiClientOptions = {}) {
       );
     },
 
+    async setupTotp(token: string): Promise<TotpSetupResponse> {
+      return await authedPost<Record<string, never>, TotpSetupResponse>(
+        API_PATHS.accountTotpSetup,
+        token,
+        {},
+        '2FA setup failed'
+      );
+    },
+
+    async enableTotp(
+      token: string,
+      body: TotpEnableRequest
+    ): Promise<AccountResponse> {
+      return await authedPost<TotpEnableRequest, AccountResponse>(
+        API_PATHS.accountTotp,
+        token,
+        body,
+        '2FA update failed'
+      );
+    },
+
+    async disableTotp(
+      token: string,
+      body: TotpDisableRequest
+    ): Promise<AccountResponse> {
+      return await requestJson<AccountResponse>(
+        API_PATHS.accountTotp,
+        {
+          method: 'DELETE',
+          headers: {
+            ...authHeaders(token),
+            'content-type': 'application/json'
+          },
+          body: JSON.stringify(body)
+        },
+        '2FA update failed'
+      );
+    },
+
     async logout(token: string): Promise<void> {
       await authedPost<Record<string, never>, { ok: true }>(
         API_PATHS.authLogout,
@@ -269,5 +311,8 @@ export const signupWithDevice = apiClient.signupWithDevice;
 export const loadAccount = apiClient.loadAccount;
 export const updateAccount = apiClient.updateAccount;
 export const changePassword = apiClient.changePassword;
+export const setupTotp = apiClient.setupTotp;
+export const enableTotp = apiClient.enableTotp;
+export const disableTotp = apiClient.disableTotp;
 export const logout = apiClient.logout;
 export const deleteAccount = apiClient.deleteAccount;

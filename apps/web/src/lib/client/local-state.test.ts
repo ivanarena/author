@@ -93,13 +93,23 @@ describe('local browser state', () => {
   it('stores, hints, and clears auth session fields without losing the login hint', () => {
     setStoredSession({
       token: 'session-token',
-      user: { username: 'owner', displayName: 'Iv' },
+      user: {
+        username: 'owner',
+        email: 'owner@example.com',
+        displayName: 'Iv',
+        twoFactorEnabled: true
+      },
       expiresAt: '2026-05-10T12:00:00.000Z'
     });
 
     expect(getStoredSession()).toEqual({
       token: 'session-token',
-      user: { username: 'owner', displayName: 'Iv' },
+      user: {
+        username: 'owner',
+        email: 'owner@example.com',
+        displayName: 'Iv',
+        twoFactorEnabled: true
+      },
       expiresAt: '2026-05-10T12:00:00.000Z'
     });
     expect(getLoginHint()).toBe('owner');

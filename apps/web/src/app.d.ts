@@ -12,7 +12,7 @@ declare global {
         NOTES_LOGIN_USERNAME?: string;
         NOTES_LOGIN_PASSWORD?: string;
         NOTES_AUTH_SESSION_DAYS?: string;
-        NOTES_SIGNUP_INVITE_CODES?: string;
+        NOTES_SIGNUP_ALLOWED_EMAILS?: string;
         NOTES_REMOTE_SYNC_ENABLED?: string;
         NOTES_CLEANUP_ENABLED?: string;
         NOTES_CLEANUP_RUN_ON_START?: string;

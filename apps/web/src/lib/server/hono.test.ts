@@ -1,14 +1,14 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pbkdf2Sync } from 'node:crypto';
+import { createHmac, pbkdf2Sync } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   fixtureDevice,
   fixtureNote,
   fixtureNotebook
 } from '@author/test-fixtures';
-import { setUserPassword } from './auth';
+import { setUserPassword, updateUserProfile } from './auth';
 import { openConfiguredDatabase, openDatabase } from './db';
 import { api } from './hono';
 import { getNote, pushChanges, setSyncMeta } from './repository';
@@ -24,7 +24,7 @@ beforeEach(() => {
   delete process.env.ANDROID_SYNC_API_URL;
   delete process.env.ANDROID_SYNC_SERVER_URL;
   delete process.env.NOTES_SYNC_SERVER_URL;
-  delete process.env.NOTES_SIGNUP_INVITE_CODES;
+  delete process.env.NOTES_SIGNUP_ALLOWED_EMAILS;
   process.env.NOTES_DB_PATH = join(tempDir, 'notes.sqlite');
   process.env.NOTES_REMOTE_SYNC_ENABLED = 'false';
   process.env.NOTES_LOGIN_USERNAME = 'owner';
@@ -43,7 +43,7 @@ afterEach(() => {
   delete process.env.ANDROID_SYNC_SERVER_URL;
   delete process.env.NOTES_SYNC_SERVER_URL;
   delete process.env.NOTES_REMOTE_SYNC_ENABLED;
-  delete process.env.NOTES_SIGNUP_INVITE_CODES;
+  delete process.env.NOTES_SIGNUP_ALLOWED_EMAILS;
   delete process.env.NOTES_LOGIN_USERNAME;
   delete process.env.NOTES_LOGIN_PASSWORD;
   delete process.env.NOTES_AUTH_TOKEN;
@@ -84,6 +84,40 @@ async function post(
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function base32Decode(value: string): Buffer {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = 0;
+  let buffer = 0;
+  const bytes: number[] = [];
+  for (const char of value.toUpperCase().replaceAll(/\s|=/g, '')) {
+    const index = alphabet.indexOf(char);
+    if (index < 0) throw new Error('Invalid base32 secret');
+    buffer = (buffer << 5) | index;
+    bits += 5;
+    if (bits >= 8) {
+      bytes.push((buffer >>> (bits - 8)) & 255);
+      bits -= 8;
+    }
+  }
+  return Buffer.from(bytes);
+}
+
+function totpCode(secret: string, now = Date.now()): string {
+  const counter = Math.floor(now / 1000 / 30);
+  const counterBytes = Buffer.alloc(8);
+  counterBytes.writeBigUInt64BE(BigInt(counter));
+  const hmac = createHmac('sha1', base32Decode(secret))
+    .update(counterBytes)
+    .digest();
+  const offset = hmac[hmac.length - 1] & 0x0f;
+  const truncated =
+    ((hmac[offset] & 0x7f) << 24) |
+    (hmac[offset + 1] << 16) |
+    (hmac[offset + 2] << 8) |
+    hmac[offset + 3];
+  return String(truncated % 1_000_000).padStart(6, '0');
 }
 
 describe('Hono API', () => {
@@ -128,6 +162,7 @@ describe('Hono API', () => {
     process.env.TURSO_DATABASE_URL = 'libsql://author.example.turso.io';
     process.env.TURSO_AUTH_TOKEN = 'super-secret-token';
     process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
+    process.env.NOTES_SIGNUP_ALLOWED_EMAILS = 'new@example.com';
 
     const response = await api.fetch(
       new Request('http://localhost/api/config')
@@ -142,7 +177,8 @@ describe('Hono API', () => {
       },
       signup: {
         enabled: true,
-        inviteRequired: true
+        emailRequired: true,
+        emailAllowListRequired: true
       }
     });
     expect(JSON.stringify(body)).not.toContain('super-secret-token');
@@ -195,6 +231,7 @@ describe('Hono API', () => {
     process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
     process.env.TURSO_AUTH_TOKEN = 'test-token';
     process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
+    process.env.NOTES_SIGNUP_ALLOWED_EMAILS = 'new@example.com';
 
     const signup = await api.fetch(
       new Request('http://localhost/api/auth/signup', {
@@ -202,9 +239,9 @@ describe('Hono API', () => {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           username: 'new-user',
+          email: 'new@example.com',
           password: 'new-user-password',
           displayName: 'New User',
-          inviteCode: 'authorprivatefriendsonly',
           device: fixtureDevice
         })
       })
@@ -221,37 +258,16 @@ describe('Hono API', () => {
     });
     try {
       const user = await remote.execute({
-        sql: 'SELECT username, display_name FROM users WHERE username = ?',
+        sql: 'SELECT username, email, display_name FROM users WHERE username = ?',
         args: ['new-user']
       });
       expect(user.rows[0]).toMatchObject({
         username: 'new-user',
+        email: 'new@example.com',
         display_name: 'New User'
-      });
-      const invite = await remote.execute({
-        sql: 'SELECT code, disabled_at FROM invitation_codes WHERE code = ?',
-        args: ['authorprivatefriendsonly']
-      });
-      expect(invite.rows[0]).toMatchObject({
-        code: 'authorprivatefriendsonly',
-        disabled_at: null
       });
     } finally {
       remote.close();
-    }
-
-    const local = await openDatabase();
-    try {
-      const invite = await local.execute({
-        sql: 'SELECT code, disabled_at FROM invitation_codes WHERE code = ?',
-        args: ['authorprivatefriendsonly']
-      });
-      expect(invite.rows[0]).toMatchObject({
-        code: 'authorprivatefriendsonly',
-        disabled_at: null
-      });
-    } finally {
-      local.close();
     }
 
     const duplicate = await api.fetch(
@@ -260,8 +276,8 @@ describe('Hono API', () => {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           username: 'new-user',
+          email: 'new@example.com',
           password: 'new-user-password',
-          inviteCode: 'authorprivatefriendsonly',
           device: fixtureDevice
         })
       })
@@ -277,7 +293,8 @@ describe('Hono API', () => {
       TURSO_AUTH_TOKEN: 'test-token',
       NOTES_REMOTE_SYNC_ENABLED: 'false',
       NOTES_LOGIN_USERNAME: 'owner',
-      NOTES_LOGIN_PASSWORD: 'test-password'
+      NOTES_LOGIN_PASSWORD: 'test-password',
+      NOTES_SIGNUP_ALLOWED_EMAILS: 'worker@example.com'
     };
 
     const config = await api.fetch(
@@ -287,7 +304,11 @@ describe('Hono API', () => {
     expect(config.status).toBe(200);
     await expect(config.json()).resolves.toMatchObject({
       remote: { enabled: false, configured: false },
-      signup: { enabled: true, inviteRequired: true }
+      signup: {
+        enabled: true,
+        emailRequired: true,
+        emailAllowListRequired: true
+      }
     });
 
     const signup = await api.fetch(
@@ -296,9 +317,9 @@ describe('Hono API', () => {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           username: 'worker-user',
+          email: 'worker@example.com',
           password: 'worker-user-password',
           displayName: 'Worker User',
-          inviteCode: 'authorprivatefriendsonly',
           device: fixtureDevice
         })
       }),
@@ -418,8 +439,8 @@ describe('Hono API', () => {
     }
   });
 
-  it('requires the seeded invite code by default when Turso is configured', async () => {
-    const remotePath = join(tempDir, 'remote-seeded-invite-signup.sqlite');
+  it('keeps signup disabled until an email allow list is configured', async () => {
+    const remotePath = join(tempDir, 'remote-disabled-signup.sqlite');
     process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
     process.env.TURSO_AUTH_TOKEN = 'test-token';
     process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
@@ -430,6 +451,7 @@ describe('Hono API', () => {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           username: 'disabled-user',
+          email: 'disabled@example.com',
           password: 'new-user-password',
           device: fixtureDevice
         })
@@ -438,45 +460,46 @@ describe('Hono API', () => {
 
     expect(signup.status).toBe(403);
     await expect(signup.json()).resolves.toMatchObject({
-      error: 'Invalid signup invite code'
+      error: 'Signup is disabled. Configure NOTES_SIGNUP_ALLOWED_EMAILS.'
     });
   });
 
-  it('requires a valid invite code when invite-only signup is configured', async () => {
-    const remotePath = join(tempDir, 'remote-invite-signup.sqlite');
+  it('requires an allowed email when signup is configured', async () => {
+    const remotePath = join(tempDir, 'remote-email-signup.sqlite');
     process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
     process.env.TURSO_AUTH_TOKEN = 'test-token';
     process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
-    process.env.NOTES_SIGNUP_INVITE_CODES = 'alpha,beta';
+    process.env.NOTES_SIGNUP_ALLOWED_EMAILS = 'invite@example.com';
 
-    const missingInvite = await api.fetch(
+    const deniedEmail = await api.fetch(
       new Request('http://localhost/api/auth/signup', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          username: 'invite-user',
+          username: 'denied-user',
+          email: 'denied@example.com',
           password: 'new-user-password',
           device: fixtureDevice
         })
       })
     );
-    expect(missingInvite.status).toBe(403);
+    expect(deniedEmail.status).toBe(403);
 
-    const invited = await api.fetch(
+    const allowed = await api.fetch(
       new Request('http://localhost/api/auth/signup', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           username: 'invite-user',
+          email: 'invite@example.com',
           password: 'new-user-password',
-          inviteCode: 'alpha',
           device: fixtureDevice
         })
       })
     );
-    expect(invited.status).toBe(200);
-    await expect(invited.json()).resolves.toMatchObject({
-      user: { username: 'invite-user' }
+    expect(allowed.status).toBe(200);
+    await expect(allowed.json()).resolves.toMatchObject({
+      user: { username: 'invite-user', email: 'invite@example.com' }
     });
   });
 
@@ -487,8 +510,8 @@ describe('Hono API', () => {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           username: 'remote-required-user',
+          email: 'remote-required@example.com',
           password: 'new-user-password',
-          inviteCode: 'authorprivatefriendsonly',
           device: fixtureDevice
         })
       })
@@ -685,6 +708,59 @@ describe('Hono API', () => {
     expect(profile.status).toBe(401);
   });
 
+  it('returns clear account errors for invalid or duplicate emails', async () => {
+    const remotePath = join(tempDir, 'account-email-errors.sqlite');
+    process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
+    process.env.TURSO_AUTH_TOKEN = 'test-token';
+    process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
+
+    const remote = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${remotePath}`, authToken: 'test-token' }
+    });
+    try {
+      await setUserPassword(remote, 'owner', 'test-password');
+      await setUserPassword(remote, 'other', 'other-password');
+      await updateUserProfile(remote, 'other', null, 'taken@example.com');
+    } finally {
+      remote.close();
+    }
+
+    const token = await loginToken();
+    const invalid = await api.fetch(
+      new Request('http://localhost/api/account', {
+        method: 'PATCH',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({ displayName: 'Owner', email: 'not-an-email' })
+      })
+    );
+    expect(invalid.status).toBe(400);
+    await expect(invalid.json()).resolves.toMatchObject({
+      error: 'A valid email address is required'
+    });
+
+    const duplicate = await api.fetch(
+      new Request('http://localhost/api/account', {
+        method: 'PATCH',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          displayName: 'Owner',
+          email: 'taken@example.com'
+        })
+      })
+    );
+    expect(duplicate.status).toBe(409);
+    await expect(duplicate.json()).resolves.toMatchObject({
+      error: 'Email is already taken'
+    });
+  });
+
   it('updates profile, logs out, changes password, and deletes account', async () => {
     const remotePath = join(tempDir, 'account-remote.sqlite');
     process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
@@ -833,6 +909,68 @@ describe('Hono API', () => {
     );
     expect(missing.status).toBe(401);
   }, 10_000);
+
+  it('enables TOTP and requires a valid code on login', async () => {
+    const remotePath = join(tempDir, 'totp-remote.sqlite');
+    process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
+    process.env.TURSO_AUTH_TOKEN = 'test-token';
+    process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
+
+    const remote = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${remotePath}`, authToken: 'test-token' }
+    });
+    try {
+      await setUserPassword(remote, 'owner', 'test-password');
+    } finally {
+      remote.close();
+    }
+
+    const token = await loginToken();
+    const setup = await post('/api/account/totp/setup', {}, token);
+    expect(setup.status).toBe(200);
+    const setupBody = (await setup.json()) as { secret: string };
+    const enable = await post(
+      '/api/account/totp',
+      {
+        currentPassword: 'test-password',
+        secret: setupBody.secret,
+        totpCode: totpCode(setupBody.secret)
+      },
+      token
+    );
+    expect(enable.status).toBe(200);
+    await expect(enable.json()).resolves.toMatchObject({
+      user: { username: 'owner', twoFactorEnabled: true }
+    });
+
+    const withoutCode = await api.fetch(
+      new Request('http://localhost/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'owner',
+          password: 'test-password',
+          device: fixtureDevice
+        })
+      })
+    );
+    expect(withoutCode.status).toBe(401);
+
+    const withCode = await api.fetch(
+      new Request('http://localhost/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'owner',
+          password: 'test-password',
+          totpCode: totpCode(setupBody.secret),
+          device: fixtureDevice
+        })
+      })
+    );
+    expect(withCode.status).toBe(200);
+  });
 
   it('does not accept legacy static tokens unless explicitly enabled', async () => {
     process.env.NOTES_AUTH_TOKEN = 'legacy-test-token';

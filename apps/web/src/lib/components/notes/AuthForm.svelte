@@ -69,7 +69,9 @@
         type="text"
         bind:value={model.loginUsernameValue}
         autocomplete="username"
-        placeholder="owner"
+        placeholder={model.authMode === 'signup'
+          ? 'owner'
+          : 'Username or email'}
         autocapitalize="none"
         spellcheck="false"
         required
@@ -111,6 +113,19 @@
 
   {#if model.authMode === 'signup'}
     <div class="field-grid auth-field-grid">
+      <div class="field-row">
+        <label for="signup-email">Email</label>
+        <input
+          id="signup-email"
+          type="email"
+          bind:value={model.signupEmailValue}
+          autocomplete="email"
+          placeholder="you@example.com"
+          required={model.signupEmailRequired}
+          disabled={model.isLoggingIn}
+          oninput={() => (model.loginError = '')}
+        />
+      </div>
       <div class="field-row">
         <label for="signup-display-name">Nickname</label>
         <input
@@ -155,21 +170,22 @@
           </button>
         </div>
       </div>
-      {#if model.signupInviteRequired}
-        <div class="field-row">
-          <label for="signup-invite-code">Invite code</label>
-          <input
-            id="signup-invite-code"
-            type="text"
-            bind:value={model.signupInviteCodeValue}
-            autocomplete="one-time-code"
-            placeholder="Invite code"
-            required
-            disabled={model.isLoggingIn}
-            oninput={() => (model.loginError = '')}
-          />
-        </div>
-      {/if}
+    </div>
+  {:else}
+    <div class="field-grid auth-field-grid">
+      <div class="field-row">
+        <label for="sync-totp-code">2FA code</label>
+        <input
+          id="sync-totp-code"
+          type="text"
+          inputmode="numeric"
+          bind:value={model.loginTotpCodeValue}
+          autocomplete="one-time-code"
+          placeholder="Optional"
+          disabled={model.isLoggingIn}
+          oninput={() => (model.loginError = '')}
+        />
+      </div>
     </div>
   {/if}
 

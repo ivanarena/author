@@ -6,7 +6,9 @@ const DEVICE_KEY = 'author-device-id';
 const TOKEN_KEY = 'author-token';
 const USERNAME_KEY = 'author-username';
 const LAST_USERNAME_KEY = 'author-last-username';
+const EMAIL_KEY = 'author-email';
 const DISPLAY_NAME_KEY = 'author-display-name';
+const TWO_FACTOR_KEY = 'author-two-factor-enabled';
 const SESSION_EXPIRES_KEY = 'author-session-expires-at';
 const THEME_KEY = 'author-theme';
 
@@ -22,7 +24,9 @@ export type StoredTheme =
 
 export interface StoredAuthUser {
   username: string;
+  email?: string | null;
   displayName: string | null;
+  twoFactorEnabled?: boolean;
 }
 
 export interface StoredSession {
@@ -80,7 +84,9 @@ export function getStoredSession(): StoredSession | null {
     token,
     user: {
       username: getUsername() ?? '',
-      displayName: getDisplayName()
+      email: getEmail(),
+      displayName: getDisplayName(),
+      twoFactorEnabled: getTwoFactorEnabled()
     },
     expiresAt: localStorage.getItem(SESSION_EXPIRES_KEY)
   };
@@ -89,7 +95,9 @@ export function getStoredSession(): StoredSession | null {
 export function setStoredSession(session: StoredSession): void {
   setToken(session.token);
   setUsername(session.user.username);
+  setEmail(session.user.email ?? null);
   setDisplayName(session.user.displayName);
+  setTwoFactorEnabled(Boolean(session.user.twoFactorEnabled));
   if (session.expiresAt) {
     localStorage.setItem(SESSION_EXPIRES_KEY, session.expiresAt);
   } else {
@@ -114,7 +122,9 @@ export function setUsername(username: string): void {
 
 export function clearUsername(): void {
   localStorage.removeItem(USERNAME_KEY);
+  localStorage.removeItem(EMAIL_KEY);
   localStorage.removeItem(DISPLAY_NAME_KEY);
+  localStorage.removeItem(TWO_FACTOR_KEY);
 }
 
 export function getLoginHint(): string {
@@ -127,6 +137,30 @@ export function getLoginHint(): string {
 
 export function getDisplayName(): string | null {
   return localStorage.getItem(DISPLAY_NAME_KEY);
+}
+
+export function getEmail(): string | null {
+  return localStorage.getItem(EMAIL_KEY);
+}
+
+export function setEmail(email: string | null): void {
+  if (email?.trim()) {
+    localStorage.setItem(EMAIL_KEY, email);
+  } else {
+    localStorage.removeItem(EMAIL_KEY);
+  }
+}
+
+export function getTwoFactorEnabled(): boolean {
+  return localStorage.getItem(TWO_FACTOR_KEY) === 'true';
+}
+
+export function setTwoFactorEnabled(enabled: boolean): void {
+  if (enabled) {
+    localStorage.setItem(TWO_FACTOR_KEY, 'true');
+  } else {
+    localStorage.removeItem(TWO_FACTOR_KEY);
+  }
 }
 
 export function setDisplayName(displayName: string | null): void {

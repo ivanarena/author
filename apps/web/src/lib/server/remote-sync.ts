@@ -42,10 +42,13 @@ type Row = Record<string, unknown>;
 
 type AuthUserRecord = {
   username: string;
+  email: string | null;
   displayName: string | null;
   passwordHash: string;
   passwordSalt: string;
   passwordIterations: number;
+  totpSecret: string | null;
+  totpEnabledAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -184,6 +187,10 @@ async function acquireMirrorLeases(
 function toAuthUser(row: Row): AuthUserRecord {
   return {
     username: asString(row.username),
+    email:
+      row.email === null || row.email === undefined
+        ? null
+        : asString(row.email),
     displayName:
       row.display_name === null || row.display_name === undefined
         ? null
@@ -191,6 +198,14 @@ function toAuthUser(row: Row): AuthUserRecord {
     passwordHash: asString(row.password_hash),
     passwordSalt: asString(row.password_salt),
     passwordIterations: Number(row.password_iterations),
+    totpSecret:
+      row.totp_secret === null || row.totp_secret === undefined
+        ? null
+        : asString(row.totp_secret),
+    totpEnabledAt:
+      row.totp_enabled_at === null || row.totp_enabled_at === undefined
+        ? null
+        : asString(row.totp_enabled_at),
     createdAt: asString(row.created_at),
     updatedAt: asString(row.updated_at)
   };
@@ -270,7 +285,9 @@ function authCredentialsDiffer(
   return (
     source.passwordHash !== target.passwordHash ||
     source.passwordSalt !== target.passwordSalt ||
-    source.passwordIterations !== target.passwordIterations
+    source.passwordIterations !== target.passwordIterations ||
+    source.totpSecret !== target.totpSecret ||
+    source.totpEnabledAt !== target.totpEnabledAt
   );
 }
 
@@ -280,6 +297,7 @@ function authUsersDiffer(
 ): boolean {
   return (
     authCredentialsDiffer(source, target) ||
+    source.email !== target.email ||
     source.displayName !== target.displayName ||
     source.createdAt !== target.createdAt ||
     source.updatedAt !== target.updatedAt
@@ -318,21 +336,28 @@ async function putAuthUser(
   await runSql(
     db,
     `INSERT INTO users (
-       username, display_name, password_hash, password_salt, password_iterations, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?)
+       username, email, display_name, password_hash, password_salt, password_iterations,
+       totp_secret, totp_enabled_at, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(username) DO UPDATE SET
+       email = excluded.email,
        display_name = excluded.display_name,
        password_hash = excluded.password_hash,
        password_salt = excluded.password_salt,
        password_iterations = excluded.password_iterations,
+       totp_secret = excluded.totp_secret,
+       totp_enabled_at = excluded.totp_enabled_at,
        created_at = excluded.created_at,
        updated_at = excluded.updated_at`,
     [
       user.username,
+      user.email,
       user.displayName,
       user.passwordHash,
       user.passwordSalt,
       user.passwordIterations,
+      user.totpSecret,
+      user.totpEnabledAt,
       user.createdAt,
       user.updatedAt
     ]

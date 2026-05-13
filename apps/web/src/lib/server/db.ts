@@ -13,7 +13,6 @@ const initializedDatabases = new Map<string, Promise<void>>();
 const databaseWriteQueues = new Map<string, Promise<void>>();
 const databaseWriteKeys = new WeakMap<NotesDb, string>();
 const LEGACY_OWNER_USERNAME = 'legacy-token';
-const DEFAULT_SIGNUP_INVITE_CODE = 'authorprivatefriendsonly';
 const WRITE_TRANSACTION_MAX_ATTEMPTS = 6;
 const WRITE_TRANSACTION_RETRY_BASE_MS = 25;
 
@@ -37,10 +36,13 @@ const schemaSql = `
 
   CREATE TABLE IF NOT EXISTS users (
     username TEXT PRIMARY KEY,
+    email TEXT,
     display_name TEXT,
     password_hash TEXT NOT NULL,
     password_salt TEXT NOT NULL,
     password_iterations INTEGER NOT NULL,
+    totp_secret TEXT,
+    totp_enabled_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
@@ -61,6 +63,10 @@ const schemaSql = `
 
   CREATE INDEX IF NOT EXISTS users_updated_at_idx
     ON users(updated_at);
+
+  CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique_idx
+    ON users(email)
+    WHERE email IS NOT NULL;
 
   CREATE TABLE IF NOT EXISTS invitation_codes (
     code TEXT PRIMARY KEY,
@@ -555,18 +561,31 @@ export const SERVER_MIGRATIONS: ServerMigration[] = [
            ON invitation_codes(disabled_at);`
       );
     }
+  },
+  {
+    version: 7,
+    name: 'user-email-and-totp',
+    rollback:
+      'Restore from the pre-upgrade backup. Email and TOTP columns are forward-only account additions.',
+    up: async (db) => {
+      if (!(await hasColumn(db, 'users', 'email'))) {
+        await run(db, 'ALTER TABLE users ADD COLUMN email TEXT');
+      }
+      if (!(await hasColumn(db, 'users', 'totp_secret'))) {
+        await run(db, 'ALTER TABLE users ADD COLUMN totp_secret TEXT');
+      }
+      if (!(await hasColumn(db, 'users', 'totp_enabled_at'))) {
+        await run(db, 'ALTER TABLE users ADD COLUMN totp_enabled_at TEXT');
+      }
+      await run(
+        db,
+        `CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique_idx
+           ON users(email)
+           WHERE email IS NOT NULL`
+      );
+    }
   }
 ];
-
-async function seedDefaultInvitationCodes(db: NotesDb): Promise<void> {
-  await run(
-    db,
-    `INSERT INTO invitation_codes (code, created_at, disabled_at)
-     VALUES (?, ?, NULL)
-     ON CONFLICT(code) DO UPDATE SET disabled_at = NULL`,
-    [DEFAULT_SIGNUP_INVITE_CODE, new Date().toISOString()]
-  );
-}
 
 async function ensureSchemaMigrationsTable(db: NotesDb): Promise<void> {
   await exec(
@@ -615,7 +634,6 @@ export async function runPendingMigrations(db: NotesDb): Promise<void> {
 export async function initializeDatabase(db: NotesDb): Promise<void> {
   await exec(db, schemaSql);
   await runPendingMigrations(db);
-  await seedDefaultInvitationCodes(db);
   await seedEntityChanges(db);
 }
 

@@ -4,7 +4,7 @@ import {
   getLegacyAuthToken,
   getLoginPassword,
   getLoginUsername,
-  getSignupInviteCodes
+  getSignupAllowedEmails
 } from './config';
 import {
   get,
@@ -17,16 +17,24 @@ import {
 const PASSWORD_ITERATIONS = 100_000;
 const PASSWORD_KEY_LENGTH = 32;
 const SESSION_TOKEN_BYTES = 32;
+const TOTP_SECRET_BYTES = 20;
+const TOTP_PERIOD_SECONDS = 30;
+const TOTP_DIGITS = 6;
 const SESSION_TOUCH_INTERVAL_MS = 60_000;
 const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,62}[a-z0-9]$|^[a-z0-9]$/;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 const textEncoder = new TextEncoder();
 
 type UserRow = {
   username: string;
+  email: string | null;
   display_name: string | null;
   password_hash: string;
   password_salt: string;
   password_iterations: number;
+  totp_secret: string | null;
+  totp_enabled_at: string | null;
 };
 
 type SessionRow = {
@@ -35,13 +43,11 @@ type SessionRow = {
   expires_at: string;
 };
 
-type InvitationCodeRow = {
-  code: string;
-};
-
 export interface AuthUser {
   username: string;
+  email: string | null;
   displayName: string | null;
+  twoFactorEnabled: boolean;
 }
 
 export interface AuthSession {
@@ -56,44 +62,8 @@ export interface CreatedAuthSession extends AuthSession {
   legacy: false;
 }
 
-function cleanInviteCode(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed || null;
-}
-
-export async function hasSignupInviteCodes(
-  db: NotesExecutor
-): Promise<boolean> {
-  if (getSignupInviteCodes().length > 0) return true;
-  const row = await get(
-    db,
-    `SELECT code
-     FROM invitation_codes
-     WHERE disabled_at IS NULL
-     LIMIT 1`
-  );
-  return row !== null;
-}
-
-export async function isValidSignupInviteCode(
-  db: NotesExecutor,
-  value: unknown
-): Promise<boolean> {
-  const candidate = cleanInviteCode(value);
-  if (!candidate) return false;
-  if (getSignupInviteCodes().includes(candidate)) return true;
-
-  const row = (await get(
-    db,
-    `SELECT code
-     FROM invitation_codes
-     WHERE code = ?
-       AND disabled_at IS NULL
-     LIMIT 1`,
-    [candidate]
-  )) as InvitationCodeRow | null;
-  return row !== null;
+export function hasSignupAllowedEmails(): boolean {
+  return getSignupAllowedEmails().length > 0;
 }
 
 export function tokenFromRequest(request: Request): string | null {
@@ -128,6 +98,20 @@ export function normalizeUsername(
   return normalized;
 }
 
+export function normalizeEmail(
+  email: string | null | undefined
+): string | null {
+  const normalized = email?.trim().toLocaleLowerCase();
+  if (
+    !normalized ||
+    normalized.length > 254 ||
+    !EMAIL_PATTERN.test(normalized)
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
 function requireUsername(username: string): string {
   const normalized = normalizeUsername(username);
   if (!normalized) {
@@ -136,6 +120,19 @@ function requireUsername(username: string): string {
     );
   }
   return normalized;
+}
+
+function requireEmail(email: string): string {
+  const normalized = normalizeEmail(email);
+  if (!normalized) {
+    throw new Error('A valid email address is required');
+  }
+  return normalized;
+}
+
+export function isSignupEmailAllowed(email: string): boolean {
+  const normalized = requireEmail(email);
+  return getSignupAllowedEmails().includes(normalized);
 }
 
 function requirePassword(password: string): string {
@@ -200,6 +197,116 @@ function constantTimeEqual(actual: Uint8Array, expected: Uint8Array): boolean {
   return difference === 0;
 }
 
+function base32Encode(bytes: Uint8Array): string {
+  let bits = 0;
+  let value = 0;
+  let output = '';
+  for (const byte of bytes) {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      output += BASE32_ALPHABET[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) output += BASE32_ALPHABET[(value << (5 - bits)) & 31];
+  return output;
+}
+
+function base32Decode(value: string): Uint8Array | null {
+  const clean = value.toUpperCase().replaceAll(/\s|=/g, '');
+  if (!clean) return null;
+
+  let bits = 0;
+  let buffer = 0;
+  const bytes: number[] = [];
+  for (const char of clean) {
+    const index = BASE32_ALPHABET.indexOf(char);
+    if (index < 0) return null;
+    buffer = (buffer << 5) | index;
+    bits += 5;
+    if (bits >= 8) {
+      bytes.push((buffer >>> (bits - 8)) & 255);
+      bits -= 8;
+    }
+  }
+  return new Uint8Array(bytes);
+}
+
+function cleanTotpCode(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const digits = value.replaceAll(/\s|-/g, '');
+  return /^\d{6}$/.test(digits) ? digits : null;
+}
+
+function cleanTotpSecret(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const clean = value.toUpperCase().replaceAll(/\s|=/g, '');
+  return base32Decode(clean) ? clean : null;
+}
+
+async function hotp(secret: string, counter: number): Promise<string | null> {
+  const secretBytes = base32Decode(secret);
+  if (!secretBytes) return null;
+
+  const counterBytes = new Uint8Array(8);
+  let remaining = BigInt(counter);
+  for (let index = 7; index >= 0; index -= 1) {
+    counterBytes[index] = Number(remaining & 0xffn);
+    remaining >>= 8n;
+  }
+
+  const key = await crypto.subtle.importKey(
+    'raw',
+    secretBytes as Uint8Array<ArrayBuffer>,
+    { name: 'HMAC', hash: 'SHA-1' },
+    false,
+    ['sign']
+  );
+  const signature = new Uint8Array(
+    await crypto.subtle.sign('HMAC', key, counterBytes)
+  );
+  const offset = signature[signature.length - 1] & 0x0f;
+  const truncated =
+    ((signature[offset] & 0x7f) << 24) |
+    (signature[offset + 1] << 16) |
+    (signature[offset + 2] << 8) |
+    signature[offset + 3];
+  return String(truncated % 10 ** TOTP_DIGITS).padStart(TOTP_DIGITS, '0');
+}
+
+export function generateTotpSecret(): string {
+  return base32Encode(randomBytes(TOTP_SECRET_BYTES));
+}
+
+export function totpOtpauthUrl(user: AuthUser, secret: string): string {
+  const label = encodeURIComponent(`Author:${user.email ?? user.username}`);
+  const issuer = encodeURIComponent('Author');
+  return `otpauth://totp/${label}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=${TOTP_DIGITS}&period=${TOTP_PERIOD_SECONDS}`;
+}
+
+export async function verifyTotpCode(
+  secret: string | null,
+  value: unknown,
+  now = Date.now()
+): Promise<boolean> {
+  const cleanSecret = cleanTotpSecret(secret);
+  const code = cleanTotpCode(value);
+  if (!cleanSecret || !code) return false;
+
+  const counter = Math.floor(now / 1000 / TOTP_PERIOD_SECONDS);
+  for (const offset of [-1, 0, 1]) {
+    const expected = await hotp(cleanSecret, counter + offset);
+    if (
+      expected &&
+      constantTimeEqual(textEncoder.encode(code), textEncoder.encode(expected))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 async function verifyPassword(
   password: string,
   row: UserRow
@@ -235,12 +342,47 @@ async function getUserRow(
 ): Promise<UserRow | null> {
   const row = await get(
     db,
-    `SELECT username, display_name, password_hash, password_salt, password_iterations
+    `SELECT username, email, display_name, password_hash, password_salt, password_iterations,
+            totp_secret, totp_enabled_at
      FROM users
      WHERE username = ?`,
     [username]
   );
   return row as UserRow | null;
+}
+
+async function getUserRowByEmail(
+  db: NotesExecutor,
+  email: string
+): Promise<UserRow | null> {
+  const row = await get(
+    db,
+    `SELECT username, email, display_name, password_hash, password_salt, password_iterations,
+            totp_secret, totp_enabled_at
+     FROM users
+     WHERE email = ?`,
+    [email]
+  );
+  return row as UserRow | null;
+}
+
+async function getUserRowByLogin(
+  db: NotesExecutor,
+  login: string | null | undefined
+): Promise<UserRow | null> {
+  const username = normalizeUsername(login);
+  if (username) return await getUserRow(db, username);
+  const email = normalizeEmail(login);
+  return email ? await getUserRowByEmail(db, email) : null;
+}
+
+function rowToAuthUser(row: UserRow): AuthUser {
+  return {
+    username: row.username,
+    email: row.email,
+    displayName: row.display_name,
+    twoFactorEnabled: Boolean(row.totp_secret && row.totp_enabled_at)
+  };
 }
 
 function authCredentialsChanged(
@@ -251,7 +393,9 @@ function authCredentialsChanged(
     !existing ||
     existing.password_hash !== next.password_hash ||
     existing.password_salt !== next.password_salt ||
-    existing.password_iterations !== next.password_iterations
+    existing.password_iterations !== next.password_iterations ||
+    existing.totp_secret !== next.totp_secret ||
+    existing.totp_enabled_at !== next.totp_enabled_at
   );
 }
 
@@ -318,8 +462,9 @@ export async function setUserPassword(
   await run(
     db,
     `INSERT INTO users (
-       username, display_name, password_hash, password_salt, password_iterations, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?)
+       username, email, display_name, password_hash, password_salt, password_iterations,
+       totp_secret, totp_enabled_at, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(username) DO UPDATE SET
        password_hash = excluded.password_hash,
        password_salt = excluded.password_salt,
@@ -328,26 +473,41 @@ export async function setUserPassword(
     [
       normalized,
       null,
+      null,
       passwordHash.hash,
       passwordHash.salt,
       passwordHash.iterations,
+      null,
+      null,
       now,
       now
     ]
   );
 
-  return { username: normalized, displayName: null };
+  return {
+    username: normalized,
+    email: null,
+    displayName: null,
+    twoFactorEnabled: false
+  };
 }
 
 export async function createUserAccount(
   db: NotesExecutor,
   username: string,
+  email: string,
   password: string,
   displayName: string | null | undefined
 ): Promise<AuthUser | null> {
   const normalized = requireUsername(username);
+  const normalizedEmail = requireEmail(email);
   const safePassword = requirePassword(password);
-  if (await getUserRow(db, normalized)) return null;
+  if (
+    (await getUserRow(db, normalized)) ||
+    (await getUserRowByEmail(db, normalizedEmail))
+  ) {
+    return null;
+  }
 
   const now = new Date().toISOString();
   const passwordHash = await hashPassword(safePassword);
@@ -356,20 +516,29 @@ export async function createUserAccount(
   await run(
     db,
     `INSERT INTO users (
-       username, display_name, password_hash, password_salt, password_iterations, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       username, email, display_name, password_hash, password_salt, password_iterations,
+       totp_secret, totp_enabled_at, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       normalized,
+      normalizedEmail,
       nextDisplayName,
       passwordHash.hash,
       passwordHash.salt,
       passwordHash.iterations,
+      null,
+      null,
       now,
       now
     ]
   );
 
-  return { username: normalized, displayName: nextDisplayName };
+  return {
+    username: normalized,
+    email: normalizedEmail,
+    displayName: nextDisplayName,
+    twoFactorEnabled: false
+  };
 }
 
 export async function mirrorUserForLocalSession(
@@ -392,54 +561,73 @@ export async function mirrorUserForLocalSession(
   await run(
     target,
     `INSERT INTO users (
-       username, display_name, password_hash, password_salt, password_iterations, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?)
+       username, email, display_name, password_hash, password_salt, password_iterations,
+       totp_secret, totp_enabled_at, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(username) DO UPDATE SET
+       email = excluded.email,
        display_name = excluded.display_name,
        password_hash = excluded.password_hash,
        password_salt = excluded.password_salt,
        password_iterations = excluded.password_iterations,
+       totp_secret = excluded.totp_secret,
+       totp_enabled_at = excluded.totp_enabled_at,
        updated_at = excluded.updated_at`,
     [
       normalized,
+      sourceUser.email,
       sourceUser.display_name,
       sourceUser.password_hash,
       sourceUser.password_salt,
       sourceUser.password_iterations,
+      sourceUser.totp_secret,
+      sourceUser.totp_enabled_at,
       now,
       now
     ]
   );
 
-  return { username: normalized, displayName: sourceUser.display_name };
+  return rowToAuthUser(sourceUser);
 }
 
 export async function authenticateUser(
   db: NotesExecutor,
   username: string | null | undefined,
-  password: string | null | undefined
+  password: string | null | undefined,
+  totpCode?: string | null
 ): Promise<AuthUser | null> {
-  const normalized = normalizeUsername(username ?? getLoginUsername());
-  if (!normalized || typeof password !== 'string') return null;
+  const login = username ?? getLoginUsername();
+  const bootstrapUsername = normalizeUsername(login);
+  if (
+    typeof password !== 'string' ||
+    (!bootstrapUsername && !normalizeEmail(login))
+  ) {
+    return null;
+  }
 
   const row =
-    (await getUserRow(db, normalized)) ??
-    (await maybeBootstrapEnvUser(db, normalized, password));
+    (await getUserRowByLogin(db, login)) ??
+    (bootstrapUsername
+      ? await maybeBootstrapEnvUser(db, bootstrapUsername, password)
+      : null);
   if (!row) return null;
 
   if (await verifyPassword(password, row)) {
+    if (row.totp_secret && !(await verifyTotpCode(row.totp_secret, totpCode))) {
+      return null;
+    }
     const activeRow =
       row.password_iterations > PASSWORD_ITERATIONS
         ? ((await rehashUserPassword(db, row, password)) ?? row)
         : row;
-    return { username: normalized, displayName: activeRow.display_name };
+    return rowToAuthUser(activeRow);
   }
 
   const recoveredRow = await maybeRecoverBootstrapEnvUser(db, row, password);
   if (!recoveredRow || !(await verifyPassword(password, recoveredRow))) {
     return null;
   }
-  return { username: normalized, displayName: recoveredRow.display_name };
+  return rowToAuthUser(recoveredRow);
 }
 
 export async function createAuthSession(
@@ -481,7 +669,12 @@ export async function sessionFromToken(
   const legacyToken = getLegacyAuthToken();
   if (legacyToken && tokensMatch(token, legacyToken)) {
     return {
-      user: { username: 'legacy-token', displayName: null },
+      user: {
+        username: 'legacy-token',
+        email: null,
+        displayName: null,
+        twoFactorEnabled: false
+      },
       expiresAt: null,
       legacy: true
     };
@@ -490,12 +683,20 @@ export async function sessionFromToken(
 
   const row = (await get(
     db,
-    `SELECT auth_sessions.username, users.display_name, last_seen_at, expires_at
+    `SELECT auth_sessions.username, users.email, users.display_name,
+            users.totp_secret, users.totp_enabled_at, last_seen_at, expires_at
      FROM auth_sessions
      LEFT JOIN users ON users.username = auth_sessions.username
      WHERE token_hash = ?`,
     [hash]
-  )) as (SessionRow & { display_name: string | null }) | null;
+  )) as
+    | (SessionRow & {
+        email: string | null;
+        display_name: string | null;
+        totp_secret: string | null;
+        totp_enabled_at: string | null;
+      })
+    | null;
   if (!row) return null;
 
   const now = new Date().toISOString();
@@ -517,7 +718,12 @@ export async function sessionFromToken(
   }
 
   return {
-    user: { username: row.username, displayName: row.display_name },
+    user: {
+      username: row.username,
+      email: row.email,
+      displayName: row.display_name,
+      twoFactorEnabled: Boolean(row.totp_secret && row.totp_enabled_at)
+    },
     expiresAt: row.expires_at,
     legacy: false
   };
@@ -526,16 +732,33 @@ export async function sessionFromToken(
 export async function updateUserProfile(
   db: NotesExecutor,
   username: string,
-  displayName: string | null | undefined
+  displayName: string | null | undefined,
+  email?: string | null | undefined
 ): Promise<AuthUser> {
   const normalized = requireUsername(username);
   const nextDisplayName = cleanDisplayName(displayName);
-  await run(
-    db,
-    'UPDATE users SET display_name = ?, updated_at = ? WHERE username = ?',
-    [nextDisplayName, new Date().toISOString(), normalized]
-  );
-  return { username: normalized, displayName: nextDisplayName };
+  const nextEmail =
+    email === undefined
+      ? undefined
+      : email === null
+        ? null
+        : requireEmail(email);
+  if (nextEmail !== undefined) {
+    await run(
+      db,
+      'UPDATE users SET email = ?, display_name = ?, updated_at = ? WHERE username = ?',
+      [nextEmail, nextDisplayName, new Date().toISOString(), normalized]
+    );
+  } else {
+    await run(
+      db,
+      'UPDATE users SET display_name = ?, updated_at = ? WHERE username = ?',
+      [nextDisplayName, new Date().toISOString(), normalized]
+    );
+  }
+  const row = await getUserRow(db, normalized);
+  if (!row) throw new Error('User not found');
+  return rowToAuthUser(row);
 }
 
 export async function changeUserPassword(
@@ -548,7 +771,69 @@ export async function changeUserPassword(
   const row = await getUserRow(db, normalized);
   if (!row || !(await verifyPassword(currentPassword, row))) return null;
   await setUserPassword(db, normalized, newPassword);
-  return { username: normalized, displayName: row.display_name };
+  const updated = await getUserRow(db, normalized);
+  return updated ? rowToAuthUser(updated) : null;
+}
+
+export async function enableUserTotp(
+  db: NotesExecutor,
+  username: string,
+  currentPassword: string,
+  secret: string,
+  totpCode: string
+): Promise<AuthUser | null> {
+  const normalized = requireUsername(username);
+  const row = await getUserRow(db, normalized);
+  const cleanSecret = cleanTotpSecret(secret);
+  if (
+    !row ||
+    !cleanSecret ||
+    !(await verifyPassword(currentPassword, row)) ||
+    !(await verifyTotpCode(cleanSecret, totpCode))
+  ) {
+    return null;
+  }
+
+  await run(
+    db,
+    `UPDATE users
+     SET totp_secret = ?, totp_enabled_at = ?, updated_at = ?
+     WHERE username = ?`,
+    [
+      cleanSecret,
+      new Date().toISOString(),
+      new Date().toISOString(),
+      normalized
+    ]
+  );
+  await run(db, 'DELETE FROM auth_sessions WHERE username = ?', [normalized]);
+  const updated = await getUserRow(db, normalized);
+  return updated ? rowToAuthUser(updated) : null;
+}
+
+export async function disableUserTotp(
+  db: NotesExecutor,
+  username: string,
+  currentPassword: string,
+  totpCode?: string | null
+): Promise<AuthUser | null> {
+  const normalized = requireUsername(username);
+  const row = await getUserRow(db, normalized);
+  if (!row || !(await verifyPassword(currentPassword, row))) return null;
+  if (row.totp_secret && !(await verifyTotpCode(row.totp_secret, totpCode))) {
+    return null;
+  }
+
+  await run(
+    db,
+    `UPDATE users
+     SET totp_secret = NULL, totp_enabled_at = NULL, updated_at = ?
+     WHERE username = ?`,
+    [new Date().toISOString(), normalized]
+  );
+  await run(db, 'DELETE FROM auth_sessions WHERE username = ?', [normalized]);
+  const updated = await getUserRow(db, normalized);
+  return updated ? rowToAuthUser(updated) : null;
 }
 
 export async function deleteUserAccount(

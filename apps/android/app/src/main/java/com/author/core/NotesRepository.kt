@@ -14,7 +14,9 @@ private const val DEVICE_KEY = "author-device-id"
 private const val TOKEN_KEY = "author-token"
 private const val USERNAME_KEY = "author-username"
 private const val LAST_USERNAME_KEY = "author-last-username"
+private const val EMAIL_KEY = "author-email"
 private const val DISPLAY_NAME_KEY = "author-display-name"
+private const val TWO_FACTOR_KEY = "author-two-factor-enabled"
 private const val SESSION_EXPIRES_KEY = "author-session-expires-at"
 private const val THEME_KEY = "author-theme"
 private const val SORT_KEY = "author-sort"
@@ -119,7 +121,9 @@ class NotesRepository(context: Context) {
       token = token,
       user = AuthUser(
         username = prefs.getString(USERNAME_KEY, "") ?: "",
-        displayName = prefs.getString(DISPLAY_NAME_KEY, null)
+        email = prefs.getString(EMAIL_KEY, null),
+        displayName = prefs.getString(DISPLAY_NAME_KEY, null),
+        twoFactorEnabled = prefs.getBoolean(TWO_FACTOR_KEY, false)
       ),
       expiresAt = prefs.getString(SESSION_EXPIRES_KEY, null)
     )
@@ -130,7 +134,9 @@ class NotesRepository(context: Context) {
     prefs.edit {
       putString(USERNAME_KEY, session.user.username)
       putString(LAST_USERNAME_KEY, session.user.username)
+      putNullableString(EMAIL_KEY, session.user.email)
       putNullableString(DISPLAY_NAME_KEY, session.user.displayName)
+      putBoolean(TWO_FACTOR_KEY, session.user.twoFactorEnabled)
       putNullableString(SESSION_EXPIRES_KEY, session.expiresAt)
     }
   }
@@ -138,7 +144,9 @@ class NotesRepository(context: Context) {
   fun clearStoredSession() {
     prefs.edit {
       remove(USERNAME_KEY)
+      remove(EMAIL_KEY)
       remove(DISPLAY_NAME_KEY)
+      remove(TWO_FACTOR_KEY)
       remove(SESSION_EXPIRES_KEY)
     }
     securePrefs.remove(TOKEN_KEY)
@@ -419,12 +427,12 @@ class NotesRepository(context: Context) {
     db.putMeta(ENCRYPTION_AUDIT_VERSION_KEY, ENCRYPTION_AUDIT_VERSION)
   }
 
-  suspend fun login(username: String, password: String): LoginResponse = withContext(Dispatchers.IO) {
-    syncClient.login(username, password, getOrCreateDevice())
+  suspend fun login(username: String, password: String, totpCode: String?): LoginResponse = withContext(Dispatchers.IO) {
+    syncClient.login(username, password, totpCode, getOrCreateDevice())
   }
 
-  suspend fun signup(username: String, password: String, displayName: String?, inviteCode: String?): LoginResponse = withContext(Dispatchers.IO) {
-    syncClient.signup(username, password, displayName, inviteCode, getOrCreateDevice())
+  suspend fun signup(username: String, email: String, password: String, displayName: String?): LoginResponse = withContext(Dispatchers.IO) {
+    syncClient.signup(username, email, password, displayName, getOrCreateDevice())
   }
 
   suspend fun assertLocalWorkspaceCanUseAccount(username: String, previousUsername: String?) = withContext(Dispatchers.IO) {
@@ -459,8 +467,8 @@ class NotesRepository(context: Context) {
     clearSyncErrorInternal()
   }
 
-  suspend fun updateAccount(token: String, displayName: String?): AuthUser = withContext(Dispatchers.IO) {
-    syncClient.updateAccount(token, displayName)
+  suspend fun updateAccount(token: String, displayName: String?, email: String?): AuthUser = withContext(Dispatchers.IO) {
+    syncClient.updateAccount(token, displayName, email)
   }
 
   suspend fun changePassword(token: String, currentPassword: String, newPassword: String): AuthUser = withContext(Dispatchers.IO) {
@@ -468,6 +476,18 @@ class NotesRepository(context: Context) {
     val (previous, next) = crypto.rememberEncryptionPassword(user.username, newPassword)
     reencryptLocalNotesInternal(previous, next)
     user
+  }
+
+  suspend fun setupTotp(token: String): TotpSetup = withContext(Dispatchers.IO) {
+    syncClient.setupTotp(token)
+  }
+
+  suspend fun enableTotp(token: String, currentPassword: String, secret: String, totpCode: String): AuthUser = withContext(Dispatchers.IO) {
+    syncClient.enableTotp(token, currentPassword, secret, totpCode)
+  }
+
+  suspend fun disableTotp(token: String, currentPassword: String, totpCode: String?): AuthUser = withContext(Dispatchers.IO) {
+    syncClient.disableTotp(token, currentPassword, totpCode)
   }
 
   suspend fun logout(token: String) = withContext(Dispatchers.IO) {

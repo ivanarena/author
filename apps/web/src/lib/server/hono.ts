@@ -11,7 +11,10 @@ import type {
   PullRequest,
   PushRequest,
   RemoteSyncState,
-  SyncStatusResponse
+  SyncStatusResponse,
+  TotpDisableRequest,
+  TotpEnableRequest,
+  TotpSetupResponse
 } from '@author/api-types';
 import { API_PATHS } from '@author/api-types';
 import type { Note, Notebook, SyncStatus } from '@author/schema';
@@ -22,14 +25,18 @@ import {
   changeUserPassword,
   createAuthSession,
   createUserAccount,
+  disableUserTotp,
+  enableUserTotp,
+  generateTotpSecret,
   deleteSessionFromRequest,
   deleteUserAccount,
-  hasSignupInviteCodes,
-  isValidSignupInviteCode,
+  hasSignupAllowedEmails,
+  isSignupEmailAllowed,
   mirrorUserForLocalSession,
   normalizeUsername,
   requireAuth,
   sessionFromRequest,
+  totpOtpauthUrl,
   updateUserProfile,
   unauthorized
 } from './auth';
@@ -589,6 +596,23 @@ function isNullableString(value: unknown): value is string | null {
   return value === null || typeof value === 'string';
 }
 
+function accountUpdateError(
+  error: unknown
+): { error: string; status: 400 | 409 } | null {
+  const message = error instanceof Error ? error.message : '';
+  if (message === 'A valid email address is required') {
+    return { error: message, status: 400 };
+  }
+  if (
+    /UNIQUE constraint failed: users\.email|users_email_unique_idx/i.test(
+      message
+    )
+  ) {
+    return { error: 'Email is already taken', status: 409 };
+  }
+  return null;
+}
+
 function isNullableIsoDate(value: unknown): value is string | null {
   if (value === null) return true;
   return typeof value === 'string' && !Number.isNaN(Date.parse(value));
@@ -707,23 +731,19 @@ api.get(API_PATHS.config, async (c) => {
   const remoteConfig = remoteMirrorConfig(c);
   const remoteEnabled = remoteConfig !== null;
   const primaryTurso = isTursoPrimary(c);
-  const db = await openPrimaryDatabase(c);
-  try {
-    const inviteConfigured = await hasSignupInviteCodes(db);
-    return c.json({
-      apiBaseUrl: publicApiBaseUrl(c.req.raw, c),
-      remote: {
-        enabled: remoteEnabled,
-        configured: remoteConfig !== null
-      },
-      signup: {
-        enabled: (remoteEnabled || primaryTurso) && inviteConfigured,
-        inviteRequired: inviteConfigured
-      }
-    } satisfies ConfigResponse);
-  } finally {
-    db.close();
-  }
+  const emailAllowListConfigured = hasSignupAllowedEmails();
+  return c.json({
+    apiBaseUrl: publicApiBaseUrl(c.req.raw, c),
+    remote: {
+      enabled: remoteEnabled,
+      configured: remoteConfig !== null
+    },
+    signup: {
+      enabled: (remoteEnabled || primaryTurso) && emailAllowListConfigured,
+      emailRequired: true,
+      emailAllowListRequired: emailAllowListConfigured
+    }
+  } satisfies ConfigResponse);
 });
 
 api.post(API_PATHS.authLogin, async (c) => {
@@ -753,7 +773,12 @@ api.post(API_PATHS.authLogin, async (c) => {
     let remote: NotesDb | null = null;
     try {
       remote = await openConfiguredDatabase(remoteConfig);
-      remoteUser = await authenticateUser(remote, body.username, body.password);
+      remoteUser = await authenticateUser(
+        remote,
+        body.username,
+        body.password,
+        body.totpCode
+      );
     } catch (error) {
       console.warn(
         'Remote login failed:',
@@ -790,8 +815,13 @@ api.post(API_PATHS.authLogin, async (c) => {
     }
 
     const user = remoteUser
-      ? await authenticateUser(db, remoteUser.username, body.password)
-      : await authenticateUser(db, body.username, body.password);
+      ? await authenticateUser(
+          db,
+          remoteUser.username,
+          body.password,
+          body.totpCode
+        )
+      : await authenticateUser(db, body.username, body.password, body.totpCode);
     if (!user) {
       recordFailedLogin(attemptKey);
       return c.json(
@@ -831,6 +861,7 @@ api.post(API_PATHS.authSignup, async (c) => {
   if (
     !hasDevicePayload(body?.device) ||
     typeof body?.username !== 'string' ||
+    typeof body?.email !== 'string' ||
     typeof body?.password !== 'string'
   ) {
     return c.json({ error: 'Invalid signup payload' }, 400);
@@ -854,29 +885,31 @@ api.post(API_PATHS.authSignup, async (c) => {
   if (!remoteConfig && primaryTurso) {
     const db = await openPrimaryDatabase(c);
     try {
-      const inviteConfigured = await hasSignupInviteCodes(db);
-      if (!inviteConfigured) {
+      if (!hasSignupAllowedEmails()) {
         recordFailedLogin(attemptKey);
         return c.json(
-          { error: 'Signup is disabled. Create users with user:create.' },
+          {
+            error: 'Signup is disabled. Configure NOTES_SIGNUP_ALLOWED_EMAILS.'
+          },
           403
         );
       }
 
-      if (!(await isValidSignupInviteCode(db, body.inviteCode))) {
+      if (!isSignupEmailAllowed(body.email)) {
         recordFailedLogin(attemptKey);
-        return c.json({ error: 'Invalid signup invite code' }, 403);
+        return c.json({ error: 'Email is not allowed to sign up' }, 403);
       }
 
       const user = await createUserAccount(
         db,
         body.username,
+        body.email,
         body.password,
         body.displayName
       );
       if (!user) {
         recordFailedLogin(attemptKey);
-        return c.json({ error: 'Username is already taken' }, 409);
+        return c.json({ error: 'Username or email is already taken' }, 409);
       }
 
       clearFailedLogins(attemptKey);
@@ -903,36 +936,32 @@ api.post(API_PATHS.authSignup, async (c) => {
     return c.json({ error: 'Signup requires remote database access' }, 503);
   }
 
-  const inviteDb = await openPrimaryDatabase(c);
   const remote = await openConfiguredDatabase(remoteConfig);
   let user: Awaited<ReturnType<typeof createUserAccount>>;
   try {
-    const inviteConfigured = await hasSignupInviteCodes(inviteDb);
-    if (!inviteConfigured) {
+    if (!hasSignupAllowedEmails()) {
       recordFailedLogin(attemptKey);
       return c.json(
-        { error: 'Signup is disabled. Create users with user:create.' },
+        { error: 'Signup is disabled. Configure NOTES_SIGNUP_ALLOWED_EMAILS.' },
         403
       );
     }
 
-    if (
-      !(await isValidSignupInviteCode(inviteDb, body.inviteCode)) ||
-      !(await isValidSignupInviteCode(remote, body.inviteCode))
-    ) {
+    if (!isSignupEmailAllowed(body.email)) {
       recordFailedLogin(attemptKey);
-      return c.json({ error: 'Invalid signup invite code' }, 403);
+      return c.json({ error: 'Email is not allowed to sign up' }, 403);
     }
 
     const createdUser = await createUserAccount(
       remote,
       body.username,
+      body.email,
       body.password,
       body.displayName
     );
     if (!createdUser) {
       recordFailedLogin(attemptKey);
-      return c.json({ error: 'Username is already taken' }, 409);
+      return c.json({ error: 'Username or email is already taken' }, 409);
     }
     user = createdUser;
   } catch (error) {
@@ -942,7 +971,6 @@ api.post(API_PATHS.authSignup, async (c) => {
     );
   } finally {
     remote.close();
-    inviteDb.close();
   }
 
   clearFailedLogins(attemptKey);
@@ -1032,16 +1060,29 @@ api.patch(API_PATHS.account, async (c) => {
     );
     if (!parsed.ok) return parsed.response;
     const body = parsed.body ?? {};
+    if (
+      (body.displayName !== undefined && !isNullableString(body.displayName)) ||
+      (body.email !== undefined && !isNullableString(body.email))
+    ) {
+      return c.json({ error: 'Invalid account payload' }, 400);
+    }
     const remoteConfig = remoteMirrorConfig(c);
     if (!remoteConfig) {
       if (isTursoPrimary(c)) {
-        return c.json({
-          user: await updateUserProfile(
-            db,
-            session.user.username,
-            body.displayName
-          )
-        });
+        try {
+          return c.json({
+            user: await updateUserProfile(
+              db,
+              session.user.username,
+              body.displayName,
+              body.email
+            )
+          });
+        } catch (error) {
+          const mapped = accountUpdateError(error);
+          if (mapped) return c.json({ error: mapped.error }, mapped.status);
+          throw error;
+        }
       }
       return c.json({ error: 'Account updates require remote access' }, 503);
     }
@@ -1057,11 +1098,18 @@ api.patch(API_PATHS.account, async (c) => {
     const remote = await openConfiguredDatabase(remoteConfig);
     let user: Awaited<ReturnType<typeof updateUserProfile>>;
     try {
-      user = await updateUserProfile(
-        remote,
-        session.user.username,
-        body.displayName
-      );
+      try {
+        user = await updateUserProfile(
+          remote,
+          session.user.username,
+          body.displayName,
+          body.email
+        );
+      } catch (error) {
+        const mapped = accountUpdateError(error);
+        if (mapped) return c.json({ error: mapped.error }, mapped.status);
+        throw error;
+      }
     } finally {
       remote.close();
     }
@@ -1146,6 +1194,171 @@ api.post(API_PATHS.accountPassword, async (c) => {
     if (!(await syncRemoteBestEffort(db, c.env))) {
       return c.json(
         { error: 'Password changed remotely, but local offline setup failed' },
+        503
+      );
+    }
+
+    await queueRemoteSyncAfter(undefined, c.env);
+    return c.json({ user });
+  } finally {
+    db.close();
+  }
+});
+
+api.post(API_PATHS.accountTotpSetup, async (c) => {
+  const db = await openPrimaryDatabase(c);
+  try {
+    const session = await sessionFromRequest(db, c.req.raw);
+    if (!session) return unauthorized();
+    if (session.legacy) {
+      return c.json({ error: 'Legacy token accounts cannot use 2FA' }, 400);
+    }
+
+    const secret = generateTotpSecret();
+    return c.json({
+      secret,
+      otpauthUrl: totpOtpauthUrl(session.user, secret)
+    } satisfies TotpSetupResponse);
+  } finally {
+    db.close();
+  }
+});
+
+api.post(API_PATHS.accountTotp, async (c) => {
+  const db = await openPrimaryDatabase(c);
+  try {
+    let session = await sessionFromRequest(db, c.req.raw);
+    if (!session) return unauthorized();
+    if (session.legacy) {
+      return c.json({ error: 'Legacy token accounts cannot use 2FA' }, 400);
+    }
+    const parsed = await jsonOrSizeError<TotpEnableRequest>(
+      c.req.raw,
+      MAX_LOGIN_BODY_BYTES,
+      '2FA payload too large'
+    );
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
+    if (
+      typeof body?.currentPassword !== 'string' ||
+      typeof body?.secret !== 'string' ||
+      typeof body?.totpCode !== 'string'
+    ) {
+      return c.json({ error: 'Invalid 2FA payload' }, 400);
+    }
+
+    const remoteConfig = remoteMirrorConfig(c);
+    if (!remoteConfig) {
+      if (isTursoPrimary(c)) {
+        const user = await enableUserTotp(
+          db,
+          session.user.username,
+          body.currentPassword,
+          body.secret,
+          body.totpCode
+        );
+        if (!user) return c.json({ error: 'Could not verify 2FA setup' }, 401);
+        return c.json({ user });
+      }
+      return c.json({ error: '2FA changes require remote access' }, 503);
+    }
+    if (!(await syncRemoteBestEffort(db, c.env))) {
+      return c.json({ error: 'Could not sync before 2FA update' }, 503);
+    }
+    session = await sessionFromRequest(db, c.req.raw);
+    if (!session) return unauthorized();
+    if (session.legacy) {
+      return c.json({ error: 'Legacy token accounts cannot use 2FA' }, 400);
+    }
+
+    const remote = await openConfiguredDatabase(remoteConfig);
+    let user: Awaited<ReturnType<typeof enableUserTotp>>;
+    try {
+      user = await enableUserTotp(
+        remote,
+        session.user.username,
+        body.currentPassword,
+        body.secret,
+        body.totpCode
+      );
+    } finally {
+      remote.close();
+    }
+    if (!user) return c.json({ error: 'Could not verify 2FA setup' }, 401);
+
+    if (!(await syncRemoteBestEffort(db, c.env))) {
+      return c.json(
+        { error: '2FA enabled remotely, but local offline setup failed' },
+        503
+      );
+    }
+
+    await queueRemoteSyncAfter(undefined, c.env);
+    return c.json({ user });
+  } finally {
+    db.close();
+  }
+});
+
+api.delete(API_PATHS.accountTotp, async (c) => {
+  const db = await openPrimaryDatabase(c);
+  try {
+    let session = await sessionFromRequest(db, c.req.raw);
+    if (!session) return unauthorized();
+    if (session.legacy) {
+      return c.json({ error: 'Legacy token accounts cannot use 2FA' }, 400);
+    }
+    const parsed = await jsonOrSizeError<TotpDisableRequest>(
+      c.req.raw,
+      MAX_LOGIN_BODY_BYTES,
+      '2FA payload too large'
+    );
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
+    if (typeof body?.currentPassword !== 'string') {
+      return c.json({ error: 'Invalid 2FA payload' }, 400);
+    }
+
+    const remoteConfig = remoteMirrorConfig(c);
+    if (!remoteConfig) {
+      if (isTursoPrimary(c)) {
+        const user = await disableUserTotp(
+          db,
+          session.user.username,
+          body.currentPassword,
+          body.totpCode
+        );
+        if (!user) return c.json({ error: 'Could not verify 2FA code' }, 401);
+        return c.json({ user });
+      }
+      return c.json({ error: '2FA changes require remote access' }, 503);
+    }
+    if (!(await syncRemoteBestEffort(db, c.env))) {
+      return c.json({ error: 'Could not sync before 2FA update' }, 503);
+    }
+    session = await sessionFromRequest(db, c.req.raw);
+    if (!session) return unauthorized();
+    if (session.legacy) {
+      return c.json({ error: 'Legacy token accounts cannot use 2FA' }, 400);
+    }
+
+    const remote = await openConfiguredDatabase(remoteConfig);
+    let user: Awaited<ReturnType<typeof disableUserTotp>>;
+    try {
+      user = await disableUserTotp(
+        remote,
+        session.user.username,
+        body.currentPassword,
+        body.totpCode
+      );
+    } finally {
+      remote.close();
+    }
+    if (!user) return c.json({ error: 'Could not verify 2FA code' }, 401);
+
+    if (!(await syncRemoteBestEffort(db, c.env))) {
+      return c.json(
+        { error: '2FA disabled remotely, but local offline setup failed' },
         503
       );
     }

@@ -8,6 +8,8 @@ export const API_PATHS = {
   authSignup: '/api/auth/signup',
   authValidate: '/api/auth/validate',
   authLogout: '/api/auth/logout',
+  accountTotpSetup: '/api/account/totp/setup',
+  accountTotp: '/api/account/totp',
   account: '/api/account',
   accountPassword: '/api/account/password',
   notes: '/api/notes',
@@ -23,20 +25,23 @@ export type ApiPath = (typeof API_PATHS)[keyof typeof API_PATHS];
 export interface AuthLoginRequest {
   username?: string;
   password: string;
+  totpCode?: string | null;
   device: Device;
 }
 
 export interface AuthSignupRequest {
   username: string;
+  email: string;
   password: string;
   displayName?: string | null;
-  inviteCode?: string | null;
   device: Device;
 }
 
 export interface AuthUser {
   username: string;
+  email: string | null;
   displayName: string | null;
+  twoFactorEnabled: boolean;
 }
 
 export interface AuthLoginResponse {
@@ -55,6 +60,7 @@ export interface AuthValidateResponse {
 
 export interface AccountUpdateRequest {
   displayName?: string | null;
+  email?: string | null;
 }
 
 export interface PasswordChangeRequest {
@@ -68,6 +74,22 @@ export interface DeleteAccountRequest {
 
 export interface AccountResponse {
   user: AuthUser;
+}
+
+export interface TotpSetupResponse {
+  secret: string;
+  otpauthUrl: string;
+}
+
+export interface TotpEnableRequest {
+  currentPassword: string;
+  secret: string;
+  totpCode: string;
+}
+
+export interface TotpDisableRequest {
+  currentPassword: string;
+  totpCode?: string | null;
 }
 
 export interface HealthResponse {
@@ -84,7 +106,8 @@ export interface ConfigResponse {
   };
   signup: {
     enabled: boolean;
-    inviteRequired: boolean;
+    emailRequired: boolean;
+    emailAllowListRequired: boolean;
   };
 }
 

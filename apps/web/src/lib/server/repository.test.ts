@@ -1049,7 +1049,9 @@ describe('server repository', () => {
         authenticateUser(local, 'remote-user', 'remote-password')
       ).resolves.toEqual({
         username: 'remote-user',
-        displayName: null
+        email: null,
+        displayName: null,
+        twoFactorEnabled: false
       });
     } finally {
       local.close();
@@ -1078,13 +1080,17 @@ describe('server repository', () => {
         authenticateUser(remote, 'owner', 'remote-password')
       ).resolves.toEqual({
         username: 'owner',
-        displayName: null
+        email: null,
+        displayName: null,
+        twoFactorEnabled: false
       });
       await expect(
         authenticateUser(local, 'owner', 'remote-password')
       ).resolves.toEqual({
         username: 'owner',
-        displayName: null
+        email: null,
+        displayName: null,
+        twoFactorEnabled: false
       });
     } finally {
       local.close();

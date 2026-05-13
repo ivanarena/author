@@ -2,13 +2,7 @@
 
 ## Signup
 
-Signup is invite-only when a remote database is configured. The default invite code is seeded into local and remote `invitation_codes` tables:
-
-```text
-authorprivatefriendsonly
-```
-
-Disable an invite by setting its `disabled_at` value. `NOTES_SIGNUP_INVITE_CODES` can add temporary env-only invite codes for controlled rollouts.
+Signup is email allow-list only when a remote database is configured. Set `NOTES_SIGNUP_ALLOWED_EMAILS` to a comma-separated list of addresses that may create accounts.
 
 ## TLS and Headers
 

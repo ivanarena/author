@@ -34,7 +34,7 @@ internal fun LoginDialog(controller: NotesController) {
             SmallTextButton("Sign up", active = controller.authMode == "signup") { controller.chooseAuthMode("signup") }
           }
         }
-        MiniField(controller.loginUsernameValue, "Username", Modifier.fillMaxWidth()) {
+        MiniField(controller.loginUsernameValue, if (controller.authMode == "signup") "Username" else "Username or email", Modifier.fillMaxWidth()) {
           controller.loginUsernameValue = it
           controller.loginError = ""
         }
@@ -43,6 +43,10 @@ internal fun LoginDialog(controller: NotesController) {
           controller.loginError = ""
         }
         if (controller.authMode == "signup") {
+          MiniField(controller.signupEmailValue, "Email", Modifier.fillMaxWidth()) {
+            controller.signupEmailValue = it
+            controller.loginError = ""
+          }
           MiniField(controller.signupDisplayNameValue, "Nickname", Modifier.fillMaxWidth()) {
             controller.signupDisplayNameValue = it
           }
@@ -50,11 +54,10 @@ internal fun LoginDialog(controller: NotesController) {
             controller.signupConfirmPasswordValue = it
             controller.loginError = ""
           }
-          if (controller.signupInviteRequired) {
-            MiniField(controller.signupInviteCodeValue, "Invite code", Modifier.fillMaxWidth()) {
-              controller.signupInviteCodeValue = it
-              controller.loginError = ""
-            }
+        } else {
+          MiniField(controller.loginTotpCodeValue, "2FA code", Modifier.fillMaxWidth()) {
+            controller.loginTotpCodeValue = it
+            controller.loginError = ""
           }
         }
         if (controller.loginError.isNotBlank()) {

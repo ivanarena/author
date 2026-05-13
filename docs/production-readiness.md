@@ -56,6 +56,8 @@ releases, set the `ANDROID_RELEASE_*` variables documented in
 
 - Back up and restore `notes.sqlite` before upgrades, then smoke-check the
   restored file with `aube -F @author/web run db:check`.
+- Confirm scheduled SQLite backups are enabled for self-hosted Node
+  deployments, and that `NOTES_BACKUP_DIR` is on storage you retain.
 - Review `/api/health` and `/api/metrics` after deploy.
 - Keep exactly one app process pointed at each local SQLite database.
 - Treat Docker image scan failures as release blockers. The CI workflow scans

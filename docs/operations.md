@@ -28,6 +28,13 @@ Run one app process per SQLite database. The local write queue and remote mirror
 
 ## Backups
 
+Self-hosted Node deployments can write automatic local SQLite snapshots when
+`NOTES_BACKUP_ENABLED=true`. Keep `NOTES_BACKUP_DIR` on a mounted path that is
+included in your host backups. The scheduler uses SQLite `VACUUM INTO`, runs
+after startup when `NOTES_BACKUP_RUN_ON_START=true`, repeats every
+`NOTES_BACKUP_INTERVAL_MINUTES`, and keeps `NOTES_BACKUP_RETENTION_COUNT`
+snapshot files.
+
 Before upgrades:
 
 1. Stop the app or otherwise pause writes.

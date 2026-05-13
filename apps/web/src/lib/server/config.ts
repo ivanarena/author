@@ -41,6 +41,10 @@ function normalizePath(path: string): string {
   return `/${parts.join('/')}`;
 }
 
+export function resolveServerPath(path: string): string {
+  return normalizePath(path);
+}
+
 export function resolveDatabasePath(
   configuredPath: string,
   canWriteDataRoot = dataRootIsWritable()
@@ -92,6 +96,10 @@ export function getDatabaseConfig(): DatabaseConfig {
 export function shouldSyncRemoteDatabase(env?: RuntimeEnv | null): boolean {
   if (envValue('NOTES_REMOTE_SYNC_ENABLED', env) === 'false') return false;
   return Boolean(getRemoteDatabaseConfig(env));
+}
+
+export function isTursoPrimaryDatabase(env?: RuntimeEnv | null): boolean {
+  return envValue('NOTES_DB_PROVIDER', env) === 'turso';
 }
 
 export function getSignupInviteCodes(env?: RuntimeEnv | null): string[] {
@@ -150,4 +158,40 @@ export function getCleanupIntervalMs(): number {
   const minutes = Number(envValue('NOTES_CLEANUP_INTERVAL_MINUTES') ?? '1440');
   const safeMinutes = Number.isFinite(minutes) && minutes > 0 ? minutes : 1440;
   return safeMinutes * 60 * 1000;
+}
+
+export function isDatabaseBackupSchedulerEnabled(
+  env?: RuntimeEnv | null
+): boolean {
+  return envValue('NOTES_BACKUP_ENABLED', env) === 'true';
+}
+
+export function shouldRunDatabaseBackupOnStart(
+  env?: RuntimeEnv | null
+): boolean {
+  return envValue('NOTES_BACKUP_RUN_ON_START', env) === 'true';
+}
+
+export function getDatabaseBackupIntervalMs(env?: RuntimeEnv | null): number {
+  const minutes = Number(
+    envValue('NOTES_BACKUP_INTERVAL_MINUTES', env) ?? '1440'
+  );
+  const safeMinutes = Number.isFinite(minutes) && minutes > 0 ? minutes : 1440;
+  return safeMinutes * 60 * 1000;
+}
+
+export function getDatabaseBackupRetentionCount(
+  env?: RuntimeEnv | null
+): number {
+  const count = Number(envValue('NOTES_BACKUP_RETENTION_COUNT', env) ?? '14');
+  return Number.isFinite(count) && count > 0
+    ? Math.min(Math.floor(count), 365)
+    : 14;
+}
+
+export function getConfiguredDatabaseBackupDir(
+  env?: RuntimeEnv | null
+): string | null {
+  const value = envValue('NOTES_BACKUP_DIR', env)?.trim();
+  return value ? resolveServerPath(value) : null;
 }

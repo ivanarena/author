@@ -69,6 +69,12 @@ docker compose up -d --build
 
 The container stores SQLite data at `/data/notes.sqlite`.
 
+There are three checked-in env templates:
+
+- `.env.example` is the repo-wide template for Docker/self-hosting and Android builds.
+- `apps/web/.env.example` is the lightweight local web-dev template.
+- `apps/web/.dev.vars.example` is only for local Cloudflare Worker runs.
+
 For production hardening, reverse-proxy TLS, backup/restore drills, metrics, and image signing notes, see `docs/operations.md`.
 
 ## Monorepo

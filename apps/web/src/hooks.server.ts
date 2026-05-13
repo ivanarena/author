@@ -1,5 +1,6 @@
 import { building, dev } from '$app/environment';
 import type { Handle } from '@sveltejs/kit';
+import { startDatabaseBackupScheduler } from '$lib/server/backup-scheduler';
 import { startTrashCleanupScheduler } from '$lib/server/cleanup-scheduler';
 import {
   applySecurityHeaders,
@@ -9,6 +10,7 @@ import {
 
 if (!building) {
   startTrashCleanupScheduler();
+  startDatabaseBackupScheduler();
 }
 
 export const handle: Handle = async ({ event, resolve }) => {

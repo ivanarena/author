@@ -27,7 +27,13 @@ aube --version
 
 ## Environment
 
-Copy `apps/web/.env.example` to `apps/web/.env`.
+There are three checked-in env templates:
+
+- `.env.example` at the repo root is the canonical production/self-host template. It is also read by Android builds for values like `AUTHOR_API_URL`.
+- `apps/web/.env.example` is the small local web-dev template used by Vite/SvelteKit.
+- `apps/web/.dev.vars.example` is only for local Cloudflare Worker runs with Wrangler.
+
+For local web development, copy `apps/web/.env.example` to `apps/web/.env`.
 
 ```env
 NOTES_DB_PATH=.data/notes.sqlite
@@ -39,6 +45,10 @@ NOTES_REMOTE_SYNC_ENABLED=true
 NOTES_CLEANUP_ENABLED=true
 NOTES_CLEANUP_RUN_ON_START=true
 NOTES_CLEANUP_INTERVAL_MINUTES=1440
+NOTES_BACKUP_ENABLED=true
+NOTES_BACKUP_RUN_ON_START=true
+NOTES_BACKUP_INTERVAL_MINUTES=1440
+NOTES_BACKUP_RETENTION_COUNT=14
 ```
 
 `NOTES_LOGIN_USERNAME` and `NOTES_LOGIN_PASSWORD` bootstrap the first local user if it does not already exist. After login, the server returns a random session token, which the browser stores in local storage for later sync requests.
@@ -52,6 +62,8 @@ Leave `NOTES_TRUST_PROXY_HEADERS=false` unless your reverse proxy strips incomin
 
 In Node/self-hosted runs, when Turso variables are present, the server keeps local SQLite active and mirrors local/remote records in both directions before reads and after writes. Set `NOTES_REMOTE_SYNC_ENABLED=false` to force local-only behavior temporarily.
 
+For Node/self-hosted runs, `NOTES_BACKUP_ENABLED=true` writes periodic SQLite snapshots with `VACUUM INTO`. By default backups go next to the database under `backups/`, run once after startup when `NOTES_BACKUP_RUN_ON_START=true`, then every `NOTES_BACKUP_INTERVAL_MINUTES`, keeping `NOTES_BACKUP_RETENTION_COUNT` files. Set `NOTES_BACKUP_DIR` to place them in a bind mount or host backup path. Cloudflare/Turso-primary deployments should use Turso's managed backup/export flow instead.
+
 If you use direnv, put your live values in the ignored root `.env` file and run:
 
 ```sh
@@ -60,7 +72,7 @@ cd apps/web
 tsx scripts/check-db-integration.ts
 ```
 
-The committed `.envrc` loads root `.env` automatically and adds the repo's local Node binaries to `PATH`.
+The committed `.envrc` loads root `.env` automatically and adds the repo's local Node binaries to `PATH`. Keep secrets in ignored live env files, not in the checked-in examples.
 
 ## Self-Hosted Docker
 
@@ -83,9 +95,13 @@ NOTES_REMOTE_SYNC_ENABLED=true
 NOTES_CLEANUP_ENABLED=true
 NOTES_CLEANUP_RUN_ON_START=true
 NOTES_CLEANUP_INTERVAL_MINUTES=1440
+NOTES_BACKUP_ENABLED=true
+NOTES_BACKUP_RUN_ON_START=true
+NOTES_BACKUP_INTERVAL_MINUTES=1440
+NOTES_BACKUP_RETENTION_COUNT=14
 ```
 
-Back up the Docker volume or bind-mount `/data` somewhere you already back up.
+Back up the Docker volume or bind-mount `/data` somewhere you already back up. The built-in scheduler writes SQLite snapshots to `/data/backups` when backups are enabled.
 
 Run exactly one app instance for a given SQLite database. The server has in-process write serialization and remote-sync queues; two containers pointed at the same local SQLite file can race those queues.
 
@@ -197,6 +213,12 @@ NOTES_AUTH_SESSION_DAYS=90
 NOTES_TRUST_PROXY_HEADERS=false
 NOTES_REMOTE_SYNC_ENABLED=true
 NOTES_CLEANUP_ENABLED=true
+NOTES_CLEANUP_RUN_ON_START=true
+NOTES_CLEANUP_INTERVAL_MINUTES=1440
+NOTES_BACKUP_ENABLED=true
+NOTES_BACKUP_RUN_ON_START=true
+NOTES_BACKUP_INTERVAL_MINUTES=1440
+NOTES_BACKUP_RETENTION_COUNT=14
 ```
 
 Do not expose the Turso token to browser code. It belongs only in the SvelteKit server environment.
@@ -311,6 +333,8 @@ NOTES_DB_PATH=/path/to/restore/notes.sqlite aube -F @author/web run db:check
 ```
 
 Practice this after schema migrations and before relying on a new release. Turso restores should use Turso's managed backup/export flow, then run `db:check` against an app pointed at the restored database.
+
+Scheduled local backups are written as standalone `.sqlite` files under `NOTES_BACKUP_DIR` or, by default, the database directory's `backups/` folder. Restore them the same way as a manual copy: point `NOTES_DB_PATH` at a copied backup file and run `db:check` before replacing production.
 
 ## Cleanup Schedule
 

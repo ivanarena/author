@@ -24,6 +24,7 @@ import {
   getTheme,
   importNotesMarkdownFiles,
   importNotesMarkdownSummary,
+  getOrCreateDevice,
   loadDevices,
   loadLastSyncPass,
   loadNotes,
@@ -36,6 +37,7 @@ import {
   notebookNameExists,
   rememberLocalWorkspaceAccount,
   renameNotebook,
+  renameCurrentDevice,
   reencryptLocalNotes,
   recordLastSyncPass,
   recordSyncError,
@@ -204,6 +206,10 @@ export class NotesPageController
   accountTotpCodeValue = $state('');
   accountTotpPasswordValue = $state('');
   accountDeleteEditing = $state(false);
+  currentDeviceName = $state('');
+  deviceNameEditing = $state(false);
+  deviceNameValue = $state('');
+  deviceNameError = $state('');
   currentPasswordValue = $state('');
   newPasswordValue = $state('');
   confirmPasswordValue = $state('');
@@ -1349,6 +1355,57 @@ export class NotesPageController
     this.accountError = '';
   };
 
+  startDeviceNameEdit = () => {
+    this.deviceNameEditing = true;
+    this.deviceNameValue = this.currentDeviceName;
+    this.deviceNameError = '';
+    this.accountMessage = '';
+  };
+
+  cancelDeviceNameEdit = () => {
+    this.deviceNameEditing = false;
+    this.deviceNameValue = this.currentDeviceName;
+    this.deviceNameError = '';
+  };
+
+  saveDeviceName = async () => {
+    const name = this.deviceNameValue.trim();
+    if (!name) {
+      this.deviceNameError = 'Device name required';
+      return;
+    }
+    if (this.isAccountBusy) return;
+
+    this.isAccountBusy = true;
+    this.deviceNameError = '';
+    this.accountMessage = '';
+    try {
+      const device = await renameCurrentDevice(name);
+      this.currentDeviceName = device.name;
+      this.deviceNameValue = device.name;
+      this.devices = [
+        device,
+        ...this.devices.filter((candidate) => candidate.id !== device.id)
+      ];
+      this.accountTrustedDevices = this.accountTrustedDevices.map((trusted) =>
+        trusted.deviceId === device.id
+          ? { ...trusted, deviceName: device.name }
+          : trusted
+      );
+      this.deviceNameEditing = false;
+      this.accountMessage = 'Device name saved';
+      this.notify('success', 'Device name saved');
+      if (this.hasToken) await this.syncNow();
+      await this.refreshAccount();
+    } catch (error) {
+      this.deviceNameError =
+        error instanceof Error ? error.message : 'Could not save device name';
+      this.notify('error', 'Device update failed', this.deviceNameError);
+    } finally {
+      this.isAccountBusy = false;
+    }
+  };
+
   startAccountPasswordEdit = () => {
     this.accountPasswordEditing = true;
     this.accountProfileEditing = false;
@@ -1936,6 +1993,7 @@ export class NotesPageController
       trash,
       conflicts,
       devices,
+      currentDevice,
       pendingSyncCount,
       lastSyncPass,
       syncDebugInfo
@@ -1945,6 +2003,7 @@ export class NotesPageController
       loadTrash(),
       loadPendingConflicts(),
       loadDevices(),
+      getOrCreateDevice(),
       loadPendingSyncCount(),
       loadLastSyncPass(),
       loadSyncDebugInfo()
@@ -1954,7 +2013,11 @@ export class NotesPageController
     this.notebooks = notebooks;
     this.trash = trash;
     this.conflicts = conflicts;
-    this.devices = devices;
+    this.devices = devices.some((device) => device.id === currentDevice.id)
+      ? devices
+      : [currentDevice, ...devices];
+    this.currentDeviceName = currentDevice.name;
+    if (!this.deviceNameEditing) this.deviceNameValue = currentDevice.name;
     this.pendingSyncCount = pendingSyncCount;
     this.lastSyncPass = lastSyncPass;
     this.syncDebugInfo = syncDebugInfo;

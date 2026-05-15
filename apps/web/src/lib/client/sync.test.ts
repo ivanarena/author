@@ -53,6 +53,7 @@ vi.mock('./db', () => ({
 }));
 
 const device = { id: 'device-local', name: 'Browser' };
+const pushedDeviceSignature = `${device.id}\0${device.name}`;
 const note: Note = {
   id: 'note-1',
   title: 'Draft',
@@ -114,6 +115,13 @@ function mockFetch(...responses: Response[]) {
   return fetchMock;
 }
 
+function mockSyncMeta(values: Record<string, string | undefined>) {
+  vi.mocked(localDb.syncMeta.get).mockImplementation((async (key: unknown) => {
+    const value = values[String(key)];
+    return value === undefined ? undefined : { key: String(key), value };
+  }) as never);
+}
+
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(hasStoredEncryptionKeyMaterial).mockReturnValue(true);
@@ -124,7 +132,7 @@ beforeEach(() => {
   vi.mocked(saveConflict).mockResolvedValue(undefined);
   vi.mocked(saveDevices).mockResolvedValue(undefined);
   vi.mocked(mergeRemoteChanges).mockResolvedValue(undefined);
-  vi.mocked(localDb.syncMeta.get).mockResolvedValue(undefined);
+  mockSyncMeta({ lastPushedDeviceSignature: pushedDeviceSignature });
   vi.mocked(localDb.syncMeta.put).mockResolvedValue('lastPulledAt');
   vi.mocked(localDb.syncMeta.delete).mockResolvedValue(undefined);
   vi.mocked(localDb.notes.bulkPut).mockResolvedValue(note.id);
@@ -381,9 +389,9 @@ describe('client sync orchestration', () => {
   });
 
   it('skips push when there are no pending changes but still refreshes from pull', async () => {
-    vi.mocked(localDb.syncMeta.get).mockResolvedValue({
-      key: 'lastPulledAt',
-      value: '2026-05-01T10:00:00.000Z'
+    mockSyncMeta({
+      lastPushedDeviceSignature: pushedDeviceSignature,
+      lastPulledAt: '2026-05-01T10:00:00.000Z'
     });
     const fetchMock = mockFetch(
       jsonResponse({
@@ -419,16 +427,51 @@ describe('client sync orchestration', () => {
     expect(saveConflict).not.toHaveBeenCalled();
   });
 
-  it('uses the stored revision cursor when one exists', async () => {
-    vi.mocked(localDb.syncMeta.get)
-      .mockResolvedValueOnce({
-        key: 'lastPulledAt',
-        value: '2026-05-01T10:00:00.000Z'
+  it('pushes current device metadata when only the device name changed', async () => {
+    mockSyncMeta({ lastPushedDeviceSignature: `${device.id}\0Old browser` });
+    const fetchMock = mockFetch(
+      jsonResponse({
+        accepted: [],
+        conflicts: [],
+        serverTime: '2026-05-01T10:10:00.000Z'
+      }),
+      jsonResponse({
+        notes: [],
+        notebooks: [],
+        devices: [],
+        deletedNoteIds: [],
+        deletedNotebookIds: [],
+        deletedDeviceIds: [],
+        serverTime: '2026-05-01T10:12:00.000Z',
+        serverRevision: 43
       })
-      .mockResolvedValueOnce({
-        key: 'lastPulledRevision',
-        value: '41'
-      });
+    );
+
+    await expect(runSync('session-token')).resolves.toEqual({
+      pushed: 0,
+      pulled: 0,
+      conflicts: 0
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/sync/push',
+      expect.objectContaining({
+        body: JSON.stringify({ device, notes: [], notebooks: [] })
+      })
+    );
+    expect(localDb.syncMeta.put).toHaveBeenCalledWith({
+      key: 'lastPushedDeviceSignature',
+      value: pushedDeviceSignature
+    });
+  });
+
+  it('uses the stored revision cursor when one exists', async () => {
+    mockSyncMeta({
+      lastPushedDeviceSignature: pushedDeviceSignature,
+      lastPulledAt: '2026-05-01T10:00:00.000Z',
+      lastPulledRevision: '41'
+    });
     const fetchMock = mockFetch(
       jsonResponse({
         notes: [],
@@ -457,15 +500,11 @@ describe('client sync orchestration', () => {
   });
 
   it('resets the pull cursor once when the server revision moved backwards', async () => {
-    vi.mocked(localDb.syncMeta.get)
-      .mockResolvedValueOnce({
-        key: 'lastPulledAt',
-        value: '2026-05-01T10:00:00.000Z'
-      })
-      .mockResolvedValueOnce({
-        key: 'lastPulledRevision',
-        value: '41'
-      });
+    mockSyncMeta({
+      lastPushedDeviceSignature: pushedDeviceSignature,
+      lastPulledAt: '2026-05-01T10:00:00.000Z',
+      lastPulledRevision: '41'
+    });
     const remoteNote = { ...note, id: 'note-after-reset', version: 1 };
     const fetchMock = mockFetch(
       jsonResponse({

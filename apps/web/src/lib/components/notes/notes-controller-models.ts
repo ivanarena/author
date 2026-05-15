@@ -148,6 +148,10 @@ export interface NavigationDockModel
   newPasswordValue: string;
   confirmPasswordValue: string;
   deletePasswordValue: string;
+  currentDeviceName: string;
+  deviceNameEditing: boolean;
+  deviceNameValue: string;
+  deviceNameError: string;
   isAccountBusy: boolean;
   isSyncing: boolean;
   isArchiveBusy: boolean;
@@ -164,6 +168,7 @@ export interface NavigationDockModel
   saveAccountProfile: () => void | Promise<void>;
   changeAccountPassword: () => void | Promise<void>;
   saveAccountTotp: () => void | Promise<void>;
+  saveDeviceName: () => void | Promise<void>;
   revokeTrustedDevice: (deviceId: string) => void | Promise<void>;
   logoutAccount: () => void | Promise<void>;
   deleteAccount: () => void | Promise<void>;
@@ -230,6 +235,10 @@ export interface SettingsModalModel {
   newPasswordValue: string;
   confirmPasswordValue: string;
   deletePasswordValue: string;
+  currentDeviceName: string;
+  deviceNameEditing: boolean;
+  deviceNameValue: string;
+  deviceNameError: string;
   isAccountBusy: boolean;
   isSyncing: boolean;
   isImporting: boolean;
@@ -277,6 +286,7 @@ export interface SettingsModalModel {
   saveAccountProfile: () => void | Promise<void>;
   changeAccountPassword: () => void | Promise<void>;
   saveAccountTotp: () => void | Promise<void>;
+  saveDeviceName: () => void | Promise<void>;
   revokeTrustedDevice: (deviceId: string) => void | Promise<void>;
   logoutAccount: () => void | Promise<void>;
   deleteAccount: () => void | Promise<void>;
@@ -284,6 +294,8 @@ export interface SettingsModalModel {
   closeLoginModal: () => void;
   startAccountProfileEdit: () => void;
   cancelAccountProfileEdit: () => void;
+  startDeviceNameEdit: () => void;
+  cancelDeviceNameEdit: () => void;
   startAccountPasswordEdit: () => void;
   cancelAccountPasswordEdit: () => void;
   startAccountTotpEdit: () => void | Promise<void>;

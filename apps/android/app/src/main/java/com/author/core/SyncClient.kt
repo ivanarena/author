@@ -69,6 +69,9 @@ class SyncClient(private val baseUrlProvider: () -> String) {
     )
   }
 
+  fun loadAccount(token: String): AccountResponse =
+    parseAccountResponse(requestJson("/api/account", "GET", token = token))
+
   fun pushSyncChanges(
     token: String,
     device: Device,
@@ -111,18 +114,16 @@ class SyncClient(private val baseUrlProvider: () -> String) {
     return parsePullResponse(requestJson("/api/sync/pull", "POST", token = token, body = body))
   }
 
-  fun updateAccount(token: String, displayName: String?, email: String?): AuthUser {
+  fun updateAccount(token: String, displayName: String?, email: String?): AccountResponse {
     val body = JSONObject().putNullable("displayName", displayName).putNullable("email", email)
-    val user =
-      requestJson("/api/account", "PATCH", token = token, body = body).getJSONObject("user")
-    return parseAuthUser(user)
+    return parseAccountResponse(requestJson("/api/account", "PATCH", token = token, body = body))
   }
 
-  fun changePassword(token: String, currentPassword: String, newPassword: String): AuthUser {
+  fun changePassword(token: String, currentPassword: String, newPassword: String): AccountResponse {
     val body = JSONObject().put("currentPassword", currentPassword).put("newPassword", newPassword)
-    val user =
-      requestJson("/api/account/password", "POST", token = token, body = body).getJSONObject("user")
-    return parseAuthUser(user)
+    return parseAccountResponse(
+      requestJson("/api/account/password", "POST", token = token, body = body)
+    )
   }
 
   fun setupTotp(token: String): TotpSetup {
@@ -135,23 +136,30 @@ class SyncClient(private val baseUrlProvider: () -> String) {
     currentPassword: String,
     secret: String,
     totpCode: String,
-  ): AuthUser {
+  ): AccountResponse {
     val body =
       JSONObject()
         .put("currentPassword", currentPassword)
         .put("secret", secret)
         .put("totpCode", totpCode)
-    val user =
-      requestJson("/api/account/totp", "POST", token = token, body = body).getJSONObject("user")
-    return parseAuthUser(user)
+    return parseAccountResponse(
+      requestJson("/api/account/totp", "POST", token = token, body = body)
+    )
   }
 
-  fun disableTotp(token: String, currentPassword: String, totpCode: String?): AuthUser {
+  fun disableTotp(token: String, currentPassword: String, totpCode: String?): AccountResponse {
     val body =
       JSONObject().put("currentPassword", currentPassword).putNullable("totpCode", totpCode)
-    val user =
-      requestJson("/api/account/totp", "DELETE", token = token, body = body).getJSONObject("user")
-    return parseAuthUser(user)
+    return parseAccountResponse(
+      requestJson("/api/account/totp", "DELETE", token = token, body = body)
+    )
+  }
+
+  fun revokeTrustedDevice(token: String, deviceId: String): AccountResponse {
+    val safeDeviceId = java.net.URLEncoder.encode(deviceId, Charsets.UTF_8.name())
+    return parseAccountResponse(
+      requestJson("/api/account/trusted-devices/$safeDeviceId", "DELETE", token = token)
+    )
   }
 
   fun logout(token: String) {
@@ -243,4 +251,22 @@ private fun parseAuthUser(user: JSONObject): AuthUser =
     email = user.optNullableString("email"),
     displayName = user.optNullableString("displayName"),
     twoFactorEnabled = user.optBoolean("twoFactorEnabled", false),
+  )
+
+private fun parseAccountResponse(json: JSONObject): AccountResponse =
+  AccountResponse(
+    user = parseAuthUser(json.getJSONObject("user")),
+    trustedDevices =
+      json.optJSONArray("trustedDevices")?.let { devices ->
+        (0 until devices.length()).map { index ->
+          val device = devices.getJSONObject(index)
+          TrustedAuthDevice(
+            deviceId = device.getString("deviceId"),
+            deviceName = device.optString("deviceName", device.getString("deviceId")),
+            createdAt = device.optString("createdAt", ""),
+            lastUsedAt = device.optString("lastUsedAt", ""),
+            current = device.optBoolean("current", false),
+          )
+        }
+      } ?: emptyList(),
   )

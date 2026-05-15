@@ -21,6 +21,7 @@ import com.author.core.NotesRepository
 import com.author.core.StoredSession
 import com.author.core.SyncProgress
 import com.author.core.SyncProgressPhase
+import com.author.core.TrustedAuthDevice
 import com.author.core.formatDateTime
 import com.author.core.noteNotebookIds
 import kotlinx.coroutines.CoroutineScope
@@ -76,6 +77,7 @@ class NotesController(private val repository: NotesRepository, private val scope
   var accountDisplayName by mutableStateOf(repository.getStoredSession()?.user?.displayName ?: "")
   var accountTwoFactorEnabled by
     mutableStateOf(repository.getStoredSession()?.user?.twoFactorEnabled ?: false)
+  var accountTrustedDevices by mutableStateOf<List<TrustedAuthDevice>>(emptyList())
   var accountMessage by mutableStateOf("")
   var accountError by mutableStateOf("")
   var accountProfileEditing by mutableStateOf(false)
@@ -86,6 +88,10 @@ class NotesController(private val repository: NotesRepository, private val scope
   var accountTotpCodeValue by mutableStateOf("")
   var accountTotpPasswordValue by mutableStateOf("")
   var accountDeleteEditing by mutableStateOf(false)
+  var currentDeviceName by mutableStateOf("")
+  var deviceNameEditing by mutableStateOf(false)
+  var deviceNameValue by mutableStateOf("")
+  var deviceNameError by mutableStateOf("")
   var currentPasswordValue by mutableStateOf("")
   var newPasswordValue by mutableStateOf("")
   var confirmPasswordValue by mutableStateOf("")
@@ -184,11 +190,16 @@ class NotesController(private val repository: NotesRepository, private val scope
 
   suspend fun refresh() {
     val selectedId = selectedNote?.id
+    val currentDevice = repository.getOrCreateDevice()
     val workspace = repository.loadWorkspace()
     notes = workspace.notes
     notebooks = workspace.notebooks
     trash = workspace.trash
-    devices = workspace.devices
+    devices =
+      if (workspace.devices.any { it.id == currentDevice.id }) workspace.devices
+      else listOf(currentDevice) + workspace.devices
+    currentDeviceName = currentDevice.name
+    if (!deviceNameEditing) deviceNameValue = currentDevice.name
     conflicts = workspace.conflicts
     pendingSyncCount = workspace.pendingSyncCount
     lastSyncPassTitle =
@@ -606,7 +617,18 @@ class NotesController(private val repository: NotesRepository, private val scope
         repository.setStoredSession(
           StoredSession(response.token, response.user, response.expiresAt)
         )
-        applyUser(response.user)
+        applyAccount(
+          response.user,
+          listOf(
+            TrustedAuthDevice(
+              deviceId = response.device.id,
+              deviceName = response.device.name,
+              createdAt = "",
+              lastUsedAt = "",
+              current = true,
+            )
+          ),
+        )
         deviceOtpLoginAvailable = repository.hasStoredEncryptionKeyMaterial()
         loginOpen = false
         hasToken = true
@@ -622,6 +644,7 @@ class NotesController(private val repository: NotesRepository, private val scope
           if (wasSignup) "Account created" else "Signed in",
           "Syncing local and remote notes.",
         )
+        refreshAccount()
         syncNow()
       } catch (error: Throwable) {
         loginError = error.message ?: "Login failed"
@@ -714,16 +737,89 @@ class NotesController(private val repository: NotesRepository, private val scope
     val token = repository.getStoredSession()?.token ?: return
     scope.launch {
       try {
-        val user =
+        val response =
           repository.updateAccount(token, accountDisplayName, accountEmail.ifBlank { null })
         val session = repository.getStoredSession()
-        if (session != null) repository.setStoredSession(session.copy(user = user))
-        applyUser(user)
+        if (session != null) repository.setStoredSession(session.copy(user = response.user))
+        applyAccount(response.user, response.trustedDevices)
         accountProfileEditing = false
         accountMessage = "Profile saved"
         notify("success", "Profile saved")
       } catch (error: Throwable) {
         accountError = error.message ?: "Could not save profile"
+      }
+    }
+  }
+
+  fun startDeviceNameEdit() {
+    deviceNameEditing = true
+    deviceNameValue = currentDeviceName
+    deviceNameError = ""
+    accountMessage = ""
+  }
+
+  fun cancelDeviceNameEdit() {
+    deviceNameEditing = false
+    deviceNameValue = currentDeviceName
+    deviceNameError = ""
+  }
+
+  fun saveDeviceName() {
+    if (deviceNameValue.isBlank()) {
+      deviceNameError = "Device name required"
+      return
+    }
+    scope.launch {
+      try {
+        val device = repository.renameCurrentDevice(deviceNameValue)
+        currentDeviceName = device.name
+        deviceNameValue = device.name
+        accountTrustedDevices =
+          accountTrustedDevices.map {
+            if (it.deviceId == device.id) it.copy(deviceName = device.name) else it
+          }
+        deviceNameEditing = false
+        deviceNameError = ""
+        accountMessage = "Device name saved"
+        refresh()
+        notify("success", "Device name saved")
+        if (hasToken) syncNow()
+      } catch (error: Throwable) {
+        deviceNameError = error.message ?: "Could not save device name"
+      }
+    }
+  }
+
+  fun revokeTrustedDevice(deviceId: String) {
+    val token = repository.getStoredSession()?.token ?: return
+    scope.launch {
+      try {
+        val response = repository.revokeTrustedDevice(token, deviceId)
+        val session = repository.getStoredSession()
+        if (session != null) repository.setStoredSession(session.copy(user = response.user))
+        applyAccount(response.user, response.trustedDevices)
+        deviceOtpLoginAvailable = response.trustedDevices.any { it.current }
+        accountMessage = "Trusted device removed"
+        notify("success", "Trusted device removed")
+      } catch (error: Throwable) {
+        accountError = error.message ?: "Could not remove trusted device"
+      }
+    }
+  }
+
+  fun refreshAccount() {
+    val token = repository.getStoredSession()?.token ?: return
+    scope.launch {
+      try {
+        val response = repository.loadAccount(token)
+        val session = repository.getStoredSession()
+        if (session != null) repository.setStoredSession(session.copy(user = response.user))
+        applyAccount(response.user, response.trustedDevices)
+      } catch (error: AuthException) {
+        repository.recordSyncError(error, "Account refresh")
+        expireSession(error.message ?: "Login expired")
+      } catch (error: Throwable) {
+        repository.recordSyncError(error, "Account refresh")
       }
     }
   }
@@ -780,7 +876,7 @@ class NotesController(private val repository: NotesRepository, private val scope
     }
     scope.launch {
       try {
-        val user =
+        val response =
           if (accountTwoFactorEnabled) {
             repository.disableTotp(token, accountTotpPasswordValue, accountTotpCodeValue)
           } else {
@@ -791,8 +887,9 @@ class NotesController(private val repository: NotesRepository, private val scope
               accountTotpCodeValue,
             )
           }
+        applyAccount(response.user, response.trustedDevices)
         clearLocalSession("2FA changed. Sign in again to keep syncing.", openLogin = true)
-        loginUsernameValue = user.username
+        loginUsernameValue = response.user.username
         notify("success", "2FA changed", "Sign in again to keep syncing.")
       } catch (error: Throwable) {
         accountError = error.message ?: "Could not update 2FA"
@@ -816,9 +913,10 @@ class NotesController(private val repository: NotesRepository, private val scope
     }
     scope.launch {
       try {
-        val user = repository.changePassword(token, currentPasswordValue, newPasswordValue)
+        val response = repository.changePassword(token, currentPasswordValue, newPasswordValue)
+        applyAccount(response.user, response.trustedDevices)
         clearLocalSession("Password changed. Sign in again to keep syncing.", openLogin = true)
-        loginUsernameValue = user.username
+        loginUsernameValue = response.user.username
         notify("success", "Password changed", "Sign in again to keep syncing.")
       } catch (error: Throwable) {
         accountError = error.message ?: "Could not change password"
@@ -991,6 +1089,7 @@ class NotesController(private val repository: NotesRepository, private val scope
       repository.setStoredSession(StoredSession(token, user, expiresAt))
       applyUser(user)
       hasToken = true
+      refreshAccount()
       syncNow()
     } catch (error: AuthException) {
       repository.recordSyncError(error, "Session resume")
@@ -1010,6 +1109,11 @@ class NotesController(private val repository: NotesRepository, private val scope
     accountTwoFactorEnabled = user.twoFactorEnabled
   }
 
+  private fun applyAccount(user: AuthUser, trustedDevices: List<TrustedAuthDevice>) {
+    applyUser(user)
+    accountTrustedDevices = trustedDevices
+  }
+
   private fun expireSession(message: String) {
     clearLocalSession(message, openLogin = true)
     notify("error", "Session ended", message)
@@ -1026,6 +1130,7 @@ class NotesController(private val repository: NotesRepository, private val scope
     accountEmail = ""
     accountDisplayName = ""
     accountTwoFactorEnabled = false
+    accountTrustedDevices = emptyList()
     accountMessage = message
     accountError = ""
     accountProfileEditing = false
@@ -1036,6 +1141,8 @@ class NotesController(private val repository: NotesRepository, private val scope
     accountTotpUrl = ""
     accountTotpCodeValue = ""
     accountTotpPasswordValue = ""
+    deviceNameEditing = false
+    deviceNameError = ""
     loginUsernameValue = repository.getLoginHint()
     deviceOtpLoginAvailable = repository.hasStoredEncryptionKeyMaterial()
     loginPasswordValue = ""

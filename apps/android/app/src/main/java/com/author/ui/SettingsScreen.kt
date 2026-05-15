@@ -45,6 +45,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -63,6 +64,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.author.BuildConfig
+import com.author.core.formatDateTime
 import java.util.Locale
 
 @Composable
@@ -218,6 +220,8 @@ internal fun AccountSettings(controller: NotesController, showIdentity: Boolean 
       } else {
         ActionRow(Icons.Outlined.Edit, "Edit profile") { controller.accountProfileEditing = true }
       }
+      DeviceNameSettings(controller)
+      TrustedDevicesSettings(controller)
       if (controller.accountPasswordEditing) {
         PasswordField(controller.currentPasswordValue, "Current") {
           controller.currentPasswordValue = it
@@ -302,6 +306,94 @@ internal fun AccountSettings(controller: NotesController, showIdentity: Boolean 
         )
       }
       ActionRow(Icons.AutoMirrored.Outlined.Login, "Sign in to sync") { controller.openLogin() }
+    }
+  }
+}
+
+@Composable
+private fun DeviceNameSettings(controller: NotesController) {
+  if (controller.deviceNameEditing) {
+    MiniField(controller.deviceNameValue, "Device name", Modifier.fillMaxWidth()) {
+      controller.deviceNameValue = it
+      controller.deviceNameError = ""
+    }
+    ActionRow(Icons.Outlined.Check, "Save device") { controller.saveDeviceName() }
+    ActionRow(Icons.Outlined.Close, "Cancel") { controller.cancelDeviceNameEdit() }
+    if (controller.deviceNameError.isNotBlank()) {
+      Text(
+        controller.deviceNameError,
+        color = messageColor(),
+        fontSize = 12.sp,
+        fontWeight = FontWeight.SemiBold,
+      )
+    }
+  } else {
+    GlassPanel(Modifier.fillMaxWidth()) {
+      Row(
+        Modifier.fillMaxWidth().padding(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+      ) {
+        Column(Modifier.weight(1f)) {
+          Text(
+            "This device",
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+            fontSize = 12.sp,
+          )
+          Text(
+            controller.currentDeviceName.ifBlank { "Android device" },
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+          )
+        }
+        TextButton(onClick = { controller.startDeviceNameEdit() }) { Text("Rename") }
+      }
+    }
+  }
+}
+
+@Composable
+private fun TrustedDevicesSettings(controller: NotesController) {
+  Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Text("Trusted devices", fontWeight = FontWeight.SemiBold)
+    Text(
+      "Removing trust stops future 2FA-code login without a password. It does not log out an active session on that device.",
+      color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+      fontSize = 12.sp,
+      lineHeight = 16.sp,
+    )
+    if (controller.accountTrustedDevices.isEmpty()) {
+      InfoTile("Trusted devices", "None", "Sign in with a password to trust this device")
+    } else {
+      controller.accountTrustedDevices.forEach { device ->
+        GlassPanel(Modifier.fillMaxWidth()) {
+          Row(
+            Modifier.fillMaxWidth().padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+          ) {
+            Column(Modifier.weight(1f)) {
+              Text(
+                device.deviceName,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+              )
+              Text(
+                "${if (device.current) "This device" else "Last used"} - ${formatTrustedDeviceTime(device.lastUsedAt)}",
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+              )
+            }
+            TextButton(onClick = { controller.revokeTrustedDevice(device.deviceId) }) {
+              Text("Remove")
+            }
+          }
+        }
+      }
     }
   }
 }
@@ -652,6 +744,9 @@ private fun themeDotColor(theme: String): Color =
     "dark-lavender" -> Color(0xFFC8BEEF)
     else -> Color(0xFFF8F7F3)
   }
+
+private fun formatTrustedDeviceTime(value: String): String =
+  value.ifBlank { null }?.let { formatDateTime(it) } ?: "Recently"
 
 private fun themeDotContentColor(theme: String): Color =
   when (theme) {

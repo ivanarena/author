@@ -20,3 +20,7 @@ Available choices:
 - duplicate both versions
 
 When the local version wins, the client stores it as a new pending edit based on the current remote version and syncs again. When the remote version wins, the local record is replaced and marked synced. When both are duplicated, the remote keeps the original id and the local version becomes a new pending note.
+
+For duplicate notebook-name conflicts, the client does not resubmit the same rejected name. Keeping the existing remote notebook removes the local duplicate and remaps local note assignments to the existing notebook. Keeping the local notebook creates a renamed pending copy and remaps local note assignments to that copy.
+
+When a push conflict's remote version came from the same local device, the client treats it as an echo of an earlier accepted write. It advances the local base version and leaves the newer local edit pending for the next push instead of showing a conflict prompt.

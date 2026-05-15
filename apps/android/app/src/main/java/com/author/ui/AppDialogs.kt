@@ -59,9 +59,6 @@ internal fun LoginDialog(controller: NotesController) {
             controller.signupEmailValue = it
             controller.loginError = ""
           }
-          MiniField(controller.signupDisplayNameValue, "Nickname", Modifier.fillMaxWidth()) {
-            controller.signupDisplayNameValue = it
-          }
           PasswordField(controller.signupConfirmPasswordValue, "Confirm password") {
             controller.signupConfirmPasswordValue = it
             controller.loginError = ""
@@ -115,7 +112,7 @@ internal fun ConflictDialog(controller: NotesController, conflict: LocalConflict
       Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
           if (conflict.reason == "duplicate_name")
-            "A notebook with this name already exists. Choose one version or duplicate both."
+            "A notebook with this name already exists. Keep the existing notebook or keep the local one as a renamed copy."
           else "Choose which version to keep. Both versions are preserved until you decide."
         )
         val localName =
@@ -132,14 +129,21 @@ internal fun ConflictDialog(controller: NotesController, conflict: LocalConflict
     },
     confirmButton = {
       Column {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-          SmallTextButton("Keep newer") { controller.resolveConflict("keep-newer") }
-          SmallTextButton("Keep older") { controller.resolveConflict("keep-older") }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-          SmallTextButton("Keep local") { controller.resolveConflict("keep-local") }
-          SmallTextButton("Keep remote") { controller.resolveConflict("keep-remote") }
-          SmallTextButton("Duplicate both") { controller.resolveConflict("duplicate-both") }
+        if (conflict.reason == "duplicate_name") {
+          Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            SmallTextButton("Keep local copy") { controller.resolveConflict("keep-local") }
+            SmallTextButton("Keep existing") { controller.resolveConflict("keep-remote") }
+          }
+        } else {
+          Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            SmallTextButton("Keep newer") { controller.resolveConflict("keep-newer") }
+            SmallTextButton("Keep older") { controller.resolveConflict("keep-older") }
+          }
+          Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            SmallTextButton("Keep local") { controller.resolveConflict("keep-local") }
+            SmallTextButton("Keep remote") { controller.resolveConflict("keep-remote") }
+            SmallTextButton("Duplicate both") { controller.resolveConflict("duplicate-both") }
+          }
         }
       }
     },

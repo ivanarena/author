@@ -40,9 +40,9 @@
   <section>
     <h2>Account data</h2>
     <p>
-      Account records include your username, optional display name, password
-      verifier data, sessions, and device labels needed to operate login and
-      sync. Passwords are not stored in plaintext.
+      Account records include your username, legacy display name if one already
+      exists, password verifier data, sessions, and device labels needed to
+      operate login and sync. Passwords are not stored in plaintext.
     </p>
   </section>
 

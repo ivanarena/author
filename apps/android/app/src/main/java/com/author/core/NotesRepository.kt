@@ -479,14 +479,9 @@ class NotesRepository(context: Context) {
       syncClient.login(username, password, totpCode, getOrCreateDevice())
     }
 
-  suspend fun signup(
-    username: String,
-    email: String,
-    password: String,
-    displayName: String?,
-  ): LoginResponse =
+  suspend fun signup(username: String, email: String, password: String): LoginResponse =
     withContext(Dispatchers.IO) {
-      syncClient.signup(username, email, password, displayName, getOrCreateDevice())
+      syncClient.signup(username, email, password, getOrCreateDevice())
     }
 
   suspend fun assertLocalWorkspaceCanUseAccount(username: String, previousUsername: String?) =
@@ -534,8 +529,8 @@ class NotesRepository(context: Context) {
       rememberLocalWorkspaceAccount(username)
     }
 
-  suspend fun updateAccount(token: String, displayName: String?, email: String?): AccountResponse =
-    withContext(Dispatchers.IO) { syncClient.updateAccount(token, displayName, email) }
+  suspend fun updateAccount(token: String, email: String?): AccountResponse =
+    withContext(Dispatchers.IO) { syncClient.updateAccount(token, email) }
 
   suspend fun changePassword(
     token: String,
@@ -591,6 +586,7 @@ class NotesRepository(context: Context) {
         onProgress(SyncProgress(SyncProgressPhase.PREPARING))
         val device = getOrCreateDevice()
         ensureLocalNotesEncrypted()
+        repairSameDevicePendingConflicts()
         val pendingNotes = db.pendingNotes().map { it to it.lastSyncedVersion }.toMutableList()
         val pendingNotebooks =
           db.pendingNotebooks().map { it to it.lastSyncedVersion }.toMutableList()
@@ -640,12 +636,16 @@ class NotesRepository(context: Context) {
           )
           markAcceptedChanges(response.accepted, response.serverTime, notesBatch, notebooksBatch)
           response.noteConflicts.forEach {
-            conflicts += 1
-            saveNoteConflict(it)
+            if (!absorbSameDevicePushNoteConflict(it, response.serverTime)) {
+              conflicts += 1
+              saveNoteConflict(it)
+            }
           }
           response.notebookConflicts.forEach {
-            conflicts += 1
-            saveNotebookConflict(it)
+            if (!absorbSameDevicePushNotebookConflict(it, response.serverTime)) {
+              conflicts += 1
+              saveNotebookConflict(it)
+            }
           }
         }
 
@@ -762,7 +762,9 @@ class NotesRepository(context: Context) {
       } else {
         val conflict =
           decryptNotebookConflictForDisplay(notebookConflictFromJson(JSONObject(raw.conflictJson)))
-        if (choice == "duplicate-both") {
+        if (conflict.reason == "duplicate_name") {
+          resolveDuplicateNotebookNameConflict(conflict, choice, device, now)
+        } else if (choice == "duplicate-both") {
           val remote = conflict.remote.record
           val local = conflict.local.record
           db.putNotebook(
@@ -1110,6 +1112,52 @@ class NotesRepository(context: Context) {
     db.getNote(stored.entityId)?.let { db.putNote(it.copy(syncStatus = "conflict")) }
   }
 
+  private fun repairSameDevicePendingConflicts(syncedAt: String = nowIso()) {
+    db.rawConflicts("pending").forEach { raw ->
+      val absorbed =
+        when (raw.entityType) {
+          "note" ->
+            absorbSameDevicePushNoteConflict(
+              noteConflictFromJson(JSONObject(raw.conflictJson)),
+              syncedAt,
+            )
+          "notebook" ->
+            absorbSameDevicePushNotebookConflict(
+              notebookConflictFromJson(JSONObject(raw.conflictJson)),
+              syncedAt,
+            )
+          else -> false
+        }
+      if (absorbed) {
+        db.putConflict(
+          raw.id,
+          raw.entityType,
+          raw.entityId,
+          "resolved",
+          raw.createdAt,
+          raw.conflictJson,
+        )
+      }
+    }
+  }
+
+  private fun absorbSameDevicePushNoteConflict(
+    conflict: SyncConflict<LocalNote>,
+    syncedAt: String,
+  ): Boolean {
+    if (conflict.reason != "remote_changed") return false
+    if (conflict.remote.deviceId != prefs.getString(DEVICE_KEY, null)) return false
+    val note = db.getNote(conflict.entityId) ?: return true
+    db.putNote(
+      note.copy(
+        syncStatus = if (note.syncStatus == "deleted") "deleted" else "pending",
+        lastSyncedVersion = maxOf(note.lastSyncedVersion, conflict.remote.version),
+        lastSyncedAt = syncedAt,
+      )
+    )
+    return true
+  }
+
   private fun saveNotebookConflict(conflict: SyncConflict<LocalNotebook>) {
     val stored = encryptNotebookConflictForStorage(conflict)
     db.putConflict(
@@ -1121,6 +1169,23 @@ class NotesRepository(context: Context) {
       notebookConflictToJson(stored).toString(),
     )
     db.getNotebook(stored.entityId)?.let { db.putNotebook(it.copy(syncStatus = "conflict")) }
+  }
+
+  private fun absorbSameDevicePushNotebookConflict(
+    conflict: SyncConflict<LocalNotebook>,
+    syncedAt: String,
+  ): Boolean {
+    if (conflict.reason != "remote_changed") return false
+    if (conflict.remote.deviceId != prefs.getString(DEVICE_KEY, null)) return false
+    val notebook = db.getNotebook(conflict.entityId) ?: return true
+    db.putNotebook(
+      notebook.copy(
+        syncStatus = if (notebook.syncStatus == "deleted") "deleted" else "pending",
+        lastSyncedVersion = maxOf(notebook.lastSyncedVersion, conflict.remote.version),
+        lastSyncedAt = syncedAt,
+      )
+    )
+    return true
   }
 
   private fun encryptNoteConflictForStorage(
@@ -1142,6 +1207,92 @@ class NotesRepository(context: Context) {
         ),
     )
   }
+
+  private fun resolveDuplicateNotebookNameConflict(
+    conflict: SyncConflict<LocalNotebook>,
+    choice: String,
+    device: Device,
+    now: String,
+  ) {
+    val local = conflict.local.record
+    val remote = conflict.remote.record
+    val selected =
+      if (choice == "duplicate-both") conflict.local else chooseConflictVersion(conflict, choice)
+    val keepRemote = choice != "duplicate-both" && selected.source == "remote"
+
+    db.putNotebook(
+      crypto.encryptNotebookFields(
+        remote.copy(syncStatus = "synced", lastSyncedVersion = remote.version, lastSyncedAt = now)
+      )
+    )
+
+    if (keepRemote) {
+      remapLocalNoteNotebookReferences(local.id, remote.id, device, now)
+      if (local.id != remote.id) db.deleteNotebookRow(local.id)
+      return
+    }
+
+    val copyId = newId()
+    val copyName =
+      uniqueNotebookCopyName(
+        local.name,
+        db.allNotebooks().map { crypto.decryptNotebookFields(it) },
+        setOf(local.id, remote.id, copyId),
+      )
+    db.putNotebook(
+      crypto.encryptNotebookFields(
+        local.copy(
+          id = copyId,
+          name = copyName,
+          nameHash = null,
+          createdAt = now,
+          updatedAt = now,
+          deviceId = device.id,
+          version = 1,
+          syncStatus = "pending",
+          lastSyncedVersion = 0,
+          lastSyncedAt = null,
+        )
+      )
+    )
+    remapLocalNoteNotebookReferences(local.id, copyId, device, now)
+    if (local.id != copyId) db.deleteNotebookRow(local.id)
+  }
+
+  private fun remapLocalNoteNotebookReferences(
+    fromNotebookId: String,
+    toNotebookId: String,
+    device: Device,
+    updatedAt: String,
+  ) {
+    db
+      .allNotes()
+      .filter { it.syncStatus != "conflict" && it.syncStatus != "deleted" && it.deletedAt == null }
+      .forEach { note ->
+        val ids = noteNotebookIds(note)
+        if (fromNotebookId !in ids) return@forEach
+        val nextIds = remapNotebookIds(ids, fromNotebookId, toNotebookId)
+        if (nextIds == ids) return@forEach
+        db.putNote(
+          note.copy(
+            notebookIds = nextIds,
+            notebookId = primaryNotebookId(nextIds),
+            updatedAt = updatedAt,
+            deviceId = device.id,
+            version = safePendingVersion(note),
+            syncStatus = "pending",
+            lastSyncedAt = null,
+          )
+        )
+      }
+  }
+
+  private fun safePendingVersion(record: LocalNote): Int =
+    if (record.version > record.lastSyncedVersion && record.version > 0) {
+      record.version
+    } else {
+      record.lastSyncedVersion + 1
+    }
 
   private fun decryptNoteConflictForDisplay(
     conflict: SyncConflict<LocalNote>,

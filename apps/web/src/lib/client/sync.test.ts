@@ -9,11 +9,13 @@ import {
   validateSession
 } from './sync';
 import {
+  absorbSameDevicePushConflict,
   applyRemoteDeletes,
   ensureLocalNotesEncrypted,
   getOrCreateDevice,
   markAcceptedChanges,
   mergeRemoteChanges,
+  repairSameDevicePendingConflicts,
   saveConflict,
   saveDevices
 } from './store';
@@ -25,11 +27,13 @@ vi.mock('./encryption', () => ({
 }));
 
 vi.mock('./store', () => ({
+  absorbSameDevicePushConflict: vi.fn(),
   applyRemoteDeletes: vi.fn(),
   ensureLocalNotesEncrypted: vi.fn(),
   getOrCreateDevice: vi.fn(),
   markAcceptedChanges: vi.fn(),
   mergeRemoteChanges: vi.fn(),
+  repairSameDevicePendingConflicts: vi.fn(),
   saveConflict: vi.fn(),
   saveDevices: vi.fn()
 }));
@@ -128,10 +132,12 @@ beforeEach(() => {
   vi.mocked(getOrCreateDevice).mockResolvedValue(device);
   vi.mocked(ensureLocalNotesEncrypted).mockResolvedValue(undefined);
   vi.mocked(applyRemoteDeletes).mockResolvedValue(undefined);
+  vi.mocked(absorbSameDevicePushConflict).mockResolvedValue(false);
   vi.mocked(markAcceptedChanges).mockResolvedValue(undefined);
   vi.mocked(saveConflict).mockResolvedValue(undefined);
   vi.mocked(saveDevices).mockResolvedValue(undefined);
   vi.mocked(mergeRemoteChanges).mockResolvedValue(undefined);
+  vi.mocked(repairSameDevicePendingConflicts).mockResolvedValue(undefined);
   mockSyncMeta({ lastPushedDeviceSignature: pushedDeviceSignature });
   vi.mocked(localDb.syncMeta.put).mockResolvedValue('lastPulledAt');
   vi.mocked(localDb.syncMeta.delete).mockResolvedValue(undefined);
@@ -302,6 +308,69 @@ describe('client sync orchestration', () => {
       key: 'lastPulledRevision',
       value: '42'
     });
+  });
+
+  it('absorbs same-device push conflicts as pending rebases', async () => {
+    const pendingNote = {
+      ...note,
+      lastSyncedVersion: 1,
+      lastSyncedAt: null
+    };
+    mockPendingNotes([pendingNote]);
+    const conflict = {
+      id: 'conflict-1',
+      entityType: 'note' as const,
+      entityId: note.id,
+      reason: 'remote_changed' as const,
+      local: {
+        source: 'local' as const,
+        deviceId: device.id,
+        deviceName: device.name,
+        updatedAt: note.updatedAt,
+        version: note.version,
+        previewText: note.title,
+        record: note
+      },
+      remote: {
+        source: 'remote' as const,
+        deviceId: device.id,
+        deviceName: device.name,
+        updatedAt: note.updatedAt,
+        version: 4,
+        previewText: 'Earlier local draft',
+        record: { ...note, title: 'Earlier local draft', version: 4 }
+      }
+    };
+    vi.mocked(absorbSameDevicePushConflict).mockResolvedValue(true);
+    mockFetch(
+      jsonResponse({
+        accepted: [],
+        conflicts: [conflict],
+        serverTime: '2026-05-01T10:10:00.000Z'
+      }),
+      jsonResponse({
+        notes: [],
+        notebooks: [],
+        devices: [],
+        deletedNoteIds: [],
+        deletedNotebookIds: [],
+        deletedDeviceIds: [],
+        serverTime: '2026-05-01T10:11:00.000Z',
+        serverRevision: 42
+      })
+    );
+
+    await expect(runSync('session-token')).resolves.toEqual({
+      pushed: 1,
+      pulled: 0,
+      conflicts: 0
+    });
+
+    expect(absorbSameDevicePushConflict).toHaveBeenCalledWith(
+      conflict,
+      '2026-05-01T10:10:00.000Z'
+    );
+    expect(saveConflict).not.toHaveBeenCalled();
   });
 
   it('repairs stale pending records before pushing them', async () => {

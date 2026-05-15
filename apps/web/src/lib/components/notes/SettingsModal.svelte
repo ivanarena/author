@@ -198,16 +198,14 @@
             <div class="account-summary account-profile-card">
               <UserRound size={20} strokeWidth={1.7} />
               <div>
-                <strong
-                  >{model.accountDisplayName || model.accountUsername}</strong
-                >
-                <span>{model.accountEmail || model.accountUsername}</span>
+                <strong>{model.accountUsername}</strong>
+                <span>{model.accountEmail || 'Signed in'}</span>
               </div>
               <button
                 class="icon-button mini account-hover-action"
                 type="button"
-                title="Edit profile"
-                aria-label="Edit profile"
+                title="Edit email"
+                aria-label="Edit email"
                 onclick={model.startAccountProfileEdit}
               >
                 <Pencil size={14} strokeWidth={1.8} />
@@ -217,26 +215,12 @@
             {#if model.accountProfileEditing}
               <form
                 class="menu-form account-form"
-                aria-label="Profile"
+                aria-label="Email"
                 onsubmit={(event) => {
                   event.preventDefault();
                   void model.saveAccountProfile();
                 }}
               >
-                <div class="field-row">
-                  <label for="account-display-name">Nickname</label>
-                  <input
-                    id="account-display-name"
-                    type="text"
-                    bind:value={model.accountDisplayName}
-                    placeholder="Nickname"
-                    autocomplete="nickname"
-                    oninput={() => {
-                      model.accountError = '';
-                      model.accountMessage = '';
-                    }}
-                  />
-                </div>
                 <div class="field-row">
                   <label for="account-email">Email</label>
                   <input
@@ -258,7 +242,7 @@
                     disabled={model.isAccountBusy}
                   >
                     <Check size={15} strokeWidth={1.9} />
-                    <span>Save profile</span>
+                    <span>Save email</span>
                   </button>
                   <button
                     class="settings-action"

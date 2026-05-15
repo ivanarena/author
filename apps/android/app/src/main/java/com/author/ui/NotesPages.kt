@@ -113,9 +113,7 @@ private fun AccountSummary(controller: NotesController) {
       }
       Column(Modifier.weight(1f)) {
         Text(
-          if (controller.hasToken)
-            controller.accountDisplayName.ifBlank { controller.accountUsername }
-          else "Local workspace",
+          if (controller.hasToken) controller.accountUsername else "Local workspace",
           fontWeight = FontWeight.Bold,
           fontSize = 18.sp,
           maxLines = 1,
@@ -123,7 +121,7 @@ private fun AccountSummary(controller: NotesController) {
         )
         if (controller.hasToken) {
           Text(
-            controller.accountUsername,
+            controller.accountEmail.ifBlank { "Signed in" },
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
             fontSize = 12.sp,
           )

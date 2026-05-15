@@ -92,6 +92,27 @@ class NoteUtilsTest {
     assertEquals(true, recordsDiffer(local, changedNotebook))
   }
 
+  @Test
+  fun remapNotebookIdsReplacesAndDeduplicatesNotebookReferences() {
+    assertEquals(
+      listOf("remote", "other"),
+      remapNotebookIds(listOf("local", "other", "local"), "local", "remote"),
+    )
+  }
+
+  @Test
+  fun uniqueNotebookCopyNameAvoidsExistingActiveNotebookNames() {
+    val notebooks =
+      listOf(
+        notebook("source", "Ideas"),
+        notebook("copy", "Ideas copy"),
+        notebook("copy-2", "Ideas copy 2"),
+        notebook("deleted", "Ideas copy 3", deletedAt = "2026-05-07T12:00:00Z"),
+      )
+
+    assertEquals("Ideas copy 3", uniqueNotebookCopyName("Ideas", notebooks, setOf("source")))
+  }
+
   private fun note(
     id: String,
     title: String,
@@ -113,6 +134,21 @@ class NoteUtilsTest {
       updatedAt = updatedAt,
       deletedAt = null,
       trashedAt = trashedAt,
+      deviceId = "test-device",
+      version = 1,
+      syncStatus = "synced",
+      lastSyncedVersion = 1,
+      lastSyncedAt = null,
+    )
+
+  private fun notebook(id: String, name: String, deletedAt: String? = null) =
+    LocalNotebook(
+      id = id,
+      name = name,
+      nameHash = null,
+      createdAt = "2026-05-01T12:00:00Z",
+      updatedAt = "2026-05-07T12:00:00Z",
+      deletedAt = deletedAt,
       deviceId = "test-device",
       version = 1,
       syncStatus = "synced",

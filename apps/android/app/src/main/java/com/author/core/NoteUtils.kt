@@ -27,6 +27,37 @@ fun noteNotebookIds(note: LocalNote): List<String> {
 
 fun primaryNotebookId(ids: List<String>): String? = ids.firstOrNull()
 
+fun remapNotebookIds(
+  ids: List<String>,
+  fromNotebookId: String,
+  toNotebookId: String,
+): List<String> =
+  ids
+    .map { if (it == fromNotebookId) toNotebookId else it }
+    .map { it.trim() }
+    .filter { it.isNotEmpty() }
+    .distinct()
+
+fun uniqueNotebookCopyName(
+  baseName: String,
+  notebooks: List<LocalNotebook>,
+  excludedIds: Set<String>,
+): String {
+  val base = baseName.trim().ifBlank { "Notebook" }
+  val taken =
+    notebooks
+      .filter { it.deletedAt == null && it.id !in excludedIds }
+      .map { normalizedNotebookName(it.name) }
+      .toSet()
+  var candidate = "$base copy"
+  var suffix = 2
+  while (normalizedNotebookName(candidate) in taken) {
+    candidate = "$base copy $suffix"
+    suffix += 1
+  }
+  return candidate
+}
+
 fun deriveTitle(body: String): String =
   body.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() }?.take(120) ?: ""
 

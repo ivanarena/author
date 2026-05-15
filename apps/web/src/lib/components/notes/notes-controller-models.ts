@@ -266,7 +266,6 @@ export interface SettingsModalModel {
   loginPasswordValue: string;
   loginTotpCodeValue: string;
   signupEmailValue: string;
-  signupDisplayNameValue: string;
   signupConfirmPasswordValue: string;
   signupEnabled: boolean;
   signupEmailRequired: boolean;

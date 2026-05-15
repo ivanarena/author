@@ -2,11 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Note, Notebook } from '@author/schema';
 import type { LocalNote, LocalNotebook } from './db';
 import {
+  absorbSameDevicePushConflict,
   applyRemoteDeletes,
   markAcceptedChanges,
-  mergeRemoteChanges
+  mergeRemoteChanges,
+  resolveConflict
 } from './sync-store';
-import { localDb } from './db';
+import { localDb, type LocalConflict } from './db';
 import {
   encryptNoteFields,
   encryptNotebookFields,
@@ -19,12 +21,15 @@ vi.mock('./db', () => ({
     notes: {
       get: vi.fn(),
       put: vi.fn(),
-      delete: vi.fn()
+      bulkPut: vi.fn(),
+      delete: vi.fn(),
+      toArray: vi.fn()
     },
     notebooks: {
       get: vi.fn(),
       put: vi.fn(),
-      delete: vi.fn()
+      delete: vi.fn(),
+      toArray: vi.fn()
     },
     devices: {
       bulkPut: vi.fn(),
@@ -32,6 +37,7 @@ vi.mock('./db', () => ({
       delete: vi.fn()
     },
     conflicts: {
+      get: vi.fn(),
       put: vi.fn()
     }
   }
@@ -121,6 +127,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(localDb.notes.get).mockResolvedValue(null);
   vi.mocked(localDb.notebooks.get).mockResolvedValue(null);
+  vi.mocked(localDb.notes.toArray).mockResolvedValue([]);
+  vi.mocked(localDb.notebooks.toArray).mockResolvedValue([]);
+  vi.mocked(localDb.conflicts.get).mockResolvedValue(undefined);
   vi.mocked(localDb.devices.get).mockResolvedValue(null);
   vi.mocked(encryptNoteFields).mockImplementation(async (note) => note);
   vi.mocked(encryptNotebookFields).mockImplementation(
@@ -247,6 +256,48 @@ describe('client sync store', () => {
       ...baseNote,
       syncStatus: 'conflict'
     });
+  });
+
+  it('absorbs same-device push conflicts by advancing the local base version', async () => {
+    vi.mocked(localDb.notes.get).mockResolvedValue(baseNote);
+
+    await expect(
+      absorbSameDevicePushConflict(
+        {
+          id: 'same-device-conflict',
+          entityType: 'note',
+          entityId: baseNote.id,
+          reason: 'remote_changed',
+          local: {
+            source: 'local',
+            deviceId: 'browser-device',
+            deviceName: 'Browser',
+            updatedAt: baseNote.updatedAt,
+            version: baseNote.version,
+            previewText: 'Local body',
+            record: baseNote
+          },
+          remote: {
+            source: 'remote',
+            deviceId: 'browser-device',
+            deviceName: 'Browser',
+            updatedAt: '2026-05-01T10:06:00.000Z',
+            version: 4,
+            previewText: 'Earlier local body',
+            record: remoteNote({ deviceId: 'browser-device', version: 4 })
+          }
+        },
+        syncedAt
+      )
+    ).resolves.toBe(true);
+
+    expect(localDb.notes.put).toHaveBeenCalledWith({
+      ...baseNote,
+      syncStatus: 'pending',
+      lastSyncedVersion: 4,
+      lastSyncedAt: syncedAt
+    });
+    expect(localDb.conflicts.put).not.toHaveBeenCalled();
   });
 
   it('does not overwrite a pending local note when a pull replays its last synced remote version', async () => {
@@ -408,4 +459,157 @@ describe('client sync store', () => {
     expect(localDb.notes.delete).not.toHaveBeenCalled();
     expect(localDb.notebooks.delete).not.toHaveBeenCalled();
   });
+
+  it('resolves duplicate notebook-name conflicts by keeping the existing remote notebook', async () => {
+    const conflict = duplicateNotebookConflict();
+    const assignedNote: LocalNote = {
+      ...baseNote,
+      notebookIds: ['local-book', 'other-book'],
+      notebookId: 'local-book',
+      syncStatus: 'synced',
+      version: 2,
+      lastSyncedVersion: 2
+    };
+    vi.mocked(localDb.conflicts.get).mockResolvedValue(
+      localConflictRecord(conflict)
+    );
+    vi.mocked(localDb.notes.toArray).mockResolvedValue([assignedNote]);
+
+    await resolveConflict('conflict-1', 'keep-remote');
+
+    expect(localDb.notebooks.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'remote-book',
+        syncStatus: 'synced',
+        lastSyncedVersion: 4,
+        lastSyncedAt: '2026-05-02T12:00:00.000Z'
+      })
+    );
+    expect(localDb.notes.bulkPut).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: assignedNote.id,
+        notebookIds: ['remote-book', 'other-book'],
+        notebookId: 'remote-book',
+        updatedAt: '2026-05-02T12:00:00.000Z',
+        deviceId: 'browser-device',
+        version: 3,
+        syncStatus: 'pending',
+        lastSyncedAt: null
+      })
+    ]);
+    expect(localDb.notebooks.delete).toHaveBeenCalledWith('local-book');
+    expect(localDb.conflicts.put).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'conflict-1', status: 'resolved' })
+    );
+  });
+
+  it('resolves duplicate notebook-name conflicts by keeping the local notebook as a renamed copy', async () => {
+    const conflict = duplicateNotebookConflict();
+    const assignedNote: LocalNote = {
+      ...baseNote,
+      notebookIds: ['local-book'],
+      notebookId: 'local-book',
+      syncStatus: 'pending',
+      version: 5,
+      lastSyncedVersion: 4
+    };
+    vi.mocked(localDb.conflicts.get).mockResolvedValue(
+      localConflictRecord(conflict)
+    );
+    vi.mocked(localDb.notes.toArray).mockResolvedValue([assignedNote]);
+    vi.mocked(localDb.notebooks.toArray).mockResolvedValue([
+      {
+        ...baseNotebook,
+        id: 'copy-book',
+        name: 'Ideas copy',
+        syncStatus: 'synced'
+      }
+    ]);
+
+    await resolveConflict('conflict-1', 'keep-local');
+
+    expect(localDb.notebooks.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'remote-book',
+        syncStatus: 'synced'
+      })
+    );
+    expect(localDb.notebooks.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'conflict-generated-id',
+        name: 'Ideas copy 2',
+        nameHash: null,
+        deviceId: 'browser-device',
+        version: 1,
+        syncStatus: 'pending',
+        lastSyncedVersion: 0,
+        lastSyncedAt: null
+      })
+    );
+    expect(localDb.notes.bulkPut).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: assignedNote.id,
+        notebookIds: ['conflict-generated-id'],
+        notebookId: 'conflict-generated-id',
+        version: 5,
+        syncStatus: 'pending'
+      })
+    ]);
+    expect(localDb.notebooks.delete).toHaveBeenCalledWith('local-book');
+  });
 });
+
+function duplicateNotebookConflict() {
+  return {
+    id: 'conflict-1',
+    entityType: 'notebook' as const,
+    entityId: 'local-book',
+    reason: 'duplicate_name' as const,
+    local: {
+      source: 'local' as const,
+      deviceId: 'browser-device',
+      deviceName: 'Browser',
+      updatedAt: '2026-05-02T10:00:00.000Z',
+      version: 1,
+      previewText: 'Ideas',
+      record: {
+        ...baseNotebook,
+        id: 'local-book',
+        name: 'Ideas',
+        version: 1,
+        lastSyncedVersion: 0,
+        syncStatus: 'conflict' as const
+      }
+    },
+    remote: {
+      source: 'remote' as const,
+      deviceId: 'phone-device',
+      deviceName: 'Phone',
+      updatedAt: '2026-05-02T10:05:00.000Z',
+      version: 4,
+      previewText: 'Ideas',
+      record: {
+        ...baseNotebook,
+        id: 'remote-book',
+        name: 'Ideas',
+        deviceId: 'phone-device',
+        version: 4,
+        lastSyncedVersion: 4,
+        syncStatus: 'synced' as const
+      }
+    }
+  };
+}
+
+function localConflictRecord(
+  conflict: ReturnType<typeof duplicateNotebookConflict>
+): LocalConflict {
+  return {
+    id: conflict.id,
+    entityType: 'notebook',
+    entityId: conflict.entityId,
+    status: 'pending',
+    createdAt: '2026-05-02T10:06:00.000Z',
+    conflict
+  };
+}

@@ -226,7 +226,6 @@ export class NotesPageController
   loginPasswordValue = $state('');
   loginTotpCodeValue = $state('');
   signupEmailValue = $state('');
-  signupDisplayNameValue = $state('');
   signupConfirmPasswordValue = $state('');
   signupEnabled = $state(false);
   signupEmailRequired = $state(true);
@@ -683,7 +682,6 @@ export class NotesPageController
     this.loginPasswordValue = '';
     this.loginTotpCodeValue = '';
     this.signupEmailValue = '';
-    this.signupDisplayNameValue = '';
     this.signupConfirmPasswordValue = '';
     this.loginError = '';
     this.closeAccountMenu();
@@ -1305,7 +1303,6 @@ export class NotesPageController
     this.loginPasswordValue = '';
     this.loginTotpCodeValue = '';
     this.signupEmailValue = '';
-    this.signupDisplayNameValue = '';
     this.signupConfirmPasswordValue = '';
     this.loginError = '';
     this.closeAccountMenu();
@@ -1334,7 +1331,6 @@ export class NotesPageController
     this.signupConfirmPasswordValue = '';
     if (mode === 'signin') {
       this.signupEmailValue = '';
-      this.signupDisplayNameValue = '';
       this.loginUsernameValue = getLoginHint();
     }
   };
@@ -1351,7 +1347,6 @@ export class NotesPageController
   cancelAccountProfileEdit = () => {
     this.accountProfileEditing = false;
     this.accountEmail = getStoredSession()?.user.email ?? '';
-    this.accountDisplayName = getStoredSession()?.user.displayName ?? '';
     this.accountError = '';
   };
 
@@ -1536,12 +1531,7 @@ export class NotesPageController
         storedUsername.trim() || getLoginHint().trim() || null;
       const session =
         this.authMode === 'signup'
-          ? await signup(
-              username,
-              this.signupEmailValue,
-              password,
-              this.signupDisplayNameValue
-            )
+          ? await signup(username, this.signupEmailValue, password)
           : await login(
               username,
               hasPassword ? password : null,
@@ -1597,7 +1587,6 @@ export class NotesPageController
       this.loginPasswordValue = '';
       this.loginTotpCodeValue = '';
       this.signupEmailValue = '';
-      this.signupDisplayNameValue = '';
       this.signupConfirmPasswordValue = '';
       this.syncMessage = 'Signed in';
       this.notify(
@@ -1638,7 +1627,6 @@ export class NotesPageController
     this.accountMessage = '';
     try {
       const response = await updateAccount(token, {
-        displayName: this.accountDisplayName,
         email: this.accountEmail || null
       });
       this.accountUsername = response.user.username;
@@ -1651,13 +1639,13 @@ export class NotesPageController
         user: response.user,
         expiresAt: storedSession?.expiresAt ?? null
       });
-      this.accountMessage = 'Profile saved';
+      this.accountMessage = 'Email saved';
       this.accountProfileEditing = false;
-      this.notify('success', 'Profile saved');
+      this.notify('success', 'Email saved');
     } catch (error) {
       this.accountError =
-        error instanceof Error ? error.message : 'Could not save profile';
-      this.notify('error', 'Profile update failed', this.accountError);
+        error instanceof Error ? error.message : 'Could not save email';
+      this.notify('error', 'Email update failed', this.accountError);
     } finally {
       this.isAccountBusy = false;
     }
@@ -1871,7 +1859,7 @@ export class NotesPageController
 
   conflictMessage = (conflict: LocalConflict): string => {
     if (conflict.conflict.reason === 'duplicate_name') {
-      return 'A notebook with this name already exists. Choose one version or duplicate both.';
+      return 'A notebook with this name already exists. Keep the existing notebook or keep the local one as a renamed copy.';
     }
 
     return 'Choose which version to keep. Both versions are preserved until you decide.';
@@ -1915,7 +1903,6 @@ export class NotesPageController
       if (!this.signupEnabled && this.authMode === 'signup') {
         this.authMode = 'signin';
         this.signupEmailValue = '';
-        this.signupDisplayNameValue = '';
         this.signupConfirmPasswordValue = '';
       }
     } catch {
@@ -2291,7 +2278,6 @@ export class NotesPageController
     this.loginPasswordValue = '';
     this.loginTotpCodeValue = '';
     this.signupEmailValue = '';
-    this.signupDisplayNameValue = '';
     this.signupConfirmPasswordValue = '';
     this.loginError = '';
     this.loginOpen = openLogin;

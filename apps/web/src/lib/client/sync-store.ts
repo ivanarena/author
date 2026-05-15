@@ -20,6 +20,13 @@ import {
 } from './encryption';
 import { getOrCreateDevice, newId, nowIso } from './local-state';
 
+type ConflictChoice =
+  | 'keep-newer'
+  | 'keep-older'
+  | 'keep-local'
+  | 'keep-remote'
+  | 'duplicate-both';
+
 export async function saveDevices(devices: Device[]): Promise<void> {
   if (!devices.length) return;
   await localDb.devices.bulkPut(devices);
@@ -37,6 +44,134 @@ async function remoteCameFromThisDevice(record: {
   deviceId: string;
 }): Promise<boolean> {
   return record.deviceId === (await getOrCreateDevice()).id;
+}
+
+function safeBaseVersion(record: {
+  lastSyncedVersion?: number | null;
+}): number {
+  const baseVersion = Number(record.lastSyncedVersion);
+  return Number.isSafeInteger(baseVersion) && baseVersion >= 0
+    ? baseVersion
+    : 0;
+}
+
+function safePendingVersion(record: {
+  version?: number | null;
+  lastSyncedVersion?: number | null;
+}): number {
+  const version = Number(record.version);
+  const baseVersion = safeBaseVersion(record);
+  return Number.isSafeInteger(version) && version > baseVersion && version > 0
+    ? version
+    : nextVersionAfter(baseVersion);
+}
+
+function normalizedNotebookIds(ids: string[]): string[] {
+  return [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+}
+
+function noteNotebookIds(
+  note: Pick<LocalNote, 'notebookId' | 'notebookIds'>
+): string[] {
+  const ids = note.notebookIds?.length
+    ? note.notebookIds
+    : note.notebookId
+      ? [note.notebookId]
+      : [];
+  return normalizedNotebookIds(ids);
+}
+
+function primaryNotebookId(ids: string[]): string | null {
+  return ids[0] ?? null;
+}
+
+function remappedNotebookIds(
+  ids: string[],
+  fromNotebookId: string,
+  toNotebookId: string
+): string[] {
+  return normalizedNotebookIds(
+    ids.map((id) => (id === fromNotebookId ? toNotebookId : id))
+  );
+}
+
+function normalizedNotebookName(name: string): string {
+  return name.trim().toLocaleLowerCase();
+}
+
+function notebookCopyName(
+  baseName: string,
+  notebooks: LocalNotebook[],
+  excludedIds: Set<string>
+): string {
+  const base = baseName.trim() || 'Notebook';
+  const taken = new Set(
+    notebooks
+      .filter(
+        (notebook) => !notebook.deletedAt && !excludedIds.has(notebook.id)
+      )
+      .map((notebook) => normalizedNotebookName(notebook.name))
+  );
+  let candidate = `${base} copy`;
+  let suffix = 2;
+  while (taken.has(normalizedNotebookName(candidate))) {
+    candidate = `${base} copy ${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
+}
+
+async function remapLocalNoteNotebookReferences(
+  fromNotebookId: string,
+  toNotebookId: string,
+  device: Device,
+  updatedAt: string
+): Promise<void> {
+  const notes = await localDb.notes.toArray();
+  const updates: LocalNote[] = [];
+  for (const note of notes) {
+    if (
+      note.syncStatus === 'conflict' ||
+      note.syncStatus === 'deleted' ||
+      note.deletedAt
+    ) {
+      continue;
+    }
+
+    const notebookIds = noteNotebookIds(note);
+    if (!notebookIds.includes(fromNotebookId)) continue;
+    const nextNotebookIds = remappedNotebookIds(
+      notebookIds,
+      fromNotebookId,
+      toNotebookId
+    );
+    if (nextNotebookIds.join('\0') === notebookIds.join('\0')) continue;
+
+    updates.push({
+      ...note,
+      notebookIds: nextNotebookIds,
+      notebookId: primaryNotebookId(nextNotebookIds),
+      updatedAt,
+      deviceId: device.id,
+      version: safePendingVersion(note),
+      syncStatus: 'pending',
+      lastSyncedAt: null
+    });
+  }
+
+  if (updates.length) await localDb.notes.bulkPut(updates);
+}
+
+async function uniqueNotebookCopyName(
+  baseName: string,
+  excludedIds: Set<string>
+): Promise<string> {
+  const notebooks = await Promise.all(
+    (await localDb.notebooks.toArray()).map((notebook) =>
+      decryptNotebookFields(notebook)
+    )
+  );
+  return notebookCopyName(baseName, notebooks, excludedIds);
 }
 
 export async function applyRemoteDeletes(
@@ -155,6 +290,54 @@ export async function saveConflict(
     const notebook = await localDb.notebooks.get(conflict.entityId);
     if (notebook)
       await localDb.notebooks.put({ ...notebook, syncStatus: 'conflict' });
+  }
+}
+
+export async function absorbSameDevicePushConflict(
+  conflict: SyncConflict<Note> | SyncConflict<Notebook>,
+  syncedAt: string
+): Promise<boolean> {
+  if (conflict.reason !== 'remote_changed') return false;
+  if (conflict.remote.deviceId !== (await getOrCreateDevice()).id) {
+    return false;
+  }
+
+  if (conflict.entityType === 'note') {
+    const remote = conflict.remote.record as Note;
+    const note = await localDb.notes.get(conflict.entityId);
+    if (!note) return true;
+    await localDb.notes.put({
+      ...note,
+      syncStatus: note.syncStatus === 'deleted' ? 'deleted' : 'pending',
+      lastSyncedVersion: Math.max(note.lastSyncedVersion, remote.version),
+      lastSyncedAt: syncedAt
+    });
+    return true;
+  }
+
+  const remote = conflict.remote.record as Notebook;
+  const notebook = await localDb.notebooks.get(conflict.entityId);
+  if (!notebook) return true;
+  await localDb.notebooks.put({
+    ...notebook,
+    syncStatus: notebook.syncStatus === 'deleted' ? 'deleted' : 'pending',
+    lastSyncedVersion: Math.max(notebook.lastSyncedVersion, remote.version),
+    lastSyncedAt: syncedAt
+  });
+  return true;
+}
+
+export async function repairSameDevicePendingConflicts(
+  syncedAt = nowIso()
+): Promise<void> {
+  const conflicts = await localDb.conflicts
+    .where('status')
+    .equals('pending')
+    .toArray();
+  for (const localConflict of conflicts) {
+    if (await absorbSameDevicePushConflict(localConflict.conflict, syncedAt)) {
+      await localDb.conflicts.put({ ...localConflict, status: 'resolved' });
+    }
   }
 }
 
@@ -348,12 +531,7 @@ export async function mergeRemoteChanges(
 
 export async function resolveConflict(
   conflictId: string,
-  choice:
-    | 'keep-newer'
-    | 'keep-older'
-    | 'keep-local'
-    | 'keep-remote'
-    | 'duplicate-both'
+  choice: ConflictChoice
 ): Promise<void> {
   const localConflict = await localDb.conflicts.get(conflictId);
   if (!localConflict || localConflict.status === 'resolved') return;
@@ -361,6 +539,20 @@ export async function resolveConflict(
   const conflict = await decryptConflictForDisplay(localConflict.conflict);
   const device = await getOrCreateDevice();
   const now = nowIso();
+
+  if (
+    conflict.entityType === 'notebook' &&
+    conflict.reason === 'duplicate_name'
+  ) {
+    await resolveDuplicateNotebookNameConflict(
+      conflict as SyncConflict<Notebook>,
+      choice,
+      device,
+      now
+    );
+    await localDb.conflicts.put({ ...localConflict, status: 'resolved' });
+    return;
+  }
 
   if (choice === 'duplicate-both') {
     if (conflict.entityType === 'note') {
@@ -453,4 +645,58 @@ export async function resolveConflict(
   }
 
   await localDb.conflicts.put({ ...localConflict, status: 'resolved' });
+}
+
+async function resolveDuplicateNotebookNameConflict(
+  conflict: SyncConflict<Notebook>,
+  choice: ConflictChoice,
+  device: Device,
+  now: string
+): Promise<void> {
+  const local = conflict.local.record as LocalNotebook;
+  const remote = conflict.remote.record as LocalNotebook;
+  const selected =
+    choice === 'duplicate-both'
+      ? conflict.local
+      : chooseConflictVersion(conflict, choice);
+  const keepRemote =
+    choice !== 'duplicate-both' && selected.source === 'remote';
+
+  await localDb.notebooks.put(
+    await encryptNotebookFields({
+      ...remote,
+      syncStatus: 'synced',
+      lastSyncedVersion: remote.version,
+      lastSyncedAt: now
+    })
+  );
+
+  if (keepRemote) {
+    await remapLocalNoteNotebookReferences(local.id, remote.id, device, now);
+    if (local.id !== remote.id) await localDb.notebooks.delete(local.id);
+    return;
+  }
+
+  const copyId = newId();
+  const copyName = await uniqueNotebookCopyName(
+    local.name,
+    new Set([local.id, remote.id, copyId])
+  );
+  await localDb.notebooks.put(
+    await encryptNotebookFields({
+      ...local,
+      id: copyId,
+      name: copyName,
+      nameHash: null,
+      createdAt: now,
+      updatedAt: now,
+      deviceId: device.id,
+      version: 1,
+      syncStatus: 'pending',
+      lastSyncedVersion: 0,
+      lastSyncedAt: null
+    })
+  );
+  await remapLocalNoteNotebookReferences(local.id, copyId, device, now);
+  if (local.id !== copyId) await localDb.notebooks.delete(local.id);
 }

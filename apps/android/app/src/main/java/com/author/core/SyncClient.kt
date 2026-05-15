@@ -43,19 +43,12 @@ class SyncClient(private val baseUrlProvider: () -> String) {
     return parseLoginResponse(requestJson("/api/auth/login", "POST", body = body))
   }
 
-  fun signup(
-    username: String,
-    email: String,
-    password: String,
-    displayName: String?,
-    device: Device,
-  ): LoginResponse {
+  fun signup(username: String, email: String, password: String, device: Device): LoginResponse {
     val body =
       JSONObject()
         .put("username", username)
         .put("email", email)
         .put("password", password)
-        .putNullable("displayName", displayName)
         .put("device", deviceToJson(device))
     return parseLoginResponse(requestJson("/api/auth/signup", "POST", body = body))
   }
@@ -114,8 +107,8 @@ class SyncClient(private val baseUrlProvider: () -> String) {
     return parsePullResponse(requestJson("/api/sync/pull", "POST", token = token, body = body))
   }
 
-  fun updateAccount(token: String, displayName: String?, email: String?): AccountResponse {
-    val body = JSONObject().putNullable("displayName", displayName).putNullable("email", email)
+  fun updateAccount(token: String, email: String?): AccountResponse {
+    val body = JSONObject().putNullable("email", email)
     return parseAccountResponse(requestJson("/api/account", "PATCH", token = token, body = body))
   }
 

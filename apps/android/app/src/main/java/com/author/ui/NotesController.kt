@@ -65,7 +65,6 @@ class NotesController(private val repository: NotesRepository, private val scope
   var loginPasswordValue by mutableStateOf("")
   var loginTotpCodeValue by mutableStateOf("")
   var signupEmailValue by mutableStateOf("")
-  var signupDisplayNameValue by mutableStateOf("")
   var signupConfirmPasswordValue by mutableStateOf("")
   var signupEnabled by mutableStateOf(false)
   var signupEmailRequired by mutableStateOf(true)
@@ -163,7 +162,6 @@ class NotesController(private val repository: NotesRepository, private val scope
     loginPasswordValue = ""
     loginTotpCodeValue = ""
     signupEmailValue = ""
-    signupDisplayNameValue = ""
     signupConfirmPasswordValue = ""
     loginError = ""
     loginOpen = true
@@ -183,7 +181,6 @@ class NotesController(private val repository: NotesRepository, private val scope
     signupConfirmPasswordValue = ""
     if (mode == "signin") {
       signupEmailValue = ""
-      signupDisplayNameValue = ""
       loginUsernameValue = repository.getLoginHint()
     }
   }
@@ -594,12 +591,7 @@ class NotesController(private val repository: NotesRepository, private val scope
             ?: repository.getLoginHint().ifBlank { null }
         val response =
           if (wasSignup) {
-            repository.signup(
-              username,
-              signupEmailValue,
-              password,
-              signupDisplayNameValue.ifBlank { null },
-            )
+            repository.signup(username, signupEmailValue, password)
           } else {
             repository.login(username, password, loginTotpCodeValue.trim().ifBlank { null })
           }
@@ -636,7 +628,6 @@ class NotesController(private val repository: NotesRepository, private val scope
         loginPasswordValue = ""
         loginTotpCodeValue = ""
         signupEmailValue = ""
-        signupDisplayNameValue = ""
         signupConfirmPasswordValue = ""
         syncMessage = "Signed in"
         notify(
@@ -737,16 +728,15 @@ class NotesController(private val repository: NotesRepository, private val scope
     val token = repository.getStoredSession()?.token ?: return
     scope.launch {
       try {
-        val response =
-          repository.updateAccount(token, accountDisplayName, accountEmail.ifBlank { null })
+        val response = repository.updateAccount(token, accountEmail.ifBlank { null })
         val session = repository.getStoredSession()
         if (session != null) repository.setStoredSession(session.copy(user = response.user))
         applyAccount(response.user, response.trustedDevices)
         accountProfileEditing = false
-        accountMessage = "Profile saved"
-        notify("success", "Profile saved")
+        accountMessage = "Email saved"
+        notify("success", "Email saved")
       } catch (error: Throwable) {
-        accountError = error.message ?: "Could not save profile"
+        accountError = error.message ?: "Could not save email"
       }
     }
   }
@@ -1148,7 +1138,6 @@ class NotesController(private val repository: NotesRepository, private val scope
     loginPasswordValue = ""
     loginTotpCodeValue = ""
     signupEmailValue = ""
-    signupDisplayNameValue = ""
     signupConfirmPasswordValue = ""
     loginOpen = openLogin
     syncMessage = if (message.isBlank()) "Sign in to sync" else message
@@ -1205,7 +1194,6 @@ class NotesController(private val repository: NotesRepository, private val scope
     if (!signupEnabled && authMode == "signup") {
       authMode = "signin"
       signupEmailValue = ""
-      signupDisplayNameValue = ""
       signupConfirmPasswordValue = ""
     }
     serverConfigError = ""

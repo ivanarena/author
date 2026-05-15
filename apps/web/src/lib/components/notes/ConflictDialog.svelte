@@ -39,21 +39,30 @@
       </div>
 
       <div class="conflict-actions">
-        <button onclick={() => model.resolveActiveConflict('keep-newer')}
-          >Keep newer</button
-        >
-        <button onclick={() => model.resolveActiveConflict('keep-older')}
-          >Keep older</button
-        >
-        <button onclick={() => model.resolveActiveConflict('keep-local')}>
-          Keep {model.activeConflict.conflict.local.deviceName}
-        </button>
-        <button onclick={() => model.resolveActiveConflict('keep-remote')}>
-          Keep {model.activeConflict.conflict.remote.deviceName}
-        </button>
-        <button onclick={() => model.resolveActiveConflict('duplicate-both')}
-          >Duplicate both</button
-        >
+        {#if model.activeConflict.conflict.reason === 'duplicate_name'}
+          <button onclick={() => model.resolveActiveConflict('keep-local')}>
+            Keep local copy
+          </button>
+          <button onclick={() => model.resolveActiveConflict('keep-remote')}>
+            Keep existing notebook
+          </button>
+        {:else}
+          <button onclick={() => model.resolveActiveConflict('keep-newer')}
+            >Keep newer</button
+          >
+          <button onclick={() => model.resolveActiveConflict('keep-older')}
+            >Keep older</button
+          >
+          <button onclick={() => model.resolveActiveConflict('keep-local')}>
+            Keep {model.activeConflict.conflict.local.deviceName}
+          </button>
+          <button onclick={() => model.resolveActiveConflict('keep-remote')}>
+            Keep {model.activeConflict.conflict.remote.deviceName}
+          </button>
+          <button onclick={() => model.resolveActiveConflict('duplicate-both')}
+            >Duplicate both</button
+          >
+        {/if}
       </div>
     </div>
   </div>

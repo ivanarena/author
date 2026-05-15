@@ -73,11 +73,13 @@
           <div>
             <strong
               >{model.hasToken
-                ? model.accountDisplayName || model.accountUsername
+                ? model.accountUsername
                 : 'Local workspace'}</strong
             >
             {#if model.hasToken}
-              <span class="profile-username">{model.accountUsername}</span>
+              <span class="profile-username"
+                >{model.accountEmail || 'Signed in'}</span
+              >
             {/if}
             <span
               class={`sync-state ${model.syncIndicator.tone}`}

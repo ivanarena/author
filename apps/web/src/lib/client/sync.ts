@@ -15,11 +15,13 @@ import {
 import { localDb, type LocalNote, type LocalNotebook } from './db';
 import { hasStoredEncryptionKeyMaterial } from './encryption';
 import {
+  absorbSameDevicePushConflict,
   ensureLocalNotesEncrypted,
   getOrCreateDevice,
   markAcceptedChanges,
   mergeRemoteChanges,
   applyRemoteDeletes,
+  repairSameDevicePendingConflicts,
   saveDevices,
   saveConflict
 } from './store';
@@ -174,6 +176,7 @@ export async function runSync(
   onProgress?.({ phase: 'preparing' });
   const device = await getOrCreateDevice();
   await ensureLocalNotesEncrypted();
+  await repairSameDevicePendingConflicts();
   const [notes, notebooks] = await Promise.all([
     localDb.notes.where('syncStatus').equals('pending').toArray(),
     localDb.notebooks.where('syncStatus').equals('pending').toArray()
@@ -284,6 +287,11 @@ export async function runSync(
       }))
     ]);
     for (const conflict of pushResponse.conflicts) {
+      if (
+        await absorbSameDevicePushConflict(conflict, pushResponse.serverTime)
+      ) {
+        continue;
+      }
       conflicts += 1;
       await saveConflict(conflict);
     }
@@ -388,15 +396,13 @@ export async function login(
 export async function signup(
   username: string,
   email: string,
-  password: string,
-  displayName: string | null = null
+  password: string
 ): Promise<AuthLoginResponse> {
   const device = await getOrCreateDevice();
   const body: AuthSignupRequest = {
     username,
     email,
     password,
-    displayName,
     device
   };
   return await signupWithDevice(body);

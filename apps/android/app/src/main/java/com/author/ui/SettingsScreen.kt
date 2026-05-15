@@ -199,26 +199,20 @@ internal fun AccountSettings(controller: NotesController, showIdentity: Boolean 
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
     if (controller.hasToken) {
       if (showIdentity) {
+        Text(controller.accountUsername, fontWeight = FontWeight.Bold)
         Text(
-          controller.accountDisplayName.ifBlank { controller.accountUsername },
-          fontWeight = FontWeight.Bold,
-        )
-        Text(
-          controller.accountUsername,
+          controller.accountEmail.ifBlank { "Signed in" },
           color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
           fontSize = 12.sp,
         )
       }
       if (controller.accountProfileEditing) {
-        MiniField(controller.accountDisplayName, "Nickname", Modifier.fillMaxWidth()) {
-          controller.accountDisplayName = it
-        }
         MiniField(controller.accountEmail, "Email", Modifier.fillMaxWidth()) {
           controller.accountEmail = it
         }
-        ActionRow(Icons.Outlined.Check, "Save profile") { controller.saveAccountProfile() }
+        ActionRow(Icons.Outlined.Check, "Save email") { controller.saveAccountProfile() }
       } else {
-        ActionRow(Icons.Outlined.Edit, "Edit profile") { controller.accountProfileEditing = true }
+        ActionRow(Icons.Outlined.Edit, "Edit email") { controller.accountProfileEditing = true }
       }
       DeviceNameSettings(controller)
       TrustedDevicesSettings(controller)

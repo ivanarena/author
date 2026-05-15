@@ -131,18 +131,6 @@
         />
       </div>
       <div class="field-row">
-        <label for="signup-display-name">Nickname</label>
-        <input
-          id="signup-display-name"
-          type="text"
-          bind:value={model.signupDisplayNameValue}
-          autocomplete="nickname"
-          placeholder="Optional"
-          disabled={model.isLoggingIn}
-          oninput={() => (model.loginError = '')}
-        />
-      </div>
-      <div class="field-row">
         <label for="signup-confirm-password">Confirm password</label>
         <div class="password-field">
           <input

@@ -34,6 +34,7 @@ export interface AuthSignupRequest {
   username: string;
   email: string;
   password: string;
+  /** @deprecated Display names are accepted only for older clients. */
   displayName?: string | null;
   device: Device;
 }
@@ -68,6 +69,7 @@ export interface AuthValidateResponse {
 }
 
 export interface AccountUpdateRequest {
+  /** @deprecated Display names are accepted only for older clients. */
   displayName?: string | null;
   email?: string | null;
 }

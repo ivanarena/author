@@ -62,26 +62,40 @@ import com.author.core.relativeAge
 internal fun NoteListPanel(controller: NotesController, modifier: Modifier = Modifier) {
   Column(
     modifier.padding(horizontal = pageHorizontalPadding(), vertical = 12.dp),
-    verticalArrangement = Arrangement.spacedBy(10.dp)
+    verticalArrangement = Arrangement.spacedBy(10.dp),
   ) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+      Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
       SearchNotesField(controller, Modifier.weight(1f))
       SortMenu(controller)
     }
     AnimatedVisibility(
       visible = controller.selectedNoteIds.isNotEmpty(),
       enter = fadeIn(tween(AppMotion.Medium)) + expandVertically(tween(AppMotion.Slow)),
-      exit = fadeOut(tween(AppMotion.Fast)) + shrinkVertically(tween(AppMotion.Medium))
+      exit = fadeOut(tween(AppMotion.Fast)) + shrinkVertically(tween(AppMotion.Medium)),
     ) {
-      Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("${controller.selectedNoteIds.size} selected", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+      Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Text(
+          "${controller.selectedNoteIds.size} selected",
+          color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+          fontSize = 12.sp,
+          fontWeight = FontWeight.SemiBold,
+        )
         BulkActionsMenu(controller)
         Spacer(Modifier.weight(1f))
         Checkbox(
-          checked = controller.visibleNotes.isNotEmpty() && controller.visibleNotes.all { controller.selectedNoteIds.contains(it.id) },
+          checked =
+            controller.visibleNotes.isNotEmpty() &&
+              controller.visibleNotes.all { controller.selectedNoteIds.contains(it.id) },
           onCheckedChange = { controller.toggleAllVisible(it) },
           enabled = controller.visibleNotes.isNotEmpty(),
-          colors = appCheckboxColors()
+          colors = appCheckboxColors(),
         )
         GlassIcon(Icons.Outlined.Close, "Clear selection") { controller.clearSelection() }
       }
@@ -89,19 +103,33 @@ internal fun NoteListPanel(controller: NotesController, modifier: Modifier = Mod
     LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
       controller.visibleGroups.forEach { (label, groupNotes) ->
         item {
-          Text(label, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 10.dp, start = 8.dp))
+          Text(
+            label,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(top = 10.dp, start = 8.dp),
+          )
         }
-        items(groupNotes, key = { it.id }) { note ->
-          NoteRow(controller, note)
-        }
+        items(groupNotes, key = { it.id }) { note -> NoteRow(controller, note) }
       }
       if (controller.isWorkspaceLoading) {
         item {
-          Text("Loading local notes", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f), fontSize = 12.sp, modifier = Modifier.padding(14.dp))
+          Text(
+            "Loading local notes",
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+            fontSize = 12.sp,
+            modifier = Modifier.padding(14.dp),
+          )
         }
       } else if (controller.visibleNotes.isEmpty()) {
         item {
-          Text(if (controller.searchValue.isBlank()) "No notes" else "No matching notes", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f), fontSize = 12.sp, modifier = Modifier.padding(14.dp))
+          Text(
+            if (controller.searchValue.isBlank()) "No notes" else "No matching notes",
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+            fontSize = 12.sp,
+            modifier = Modifier.padding(14.dp),
+          )
         }
       }
     }
@@ -114,62 +142,53 @@ private fun SearchNotesField(controller: NotesController, modifier: Modifier = M
   Surface(
     modifier = modifier.animateContentSize(tween(AppMotion.Medium)),
     color = Color.Transparent,
-    shape = RoundedCornerShape(18.dp)
+    shape = RoundedCornerShape(18.dp),
   ) {
     Row(
-      Modifier
-        .heightIn(min = 44.dp)
-        .padding(horizontal = 14.dp, vertical = 6.dp),
+      Modifier.heightIn(min = 44.dp).padding(horizontal = 14.dp, vertical = 6.dp),
       verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(10.dp)
+      horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
       Icon(
         Icons.Outlined.Search,
         null,
         tint = textColor.copy(alpha = 0.52f),
-        modifier = Modifier.size(18.dp)
+        modifier = Modifier.size(18.dp),
       )
       BasicTextField(
         value = controller.searchValue,
         onValueChange = { controller.searchValue = it },
         singleLine = true,
         cursorBrush = SolidColor(textColor),
-        textStyle = TextStyle(
-          color = textColor,
-          fontSize = 14.sp,
-          fontFamily = LocalAppFontFamily.current
-        ),
+        textStyle =
+          TextStyle(color = textColor, fontSize = 14.sp, fontFamily = LocalAppFontFamily.current),
         modifier = Modifier.weight(1f),
         decorationBox = { inner ->
           Box {
             if (controller.searchValue.isBlank()) {
-              Text(
-                "Search notes",
-                color = textColor.copy(alpha = 0.42f),
-                fontSize = 14.sp
-              )
+              Text("Search notes", color = textColor.copy(alpha = 0.42f), fontSize = 14.sp)
             }
             inner()
           }
-        }
+        },
       )
       AnimatedVisibility(
         visible = controller.searchValue.isNotBlank(),
         enter = fadeIn(tween(AppMotion.Fast)),
-        exit = fadeOut(tween(AppMotion.Fast))
+        exit = fadeOut(tween(AppMotion.Fast)),
       ) {
         Box(
-          modifier = Modifier
-            .size(30.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .clickable { controller.searchValue = "" },
-          contentAlignment = Alignment.Center
+          modifier =
+            Modifier.size(30.dp).clip(RoundedCornerShape(8.dp)).clickable {
+              controller.searchValue = ""
+            },
+          contentAlignment = Alignment.Center,
         ) {
           Icon(
             Icons.Outlined.Close,
             "Clear search",
             modifier = Modifier.size(18.dp),
-            tint = textColor.copy(alpha = 0.62f)
+            tint = textColor.copy(alpha = 0.62f),
           )
         }
       }
@@ -184,8 +203,10 @@ private fun SortMenu(controller: NotesController) {
     GlassIcon(
       Icons.AutoMirrored.Outlined.Sort,
       "Sort notes",
-      active = controller.noteSort != "date-desc"
-    ) { open = true }
+      active = controller.noteSort != "date-desc",
+    ) {
+      open = true
+    }
     AppDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
       SortMenuItem("date-desc", "Newest first", controller) { open = false }
       SortMenuItem("az", "A-Z", controller) { open = false }
@@ -199,7 +220,7 @@ private fun SortMenuItem(
   sort: String,
   label: String,
   controller: NotesController,
-  onPicked: () -> Unit
+  onPicked: () -> Unit,
 ) {
   DropdownMenuItem(
     text = { Text(label) },
@@ -207,7 +228,7 @@ private fun SortMenuItem(
     onClick = {
       controller.setSort(sort)
       onPicked()
-    }
+    },
   )
 }
 
@@ -230,18 +251,20 @@ private fun BulkActionsMenu(controller: NotesController) {
           onClick = {
             open = false
             controller.trashSelected()
-          }
+          },
         )
       }
       if (hasTrashedNotes) {
         if (hasActiveNotes) HorizontalDivider()
         DropdownMenuItem(
           text = { Text("Restore selected") },
-          leadingIcon = { Icon(Icons.Outlined.RestoreFromTrash, null, modifier = Modifier.size(18.dp)) },
+          leadingIcon = {
+            Icon(Icons.Outlined.RestoreFromTrash, null, modifier = Modifier.size(18.dp))
+          },
           onClick = {
             open = false
             controller.restoreSelected()
-          }
+          },
         )
         DropdownMenuItem(
           text = { Text("Delete selected permanently") },
@@ -249,7 +272,7 @@ private fun BulkActionsMenu(controller: NotesController) {
           onClick = {
             open = false
             controller.deleteSelectedPermanently()
-          }
+          },
         )
       }
       HorizontalDivider()
@@ -259,7 +282,7 @@ private fun BulkActionsMenu(controller: NotesController) {
         onClick = {
           open = false
           controller.clearSelection()
-        }
+        },
       )
     }
   }
@@ -270,29 +293,31 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
   val active = controller.selectedNote?.id == note.id
   val selected = controller.selectedNoteIds.contains(note.id)
   val selecting = controller.selectedNoteIds.isNotEmpty()
-  val titleColor = if (active || selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+  val titleColor =
+    if (active || selected) MaterialTheme.colorScheme.primary
+    else MaterialTheme.colorScheme.onSurface
 
   Surface(
-    modifier = Modifier
-      .fillMaxWidth()
-      .clip(RoundedCornerShape(8.dp))
-      .animateContentSize(tween(AppMotion.Medium))
-      .clickable {
-        if (selecting) {
-          controller.toggleSelection(note, !selected)
-        } else {
-          controller.selectNote(note)
-        }
-      },
+    modifier =
+      Modifier.fillMaxWidth()
+        .clip(RoundedCornerShape(8.dp))
+        .animateContentSize(tween(AppMotion.Medium))
+        .clickable {
+          if (selecting) {
+            controller.toggleSelection(note, !selected)
+          } else {
+            controller.selectNote(note)
+          }
+        },
     color = Color.Transparent,
-    shape = RoundedCornerShape(8.dp)
+    shape = RoundedCornerShape(8.dp),
   ) {
     Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
       if (selecting) {
         Checkbox(
           checked = selected,
           onCheckedChange = { controller.toggleSelection(note, it) },
-          colors = appCheckboxColors()
+          colors = appCheckboxColors(),
         )
       }
       Column(Modifier.weight(1f).padding(horizontal = if (selecting) 8.dp else 4.dp)) {
@@ -304,19 +329,43 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
             fontSize = 14.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
           )
           if (controller.compactView) {
-            Text(relativeAge(note.updatedAt), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f))
+            Text(
+              relativeAge(note.updatedAt),
+              fontSize = 12.sp,
+              color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+            )
           }
         }
         if (!controller.compactView) {
-          Text(notePreview(note).ifBlank { "No text" }, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f), fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-          val notebookNames = noteNotebookIds(note).mapNotNull { id -> controller.notebooks.firstOrNull { it.id == id }?.name }
+          Text(
+            notePreview(note).ifBlank { "No text" },
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+          )
+          val notebookNames =
+            noteNotebookIds(note).mapNotNull { id ->
+              controller.notebooks.firstOrNull { it.id == id }?.name
+            }
           if (notebookNames.isNotEmpty()) {
-            Text(notebookNames.joinToString(", "), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+              notebookNames.joinToString(", "),
+              fontSize = 12.sp,
+              fontWeight = FontWeight.SemiBold,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis,
+            )
           }
-          Text("Updated ${formatListDate(note.updatedAt)}   Created ${formatListDate(note.createdAt)}", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f), fontSize = 12.sp, maxLines = 1)
+          Text(
+            "Updated ${formatListDate(note.updatedAt)}   Created ${formatListDate(note.createdAt)}",
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+            fontSize = 12.sp,
+            maxLines = 1,
+          )
         }
       }
       if (!selecting) NoteActionsMenu(controller, note)
@@ -336,17 +385,19 @@ private fun NoteActionsMenu(controller: NotesController, note: LocalNote) {
         onClick = {
           open = false
           controller.toggleSelection(note, true)
-        }
+        },
       )
       HorizontalDivider()
       if (note.trashedAt != null) {
         DropdownMenuItem(
           text = { Text("Restore") },
-          leadingIcon = { Icon(Icons.Outlined.RestoreFromTrash, null, modifier = Modifier.size(18.dp)) },
+          leadingIcon = {
+            Icon(Icons.Outlined.RestoreFromTrash, null, modifier = Modifier.size(18.dp))
+          },
           onClick = {
             open = false
             controller.restoreNote(note)
-          }
+          },
         )
         DropdownMenuItem(
           text = { Text("Delete permanently") },
@@ -354,7 +405,7 @@ private fun NoteActionsMenu(controller: NotesController, note: LocalNote) {
           onClick = {
             open = false
             controller.deleteNotePermanently(note)
-          }
+          },
         )
       } else {
         DropdownSectionLabel("Notebooks")
@@ -366,7 +417,7 @@ private fun NoteActionsMenu(controller: NotesController, note: LocalNote) {
           onClick = {
             open = false
             controller.trashNote(note)
-          }
+          },
         )
       }
     }
@@ -378,36 +429,42 @@ internal fun NotebookAssignmentMenuItems(
   controller: NotesController,
   note: LocalNote?,
   selectedMode: Boolean,
-  onPicked: () -> Unit
+  onPicked: () -> Unit,
 ) {
-  val activeSelectedNotes = if (selectedMode) controller.selectedNotes.filter { it.trashedAt == null } else emptyList()
-  val unfiledActive = if (selectedMode) {
-    activeSelectedNotes.isNotEmpty() && activeSelectedNotes.all { noteNotebookIds(it).isEmpty() }
-  } else {
-    note?.let { noteNotebookIds(it).isEmpty() } == true
-  }
+  val activeSelectedNotes =
+    if (selectedMode) controller.selectedNotes.filter { it.trashedAt == null } else emptyList()
+  val unfiledActive =
+    if (selectedMode) {
+      activeSelectedNotes.isNotEmpty() && activeSelectedNotes.all { noteNotebookIds(it).isEmpty() }
+    } else {
+      note?.let { noteNotebookIds(it).isEmpty() } == true
+    }
 
   DropdownMenuItem(
     text = { Text("Unfiled") },
     leadingIcon = { MenuCheck(unfiledActive) },
     onClick = {
       onPicked()
-      if (selectedMode) controller.assignNotebookForSelected(null) else note?.let { controller.assignNotebook(it, null) }
-    }
+      if (selectedMode) controller.assignNotebookForSelected(null)
+      else note?.let { controller.assignNotebook(it, null) }
+    },
   )
   controller.notebooks.forEach { notebook ->
-    val active = if (selectedMode) {
-      activeSelectedNotes.isNotEmpty() && activeSelectedNotes.all { noteNotebookIds(it).contains(notebook.id) }
-    } else {
-      note?.let { noteNotebookIds(it).contains(notebook.id) } == true
-    }
+    val active =
+      if (selectedMode) {
+        activeSelectedNotes.isNotEmpty() &&
+          activeSelectedNotes.all { noteNotebookIds(it).contains(notebook.id) }
+      } else {
+        note?.let { noteNotebookIds(it).contains(notebook.id) } == true
+      }
     DropdownMenuItem(
       text = { Text(notebook.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
       leadingIcon = { MenuCheck(active) },
       onClick = {
         onPicked()
-        if (selectedMode) controller.assignNotebookForSelected(notebook.id) else note?.let { controller.assignNotebook(it, notebook.id) }
-      }
+        if (selectedMode) controller.assignNotebookForSelected(notebook.id)
+        else note?.let { controller.assignNotebook(it, notebook.id) }
+      },
     )
   }
 }

@@ -14,14 +14,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 
 @Composable
-internal fun AuthorApp(
-  controller: NotesController,
-  onExport: () -> Unit,
-  onImport: () -> Unit
-) {
+internal fun AuthorApp(controller: NotesController, onExport: () -> Unit, onImport: () -> Unit) {
   AuthorTheme(theme = controller.theme, font = controller.editorFont) {
     AuthorScaffold(controller, onExport, onImport)
   }
@@ -31,38 +26,27 @@ internal fun AuthorApp(
 private fun AuthorScaffold(
   controller: NotesController,
   onExport: () -> Unit,
-  onImport: () -> Unit
+  onImport: () -> Unit,
 ) {
   Scaffold(
     modifier = Modifier.fillMaxSize(),
     containerColor = MaterialTheme.colorScheme.background,
     contentWindowInsets = WindowInsets.safeDrawing,
-    floatingActionButton = {
-      PageFloatingAction(controller)
-    }
+    floatingActionButton = { PageFloatingAction(controller) },
   ) { innerPadding ->
-    Box(
-      Modifier
-        .fillMaxSize()
-        .padding(innerPadding)
-        .imePadding()
-    ) {
+    Box(Modifier.fillMaxSize().padding(innerPadding).imePadding()) {
       AppPage(controller, onExport, onImport)
     }
   }
 }
 
 @Composable
-private fun AppPage(
-  controller: NotesController,
-  onExport: () -> Unit,
-  onImport: () -> Unit
-) {
+private fun AppPage(controller: NotesController, onExport: () -> Unit, onImport: () -> Unit) {
   Box(Modifier.fillMaxSize()) {
     Crossfade(
       targetState = controller.currentPage,
       animationSpec = tween(durationMillis = AppMotion.Slow),
-      label = "page-crossfade"
+      label = "page-crossfade",
     ) { page ->
       when (page) {
         "notes" -> NotesPage(controller)

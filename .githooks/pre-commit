@@ -1,13 +1,27 @@
 #!/usr/bin/env sh
 set -eu
 
-aube() {
-  npx -y @endevco/aube@1.8.0 "$@"
+STAGED_FILES="$(git diff --cached --name-only --diff-filter=ACMR)"
+AUBE_BIN="$(command -v aube || true)"
+
+run_aube() {
+  if [ -n "$AUBE_BIN" ]; then
+    "$AUBE_BIN" "$@"
+  else
+    npx -y @endevco/aube@1.8.0 "$@"
+  fi
 }
 
-aube exec lint-staged
+run_aube exec --no-install lint-staged
 
-(
-  cd apps/android
-  ./gradlew --max-workers=2 spotlessCheck :app:lintDebug
-)
+case "$STAGED_FILES" in
+  *apps/android/*)
+    (
+      cd apps/android
+      ./gradlew --max-workers=2 spotlessCheck
+    )
+    ;;
+  *)
+    echo "Skipping Android formatting; no staged Android files."
+    ;;
+esac

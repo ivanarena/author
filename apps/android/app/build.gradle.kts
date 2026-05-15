@@ -14,73 +14,76 @@ fun repoRootFrom(start: java.io.File): java.io.File {
 
 fun loadEnvFile(file: java.io.File): Map<String, String> {
   if (!file.isFile) return emptyMap()
-  return file.readLines().mapNotNull { line ->
-    val trimmed = line.trim()
-    if (trimmed.isEmpty() || trimmed.startsWith("#")) return@mapNotNull null
-    val normalized = trimmed.removePrefix("export ").trim()
-    val separator = normalized.indexOf('=')
-    if (separator <= 0) return@mapNotNull null
-    val key = normalized.substring(0, separator).trim()
-    val rawValue = normalized.substring(separator + 1).trim()
-    val value = rawValue
-      .removeSurrounding("\"")
-      .removeSurrounding("'")
-    key to value
-  }.toMap()
+  return file
+    .readLines()
+    .mapNotNull { line ->
+      val trimmed = line.trim()
+      if (trimmed.isEmpty() || trimmed.startsWith("#")) return@mapNotNull null
+      val normalized = trimmed.removePrefix("export ").trim()
+      val separator = normalized.indexOf('=')
+      if (separator <= 0) return@mapNotNull null
+      val key = normalized.substring(0, separator).trim()
+      val rawValue = normalized.substring(separator + 1).trim()
+      val value = rawValue.removeSurrounding("\"").removeSurrounding("'")
+      key to value
+    }
+    .toMap()
 }
 
 val repoRoot = repoRootFrom(rootProject.projectDir)
 val rootEnv = loadEnvFile(repoRoot.resolve(".env"))
 
-fun configValue(name: String): String? = (findProperty(name) as String?)?.trim()?.takeIf { it.isNotEmpty() }
-  ?: System.getenv(name)?.trim()?.takeIf { it.isNotEmpty() }
-  ?: rootEnv[name]?.trim()?.takeIf { it.isNotEmpty() }
+fun configValue(name: String): String? =
+  (findProperty(name) as String?)?.trim()?.takeIf { it.isNotEmpty() }
+    ?: System.getenv(name)?.trim()?.takeIf { it.isNotEmpty() }
+    ?: rootEnv[name]?.trim()?.takeIf { it.isNotEmpty() }
 
 fun firstConfigValue(vararg names: String): String? = names.firstNotNullOfOrNull { configValue(it) }
 
-fun buildConfigString(value: String): String = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+fun buildConfigString(value: String): String =
+  "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
-val configuredApiBaseUrl = firstConfigValue(
-  "AUTHOR_API_URL",
-  "AUTHOR_SYNC_API_URL",
-  "ANDROID_SYNC_API_URL",
-  "ANDROID_SYNC_SERVER_URL",
-  "NOTES_SYNC_SERVER_URL",
-  "authorApiUrl",
-  "authorSyncApiUrl",
-  "androidSyncApiUrl",
-  "androidSyncServerUrl",
-  "notesSyncServerUrl"
-)
-val defaultApiBaseUrl = configuredApiBaseUrl
-  ?: "http://10.0.2.2:${configValue("PORT") ?: "5173"}"
-val defaultApiBaseUrlSource = if (configuredApiBaseUrl != null) "build-time" else "local-emulator-default"
-val remoteDatabaseConfigured = configValue("TURSO_DATABASE_URL") != null && configValue("TURSO_AUTH_TOKEN") != null
+val configuredApiBaseUrl =
+  firstConfigValue(
+    "AUTHOR_API_URL",
+    "AUTHOR_SYNC_API_URL",
+    "ANDROID_SYNC_API_URL",
+    "ANDROID_SYNC_SERVER_URL",
+    "NOTES_SYNC_SERVER_URL",
+    "authorApiUrl",
+    "authorSyncApiUrl",
+    "androidSyncApiUrl",
+    "androidSyncServerUrl",
+    "notesSyncServerUrl",
+  )
+val defaultApiBaseUrl = configuredApiBaseUrl ?: "http://10.0.2.2:${configValue("PORT") ?: "5173"}"
+val defaultApiBaseUrlSource =
+  if (configuredApiBaseUrl != null) "build-time" else "local-emulator-default"
+val remoteDatabaseConfigured =
+  configValue("TURSO_DATABASE_URL") != null && configValue("TURSO_AUTH_TOKEN") != null
 val releaseKeystorePath = configValue("ANDROID_RELEASE_KEYSTORE_PATH")
 val releaseKeystorePassword = configValue("ANDROID_RELEASE_KEYSTORE_PASSWORD")
 val releaseKeyAlias = configValue("ANDROID_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = configValue("ANDROID_RELEASE_KEY_PASSWORD")
-val androidUpdateCheckUrl = configValue("ANDROID_UPDATE_CHECK_URL")
-  ?: "https://raw.githubusercontent.com/ivanarena/author/main/apps/android/app/build.gradle.kts"
-val androidUpdateDownloadUrl = configValue("ANDROID_UPDATE_DOWNLOAD_URL")
-  ?: "https://github.com/ivanarena/author/releases/latest"
-val androidUpdateCheckIntervalHours = configValue("ANDROID_UPDATE_CHECK_INTERVAL_HOURS")
-  ?.toLongOrNull()
-  ?.coerceIn(1, 168)
-  ?: 12
-val androidUpdateStartupDelayMinutes = configValue("ANDROID_UPDATE_STARTUP_DELAY_MINUTES")
-  ?.toLongOrNull()
-  ?.coerceIn(1, 120)
-  ?: 10
-val releaseSigningConfigured = listOf(
-  releaseKeystorePath,
-  releaseKeystorePassword,
-  releaseKeyAlias,
-  releaseKeyPassword
-).all { it != null }
+val androidUpdateCheckUrl =
+  configValue("ANDROID_UPDATE_CHECK_URL")
+    ?: "https://raw.githubusercontent.com/ivanarena/author/main/apps/android/app/build.gradle.kts"
+val androidUpdateDownloadUrl =
+  configValue("ANDROID_UPDATE_DOWNLOAD_URL")
+    ?: "https://github.com/ivanarena/author/releases/latest"
+val androidUpdateCheckIntervalHours =
+  configValue("ANDROID_UPDATE_CHECK_INTERVAL_HOURS")?.toLongOrNull()?.coerceIn(1, 168) ?: 12
+val androidUpdateStartupDelayMinutes =
+  configValue("ANDROID_UPDATE_STARTUP_DELAY_MINUTES")?.toLongOrNull()?.coerceIn(1, 120) ?: 10
+val releaseSigningConfigured =
+  listOf(releaseKeystorePath, releaseKeystorePassword, releaseKeyAlias, releaseKeyPassword).all {
+    it != null
+  }
 
 if (configuredApiBaseUrl == null && remoteDatabaseConfigured) {
-  logger.warn("Turso is configured, but Android sync API URL is not. Using the local emulator URL; set AUTHOR_API_URL or ANDROID_SYNC_API_URL for device/release builds.")
+  logger.warn(
+    "Turso is configured, but Android sync API URL is not. Using the local emulator URL; set AUTHOR_API_URL or ANDROID_SYNC_API_URL for device/release builds."
+  )
 }
 
 require(!defaultApiBaseUrl.startsWith("libsql://")) {
@@ -92,11 +95,13 @@ require(defaultApiBaseUrl.startsWith("http://") || defaultApiBaseUrl.startsWith(
 }
 
 val requestedTasks = gradle.startParameter.taskNames.map { it.substringAfterLast(':') }
-val releaseBuildRequested = requestedTasks.any {
-  it.equals("assemble", ignoreCase = true) ||
-    it.equals("bundle", ignoreCase = true) ||
-    it.contains("Release", ignoreCase = true)
-}
+val releaseBuildRequested =
+  requestedTasks.any {
+    it.equals("assemble", ignoreCase = true) ||
+      it.equals("bundle", ignoreCase = true) ||
+      it.contains("Release", ignoreCase = true)
+  }
+
 if (releaseBuildRequested) {
   require(configuredApiBaseUrl != null) {
     "Release Android builds require AUTHOR_API_URL or ANDROID_SYNC_API_URL."
@@ -120,8 +125,16 @@ android {
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
     buildConfigField("String", "DEFAULT_API_BASE_URL", buildConfigString(defaultApiBaseUrl))
-    buildConfigField("String", "DEFAULT_API_BASE_URL_SOURCE", buildConfigString(defaultApiBaseUrlSource))
-    buildConfigField("boolean", "DEFAULT_API_BASE_URL_CONFIGURED", (configuredApiBaseUrl != null).toString())
+    buildConfigField(
+      "String",
+      "DEFAULT_API_BASE_URL_SOURCE",
+      buildConfigString(defaultApiBaseUrlSource),
+    )
+    buildConfigField(
+      "boolean",
+      "DEFAULT_API_BASE_URL_CONFIGURED",
+      (configuredApiBaseUrl != null).toString(),
+    )
     buildConfigField("String", "UPDATE_CHECK_URL", buildConfigString(androidUpdateCheckUrl))
     buildConfigField("String", "UPDATE_DOWNLOAD_URL", buildConfigString(androidUpdateDownloadUrl))
     buildConfigField("long", "UPDATE_CHECK_INTERVAL_HOURS", "${androidUpdateCheckIntervalHours}L")
@@ -141,9 +154,7 @@ android {
   }
 
   buildTypes {
-    debug {
-      manifestPlaceholders["usesCleartextTraffic"] = "true"
-    }
+    debug { manifestPlaceholders["usesCleartextTraffic"] = "true" }
     release {
       manifestPlaceholders["usesCleartextTraffic"] = "false"
       if (releaseSigningConfigured) {
@@ -152,13 +163,9 @@ android {
     }
   }
 
-  buildFeatures {
-    buildConfig = true
-  }
+  buildFeatures { buildConfig = true }
 
-  compileOptions {
-    isCoreLibraryDesugaringEnabled = true
-  }
+  compileOptions { isCoreLibraryDesugaringEnabled = true }
 }
 
 dependencies {

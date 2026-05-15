@@ -46,13 +46,17 @@ import com.author.core.LocalNotebook
 internal fun NotebookSidebar(
   controller: NotesController,
   modifier: Modifier = Modifier,
-  onFilterPicked: () -> Unit = {}
+  onFilterPicked: () -> Unit = {},
 ) {
   Column(
     modifier.padding(horizontal = pageHorizontalPadding(), vertical = 12.dp),
-    verticalArrangement = Arrangement.spacedBy(10.dp)
+    verticalArrangement = Arrangement.spacedBy(10.dp),
   ) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
+    Row(
+      Modifier.fillMaxWidth(),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.End,
+    ) {
       GlassIcon(Icons.Outlined.Add, "New notebook", active = controller.newNotebookOpen) {
         controller.newNotebookOpen = !controller.newNotebookOpen
       }
@@ -60,10 +64,13 @@ internal fun NotebookSidebar(
     AnimatedVisibility(
       visible = controller.newNotebookOpen,
       enter = fadeIn(tween(AppMotion.Medium)) + expandVertically(tween(AppMotion.Slow)),
-      exit = fadeOut(tween(AppMotion.Fast)) + shrinkVertically(tween(AppMotion.Medium))
+      exit = fadeOut(tween(AppMotion.Fast)) + shrinkVertically(tween(AppMotion.Medium)),
     ) {
       GlassPanel(Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(8.dp).animateContentSize(tween(AppMotion.Medium)), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+          Modifier.padding(8.dp).animateContentSize(tween(AppMotion.Medium)),
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
           MiniField(controller.notebookNameValue, "Notebook name", Modifier.weight(1f)) {
             controller.notebookNameValue = it
             controller.notebookError = ""
@@ -72,19 +79,34 @@ internal fun NotebookSidebar(
           GlassIcon(Icons.Outlined.Close, "Close") { controller.newNotebookOpen = false }
         }
         if (controller.notebookError.isNotBlank()) {
-          Text(controller.notebookError, color = messageColor(), fontSize = 12.sp, modifier = Modifier.padding(start = 10.dp, bottom = 8.dp))
+          Text(
+            controller.notebookError,
+            color = messageColor(),
+            fontSize = 12.sp,
+            modifier = Modifier.padding(start = 10.dp, bottom = 8.dp),
+          )
         }
       }
     }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
       item {
-        NavRow(Icons.AutoMirrored.Outlined.Article, "All notes", notebookCountLabel(controller.notes.size, controller), controller.filterId == "all") {
+        NavRow(
+          Icons.AutoMirrored.Outlined.Article,
+          "All notes",
+          notebookCountLabel(controller.notes.size, controller),
+          controller.filterId == "all",
+        ) {
           controller.filterId = "all"
           onFilterPicked()
         }
       }
       item {
-        NavRow(Icons.Outlined.BookmarkBorder, "Unfiled", notebookCountLabel(controller.unfiledCount, controller), controller.filterId == "unfiled") {
+        NavRow(
+          Icons.Outlined.BookmarkBorder,
+          "Unfiled",
+          notebookCountLabel(controller.unfiledCount, controller),
+          controller.filterId == "unfiled",
+        ) {
           controller.filterId = "unfiled"
           onFilterPicked()
         }
@@ -93,7 +115,12 @@ internal fun NotebookSidebar(
         NotebookRow(controller, notebook, onPicked = onFilterPicked)
       }
       item {
-        NavRow(Icons.Outlined.Delete, "Trash", notebookCountLabel(controller.trash.size, controller), controller.filterId == "trash") {
+        NavRow(
+          Icons.Outlined.Delete,
+          "Trash",
+          notebookCountLabel(controller.trash.size, controller),
+          controller.filterId == "trash",
+        ) {
           controller.filterId = "trash"
           onFilterPicked()
         }
@@ -102,17 +129,20 @@ internal fun NotebookSidebar(
   }
 }
 
-private fun notebookCountLabel(count: Int, controller: NotesController): String = if (controller.isWorkspaceLoading) "..." else count.toString()
+private fun notebookCountLabel(count: Int, controller: NotesController): String =
+  if (controller.isWorkspaceLoading) "..." else count.toString()
 
 @Composable
 private fun NotebookRow(
   controller: NotesController,
   notebook: LocalNotebook,
-  onPicked: () -> Unit = {}
+  onPicked: () -> Unit = {},
 ) {
   if (controller.renamingNotebookId == notebook.id) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-      MiniField(controller.renameNotebookValue, "Notebook", Modifier.weight(1f)) { controller.renameNotebookValue = it }
+      MiniField(controller.renameNotebookValue, "Notebook", Modifier.weight(1f)) {
+        controller.renameNotebookValue = it
+      }
       GlassIcon(Icons.Outlined.Check, "Save") { controller.submitRename(notebook) }
       GlassIcon(Icons.Outlined.Close, "Cancel") { controller.renamingNotebookId = null }
     }
@@ -122,7 +152,7 @@ private fun NotebookRow(
       label = notebook.name,
       count = (controller.notebookCounts[notebook.id] ?: 0).toString(),
       active = controller.filterId == notebook.id,
-      trailing = { NotebookActionsMenu(controller, notebook) }
+      trailing = { NotebookActionsMenu(controller, notebook) },
     ) {
       controller.filterId = notebook.id
       onPicked()
@@ -145,7 +175,7 @@ private fun NotebookActionsMenu(controller: NotesController, notebook: LocalNote
         onClick = {
           open = false
           controller.startRename(notebook)
-        }
+        },
       )
       DropdownMenuItem(
         text = { Text("Delete") },
@@ -153,7 +183,7 @@ private fun NotebookActionsMenu(controller: NotesController, notebook: LocalNote
         onClick = {
           open = false
           controller.deletingNotebookId = notebook.id
-        }
+        },
       )
     }
   }
@@ -167,14 +197,10 @@ private fun DeleteNotebookDialog(controller: NotesController, notebook: LocalNot
     title = { Text("Delete notebook?") },
     text = { Text("Notes in ${notebook.name} will move to Trash.") },
     confirmButton = {
-      TextButton(onClick = { controller.confirmDeleteNotebook(notebook) }) {
-        Text("Delete")
-      }
+      TextButton(onClick = { controller.confirmDeleteNotebook(notebook) }) { Text("Delete") }
     },
     dismissButton = {
-      TextButton(onClick = { controller.deletingNotebookId = null }) {
-        Text("Cancel")
-      }
-    }
+      TextButton(onClick = { controller.deletingNotebookId = null }) { Text("Cancel") }
+    },
   )
 }

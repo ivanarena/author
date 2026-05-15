@@ -66,19 +66,12 @@ import com.author.BuildConfig
 import java.util.Locale
 
 @Composable
-internal fun SettingsPage(
-  controller: NotesController,
-  onExport: () -> Unit,
-  onImport: () -> Unit
-) {
+internal fun SettingsPage(controller: NotesController, onExport: () -> Unit, onImport: () -> Unit) {
   val compactScreen = isCompactWindow()
   val showingMenu = compactScreen && controller.settingsSection == "menu"
   val section = activeSettingsSection(controller.settingsSection)
 
-  Surface(
-    modifier = Modifier.fillMaxSize(),
-    color = MaterialTheme.colorScheme.background
-  ) {
+  Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
     Column(Modifier.fillMaxSize()) {
       PageHeader(
         leading = {
@@ -95,14 +88,11 @@ internal fun SettingsPage(
         if (showingMenu) {
           SettingsSectionSelector(
             controller = controller,
-            modifier = Modifier
-              .fillMaxSize()
-              .padding(horizontal = 20.dp, vertical = 16.dp)
+            modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp),
           )
         } else {
           Column(
-            Modifier
-              .fillMaxSize()
+            Modifier.fillMaxSize()
               .verticalScroll(rememberScrollState())
               .padding(horizontal = 20.dp, vertical = 16.dp)
           ) {
@@ -111,18 +101,11 @@ internal fun SettingsPage(
         }
       } else {
         Row(
-          Modifier
-            .fillMaxSize()
-            .padding(horizontal = 32.dp, vertical = 24.dp),
-          horizontalArrangement = Arrangement.spacedBy(24.dp)
+          Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 24.dp),
+          horizontalArrangement = Arrangement.spacedBy(24.dp),
         ) {
           SettingsSectionSelector(controller, modifier = Modifier.width(220.dp))
-          Column(
-            Modifier
-              .weight(1f)
-              .widthIn(max = 760.dp)
-              .verticalScroll(rememberScrollState())
-          ) {
+          Column(Modifier.weight(1f).widthIn(max = 760.dp).verticalScroll(rememberScrollState())) {
             SettingsContent(controller, onExport, onImport, section)
           }
         }
@@ -132,19 +115,29 @@ internal fun SettingsPage(
 }
 
 @Composable
-private fun SettingsSectionSelector(
-  controller: NotesController,
-  modifier: Modifier = Modifier
-) {
-  val sections = listOf(
-    Triple("account", "Account", Icons.Outlined.AccountCircle),
-    Triple("sync", "Sync", Icons.Outlined.Refresh),
-    Triple("data", "Data", Icons.Outlined.Download),
-    Triple("appearance", "Appearance", if (controller.theme.startsWith("dark")) Icons.Outlined.LightMode else Icons.Outlined.DarkMode)
-  )
-  Column(modifier.animateContentSize(tween(AppMotion.Medium)), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+private fun SettingsSectionSelector(controller: NotesController, modifier: Modifier = Modifier) {
+  val sections =
+    listOf(
+      Triple("account", "Account", Icons.Outlined.AccountCircle),
+      Triple("sync", "Sync", Icons.Outlined.Refresh),
+      Triple("data", "Data", Icons.Outlined.Download),
+      Triple(
+        "appearance",
+        "Appearance",
+        if (controller.theme.startsWith("dark")) Icons.Outlined.LightMode
+        else Icons.Outlined.DarkMode,
+      ),
+    )
+  Column(
+    modifier.animateContentSize(tween(AppMotion.Medium)),
+    verticalArrangement = Arrangement.spacedBy(6.dp),
+  ) {
     sections.forEach { (id, label, icon) ->
-      SettingsNavRow(icon, label, active = activeSettingsSection(controller.settingsSection) == id) {
+      SettingsNavRow(
+        icon,
+        label,
+        active = activeSettingsSection(controller.settingsSection) == id,
+      ) {
         controller.settingsSection = id
       }
     }
@@ -152,46 +145,43 @@ private fun SettingsSectionSelector(
 }
 
 @Composable
-private fun SettingsNavRow(
-  icon: ImageVector,
-  label: String,
-  active: Boolean,
-  onClick: () -> Unit
-) {
-  val contentColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f)
-  Surface(
-    color = Color.Transparent,
-    shape = RoundedCornerShape(8.dp)
-  ) {
+private fun SettingsNavRow(icon: ImageVector, label: String, active: Boolean, onClick: () -> Unit) {
+  val contentColor =
+    if (active) MaterialTheme.colorScheme.primary
+    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f)
+  Surface(color = Color.Transparent, shape = RoundedCornerShape(8.dp)) {
     Row(
-      Modifier
-        .fillMaxWidth()
+      Modifier.fillMaxWidth()
         .heightIn(min = 44.dp)
         .clickable(onClick = onClick)
         .padding(horizontal = 12.dp, vertical = 10.dp),
       verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(10.dp)
+      horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
       Icon(icon, null, modifier = Modifier.size(17.dp), tint = contentColor)
-      Text(label, color = contentColor, fontSize = 14.sp, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
+      Text(
+        label,
+        color = contentColor,
+        fontSize = 14.sp,
+        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+      )
     }
   }
 }
 
-private fun activeSettingsSection(section: String): String = if (section == "menu") "account" else section
+private fun activeSettingsSection(section: String): String =
+  if (section == "menu") "account" else section
 
 @Composable
 private fun SettingsContent(
   controller: NotesController,
   onExport: () -> Unit,
   onImport: () -> Unit,
-  section: String = activeSettingsSection(controller.settingsSection)
+  section: String = activeSettingsSection(controller.settingsSection),
 ) {
   Column(
-    Modifier
-      .fillMaxWidth()
-      .animateContentSize(tween(AppMotion.Slow)),
-    verticalArrangement = Arrangement.spacedBy(14.dp)
+    Modifier.fillMaxWidth().animateContentSize(tween(AppMotion.Slow)),
+    verticalArrangement = Arrangement.spacedBy(14.dp),
   ) {
     when (section) {
       "account" -> AccountSettings(controller)
@@ -207,54 +197,109 @@ internal fun AccountSettings(controller: NotesController, showIdentity: Boolean 
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
     if (controller.hasToken) {
       if (showIdentity) {
-        Text(controller.accountDisplayName.ifBlank { controller.accountUsername }, fontWeight = FontWeight.Bold)
-        Text(controller.accountUsername, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f), fontSize = 12.sp)
+        Text(
+          controller.accountDisplayName.ifBlank { controller.accountUsername },
+          fontWeight = FontWeight.Bold,
+        )
+        Text(
+          controller.accountUsername,
+          color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+          fontSize = 12.sp,
+        )
       }
       if (controller.accountProfileEditing) {
-        MiniField(controller.accountDisplayName, "Nickname", Modifier.fillMaxWidth()) { controller.accountDisplayName = it }
-        MiniField(controller.accountEmail, "Email", Modifier.fillMaxWidth()) { controller.accountEmail = it }
+        MiniField(controller.accountDisplayName, "Nickname", Modifier.fillMaxWidth()) {
+          controller.accountDisplayName = it
+        }
+        MiniField(controller.accountEmail, "Email", Modifier.fillMaxWidth()) {
+          controller.accountEmail = it
+        }
         ActionRow(Icons.Outlined.Check, "Save profile") { controller.saveAccountProfile() }
       } else {
         ActionRow(Icons.Outlined.Edit, "Edit profile") { controller.accountProfileEditing = true }
       }
       if (controller.accountPasswordEditing) {
-        PasswordField(controller.currentPasswordValue, "Current") { controller.currentPasswordValue = it }
+        PasswordField(controller.currentPasswordValue, "Current") {
+          controller.currentPasswordValue = it
+        }
         PasswordField(controller.newPasswordValue, "New") { controller.newPasswordValue = it }
-        PasswordField(controller.confirmPasswordValue, "Confirm") { controller.confirmPasswordValue = it }
+        PasswordField(controller.confirmPasswordValue, "Confirm") {
+          controller.confirmPasswordValue = it
+        }
         ActionRow(Icons.Outlined.Check, "Change password") { controller.changePassword() }
       } else {
-        ActionRow(Icons.Outlined.Settings, "Change password") { controller.accountPasswordEditing = true }
+        ActionRow(Icons.Outlined.Settings, "Change password") {
+          controller.accountPasswordEditing = true
+        }
       }
       if (controller.accountTotpEditing) {
         if (!controller.accountTwoFactorEnabled) {
-          MiniField(controller.accountTotpSecret, "2FA secret", Modifier.fillMaxWidth()) { controller.accountTotpSecret = it }
+          MiniField(controller.accountTotpSecret, "2FA secret", Modifier.fillMaxWidth()) {
+            controller.accountTotpSecret = it
+          }
           SelectionContainer {
-            Text(controller.accountTotpUrl, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f), fontSize = 12.sp)
+            Text(
+              controller.accountTotpUrl,
+              color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+              fontSize = 12.sp,
+            )
           }
         }
-        PasswordField(controller.accountTotpPasswordValue, "Current password") { controller.accountTotpPasswordValue = it }
-        MiniField(controller.accountTotpCodeValue, "2FA code", Modifier.fillMaxWidth()) { controller.accountTotpCodeValue = it }
-        ActionRow(Icons.Outlined.Check, if (controller.accountTwoFactorEnabled) "Disable 2FA" else "Enable 2FA") { controller.saveTotp() }
+        PasswordField(controller.accountTotpPasswordValue, "Current password") {
+          controller.accountTotpPasswordValue = it
+        }
+        MiniField(controller.accountTotpCodeValue, "2FA code", Modifier.fillMaxWidth()) {
+          controller.accountTotpCodeValue = it
+        }
+        ActionRow(
+          Icons.Outlined.Check,
+          if (controller.accountTwoFactorEnabled) "Disable 2FA" else "Enable 2FA",
+        ) {
+          controller.saveTotp()
+        }
         ActionRow(Icons.Outlined.Close, "Cancel 2FA") { controller.cancelTotpEdit() }
       } else {
-        ActionRow(Icons.Outlined.Settings, if (controller.accountTwoFactorEnabled) "Disable 2FA" else "Enable 2FA") { controller.startTotpEdit() }
+        ActionRow(
+          Icons.Outlined.Settings,
+          if (controller.accountTwoFactorEnabled) "Disable 2FA" else "Enable 2FA",
+        ) {
+          controller.startTotpEdit()
+        }
       }
       if (controller.accountDeleteEditing) {
-        PasswordField(controller.deletePasswordValue, "Password") { controller.deletePasswordValue = it }
+        PasswordField(controller.deletePasswordValue, "Password") {
+          controller.deletePasswordValue = it
+        }
         ActionRow(Icons.Outlined.Delete, "Delete account") { controller.deleteAccount() }
       } else {
-        ActionRow(Icons.Outlined.Delete, "Delete account") { controller.accountDeleteEditing = true }
+        ActionRow(Icons.Outlined.Delete, "Delete account") {
+          controller.accountDeleteEditing = true
+        }
       }
       if (controller.accountError.isNotBlank()) {
-        Text(controller.accountError, color = messageColor(), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+          controller.accountError,
+          color = messageColor(),
+          fontSize = 12.sp,
+          fontWeight = FontWeight.SemiBold,
+        )
       }
       if (controller.accountMessage.isNotBlank()) {
-        Text(controller.accountMessage, color = messageColor(), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+          controller.accountMessage,
+          color = messageColor(),
+          fontSize = 12.sp,
+          fontWeight = FontWeight.SemiBold,
+        )
       }
     } else {
       if (showIdentity) {
         Text("Local workspace", fontWeight = FontWeight.Bold)
-        Text("Sync is off for this device", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f), fontSize = 12.sp)
+        Text(
+          "Sync is off for this device",
+          color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+          fontSize = 12.sp,
+        )
       }
       ActionRow(Icons.AutoMirrored.Outlined.Login, "Sign in to sync") { controller.openLogin() }
     }
@@ -265,25 +310,44 @@ internal fun AccountSettings(controller: NotesController, showIdentity: Boolean 
 private fun SyncSettings(controller: NotesController) {
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
     SyncStatusTile(controller)
-    InfoTile("Pending local changes", controller.pendingSyncCount.toString(), "${controller.pendingSyncCount} items waiting to sync")
+    InfoTile(
+      "Pending local changes",
+      controller.pendingSyncCount.toString(),
+      "${controller.pendingSyncCount} items waiting to sync",
+    )
     InfoTile("Last sync pass", controller.lastSyncPassTitle, controller.lastSyncPassDetail)
     InfoTile("Installed API", BuildConfig.DEFAULT_API_BASE_URL, buildApiDetail())
-    InfoTile("Connected API", controller.serverApiBaseUrl.ifBlank { controller.apiBaseUrl }, serverApiDetail(controller))
+    InfoTile(
+      "Connected API",
+      controller.serverApiBaseUrl.ifBlank { controller.apiBaseUrl },
+      serverApiDetail(controller),
+    )
     InfoTile("Remote database", remoteDatabaseValue(controller), remoteDatabaseDetail(controller))
     if (controller.remoteSyncEnabled || controller.remoteSyncError.isNotBlank()) {
-      InfoTile("Remote sync", controller.remoteSyncState, controller.remoteSyncError.ifBlank { "Remote worker status from the last check" })
+      InfoTile(
+        "Remote sync",
+        controller.remoteSyncState,
+        controller.remoteSyncError.ifBlank { "Remote worker status from the last check" },
+      )
     }
     SyncDebugTile(controller)
-    MiniField(controller.apiBaseUrl, "Author API URL", Modifier.fillMaxWidth()) { controller.apiBaseUrl = it }
+    MiniField(controller.apiBaseUrl, "Author API URL", Modifier.fillMaxWidth()) {
+      controller.apiBaseUrl = it
+    }
     ActionRow(Icons.Outlined.Check, "Save API URL") { controller.saveApiBaseUrl() }
     ActionRow(Icons.Outlined.Settings, "Use installed API") { controller.useBuildApiBaseUrl() }
-    ActionRow(Icons.Outlined.Refresh, "Check API") { controller.refreshServerConfig(showNotification = true) }
+    ActionRow(Icons.Outlined.Refresh, "Check API") {
+      controller.refreshServerConfig(showNotification = true)
+    }
     if (controller.hasToken) {
-      ActionRow(Icons.Outlined.Refresh, if (controller.isSyncing) controller.syncLabel else "Sync now") { controller.syncNow() }
-    } else {
-      ActionRow(Icons.AutoMirrored.Outlined.Login, "Sign in to sync") {
-        controller.openLogin()
+      ActionRow(
+        Icons.Outlined.Refresh,
+        if (controller.isSyncing) controller.syncLabel else "Sync now",
+      ) {
+        controller.syncNow()
       }
+    } else {
+      ActionRow(Icons.AutoMirrored.Outlined.Login, "Sign in to sync") { controller.openLogin() }
     }
   }
 }
@@ -292,58 +356,88 @@ private fun SyncSettings(controller: NotesController) {
 private fun SyncStatusTile(controller: NotesController) {
   GlassPanel(Modifier.fillMaxWidth()) {
     Column(Modifier.padding(10.dp)) {
-      Text("Status", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+      Text(
+        "Status",
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+        fontSize = 12.sp,
+        fontWeight = FontWeight.SemiBold,
+      )
       Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
       ) {
         SyncActivityIndicator(controller.isSyncing)
-        Text(controller.syncLabel.ifBlank { " " }, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(
+          controller.syncLabel.ifBlank { " " },
+          fontWeight = FontWeight.SemiBold,
+          maxLines = 2,
+          overflow = TextOverflow.Ellipsis,
+        )
       }
       if (controller.syncDetail.isNotBlank()) {
-        Text(controller.syncDetail, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f), fontSize = 12.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        Text(
+          controller.syncDetail,
+          color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+          fontSize = 12.sp,
+          maxLines = 3,
+          overflow = TextOverflow.Ellipsis,
+        )
       }
     }
   }
 }
 
-private fun buildApiDetail(): String = if (BuildConfig.DEFAULT_API_BASE_URL_CONFIGURED) {
-  "Loaded from build-time environment or Gradle property"
-} else {
-  "Local emulator default. Set AUTHOR_API_URL for a real build."
-}
+private fun buildApiDetail(): String =
+  if (BuildConfig.DEFAULT_API_BASE_URL_CONFIGURED) {
+    "Loaded from build-time environment or Gradle property"
+  } else {
+    "Local emulator default. Set AUTHOR_API_URL for a real build."
+  }
 
-private fun serverApiDetail(controller: NotesController): String = controller.serverConfigError.ifBlank {
-  "Reported by the Author API. Turso credentials stay on the server."
-}
+private fun serverApiDetail(controller: NotesController): String =
+  controller.serverConfigError.ifBlank {
+    "Reported by the Author API. Turso credentials stay on the server."
+  }
 
-private fun remoteDatabaseValue(controller: NotesController): String = when {
-  controller.serverRemoteDatabaseConfigured -> "Configured"
-  controller.serverConfigError.isBlank() -> "Not configured"
-  else -> "Unknown"
-}
+private fun remoteDatabaseValue(controller: NotesController): String =
+  when {
+    controller.serverRemoteDatabaseConfigured -> "Configured"
+    controller.serverConfigError.isBlank() -> "Not configured"
+    else -> "Unknown"
+  }
 
-private fun remoteDatabaseDetail(controller: NotesController): String = when {
-  controller.serverConfigError.isNotBlank() -> controller.serverConfigError
-  controller.serverRemoteSyncEnabled -> "Turso remote mirror enabled by the API server"
-  controller.serverRemoteDatabaseConfigured -> "Turso configured on the API server, remote sync disabled"
-  else -> "Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN on the API server"
-}
+private fun remoteDatabaseDetail(controller: NotesController): String =
+  when {
+    controller.serverConfigError.isNotBlank() -> controller.serverConfigError
+    controller.serverRemoteSyncEnabled -> "Turso remote mirror enabled by the API server"
+    controller.serverRemoteDatabaseConfigured ->
+      "Turso configured on the API server, remote sync disabled"
+    else -> "Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN on the API server"
+  }
 
 @Composable
 private fun SyncDebugTile(controller: NotesController) {
   GlassPanel(Modifier.fillMaxWidth()) {
     Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-      Text("Debug", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+      Text(
+        "Debug",
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+        fontSize = 12.sp,
+        fontWeight = FontWeight.SemiBold,
+      )
       Text(controller.syncDebugTitle, fontWeight = FontWeight.SemiBold)
-      Text(controller.syncDebugDetail, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f), fontSize = 12.sp)
+      Text(
+        controller.syncDebugDetail,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+        fontSize = 12.sp,
+      )
       SelectionContainer {
         Text(
           controller.syncDebugLog,
           color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
           fontFamily = FontFamily.Monospace,
           fontSize = 11.sp,
-          lineHeight = 15.sp
+          lineHeight = 15.sp,
         )
       }
     }
@@ -351,19 +445,26 @@ private fun SyncDebugTile(controller: NotesController) {
 }
 
 @Composable
-private fun DataSettings(
-  controller: NotesController,
-  onExport: () -> Unit,
-  onImport: () -> Unit
-) {
+private fun DataSettings(controller: NotesController, onExport: () -> Unit, onImport: () -> Unit) {
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
     if (controller.importBanner.isNotBlank()) {
-      Text(controller.importBanner, color = messageColor(), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+      Text(
+        controller.importBanner,
+        color = messageColor(),
+        fontSize = 12.sp,
+        fontWeight = FontWeight.SemiBold,
+      )
     }
-    ActionRow(Icons.Outlined.Download, if (controller.isArchiveBusy) "Working" else "Export MD ZIP") {
+    ActionRow(
+      Icons.Outlined.Download,
+      if (controller.isArchiveBusy) "Working" else "Export MD ZIP",
+    ) {
       if (!controller.isArchiveBusy) onExport()
     }
-    ActionRow(Icons.Outlined.Upload, if (controller.isArchiveBusy) "Working" else "Import MD files") {
+    ActionRow(
+      Icons.Outlined.Upload,
+      if (controller.isArchiveBusy) "Working" else "Import MD files",
+    ) {
       if (!controller.isArchiveBusy) onImport()
     }
   }
@@ -374,9 +475,12 @@ private fun AppearanceSettings(controller: NotesController) {
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
     ActionRow(Icons.Outlined.FolderOpen, "Compact notes") { controller.toggleCompactView() }
     ActionRow(
-      if (controller.theme.startsWith("dark")) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
-      if (controller.theme.startsWith("dark")) "Light mode" else "Dark mode"
-    ) { controller.toggleTheme() }
+      if (controller.theme.startsWith("dark")) Icons.Outlined.LightMode
+      else Icons.Outlined.DarkMode,
+      if (controller.theme.startsWith("dark")) "Light mode" else "Dark mode",
+    ) {
+      controller.toggleTheme()
+    }
     ThemeDotPicker(controller)
     FontDropdown(controller)
     SettingsStepper("Text size", "${controller.editorTextSize.toInt()}sp") {
@@ -387,11 +491,22 @@ private fun AppearanceSettings(controller: NotesController) {
         controller.adjustEditorTextSize(1f)
       }
     }
-    SettingsStepper("Line height", String.format(Locale.ROOT, "%.2f", controller.editorLineHeight)) {
-      GlassIcon(Icons.Outlined.ZoomOut, "Tighter lines", enabled = controller.editorLineHeight > 1.35f) {
+    SettingsStepper(
+      "Line height",
+      String.format(Locale.ROOT, "%.2f", controller.editorLineHeight),
+    ) {
+      GlassIcon(
+        Icons.Outlined.ZoomOut,
+        "Tighter lines",
+        enabled = controller.editorLineHeight > 1.35f,
+      ) {
         controller.adjustEditorLineHeight(-0.05f)
       }
-      GlassIcon(Icons.Outlined.ZoomIn, "Looser lines", enabled = controller.editorLineHeight < 2.1f) {
+      GlassIcon(
+        Icons.Outlined.ZoomIn,
+        "Looser lines",
+        enabled = controller.editorLineHeight < 2.1f,
+      ) {
         controller.adjustEditorLineHeight(0.05f)
       }
     }
@@ -423,19 +538,21 @@ private fun ThemeDotPicker(controller: NotesController) {
 
 @Composable
 private fun ThemeDot(choice: ThemeChoice, active: Boolean, onClick: () -> Unit) {
-  val borderColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.62f)
+  val borderColor =
+    if (active) MaterialTheme.colorScheme.primary
+    else MaterialTheme.colorScheme.outline.copy(alpha = 0.62f)
   Surface(
-    modifier = Modifier
-      .size(34.dp)
-      .semantics {
-        contentDescription = choice.label
-        stateDescription = if (active) "Selected" else "Not selected"
-      }
-      .clickable(onClick = onClick),
+    modifier =
+      Modifier.size(34.dp)
+        .semantics {
+          contentDescription = choice.label
+          stateDescription = if (active) "Selected" else "Not selected"
+        }
+        .clickable(onClick = onClick),
     color = themeDotColor(choice.value),
     contentColor = themeDotContentColor(choice.value),
     shape = CircleShape,
-    border = BorderStroke(if (active) 2.dp else 1.dp, borderColor)
+    border = BorderStroke(if (active) 2.dp else 1.dp, borderColor),
   ) {
     Box(contentAlignment = Alignment.Center) {
       if (active) {
@@ -453,27 +570,28 @@ private fun FontDropdown(controller: NotesController) {
   SettingsChoiceGroup("Font") {
     Box {
       Surface(
-        modifier = Modifier
-          .fillMaxWidth()
-          .clickable { open = true },
+        modifier = Modifier.fillMaxWidth().clickable { open = true },
         color = Color.Transparent,
-        shape = RoundedCornerShape(8.dp)
+        shape = RoundedCornerShape(8.dp),
       ) {
         Row(
-          Modifier
-            .heightIn(min = 42.dp)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+          Modifier.heightIn(min = 42.dp).padding(horizontal = 12.dp, vertical = 8.dp),
           verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.spacedBy(8.dp)
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
           Text(
             selected.label,
             modifier = Modifier.weight(1f),
             fontSize = 14.sp,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
           )
-          Icon(Icons.Outlined.ExpandMore, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f))
+          Icon(
+            Icons.Outlined.ExpandMore,
+            null,
+            modifier = Modifier.size(18.dp),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+          )
         }
       }
       AppDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
@@ -484,7 +602,7 @@ private fun FontDropdown(controller: NotesController) {
             onClick = {
               controller.chooseEditorFont(choice.value)
               open = false
-            }
+            },
           )
         }
       }
@@ -499,7 +617,7 @@ private fun SettingsChoiceGroup(label: String, content: @Composable ColumnScope.
       label,
       color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
       fontSize = 12.sp,
-      fontWeight = FontWeight.SemiBold
+      fontWeight = FontWeight.SemiBold,
     )
     Column(verticalArrangement = Arrangement.spacedBy(4.dp), content = content)
   }
@@ -509,37 +627,38 @@ private fun SettingsChoiceGroup(label: String, content: @Composable ColumnScope.
 private fun SettingsStepper(
   label: String,
   value: String,
-  controls: @Composable RowScope.() -> Unit
+  controls: @Composable RowScope.() -> Unit,
 ) {
   Row(
     verticalAlignment = Alignment.CenterVertically,
-    horizontalArrangement = Arrangement.spacedBy(8.dp)
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
   ) {
     Column(Modifier.weight(1f)) {
       Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-      Text(
-        value,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-        fontSize = 12.sp
-      )
+      Text(value, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f), fontSize = 12.sp)
     }
     controls()
   }
 }
 
-private fun themeDotColor(theme: String): Color = when (theme) {
-  "light-mint" -> Color(0xFF527E5F)
-  "light-rose" -> Color(0xFF985966)
-  "light-lavender" -> Color(0xFF655B91)
-  "dark" -> Color(0xFF202020)
-  "dark-mint" -> Color(0xFFA7D7B4)
-  "dark-rose" -> Color(0xFFE7B1BC)
-  "dark-lavender" -> Color(0xFFC8BEEF)
-  else -> Color(0xFFF8F7F3)
-}
+private fun themeDotColor(theme: String): Color =
+  when (theme) {
+    "light-mint" -> Color(0xFF527E5F)
+    "light-rose" -> Color(0xFF985966)
+    "light-lavender" -> Color(0xFF655B91)
+    "dark" -> Color(0xFF202020)
+    "dark-mint" -> Color(0xFFA7D7B4)
+    "dark-rose" -> Color(0xFFE7B1BC)
+    "dark-lavender" -> Color(0xFFC8BEEF)
+    else -> Color(0xFFF8F7F3)
+  }
 
-private fun themeDotContentColor(theme: String): Color = when (theme) {
-  "light", "light-mint", "light-rose", "light-lavender" -> Color(0xFF202020)
-  "dark" -> Color(0xFFF4F4F2)
-  else -> Color(0xFF111111)
-}
+private fun themeDotContentColor(theme: String): Color =
+  when (theme) {
+    "light",
+    "light-mint",
+    "light-rose",
+    "light-lavender" -> Color(0xFF202020)
+    "dark" -> Color(0xFFF4F4F2)
+    else -> Color(0xFF111111)
+  }

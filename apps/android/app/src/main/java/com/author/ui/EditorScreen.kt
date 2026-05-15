@@ -61,17 +61,28 @@ private fun EditorTopBar(controller: NotesController) {
   val compactScreen = isCompactWindow()
   Surface(color = toolbarColor()) {
     Row(
-      Modifier
-        .fillMaxWidth()
+      Modifier.fillMaxWidth()
         .heightIn(min = if (compactScreen) 64.dp else 72.dp)
         .padding(horizontal = if (compactScreen) 16.dp else 28.dp, vertical = 8.dp),
       verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(8.dp)
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
       GlassIcon(Icons.Outlined.Menu, "Notes") { controller.navigateTo("notes") }
       Spacer(Modifier.weight(1f))
-      GlassIcon(Icons.AutoMirrored.Outlined.Undo, "Undo", enabled = controller.undoStack.isNotEmpty()) { controller.undoEditor() }
-      GlassIcon(Icons.AutoMirrored.Outlined.Redo, "Redo", enabled = controller.redoStack.isNotEmpty()) { controller.redoEditor() }
+      GlassIcon(
+        Icons.AutoMirrored.Outlined.Undo,
+        "Undo",
+        enabled = controller.undoStack.isNotEmpty(),
+      ) {
+        controller.undoEditor()
+      }
+      GlassIcon(
+        Icons.AutoMirrored.Outlined.Redo,
+        "Redo",
+        enabled = controller.redoStack.isNotEmpty(),
+      ) {
+        controller.redoEditor()
+      }
       EditorMoreMenu(controller)
     }
   }
@@ -82,31 +93,38 @@ private fun EditorPane(controller: NotesController, modifier: Modifier = Modifie
   val text = MaterialTheme.colorScheme.onSurface
   val muted = text.copy(alpha = 0.52f)
   val compactScreen = isCompactWindow()
-  val titleSize = (controller.editorTextSize * (if (compactScreen) 2.38f else 3.62f) * controller.editorZoom).sp
-  val titleLineHeight = (controller.editorTextSize * (if (compactScreen) 2.75f else 3.94f) * controller.editorZoom).sp
+  val titleSize =
+    (controller.editorTextSize * (if (compactScreen) 2.38f else 3.62f) * controller.editorZoom).sp
+  val titleLineHeight =
+    (controller.editorTextSize * (if (compactScreen) 2.75f else 3.94f) * controller.editorZoom).sp
   val bodySize = (controller.editorTextSize * controller.editorZoom).sp
-  val bodyLineHeight = (controller.editorTextSize * controller.editorLineHeight * controller.editorZoom).sp
+  val bodyLineHeight =
+    (controller.editorTextSize * controller.editorLineHeight * controller.editorZoom).sp
   val fontFamily = LocalAppFontFamily.current
 
   Column(
     modifier
       .fillMaxSize()
       .padding(horizontal = if (compactScreen) 20.dp else 32.dp)
-      .padding(top = if (compactScreen) 24.dp else 48.dp, bottom = if (compactScreen) 8.dp else 16.dp),
-    horizontalAlignment = Alignment.CenterHorizontally
+      .padding(
+        top = if (compactScreen) 24.dp else 48.dp,
+        bottom = if (compactScreen) 8.dp else 16.dp,
+      ),
+    horizontalAlignment = Alignment.CenterHorizontally,
   ) {
     Column(Modifier.fillMaxWidth().weight(1f, fill = true)) {
       BasicTextField(
         value = controller.titleValue,
         onValueChange = { controller.updateEditor("title", it) },
         readOnly = controller.selectedNote?.trashedAt != null,
-        textStyle = TextStyle(
-          color = text,
-          fontSize = titleSize,
-          fontWeight = FontWeight.Bold,
-          lineHeight = titleLineHeight,
-          fontFamily = fontFamily
-        ),
+        textStyle =
+          TextStyle(
+            color = text,
+            fontSize = titleSize,
+            fontWeight = FontWeight.Bold,
+            lineHeight = titleLineHeight,
+            fontFamily = fontFamily,
+          ),
         modifier = Modifier.fillMaxWidth(),
         decorationBox = { inner ->
           if (controller.titleValue.isBlank()) {
@@ -115,38 +133,36 @@ private fun EditorPane(controller: NotesController, modifier: Modifier = Modifie
               color = muted.copy(alpha = 0.38f),
               fontSize = titleSize,
               fontWeight = FontWeight.Bold,
-              fontFamily = fontFamily
+              fontFamily = fontFamily,
             )
           }
           inner()
-        }
+        },
       )
       Spacer(Modifier.height(if (compactScreen) 28.dp else 48.dp))
       BasicTextField(
         value = controller.bodyValue,
         onValueChange = { controller.updateEditor("body", it) },
         readOnly = controller.selectedNote?.trashedAt != null,
-        textStyle = TextStyle(
-          color = text,
-          fontSize = bodySize,
-          lineHeight = bodyLineHeight,
-          fontFamily = fontFamily
-        ),
-        modifier = Modifier
-          .fillMaxWidth()
-          .weight(1f)
-          .verticalScroll(rememberScrollState()),
+        textStyle =
+          TextStyle(
+            color = text,
+            fontSize = bodySize,
+            lineHeight = bodyLineHeight,
+            fontFamily = fontFamily,
+          ),
+        modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()),
         decorationBox = { inner ->
           if (controller.bodyValue.isBlank()) {
             Text(
               "Body",
               color = muted.copy(alpha = 0.38f),
               fontSize = bodySize,
-              fontFamily = fontFamily
+              fontFamily = fontFamily,
             )
           }
           inner()
-        }
+        },
       )
     }
     EditorStatusBar(controller, muted)
@@ -169,16 +185,18 @@ private fun EditorMoreMenu(controller: NotesController) {
           onClick = {
             open = false
             controller.navigateTo("notes")
-          }
+          },
         )
       } else if (note.trashedAt != null) {
         DropdownMenuItem(
           text = { Text("Restore") },
-          leadingIcon = { Icon(Icons.Outlined.RestoreFromTrash, null, modifier = Modifier.size(18.dp)) },
+          leadingIcon = {
+            Icon(Icons.Outlined.RestoreFromTrash, null, modifier = Modifier.size(18.dp))
+          },
           onClick = {
             open = false
             controller.restoreNote(note)
-          }
+          },
         )
         DropdownMenuItem(
           text = { Text("Delete permanently") },
@@ -186,7 +204,7 @@ private fun EditorMoreMenu(controller: NotesController) {
           onClick = {
             open = false
             controller.deleteNotePermanently(note)
-          }
+          },
         )
       } else {
         DropdownSectionLabel("Notebooks")
@@ -198,7 +216,7 @@ private fun EditorMoreMenu(controller: NotesController) {
           onClick = {
             open = false
             controller.trashNote(note)
-          }
+          },
         )
       }
       HorizontalDivider()
@@ -209,7 +227,7 @@ private fun EditorMoreMenu(controller: NotesController) {
         onClick = {
           open = false
           metadataOpen = true
-        }
+        },
       )
       DropdownMenuItem(
         text = { Text("Account") },
@@ -217,7 +235,7 @@ private fun EditorMoreMenu(controller: NotesController) {
         onClick = {
           open = false
           controller.navigateTo("account")
-        }
+        },
       )
       DropdownMenuItem(
         text = { Text("Settings") },
@@ -225,7 +243,7 @@ private fun EditorMoreMenu(controller: NotesController) {
         onClick = {
           open = false
           controller.navigateTo("settings")
-        }
+        },
       )
     }
   }
@@ -239,7 +257,7 @@ private fun EditorMoreMenu(controller: NotesController) {
 private fun NoteMetadataDialog(
   controller: NotesController,
   note: LocalNote,
-  onDismiss: () -> Unit
+  onDismiss: () -> Unit,
 ) {
   AlertDialog(
     onDismissRequest = onDismiss,
@@ -253,13 +271,13 @@ private fun NoteMetadataDialog(
         InfoTile("Created", formatDateTime(note.createdAt), "")
       }
     },
-    confirmButton = {
-      TextButton(onClick = onDismiss) { Text("Done") }
-    }
+    confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
   )
 }
 
-private fun lastSyncedLabel(controller: NotesController, note: LocalNote): String = note.lastSyncedAt?.let { "${formatDateTime(it)} by ${controller.deviceName(note.deviceId)}" } ?: "Not synced yet"
+private fun lastSyncedLabel(controller: NotesController, note: LocalNote): String =
+  note.lastSyncedAt?.let { "${formatDateTime(it)} by ${controller.deviceName(note.deviceId)}" }
+    ?: "Not synced yet"
 
 @Composable
 private fun EditorStatusBar(controller: NotesController, muted: Color) {
@@ -267,13 +285,19 @@ private fun EditorStatusBar(controller: NotesController, muted: Color) {
   val status = note?.let { syncStatusLabel(it.syncStatus) } ?: "Unsaved draft"
   Row(
     verticalAlignment = Alignment.CenterVertically,
-    horizontalArrangement = Arrangement.spacedBy(8.dp)
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
   ) {
     Text(status, color = muted, fontSize = 12.sp, maxLines = 1)
     Text("/", color = muted, fontSize = 12.sp, maxLines = 1)
     SyncActivityIndicator(controller.isSyncing)
-    Text(controller.syncLabel, color = statusColor(controller.syncLabel), fontSize = 12.sp, maxLines = 1)
+    Text(
+      controller.syncLabel,
+      color = statusColor(controller.syncLabel),
+      fontSize = 12.sp,
+      maxLines = 1,
+    )
   }
 }
 
-private fun syncStatusLabel(status: String): String = status.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+private fun syncStatusLabel(status: String): String =
+  status.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }

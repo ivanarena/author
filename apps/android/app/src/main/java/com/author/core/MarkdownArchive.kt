@@ -8,17 +8,9 @@ import java.util.Locale
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
-data class MarkdownInputFile(
-  val name: String,
-  val path: String,
-  val text: String
-)
+data class MarkdownInputFile(val name: String, val path: String, val text: String)
 
-data class ParsedImportNotebook(
-  val name: String,
-  val createdAt: String?,
-  val updatedAt: String?
-)
+data class ParsedImportNotebook(val name: String, val createdAt: String?, val updatedAt: String?)
 
 data class ParsedImportNote(
   val title: String,
@@ -26,12 +18,12 @@ data class ParsedImportNote(
   val sourceNotebookNames: List<String>,
   val createdAt: String?,
   val updatedAt: String?,
-  val trashedAt: String?
+  val trashedAt: String?,
 )
 
 data class ParsedImportPayload(
   val notebooks: List<ParsedImportNotebook>,
-  val notes: List<ParsedImportNote>
+  val notes: List<ParsedImportNote>,
 )
 
 data class ImportNotesResult(
@@ -39,15 +31,16 @@ data class ImportNotesResult(
   val importedNotebooks: Int,
   val reusedNotebooks: Int,
   val skippedNotes: Int,
-  val noteIds: List<String>
+  val noteIds: List<String>,
 ) {
   fun summary(): String {
     val noteText = "$importedNotes ${if (importedNotes == 1) "note" else "notes"}"
-    val notebookText = if (importedNotebooks > 0) {
-      ", $importedNotebooks new ${if (importedNotebooks == 1) "notebook" else "notebooks"}"
-    } else {
-      ""
-    }
+    val notebookText =
+      if (importedNotebooks > 0) {
+        ", $importedNotebooks new ${if (importedNotebooks == 1) "notebook" else "notebooks"}"
+      } else {
+        ""
+      }
     val skippedText = if (skippedNotes > 0) ", $skippedNotes blank skipped" else ""
     return "Imported $noteText$notebookText$skippedText"
   }
@@ -58,38 +51,41 @@ private const val delimiter = "---"
 
 fun parseNotesMarkdownImportFiles(files: List<MarkdownInputFile>): ParsedImportPayload {
   val markdownFiles = files.filter { markdownExtension.containsMatchIn(it.name) }
-  val strippedPaths = stripCommonLeadingDirectories(
-    markdownFiles.map { (it.path.ifBlank { it.name }).replace('\\', '/') }
-  )
+  val strippedPaths =
+    stripCommonLeadingDirectories(
+      markdownFiles.map { (it.path.ifBlank { it.name }).replace('\\', '/') }
+    )
   val notebookNames = strippedPaths.flatMap { parentSegments(it) }.distinct()
-  val notes = markdownFiles.mapIndexed { index, file ->
-    val path = strippedPaths.getOrElse(index) { file.name }
-    val parsed = parseMarkdownNote(file.text, file.name)
-    parsed.copy(sourceNotebookNames = parentSegments(path))
-  }
+  val notes =
+    markdownFiles.mapIndexed { index, file ->
+      val path = strippedPaths.getOrElse(index) { file.name }
+      val parsed = parseMarkdownNote(file.text, file.name)
+      parsed.copy(sourceNotebookNames = parentSegments(path))
+    }
   return ParsedImportPayload(
     notebooks = notebookNames.map { ParsedImportNotebook(it, null, null) },
-    notes = notes
+    notes = notes,
   )
 }
 
 fun parseMarkdownNote(content: String, fallbackFileName: String): ParsedImportNote {
   val (frontmatter, body) = splitFrontmatter(content)
-  val title = frontmatter["title"]?.takeIf { it.isNotBlank() }
-    ?: deriveTitle(body).ifBlank { titleFromFileName(fallbackFileName) }
+  val title =
+    frontmatter["title"]?.takeIf { it.isNotBlank() }
+      ?: deriveTitle(body).ifBlank { titleFromFileName(fallbackFileName) }
   return ParsedImportNote(
     title = title,
     body = stripGeneratedHeading(body, title),
     sourceNotebookNames = emptyList(),
     createdAt = parseMarkdownDate(frontmatter["created_at"]),
     updatedAt = parseMarkdownDate(frontmatter["updated_at"]),
-    trashedAt = null
+    trashedAt = null,
   )
 }
 
 fun buildMarkdownZip(
   notes: List<LocalNote>,
-  notebooks: List<LocalNotebook>
+  notebooks: List<LocalNotebook>,
 ): Pair<String, ByteArray> {
   val exportedAt = nowIso()
   val rootName = "author-${exportedAt.take(10)}-md-frontmatter"
@@ -97,15 +93,18 @@ fun buildMarkdownZip(
   val usedPaths = mutableSetOf<String>()
   val output = ByteArrayOutputStream()
   ZipOutputStream(output, Charsets.UTF_8).use { zip ->
-    notes.filter { it.deletedAt == null }
+    notes
+      .filter { it.deletedAt == null }
       .sortedByDescending { it.updatedAt }
       .forEach { note ->
         val title = noteDisplayTitle(note)
         val notebookName = noteNotebookIds(note).firstNotNullOfOrNull { activeNotebooks[it]?.name }
-        val relativePath = uniquePath(
-          listOfNotNull(notebookName?.let { safePathSegment(it) }, "${safePathSegment(title)}.md").joinToString("/"),
-          usedPaths
-        )
+        val relativePath =
+          uniquePath(
+            listOfNotNull(notebookName?.let { safePathSegment(it) }, "${safePathSegment(title)}.md")
+              .joinToString("/"),
+            usedPaths,
+          )
         zip.putNextEntry(ZipEntry("$rootName/$relativePath"))
         zip.write(markdownNoteContent(note, title).toByteArray(Charsets.UTF_8))
         zip.closeEntry()
@@ -117,33 +116,37 @@ fun buildMarkdownZip(
 fun markdownNoteContent(note: LocalNote, title: String): String {
   val body = bodyWithHeading(note.body, title)
   return listOf(
-    delimiter,
-    "title: \"${escapeYamlString(title)}\"",
-    "created_at: ${formatMarkdownDate(note.createdAt)}",
-    "updated_at: ${formatMarkdownDate(note.updatedAt)}",
-    "tags: ",
-    delimiter,
-    "",
-    body.trimEnd(),
-    ""
-  ).joinToString("\n")
+      delimiter,
+      "title: \"${escapeYamlString(title)}\"",
+      "created_at: ${formatMarkdownDate(note.createdAt)}",
+      "updated_at: ${formatMarkdownDate(note.updatedAt)}",
+      "tags: ",
+      delimiter,
+      "",
+      body.trimEnd(),
+      "",
+    )
+    .joinToString("\n")
 }
 
-fun formatMarkdownDate(value: String): String = runCatching {
-  val instant = Instant.parse(value)
-  val date = java.time.LocalDateTime.ofInstant(instant, ZoneId.systemDefault())
-  val suffix = if (date.hour >= 12) "PM" else "AM"
-  val hour12 = date.hour % 12
-  "%02d-%02d-%04d %02d:%02d %s".format(
-    Locale.US,
-    date.dayOfMonth,
-    date.monthValue,
-    date.year,
-    if (hour12 == 0) 12 else hour12,
-    date.minute,
-    suffix
-  )
-}.getOrDefault("")
+fun formatMarkdownDate(value: String): String =
+  runCatching {
+      val instant = Instant.parse(value)
+      val date = java.time.LocalDateTime.ofInstant(instant, ZoneId.systemDefault())
+      val suffix = if (date.hour >= 12) "PM" else "AM"
+      val hour12 = date.hour % 12
+      "%02d-%02d-%04d %02d:%02d %s"
+        .format(
+          Locale.US,
+          date.dayOfMonth,
+          date.monthValue,
+          date.year,
+          if (hour12 == 0) 12 else hour12,
+          date.minute,
+          suffix,
+        )
+    }
+    .getOrDefault("")
 
 private fun splitFrontmatter(content: String): Pair<Map<String, String>, String> {
   val normalized = content.replace("\r\n", "\n")
@@ -155,23 +158,32 @@ private fun splitFrontmatter(content: String): Pair<Map<String, String>, String>
   return parseSimpleYaml(raw) to body
 }
 
-private fun parseSimpleYaml(source: String): Map<String, String> = source.lineSequence().mapNotNull { line ->
-  val match = Regex("^([A-Za-z0-9_-]+):\\s*(.*)$").find(line) ?: return@mapNotNull null
-  match.groupValues[1] to unquoteYamlString(match.groupValues[2].trim())
-}.toMap()
+private fun parseSimpleYaml(source: String): Map<String, String> =
+  source
+    .lineSequence()
+    .mapNotNull { line ->
+      val match = Regex("^([A-Za-z0-9_-]+):\\s*(.*)$").find(line) ?: return@mapNotNull null
+      match.groupValues[1] to unquoteYamlString(match.groupValues[2].trim())
+    }
+    .toMap()
 
 private fun unquoteYamlString(value: String): String {
   if (value.length < 2) return value
   val quote = value.first()
   if ((quote != '"' && quote != '\'') || value.last() != quote) return value
   val inner = value.substring(1, value.length - 1)
-  return if (quote == '"') inner.replace("\\\"", "\"").replace("\\\\", "\\") else inner.replace("''", "'")
+  return if (quote == '"') inner.replace("\\\"", "\"").replace("\\\\", "\\")
+  else inner.replace("''", "'")
 }
 
 private fun parseMarkdownDate(value: String?): String? {
   if (value.isNullOrBlank()) return null
-  val match = Regex("^(\\d{1,2})-(\\d{1,2})-(\\d{4})\\s+(\\d{1,2}):(\\d{2})\\s*(AM|PM)$", RegexOption.IGNORE_CASE)
-    .find(value.trim())
+  val match =
+    Regex(
+        "^(\\d{1,2})-(\\d{1,2})-(\\d{4})\\s+(\\d{1,2}):(\\d{2})\\s*(AM|PM)$",
+        RegexOption.IGNORE_CASE,
+      )
+      .find(value.trim())
   if (match != null) {
     val day = match.groupValues[1]
     val month = match.groupValues[2]
@@ -182,16 +194,16 @@ private fun parseMarkdownDate(value: String?): String? {
     var hour24 = hour.toInt() % 12
     if (suffix.uppercase(Locale.US) == "PM") hour24 += 12
     return runCatching {
-      java.time.LocalDateTime.of(year.toInt(), month.toInt(), day.toInt(), hour24, minute.toInt())
-        .atZone(ZoneId.systemDefault())
-        .toInstant()
-        .toString()
-    }.getOrNull()
+        java.time.LocalDateTime.of(year.toInt(), month.toInt(), day.toInt(), hour24, minute.toInt())
+          .atZone(ZoneId.systemDefault())
+          .toInstant()
+          .toString()
+      }
+      .getOrNull()
   }
   return runCatching { Instant.parse(value.trim()).toString() }.getOrNull()
-    ?: runCatching {
-      Instant.from(DateTimeFormatter.ISO_DATE_TIME.parse(value.trim())).toString()
-    }.getOrNull()
+    ?: runCatching { Instant.from(DateTimeFormatter.ISO_DATE_TIME.parse(value.trim())).toString() }
+      .getOrNull()
 }
 
 private fun stripGeneratedHeading(body: String, title: String): String {
@@ -203,7 +215,10 @@ private fun stripGeneratedHeading(body: String, title: String): String {
 private fun bodyWithHeading(body: String, title: String): String {
   val trimmed = body.trim()
   if (title.isBlank()) return trimmed
-  if (Regex("^#\\s+${Regex.escape(title.trim())}\\s*(?:\\n|$)", RegexOption.IGNORE_CASE).containsMatchIn(trimmed)) {
+  if (
+    Regex("^#\\s+${Regex.escape(title.trim())}\\s*(?:\\n|$)", RegexOption.IGNORE_CASE)
+      .containsMatchIn(trimmed)
+  ) {
     return trimmed
   }
   return if (trimmed.isBlank()) "# $title" else "# $title\n\n$trimmed"
@@ -221,19 +236,25 @@ private fun stripCommonLeadingDirectories(paths: List<String>): List<String> {
   return if (stripCount == 0) paths else splitPaths.map { it.drop(stripCount).joinToString("/") }
 }
 
-private fun parentSegments(path: String): List<String> = path.split('/').filter(String::isNotBlank).dropLast(1)
+private fun parentSegments(path: String): List<String> =
+  path.split('/').filter(String::isNotBlank).dropLast(1)
 
-private fun titleFromFileName(fileName: String): String = fileName.replace(markdownExtension, "").replace('-', ' ').trim().ifBlank { "Untitled" }
+private fun titleFromFileName(fileName: String): String =
+  fileName.replace(markdownExtension, "").replace('-', ' ').trim().ifBlank { "Untitled" }
 
-private fun safePathSegment(value: String): String = value.trim().ifBlank { "Untitled" }
-  .replace(Regex("""[\\/:*?"<>|]"""), "-")
-  .replace(Regex("\\s+"), "-")
-  .replace(Regex("^\\.+|\\.+$"), "")
-  .replace(Regex("^-+|-+$"), "")
-  .ifBlank { "Untitled" }
+private fun safePathSegment(value: String): String =
+  value
+    .trim()
+    .ifBlank { "Untitled" }
+    .replace(Regex("""[\\/:*?"<>|]"""), "-")
+    .replace(Regex("\\s+"), "-")
+    .replace(Regex("^\\.+|\\.+$"), "")
+    .replace(Regex("^-+|-+$"), "")
+    .ifBlank { "Untitled" }
 
-private fun isArchiveRootName(value: String): Boolean = value.startsWith("nn-export") ||
-  Regex("^author-\\d{4}-\\d{2}-\\d{2}-md-frontmatter$").matches(value)
+private fun isArchiveRootName(value: String): Boolean =
+  value.startsWith("nn-export") ||
+    Regex("^author-\\d{4}-\\d{2}-\\d{2}-md-frontmatter$").matches(value)
 
 private fun uniquePath(path: String, usedPaths: MutableSet<String>): String {
   if (usedPaths.add(path)) return path
@@ -249,4 +270,5 @@ private fun uniquePath(path: String, usedPaths: MutableSet<String>): String {
   return candidate
 }
 
-private fun escapeYamlString(value: String): String = value.replace("\\", "\\\\").replace("\"", "\\\"")
+private fun escapeYamlString(value: String): String =
+  value.replace("\\", "\\\\").replace("\"", "\\\"")

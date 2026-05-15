@@ -41,36 +41,38 @@ class NotesDatabaseInstrumentedTest {
     }
   }
 
-  private fun note(id: String) = LocalNote(
-    id = id,
-    title = "Draft",
-    body = "Body",
-    titleHash = null,
-    bodyHash = null,
-    notebookIds = listOf("book-1"),
-    notebookId = "book-1",
-    createdAt = "2026-05-10T09:00:00Z",
-    updatedAt = "2026-05-10T10:00:00Z",
-    deletedAt = null,
-    trashedAt = null,
-    deviceId = "device-1",
-    version = 1,
-    syncStatus = "pending",
-    lastSyncedVersion = 0,
-    lastSyncedAt = null
-  )
+  private fun note(id: String) =
+    LocalNote(
+      id = id,
+      title = "Draft",
+      body = "Body",
+      titleHash = null,
+      bodyHash = null,
+      notebookIds = listOf("book-1"),
+      notebookId = "book-1",
+      createdAt = "2026-05-10T09:00:00Z",
+      updatedAt = "2026-05-10T10:00:00Z",
+      deletedAt = null,
+      trashedAt = null,
+      deviceId = "device-1",
+      version = 1,
+      syncStatus = "pending",
+      lastSyncedVersion = 0,
+      lastSyncedAt = null,
+    )
 
-  private fun notebook(id: String) = LocalNotebook(
-    id = id,
-    name = "Work",
-    nameHash = null,
-    createdAt = "2026-05-10T09:00:00Z",
-    updatedAt = "2026-05-10T10:00:00Z",
-    deletedAt = null,
-    deviceId = "device-1",
-    version = 1,
-    syncStatus = "pending",
-    lastSyncedVersion = 0,
-    lastSyncedAt = null
-  )
+  private fun notebook(id: String) =
+    LocalNotebook(
+      id = id,
+      name = "Work",
+      nameHash = null,
+      createdAt = "2026-05-10T09:00:00Z",
+      updatedAt = "2026-05-10T10:00:00Z",
+      deletedAt = null,
+      deviceId = "device-1",
+      version = 1,
+      syncStatus = "pending",
+      lastSyncedVersion = 0,
+      lastSyncedAt = null,
+    )
 }

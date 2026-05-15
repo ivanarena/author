@@ -16,28 +16,31 @@ fun nowIso(): String = Instant.now().toString()
 fun normalizedNotebookName(name: String): String = name.trim().lowercase(Locale.ROOT)
 
 fun noteNotebookIds(note: LocalNote): List<String> {
-  val ids = if (note.notebookIds.isNotEmpty()) {
-    note.notebookIds
-  } else {
-    note.notebookId?.let { listOf(it) } ?: emptyList()
-  }
+  val ids =
+    if (note.notebookIds.isNotEmpty()) {
+      note.notebookIds
+    } else {
+      note.notebookId?.let { listOf(it) } ?: emptyList()
+    }
   return ids.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
 }
 
 fun primaryNotebookId(ids: List<String>): String? = ids.firstOrNull()
 
-fun deriveTitle(body: String): String = body.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() }
-  ?.take(120)
-  ?: ""
+fun deriveTitle(body: String): String =
+  body.lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() }?.take(120) ?: ""
 
-fun noteDisplayTitle(note: LocalNote): String = note.title.ifBlank { deriveTitle(note.body) }.ifBlank {
-  if (note.trashedAt != null) "Trashed note" else "Untitled"
-}
+fun noteDisplayTitle(note: LocalNote): String =
+  note.title
+    .ifBlank { deriveTitle(note.body) }
+    .ifBlank { if (note.trashedAt != null) "Trashed note" else "Untitled" }
 
 fun notePreview(note: LocalNote): String = note.body.replace(Regex("\\s+"), " ").trim().take(96)
 
-fun previewText(note: LocalNote): String = note.body.trim().replace(Regex("\\s+"), " ").take(160)
-  .ifBlank { note.title.ifBlank { "Empty note" } }
+fun previewText(note: LocalNote): String =
+  note.body.trim().replace(Regex("\\s+"), " ").take(160).ifBlank {
+    note.title.ifBlank { "Empty note" }
+  }
 
 fun previewText(notebook: LocalNotebook): String = notebook.name.ifBlank { "Untitled notebook" }
 
@@ -59,7 +62,7 @@ fun countNotesByNotebook(items: List<LocalNote>): Map<String, Int> {
 fun filterNotesForView(
   notes: List<LocalNote>,
   trash: List<LocalNote>,
-  filterId: String
+  filterId: String,
 ): List<LocalNote> {
   if (filterId == "trash") return trash
   return notes.filter { note ->
@@ -80,16 +83,18 @@ fun filterNotesBySearch(items: List<LocalNote>, query: String): List<LocalNote> 
   }
 }
 
-fun sortNotes(items: List<LocalNote>, sort: String): List<LocalNote> = when (sort) {
-  "az" -> items.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { noteDisplayTitle(it) })
-  "za" -> items.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { noteDisplayTitle(it) }).reversed()
-  else -> items.sortedByDescending { it.updatedAt }
-}
+fun sortNotes(items: List<LocalNote>, sort: String): List<LocalNote> =
+  when (sort) {
+    "az" -> items.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { noteDisplayTitle(it) })
+    "za" ->
+      items.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { noteDisplayTitle(it) }).reversed()
+    else -> items.sortedByDescending { it.updatedAt }
+  }
 
 fun groupNotesByDateRange(
   items: List<LocalNote>,
   sort: String,
-  now: Instant = Instant.now()
+  now: Instant = Instant.now(),
 ): List<Pair<String, List<LocalNote>>> {
   if (sort != "date-desc") return listOf((if (sort == "az") "A-Z" else "Z-A") to items)
   return items.groupBy { dateRangeLabel(it.updatedAt, now) }.map { it.key to it.value }
@@ -106,16 +111,21 @@ fun dateRangeLabel(iso: String, now: Instant = Instant.now()): String {
     daysAgo == 1 -> "Yesterday"
     daysAgo < 7 -> "Previous 7 days"
     daysAgo < 30 -> "Previous 30 days"
-    daysAgo < 365 -> target.month.getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())
+    daysAgo < 365 ->
+      target.month.getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())
     else -> target.year.toString()
   }
 }
 
-fun formatListDate(iso: String): String = formatInstant(iso, DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))
+fun formatListDate(iso: String): String =
+  formatInstant(iso, DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))
 
 fun formatDateTime(iso: String?): String {
   if (iso == null) return "Not synced yet"
-  return formatInstant(iso, DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT))
+  return formatInstant(
+    iso,
+    DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT),
+  )
 }
 
 fun relativeAge(iso: String, now: Instant = Instant.now()): String {
@@ -132,35 +142,38 @@ fun relativeAge(iso: String, now: Instant = Instant.now()): String {
   }
 }
 
-private fun formatInstant(iso: String, formatter: DateTimeFormatter): String = runCatching {
-  formatter.withZone(ZoneId.systemDefault()).format(Instant.parse(iso))
-}.getOrDefault(iso)
+private fun formatInstant(iso: String, formatter: DateTimeFormatter): String =
+  runCatching { formatter.withZone(ZoneId.systemDefault()).format(Instant.parse(iso)) }
+    .getOrDefault(iso)
 
 fun recordsDiffer(a: LocalNote, b: LocalNote): Boolean {
-  val titleDiffers = if (a.titleHash != null || b.titleHash != null) {
-    a.titleHash != b.titleHash
-  } else {
-    a.title != b.title
-  }
-  val bodyDiffers = if (a.bodyHash != null || b.bodyHash != null) {
-    a.bodyHash != b.bodyHash
-  } else {
-    a.body != b.body
-  }
+  val titleDiffers =
+    if (a.titleHash != null || b.titleHash != null) {
+      a.titleHash != b.titleHash
+    } else {
+      a.title != b.title
+    }
+  val bodyDiffers =
+    if (a.bodyHash != null || b.bodyHash != null) {
+      a.bodyHash != b.bodyHash
+    } else {
+      a.body != b.body
+    }
   return titleDiffers ||
     bodyDiffers ||
     noteNotebookIds(a).sorted() != noteNotebookIds(b).sorted() ||
     (a.notebookId?.trim().takeUnless { it.isNullOrEmpty() }) !=
-    (b.notebookId?.trim().takeUnless { it.isNullOrEmpty() }) ||
+      (b.notebookId?.trim().takeUnless { it.isNullOrEmpty() }) ||
     a.deletedAt != b.deletedAt ||
     a.trashedAt != b.trashedAt
 }
 
 fun recordsDiffer(a: LocalNotebook, b: LocalNotebook): Boolean {
-  val nameDiffers = if (a.nameHash != null || b.nameHash != null) {
-    a.nameHash != b.nameHash
-  } else {
-    a.name != b.name
-  }
+  val nameDiffers =
+    if (a.nameHash != null || b.nameHash != null) {
+      a.nameHash != b.nameHash
+    } else {
+      a.name != b.name
+    }
   return nameDiffers || a.deletedAt != b.deletedAt
 }

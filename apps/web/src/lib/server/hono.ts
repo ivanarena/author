@@ -1,4 +1,5 @@
 import type {
+  AccountResponse,
   AccountUpdateRequest,
   AuthLoginRequest,
   AuthLoginResponse,
@@ -33,9 +34,11 @@ import {
   deleteUserAccount,
   hasSignupAllowedEmails,
   isSignupEmailAllowed,
+  listTrustedAuthDevices,
   mirrorUserForLocalSession,
   normalizeUsername,
   requireAuth,
+  revokeTrustedAuthDevice,
   sessionFromRequest,
   trustAuthDevice,
   totpOtpauthUrl,
@@ -193,6 +196,19 @@ function requestOrigin(request: Request): string {
 
 function publicApiBaseUrl(request: Request, c?: ApiContext): string {
   return getPublicApiBaseUrl(c?.env) ?? requestOrigin(request);
+}
+
+async function accountResponse(
+  db: NotesDb,
+  session: AuthSession,
+  user: AuthSession['user'] = session.user
+): Promise<AccountResponse> {
+  return {
+    user,
+    trustedDevices: session.legacy
+      ? []
+      : await listTrustedAuthDevices(db, user.username, session.deviceId)
+  };
 }
 
 function setRemoteSyncState(
@@ -733,7 +749,6 @@ api.get(API_PATHS.config, async (c) => {
   const remoteConfig = remoteMirrorConfig(c);
   const remoteEnabled = remoteConfig !== null;
   const primaryTurso = isTursoPrimary(c);
-  const emailAllowListConfigured = hasSignupAllowedEmails();
   return c.json({
     apiBaseUrl: publicApiBaseUrl(c.req.raw, c),
     remote: {
@@ -741,9 +756,9 @@ api.get(API_PATHS.config, async (c) => {
       configured: remoteConfig !== null
     },
     signup: {
-      enabled: (remoteEnabled || primaryTurso) && emailAllowListConfigured,
+      enabled: remoteEnabled || primaryTurso,
       emailRequired: true,
-      emailAllowListRequired: emailAllowListConfigured
+      emailAllowListRequired: true
     }
   } satisfies ConfigResponse);
 });
@@ -908,17 +923,17 @@ api.post(API_PATHS.authSignup, async (c) => {
   if (!remoteConfig && primaryTurso) {
     const db = await openPrimaryDatabase(c);
     try {
-      if (!hasSignupAllowedEmails()) {
+      if (!(await hasSignupAllowedEmails(db))) {
         recordFailedLogin(attemptKey);
         return c.json(
           {
-            error: 'Signup is disabled. Configure NOTES_SIGNUP_ALLOWED_EMAILS.'
+            error: 'Signup is disabled. Add an allowed email first.'
           },
           403
         );
       }
 
-      if (!isSignupEmailAllowed(body.email)) {
+      if (!(await isSignupEmailAllowed(db, body.email))) {
         recordFailedLogin(attemptKey);
         return c.json({ error: 'Email is not allowed to sign up' }, 403);
       }
@@ -963,15 +978,15 @@ api.post(API_PATHS.authSignup, async (c) => {
   const remote = await openConfiguredDatabase(remoteConfig);
   let user: Awaited<ReturnType<typeof createUserAccount>>;
   try {
-    if (!hasSignupAllowedEmails()) {
+    if (!(await hasSignupAllowedEmails(remote))) {
       recordFailedLogin(attemptKey);
       return c.json(
-        { error: 'Signup is disabled. Configure NOTES_SIGNUP_ALLOWED_EMAILS.' },
+        { error: 'Signup is disabled. Add an allowed email first.' },
         403
       );
     }
 
-    if (!isSignupEmailAllowed(body.email)) {
+    if (!(await isSignupEmailAllowed(remote, body.email))) {
       recordFailedLogin(attemptKey);
       return c.json({ error: 'Email is not allowed to sign up' }, 403);
     }
@@ -1066,7 +1081,7 @@ api.get(API_PATHS.account, async (c) => {
   try {
     const session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
-    return c.json({ user: session.user });
+    return c.json(await accountResponse(db, session));
   } finally {
     db.close();
   }
@@ -1097,14 +1112,13 @@ api.patch(API_PATHS.account, async (c) => {
     if (!remoteConfig) {
       if (isTursoPrimary(c)) {
         try {
-          return c.json({
-            user: await updateUserProfile(
-              db,
-              session.user.username,
-              body.displayName,
-              body.email
-            )
-          });
+          const user = await updateUserProfile(
+            db,
+            session.user.username,
+            body.displayName,
+            body.email
+          );
+          return c.json(await accountResponse(db, session, user));
         } catch (error) {
           const mapped = accountUpdateError(error);
           if (mapped) return c.json({ error: mapped.error }, mapped.status);
@@ -1149,9 +1163,7 @@ api.patch(API_PATHS.account, async (c) => {
     }
 
     await queueRemoteSyncAfter(undefined, c.env);
-    return c.json({
-      user
-    });
+    return c.json(await accountResponse(db, session, user));
   } finally {
     db.close();
   }
@@ -1191,7 +1203,7 @@ api.post(API_PATHS.accountPassword, async (c) => {
         if (!user) {
           return c.json({ error: 'Current password is incorrect' }, 401);
         }
-        return c.json({ user });
+        return c.json(await accountResponse(db, session, user));
       }
       return c.json({ error: 'Password changes require remote access' }, 503);
     }
@@ -1226,7 +1238,7 @@ api.post(API_PATHS.accountPassword, async (c) => {
     }
 
     await queueRemoteSyncAfter(undefined, c.env);
-    return c.json({ user });
+    return c.json(await accountResponse(db, session, user));
   } finally {
     db.close();
   }
@@ -1285,7 +1297,7 @@ api.post(API_PATHS.accountTotp, async (c) => {
           body.totpCode
         );
         if (!user) return c.json({ error: 'Could not verify 2FA setup' }, 401);
-        return c.json({ user });
+        return c.json(await accountResponse(db, session, user));
       }
       return c.json({ error: '2FA changes require remote access' }, 503);
     }
@@ -1321,7 +1333,7 @@ api.post(API_PATHS.accountTotp, async (c) => {
     }
 
     await queueRemoteSyncAfter(undefined, c.env);
-    return c.json({ user });
+    return c.json(await accountResponse(db, session, user));
   } finally {
     db.close();
   }
@@ -1356,7 +1368,7 @@ api.delete(API_PATHS.accountTotp, async (c) => {
           body.totpCode
         );
         if (!user) return c.json({ error: 'Could not verify 2FA code' }, 401);
-        return c.json({ user });
+        return c.json(await accountResponse(db, session, user));
       }
       return c.json({ error: '2FA changes require remote access' }, 503);
     }
@@ -1391,7 +1403,63 @@ api.delete(API_PATHS.accountTotp, async (c) => {
     }
 
     await queueRemoteSyncAfter(undefined, c.env);
-    return c.json({ user });
+    return c.json(await accountResponse(db, session, user));
+  } finally {
+    db.close();
+  }
+});
+
+api.delete(`${API_PATHS.accountTrustedDevices}/:deviceId`, async (c) => {
+  const db = await openPrimaryDatabase(c);
+  try {
+    let session = await sessionFromRequest(db, c.req.raw);
+    if (!session) return unauthorized();
+    if (session.legacy) {
+      return c.json(
+        { error: 'Legacy token accounts cannot manage trusted devices' },
+        400
+      );
+    }
+
+    const deviceId = c.req.param('deviceId')?.trim();
+    if (!deviceId) return c.json({ error: 'Invalid device' }, 400);
+
+    const remoteConfig = remoteMirrorConfig(c);
+    if (!remoteConfig) {
+      if (isTursoPrimary(c)) {
+        await revokeTrustedAuthDevice(db, session.user.username, deviceId);
+        return c.json(await accountResponse(db, session));
+      }
+      return c.json(
+        { error: 'Trusted device changes require remote access' },
+        503
+      );
+    }
+
+    if (!(await syncRemoteBestEffort(db, c.env))) {
+      return c.json(
+        { error: 'Could not sync before trusted device update' },
+        503
+      );
+    }
+    session = await sessionFromRequest(db, c.req.raw);
+    if (!session) return unauthorized();
+    if (session.legacy) {
+      return c.json(
+        { error: 'Legacy token accounts cannot manage trusted devices' },
+        400
+      );
+    }
+
+    const remote = await openConfiguredDatabase(remoteConfig);
+    try {
+      await revokeTrustedAuthDevice(remote, session.user.username, deviceId);
+    } finally {
+      remote.close();
+    }
+    await revokeTrustedAuthDevice(db, session.user.username, deviceId);
+    await queueRemoteSyncAfter(undefined, c.env);
+    return c.json(await accountResponse(db, session));
   } finally {
     db.close();
   }

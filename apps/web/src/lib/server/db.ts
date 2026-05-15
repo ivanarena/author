@@ -1,5 +1,6 @@
 import type { Client, InArgs, Row, Transaction } from '@libsql/client';
 import {
+  getSignupAllowedEmails,
   getLocalDatabaseConfig,
   getLoginUsername,
   type DatabaseConfig
@@ -89,6 +90,11 @@ const schemaSql = `
 
   CREATE INDEX IF NOT EXISTS invitation_codes_active_idx
     ON invitation_codes(disabled_at);
+
+  CREATE TABLE IF NOT EXISTS signup_allowed_emails (
+    email TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL
+  );
 
   CREATE TABLE IF NOT EXISTS sync_meta (
     key TEXT PRIMARY KEY,
@@ -499,6 +505,22 @@ async function seedEntityChanges(db: NotesDb): Promise<void> {
   );
 }
 
+async function seedSignupAllowedEmails(db: NotesDb): Promise<void> {
+  const emails = getSignupAllowedEmails();
+  if (!emails.length) return;
+
+  const now = new Date().toISOString();
+  for (const email of emails) {
+    await run(
+      db,
+      `INSERT INTO signup_allowed_emails (email, created_at)
+       VALUES (?, ?)
+       ON CONFLICT(email) DO NOTHING`,
+      [email, now]
+    );
+  }
+}
+
 export interface ServerMigration {
   version: number;
   name: string;
@@ -619,6 +641,22 @@ export const SERVER_MIGRATIONS: ServerMigration[] = [
            ON trusted_auth_devices(device_id);`
       );
     }
+  },
+  {
+    version: 9,
+    name: 'signup-allowed-emails',
+    rollback:
+      'Restore from the pre-upgrade backup or delete rows from signup_allowed_emails to disable signup.',
+    up: async (db) => {
+      await exec(
+        db,
+        `CREATE TABLE IF NOT EXISTS signup_allowed_emails (
+           email TEXT PRIMARY KEY,
+           created_at TEXT NOT NULL
+         );`
+      );
+      await seedSignupAllowedEmails(db);
+    }
   }
 ];
 
@@ -669,6 +707,7 @@ export async function runPendingMigrations(db: NotesDb): Promise<void> {
 export async function initializeDatabase(db: NotesDb): Promise<void> {
   await exec(db, schemaSql);
   await runPendingMigrations(db);
+  await seedSignupAllowedEmails(db);
   await seedEntityChanges(db);
 }
 

@@ -55,7 +55,7 @@ NOTES_BACKUP_RETENTION_COUNT=14
 When 2FA is enabled, a browser or Android install that has already completed a password login can request a new session with username plus TOTP code. The device must still have its local encryption key material for encrypted note sync.
 In production, there is no fallback password; set `NOTES_LOGIN_PASSWORD` or create a user before expecting browser login to work.
 
-Signup is email allow-list only when a remote database is configured. Set `NOTES_SIGNUP_ALLOWED_EMAILS` to a comma-separated list of lowercase email addresses; matching addresses can create a remote account and prepare the local session.
+Signup is email allow-list only when a remote database is configured. Allowed addresses are stored in the remote database table `signup_allowed_emails`; `NOTES_SIGNUP_ALLOWED_EMAILS` can seed that table on startup with a comma-separated list of lowercase email addresses.
 
 `NOTES_AUTH_TOKEN` is no longer used by default. If an older client still depends on the old static bearer token, set `NOTES_LEGACY_AUTH_TOKEN_ENABLED=true` temporarily and rotate away from it.
 

@@ -3,10 +3,10 @@ import {
   getAuthSessionDays,
   getLegacyAuthToken,
   getLoginPassword,
-  getLoginUsername,
-  getSignupAllowedEmails
+  getLoginUsername
 } from './config';
 import {
+  all,
   get,
   run,
   withWriteTransaction,
@@ -39,6 +39,7 @@ type UserRow = {
 
 type SessionRow = {
   username: string;
+  device_id: string | null;
   last_seen_at: string;
   expires_at: string;
 };
@@ -52,6 +53,7 @@ export interface AuthUser {
 
 export interface AuthSession {
   user: AuthUser;
+  deviceId: string | null;
   expiresAt: string | null;
   legacy: boolean;
 }
@@ -62,8 +64,22 @@ export interface CreatedAuthSession extends AuthSession {
   legacy: false;
 }
 
-export function hasSignupAllowedEmails(): boolean {
-  return getSignupAllowedEmails().length > 0;
+export interface TrustedAuthDevice {
+  deviceId: string;
+  deviceName: string;
+  createdAt: string;
+  lastUsedAt: string;
+  current: boolean;
+}
+
+export async function hasSignupAllowedEmails(
+  db: NotesExecutor
+): Promise<boolean> {
+  const row = await get(
+    db,
+    'SELECT 1 AS allowed FROM signup_allowed_emails LIMIT 1'
+  );
+  return Boolean(row);
 }
 
 export function tokenFromRequest(request: Request): string | null {
@@ -130,9 +146,17 @@ function requireEmail(email: string): string {
   return normalized;
 }
 
-export function isSignupEmailAllowed(email: string): boolean {
+export async function isSignupEmailAllowed(
+  db: NotesExecutor,
+  email: string
+): Promise<boolean> {
   const normalized = requireEmail(email);
-  return getSignupAllowedEmails().includes(normalized);
+  const row = await get(
+    db,
+    'SELECT 1 AS allowed FROM signup_allowed_emails WHERE email = ?',
+    [normalized]
+  );
+  return Boolean(row);
 }
 
 function requirePassword(password: string): string {
@@ -655,6 +679,51 @@ export async function trustAuthDevice(
   );
 }
 
+export async function listTrustedAuthDevices(
+  db: NotesExecutor,
+  username: string,
+  currentDeviceId: string | null
+): Promise<TrustedAuthDevice[]> {
+  const normalized = requireUsername(username);
+  const rows = await all(
+    db,
+    `SELECT trusted_auth_devices.device_id, trusted_auth_devices.created_at,
+            trusted_auth_devices.last_used_at, devices.name AS device_name
+     FROM trusted_auth_devices
+     LEFT JOIN devices ON devices.id = trusted_auth_devices.device_id
+     WHERE trusted_auth_devices.username = ?
+     ORDER BY trusted_auth_devices.last_used_at DESC,
+              trusted_auth_devices.created_at DESC`,
+    [normalized]
+  );
+
+  return rows.map((row) => {
+    const deviceId = String(row.device_id ?? '');
+    return {
+      deviceId,
+      deviceName: String(row.device_name ?? deviceId),
+      createdAt: String(row.created_at ?? ''),
+      lastUsedAt: String(row.last_used_at ?? ''),
+      current: currentDeviceId === deviceId
+    };
+  });
+}
+
+export async function revokeTrustedAuthDevice(
+  db: NotesExecutor,
+  username: string,
+  deviceId: string
+): Promise<void> {
+  const normalized = requireUsername(username);
+  const safeDeviceId = deviceId.trim();
+  if (!safeDeviceId) throw new Error('Device is required');
+  await run(
+    db,
+    'DELETE FROM trusted_auth_devices WHERE username = ? AND device_id = ?',
+    [normalized, safeDeviceId]
+  );
+}
+
 async function isTrustedAuthDevice(
   db: NotesExecutor,
   username: string,
@@ -710,6 +779,7 @@ export async function createAuthSession(
   return {
     token,
     user,
+    deviceId,
     expiresAt,
     legacy: false
   };
@@ -730,6 +800,7 @@ export async function sessionFromToken(
         displayName: null,
         twoFactorEnabled: false
       },
+      deviceId: null,
       expiresAt: null,
       legacy: true
     };
@@ -739,7 +810,8 @@ export async function sessionFromToken(
   const row = (await get(
     db,
     `SELECT auth_sessions.username, users.email, users.display_name,
-            users.totp_secret, users.totp_enabled_at, last_seen_at, expires_at
+            users.totp_secret, users.totp_enabled_at,
+            auth_sessions.device_id, last_seen_at, expires_at
      FROM auth_sessions
      LEFT JOIN users ON users.username = auth_sessions.username
      WHERE token_hash = ?`,
@@ -779,6 +851,7 @@ export async function sessionFromToken(
       displayName: row.display_name,
       twoFactorEnabled: Boolean(row.totp_secret && row.totp_enabled_at)
     },
+    deviceId: row.device_id,
     expiresAt: row.expires_at,
     legacy: false
   };

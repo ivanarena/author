@@ -271,6 +271,20 @@ export function createApiClient(options: ApiClientOptions = {}) {
       );
     },
 
+    async revokeTrustedDevice(
+      token: string,
+      deviceId: string
+    ): Promise<AccountResponse> {
+      return await requestJson<AccountResponse>(
+        `${API_PATHS.accountTrustedDevices}/${encodeURIComponent(deviceId)}`,
+        {
+          method: 'DELETE',
+          headers: authHeaders(token)
+        },
+        'Trusted device update failed'
+      );
+    },
+
     async logout(token: string): Promise<void> {
       await authedPost<Record<string, never>, { ok: true }>(
         API_PATHS.authLogout,
@@ -314,5 +328,6 @@ export const changePassword = apiClient.changePassword;
 export const setupTotp = apiClient.setupTotp;
 export const enableTotp = apiClient.enableTotp;
 export const disableTotp = apiClient.disableTotp;
+export const revokeTrustedDevice = apiClient.revokeTrustedDevice;
 export const logout = apiClient.logout;
 export const deleteAccount = apiClient.deleteAccount;

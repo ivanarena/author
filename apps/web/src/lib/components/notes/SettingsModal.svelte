@@ -12,6 +12,7 @@
     Landmark,
     LogIn,
     LogOut,
+    MonitorSmartphone,
     Moon,
     Palette,
     Pencil,
@@ -76,6 +77,16 @@
   function chooseFont(font: EditorFont): void {
     model.setEditorFont(font);
     fontMenuOpen = false;
+  }
+
+  function formatTrustedDeviceTime(value: string): string {
+    if (!value) return 'Recently';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Recently';
+    return date.toLocaleString(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'short'
+    });
   }
 </script>
 
@@ -261,6 +272,49 @@
                 </div>
               </form>
             {/if}
+
+            <div class="trusted-device-list" aria-label="Trusted devices">
+              <div class="settings-section-title">
+                <MonitorSmartphone size={15} strokeWidth={1.8} />
+                <strong>Trusted devices</strong>
+              </div>
+              {#if model.accountTrustedDevices.length}
+                {#each model.accountTrustedDevices as device (device.deviceId)}
+                  <div
+                    class="trusted-device-row"
+                    class:current={device.current}
+                  >
+                    <MonitorSmartphone size={16} strokeWidth={1.7} />
+                    <div>
+                      <strong>{device.deviceName}</strong>
+                      <span
+                        >{device.current ? 'This device' : 'Last used'}
+                        - {formatTrustedDeviceTime(device.lastUsedAt)}</span
+                      >
+                    </div>
+                    <button
+                      class="icon-button mini trusted-device-remove"
+                      type="button"
+                      title="Remove trust"
+                      aria-label={`Remove trust for ${device.deviceName}`}
+                      disabled={model.isAccountBusy}
+                      onclick={() =>
+                        void model.revokeTrustedDevice(device.deviceId)}
+                    >
+                      <Trash2 size={14} strokeWidth={1.8} />
+                    </button>
+                  </div>
+                {/each}
+              {:else}
+                <div class="trusted-device-row">
+                  <MonitorSmartphone size={16} strokeWidth={1.7} />
+                  <div>
+                    <strong>No trusted devices</strong>
+                    <span>Sign in with a password to trust this device</span>
+                  </div>
+                </div>
+              {/if}
+            </div>
 
             {#if model.accountPasswordEditing}
               <form

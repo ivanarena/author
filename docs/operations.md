@@ -2,7 +2,7 @@
 
 ## Signup
 
-Signup is email allow-list only when a remote database is configured. Set `NOTES_SIGNUP_ALLOWED_EMAILS` to a comma-separated list of addresses that may create accounts.
+Signup is email allow-list only when a remote database is configured. Add addresses to `signup_allowed_emails` in the remote database. `NOTES_SIGNUP_ALLOWED_EMAILS` can seed that table on startup for simple deployments.
 
 ## TLS and Headers
 

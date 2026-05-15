@@ -11,6 +11,7 @@ export const API_PATHS = {
   accountTotpSetup: '/api/account/totp/setup',
   accountTotp: '/api/account/totp',
   account: '/api/account',
+  accountTrustedDevices: '/api/account/trusted-devices',
   accountPassword: '/api/account/password',
   notes: '/api/notes',
   notebooks: '/api/notebooks',
@@ -44,6 +45,14 @@ export interface AuthUser {
   twoFactorEnabled: boolean;
 }
 
+export interface TrustedAuthDevice {
+  deviceId: string;
+  deviceName: string;
+  createdAt: string;
+  lastUsedAt: string;
+  current: boolean;
+}
+
 export interface AuthLoginResponse {
   token: string;
   user: AuthUser;
@@ -74,6 +83,7 @@ export interface DeleteAccountRequest {
 
 export interface AccountResponse {
   user: AuthUser;
+  trustedDevices: TrustedAuthDevice[];
 }
 
 export interface TotpSetupResponse {

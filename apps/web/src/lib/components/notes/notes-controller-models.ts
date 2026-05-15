@@ -1,4 +1,4 @@
-import type { RemoteSyncState } from '@author/api-types';
+import type { RemoteSyncState, TrustedAuthDevice } from '@author/api-types';
 import type { LocalConflict, LocalNote, LocalNotebook } from '$lib/client/db';
 import type { StoredTheme } from '$lib/client/local-state';
 import type {
@@ -133,6 +133,7 @@ export interface NavigationDockModel
   accountEmail: string;
   accountDisplayName: string;
   accountTwoFactorEnabled: boolean;
+  accountTrustedDevices: TrustedAuthDevice[];
   accountMessage: string;
   accountError: string;
   accountProfileEditing: boolean;
@@ -163,6 +164,7 @@ export interface NavigationDockModel
   saveAccountProfile: () => void | Promise<void>;
   changeAccountPassword: () => void | Promise<void>;
   saveAccountTotp: () => void | Promise<void>;
+  revokeTrustedDevice: (deviceId: string) => void | Promise<void>;
   logoutAccount: () => void | Promise<void>;
   deleteAccount: () => void | Promise<void>;
   openLoginSettings: () => void;
@@ -213,6 +215,7 @@ export interface SettingsModalModel {
   accountEmail: string;
   accountDisplayName: string;
   accountTwoFactorEnabled: boolean;
+  accountTrustedDevices: TrustedAuthDevice[];
   accountMessage: string;
   accountError: string;
   accountProfileEditing: boolean;
@@ -274,6 +277,7 @@ export interface SettingsModalModel {
   saveAccountProfile: () => void | Promise<void>;
   changeAccountPassword: () => void | Promise<void>;
   saveAccountTotp: () => void | Promise<void>;
+  revokeTrustedDevice: (deviceId: string) => void | Promise<void>;
   logoutAccount: () => void | Promise<void>;
   deleteAccount: () => void | Promise<void>;
   toggleLoginMenu: () => void;

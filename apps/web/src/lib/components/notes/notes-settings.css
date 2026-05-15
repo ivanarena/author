@@ -365,6 +365,56 @@
   white-space: nowrap;
 }
 
+.trusted-device-list {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 14px;
+}
+
+.trusted-device-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 9px 10px;
+  color: var(--muted);
+}
+
+.trusted-device-row.current {
+  border-color: var(--focus-ring);
+}
+
+.trusted-device-row div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.trusted-device-row strong,
+.trusted-device-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trusted-device-row strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.trusted-device-row span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.trusted-device-remove {
+  align-self: center;
+}
+
 .settings-action-group {
   display: grid;
   gap: 8px;

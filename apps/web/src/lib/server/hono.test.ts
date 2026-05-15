@@ -306,6 +306,37 @@ describe('Hono API', () => {
     );
     expect(signup.status).toBe(200);
     const session = (await signup.json()) as { token: string };
+
+    const account = await api.fetch(
+      new Request('http://localhost/api/account', {
+        headers: { authorization: `Bearer ${session.token}` }
+      })
+    );
+    expect(account.status).toBe(200);
+    await expect(account.json()).resolves.toMatchObject({
+      trustedDevices: [
+        {
+          deviceId: fixtureDevice.id,
+          deviceName: fixtureDevice.name,
+          current: true
+        }
+      ]
+    });
+
+    const revokeTrust = await api.fetch(
+      new Request(
+        `http://localhost/api/account/trusted-devices/${fixtureDevice.id}`,
+        {
+          method: 'DELETE',
+          headers: { authorization: `Bearer ${session.token}` }
+        }
+      )
+    );
+    expect(revokeTrust.status).toBe(200);
+    await expect(revokeTrust.json()).resolves.toMatchObject({
+      trustedDevices: []
+    });
+
     const setup = await post('/api/account/totp/setup', {}, session.token);
     expect(setup.status).toBe(200);
     const setupBody = (await setup.json()) as { secret: string };
@@ -331,7 +362,7 @@ describe('Hono API', () => {
         })
       })
     );
-    expect(trustedDeviceCode.status).toBe(200);
+    expect(trustedDeviceCode.status).toBe(401);
   });
 
   it('uses Turso as the primary database when running with Worker env', async () => {
@@ -509,7 +540,7 @@ describe('Hono API', () => {
 
     expect(signup.status).toBe(403);
     await expect(signup.json()).resolves.toMatchObject({
-      error: 'Signup is disabled. Configure NOTES_SIGNUP_ALLOWED_EMAILS.'
+      error: 'Signup is disabled. Add an allowed email first.'
     });
   });
 
@@ -549,6 +580,45 @@ describe('Hono API', () => {
     expect(allowed.status).toBe(200);
     await expect(allowed.json()).resolves.toMatchObject({
       user: { username: 'invite-user', email: 'invite@example.com' }
+    });
+  });
+
+  it('allows signup from database-backed allowed emails', async () => {
+    const remotePath = join(tempDir, 'remote-db-email-signup.sqlite');
+    process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
+    process.env.TURSO_AUTH_TOKEN = 'test-token';
+    process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
+
+    const remote = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${remotePath}`, authToken: 'test-token' }
+    });
+    try {
+      await remote.execute({
+        sql: `INSERT INTO signup_allowed_emails (email, created_at)
+              VALUES (?, ?)`,
+        args: ['db-invite@example.com', new Date().toISOString()]
+      });
+    } finally {
+      remote.close();
+    }
+
+    const signup = await api.fetch(
+      new Request('http://localhost/api/auth/signup', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'db-invite-user',
+          email: 'db-invite@example.com',
+          password: 'new-user-password',
+          device: fixtureDevice
+        })
+      })
+    );
+
+    expect(signup.status).toBe(200);
+    await expect(signup.json()).resolves.toMatchObject({
+      user: { username: 'db-invite-user', email: 'db-invite@example.com' }
     });
   });
 

@@ -28,6 +28,7 @@ Tables:
 - `auth_sessions`
 - `trusted_auth_devices`
 - `invitation_codes` (legacy, unused by current signup)
+- `signup_allowed_emails`
 - `schema_migrations`
 - `notes`
 - `notebooks`
@@ -51,6 +52,10 @@ sync results are scoped to the authenticated account. Legacy token data is store
 password login for an account. Accounts with 2FA enabled can later issue a new
 session from that device with username plus TOTP code while local encryption key
 material remains on the device.
+
+`signup_allowed_emails` is the server-side allow-list for remote account creation.
+Signup only creates an account when the submitted email matches a row in this
+table.
 
 Active notebook names are treated as unique after trimming and case-folding. The client prevents duplicates locally; the server rejects duplicate-name pushes as sync conflicts.
 

@@ -1,6 +1,6 @@
 import { onMount, tick } from 'svelte';
 import type { Device } from '@author/schema';
-import type { RemoteSyncState } from '@author/api-types';
+import type { RemoteSyncState, TrustedAuthDevice } from '@author/api-types';
 import type { LocalConflict, LocalNote, LocalNotebook } from '$lib/client/db';
 import {
   getEncryptionKeyMaterial,
@@ -53,9 +53,11 @@ import {
   deleteAccount,
   disableTotp,
   enableTotp,
+  loadAccount,
   loadConfig,
   loadSyncStatus,
   logout,
+  revokeTrustedDevice as revokeTrustedDeviceRequest,
   setupTotp,
   updateAccount,
   validateSession
@@ -191,6 +193,7 @@ export class NotesPageController
   accountEmail = $state('');
   accountDisplayName = $state('');
   accountTwoFactorEnabled = $state(false);
+  accountTrustedDevices = $state<TrustedAuthDevice[]>([]);
   accountMessage = $state('');
   accountError = $state('');
   accountProfileEditing = $state(false);
@@ -661,6 +664,7 @@ export class NotesPageController
     this.settingsOpen = true;
     this.closeAccountMenu();
     this.closeContextMenu();
+    if (section === 'account') void this.refreshAccount();
   };
 
   openLoginSettings = () => {
@@ -1517,6 +1521,15 @@ export class NotesPageController
       this.accountEmail = session.user.email ?? '';
       this.accountDisplayName = session.user.displayName ?? '';
       this.accountTwoFactorEnabled = session.user.twoFactorEnabled;
+      this.accountTrustedDevices = [
+        {
+          deviceId: session.device.id,
+          deviceName: session.device.name,
+          createdAt: '',
+          lastUsedAt: '',
+          current: true
+        }
+      ];
       this.deviceOtpLoginAvailable = hasStoredEncryptionKeyMaterial();
       this.accountError = '';
       this.accountMessage =
@@ -1536,6 +1549,7 @@ export class NotesPageController
         'Syncing local and remote notes.'
       );
       shouldSync = true;
+      void this.refreshAccount(session.token);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Login failed';
       this.loginError = message;
@@ -1574,6 +1588,7 @@ export class NotesPageController
       this.accountEmail = response.user.email ?? '';
       this.accountDisplayName = response.user.displayName ?? '';
       this.accountTwoFactorEnabled = response.user.twoFactorEnabled;
+      this.accountTrustedDevices = response.trustedDevices ?? [];
       setStoredSession({
         token,
         user: response.user,
@@ -1627,6 +1642,7 @@ export class NotesPageController
       this.accountEmail = response.user.email ?? '';
       this.accountDisplayName = response.user.displayName ?? '';
       this.accountTwoFactorEnabled = response.user.twoFactorEnabled;
+      this.accountTrustedDevices = response.trustedDevices ?? [];
       this.currentPasswordValue = '';
       this.newPasswordValue = '';
       this.confirmPasswordValue = '';
@@ -1682,6 +1698,7 @@ export class NotesPageController
       this.accountEmail = response.user.email ?? '';
       this.accountDisplayName = response.user.displayName ?? '';
       this.accountTwoFactorEnabled = response.user.twoFactorEnabled;
+      this.accountTrustedDevices = response.trustedDevices ?? [];
       this.accountTotpEditing = false;
       this.accountTotpSecret = '';
       this.accountTotpUrl = '';
@@ -1698,6 +1715,41 @@ export class NotesPageController
       this.accountError =
         error instanceof Error ? error.message : 'Could not update 2FA';
       this.notify('error', '2FA update failed', this.accountError);
+    } finally {
+      this.isAccountBusy = false;
+    }
+  };
+
+  revokeTrustedDevice = async (deviceId: string) => {
+    const storedSession = getStoredSession();
+    const token = storedSession?.token ?? null;
+    if (!token || this.isAccountBusy) return;
+    this.isAccountBusy = true;
+    this.accountError = '';
+    this.accountMessage = '';
+    try {
+      const response = await revokeTrustedDeviceRequest(token, deviceId);
+      this.accountUsername = response.user.username;
+      this.accountEmail = response.user.email ?? '';
+      this.accountDisplayName = response.user.displayName ?? '';
+      this.accountTwoFactorEnabled = response.user.twoFactorEnabled;
+      this.accountTrustedDevices = response.trustedDevices ?? [];
+      setStoredSession({
+        token,
+        user: response.user,
+        expiresAt: storedSession?.expiresAt ?? null
+      });
+      this.deviceOtpLoginAvailable = this.accountTrustedDevices.some(
+        (device) => device.current
+      );
+      this.accountMessage = 'Trusted device removed';
+      this.notify('success', 'Trusted device removed');
+    } catch (error) {
+      this.accountError =
+        error instanceof Error
+          ? error.message
+          : 'Could not remove trusted device';
+      this.notify('error', 'Trusted device update failed', this.accountError);
     } finally {
       this.isAccountBusy = false;
     }
@@ -1816,6 +1868,30 @@ export class NotesPageController
     }
   };
 
+  private refreshAccount = async (
+    token = getStoredSession()?.token ?? null
+  ) => {
+    if (!token || !this.hasToken) return;
+    try {
+      const account = await loadAccount(token);
+      const storedSession = getStoredSession();
+      this.accountUsername = account.user.username;
+      this.accountEmail = account.user.email ?? '';
+      this.accountDisplayName = account.user.displayName ?? '';
+      this.accountTwoFactorEnabled = account.user.twoFactorEnabled;
+      this.accountTrustedDevices = account.trustedDevices ?? [];
+      setStoredSession({
+        token,
+        user: account.user,
+        expiresAt: storedSession?.expiresAt ?? null
+      });
+    } catch (error) {
+      if (error instanceof AuthError) {
+        this.expireSession('Sign in again to sync encrypted notes');
+      }
+    }
+  };
+
   private resumeOnlineSession = async (
     token = getStoredSession()?.token ?? null
   ) => {
@@ -1842,6 +1918,7 @@ export class NotesPageController
         expiresAt: session.expiresAt
       });
       await rememberLocalWorkspaceAccount(session.user.username);
+      void this.refreshAccount(token);
       if (!this.isBrowserOnline) {
         this.syncMessage = 'Offline';
         return;
@@ -2131,6 +2208,7 @@ export class NotesPageController
     this.accountEmail = '';
     this.accountDisplayName = '';
     this.accountTwoFactorEnabled = false;
+    this.accountTrustedDevices = [];
     this.accountMessage = accountMessage;
     this.accountError = '';
     this.accountProfileEditing = false;

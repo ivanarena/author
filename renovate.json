@@ -1,0 +1,92 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "timezone": "Europe/Vienna",
+  "dependencyDashboard": true,
+  "labels": ["dependencies"],
+  "rangeStrategy": "bump",
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+  "rebaseWhen": "conflicted",
+  "ignorePaths": ["**/node_modules/**"],
+  "postUpgradeTasks": {
+    "commands": ["npx -y @endevco/aube@1.8.0 install"],
+    "fileFilters": ["aube-lock.yaml"],
+    "executionMode": "branch"
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update the Aube package manager version used by this repo.",
+      "managerFilePatterns": [
+        "/(^|/)package\\.json$/",
+        "/^Dockerfile$/",
+        "/^docs/package-manager\\.md$/",
+        "/^\\.github/workflows/.*\\.yml$/"
+      ],
+      "matchStrings": [
+        "\"packageManager\"\\s*:\\s*\"aube@(?<currentValue>[^\"]+)\"",
+        "@endevco/aube@(?<currentValue>\\d+\\.\\d+\\.\\d+)",
+        "aube@(?<currentValue>\\d+\\.\\d+\\.\\d+)",
+        "AUBE_VERSION:\\s*(?<currentValue>\\d+\\.\\d+\\.\\d+)"
+      ],
+      "datasourceTemplate": "npm",
+      "depNameTemplate": "@endevco/aube",
+      "versioningTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "description": "Update the pinned Renovate version used by the self-hosted workflow.",
+      "managerFilePatterns": ["/^\\.github/workflows/renovate\\.yml$/"],
+      "matchStrings": [
+        "renovate-version:\\s*(?<currentValue>\\d+\\.\\d+\\.\\d+)"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "renovatebot/renovate",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Keep runtime npm package pins in the Docker image current.",
+      "managerFilePatterns": ["/^Dockerfile$/"],
+      "matchStrings": ["ARG LIBSQL_CLIENT_VERSION=(?<currentValue>[^\\s]+)"],
+      "datasourceTemplate": "npm",
+      "depNameTemplate": "@libsql/client",
+      "versioningTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "description": "Keep runtime npm package pins in the Docker image current.",
+      "managerFilePatterns": ["/^Dockerfile$/"],
+      "matchStrings": ["ARG HONO_VERSION=(?<currentValue>[^\\s]+)"],
+      "datasourceTemplate": "npm",
+      "depNameTemplate": "hono",
+      "versioningTemplate": "npm"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchPackageNames": ["@endevco/aube"],
+      "groupName": "Aube package manager"
+    },
+    {
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "web minor and patch dependencies"
+    },
+    {
+      "matchManagers": ["gradle", "gradle-wrapper"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "Android minor and patch dependencies"
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "GitHub Actions minor and patch dependencies"
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true
+    }
+  ]
+}

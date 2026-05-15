@@ -1,9 +1,9 @@
 package com.author.ui
 
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -89,7 +89,7 @@ internal fun NavRow(
     modifier =
       Modifier.fillMaxWidth()
         .clip(RoundedCornerShape(8.dp))
-        .animateContentSize(tween(AppMotion.Medium))
+        .animateContentSize(appTween(AppMotion.Medium))
         .clickable(onClick = onClick),
     color = Color.Transparent,
     shape = RoundedCornerShape(8.dp),
@@ -109,8 +109,15 @@ internal fun NavRow(
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
       )
-      Text(count, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f), fontSize = 12.sp)
-      if (trailing != null) Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) { trailing() }
+      Box(Modifier.width(36.dp), contentAlignment = Alignment.CenterEnd) {
+        Text(
+          count,
+          color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+          fontSize = 12.sp,
+          maxLines = 1,
+        )
+      }
+      Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) { trailing?.invoke() }
     }
   }
 }
@@ -157,7 +164,12 @@ internal fun AppDropdownMenu(
 }
 
 @Composable
-internal fun ActionRow(icon: ImageVector, label: String, onClick: () -> Unit) {
+internal fun ActionRow(
+  icon: ImageVector,
+  label: String,
+  enabled: Boolean = true,
+  onClick: () -> Unit,
+) {
   Surface(
     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)),
     color = Color.Transparent,
@@ -166,18 +178,25 @@ internal fun ActionRow(icon: ImageVector, label: String, onClick: () -> Unit) {
     Row(
       Modifier.fillMaxWidth()
         .heightIn(min = 42.dp)
-        .clickable(onClick = onClick)
+        .clickable(enabled = enabled, onClick = onClick)
         .padding(horizontal = 12.dp, vertical = 9.dp),
       verticalAlignment = Alignment.CenterVertically,
     ) {
+      val contentAlpha = if (enabled) 0.72f else 0.32f
       Icon(
         icon,
         null,
         modifier = Modifier.size(16.dp),
-        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha),
       )
       Spacer(Modifier.width(8.dp))
-      Text(label, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+      Text(
+        label,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f),
+        fontSize = 14.sp,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+      )
     }
   }
 }
@@ -312,7 +331,7 @@ internal fun GlassPanel(
   content: @Composable () -> Unit,
 ) {
   Surface(
-    modifier = modifier.animateContentSize(tween(AppMotion.Medium)),
+    modifier = modifier.animateContentSize(appTween(AppMotion.Medium)),
     color = Color.Transparent,
     shape = RoundedCornerShape(8.dp),
     border = null,

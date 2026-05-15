@@ -2,7 +2,6 @@ package com.author.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -18,7 +17,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Article
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
-import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
@@ -52,23 +50,14 @@ internal fun NotebookSidebar(
     modifier.padding(horizontal = pageHorizontalPadding(), vertical = 12.dp),
     verticalArrangement = Arrangement.spacedBy(10.dp),
   ) {
-    Row(
-      Modifier.fillMaxWidth(),
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.End,
-    ) {
-      GlassIcon(Icons.Outlined.Add, "New notebook", active = controller.newNotebookOpen) {
-        controller.newNotebookOpen = !controller.newNotebookOpen
-      }
-    }
     AnimatedVisibility(
       visible = controller.newNotebookOpen,
-      enter = fadeIn(tween(AppMotion.Medium)) + expandVertically(tween(AppMotion.Slow)),
-      exit = fadeOut(tween(AppMotion.Fast)) + shrinkVertically(tween(AppMotion.Medium)),
+      enter = fadeIn(appTween(AppMotion.Medium)) + expandVertically(appTween(AppMotion.Slow)),
+      exit = fadeOut(appTween(AppMotion.Fast)) + shrinkVertically(appTween(AppMotion.Medium)),
     ) {
       GlassPanel(Modifier.fillMaxWidth()) {
         Row(
-          Modifier.padding(8.dp).animateContentSize(tween(AppMotion.Medium)),
+          Modifier.padding(8.dp).animateContentSize(appTween(AppMotion.Medium)),
           verticalAlignment = Alignment.CenterVertically,
         ) {
           MiniField(controller.notebookNameValue, "Notebook name", Modifier.weight(1f)) {

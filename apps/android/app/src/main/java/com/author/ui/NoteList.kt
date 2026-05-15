@@ -2,7 +2,6 @@ package com.author.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -74,8 +73,8 @@ internal fun NoteListPanel(controller: NotesController, modifier: Modifier = Mod
     }
     AnimatedVisibility(
       visible = controller.selectedNoteIds.isNotEmpty(),
-      enter = fadeIn(tween(AppMotion.Medium)) + expandVertically(tween(AppMotion.Slow)),
-      exit = fadeOut(tween(AppMotion.Fast)) + shrinkVertically(tween(AppMotion.Medium)),
+      enter = fadeIn(appTween(AppMotion.Medium)) + expandVertically(appTween(AppMotion.Slow)),
+      exit = fadeOut(appTween(AppMotion.Fast)) + shrinkVertically(appTween(AppMotion.Medium)),
     ) {
       Row(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -140,7 +139,7 @@ internal fun NoteListPanel(controller: NotesController, modifier: Modifier = Mod
 private fun SearchNotesField(controller: NotesController, modifier: Modifier = Modifier) {
   val textColor = MaterialTheme.colorScheme.onSurface
   Surface(
-    modifier = modifier.animateContentSize(tween(AppMotion.Medium)),
+    modifier = modifier.animateContentSize(appTween(AppMotion.Medium)),
     color = Color.Transparent,
     shape = RoundedCornerShape(18.dp),
   ) {
@@ -174,8 +173,8 @@ private fun SearchNotesField(controller: NotesController, modifier: Modifier = M
       )
       AnimatedVisibility(
         visible = controller.searchValue.isNotBlank(),
-        enter = fadeIn(tween(AppMotion.Fast)),
-        exit = fadeOut(tween(AppMotion.Fast)),
+        enter = fadeIn(appTween(AppMotion.Fast)),
+        exit = fadeOut(appTween(AppMotion.Fast)),
       ) {
         Box(
           modifier =
@@ -301,7 +300,7 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
     modifier =
       Modifier.fillMaxWidth()
         .clip(RoundedCornerShape(8.dp))
-        .animateContentSize(tween(AppMotion.Medium))
+        .animateContentSize(appTween(AppMotion.Medium))
         .clickable {
           if (selecting) {
             controller.toggleSelection(note, !selected)

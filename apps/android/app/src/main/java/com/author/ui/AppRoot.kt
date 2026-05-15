@@ -1,7 +1,6 @@
 package com.author.ui
 
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,8 +9,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.NoteAdd
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 
@@ -45,7 +47,7 @@ private fun AppPage(controller: NotesController, onExport: () -> Unit, onImport:
   Box(Modifier.fillMaxSize()) {
     Crossfade(
       targetState = controller.currentPage,
-      animationSpec = tween(durationMillis = AppMotion.Slow),
+      animationSpec = appTween(AppMotion.Slow),
       label = "page-crossfade",
     ) { page ->
       when (page) {
@@ -66,5 +68,11 @@ private fun AppPage(controller: NotesController, onExport: () -> Unit, onImport:
 private fun PageFloatingAction(controller: NotesController) {
   if (controller.currentPage != "notes") return
 
-  GlassIcon(Icons.AutoMirrored.Outlined.NoteAdd, "New note") { controller.newNote() }
+  ExtendedFloatingActionButton(
+    onClick = { controller.newNote() },
+    icon = { Icon(Icons.AutoMirrored.Outlined.NoteAdd, null) },
+    text = { Text("New note") },
+    containerColor = MaterialTheme.colorScheme.primary,
+    contentColor = MaterialTheme.colorScheme.onPrimary,
+  )
 }

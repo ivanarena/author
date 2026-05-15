@@ -1,5 +1,8 @@
 package com.author.ui
 
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.TweenSpec
+import androidx.compose.animation.core.tween
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -14,10 +17,14 @@ import androidx.compose.ui.text.font.FontWeight
 import com.author.R
 
 internal object AppMotion {
-  const val Fast = 300
-  const val Medium = 460
-  const val Slow = 640
+  const val Fast = 360
+  const val Medium = 560
+  const val Slow = 760
+  val Smooth = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 }
+
+internal fun <T> appTween(durationMillis: Int): TweenSpec<T> =
+  tween(durationMillis = durationMillis, easing = AppMotion.Smooth)
 
 internal val AppFontFamily =
   FontFamily(

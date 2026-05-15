@@ -1,7 +1,6 @@
 package com.author.ui
 
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
@@ -127,59 +126,106 @@ internal fun SettingsPage(controller: NotesController, onExport: () -> Unit, onI
 private fun SettingsSectionSelector(controller: NotesController, modifier: Modifier = Modifier) {
   val sections =
     listOf(
-      Triple("account", "Account", Icons.Outlined.AccountCircle),
-      Triple("sync", "Sync", Icons.Outlined.Refresh),
-      Triple("data", "Data", Icons.Outlined.Download),
-      Triple(
+      SettingsSectionItem(
+        "account",
+        "Account",
+        accountSettingsSubtitle(controller),
+        Icons.Outlined.AccountCircle,
+      ),
+      SettingsSectionItem("sync", "Sync", controller.syncLabel, Icons.Outlined.Refresh),
+      SettingsSectionItem("data", "Data", "Import and export", Icons.Outlined.Download),
+      SettingsSectionItem(
         "appearance",
         "Appearance",
+        ThemeChoices.find { it.value == controller.theme }?.label ?: controller.theme,
         if (controller.theme.startsWith("dark")) Icons.Outlined.LightMode
         else Icons.Outlined.DarkMode,
       ),
     )
   Column(
-    modifier.animateContentSize(tween(AppMotion.Medium)),
+    modifier.animateContentSize(appTween(AppMotion.Medium)),
     verticalArrangement = Arrangement.spacedBy(6.dp),
   ) {
-    sections.forEach { (id, label, icon) ->
+    sections.forEach { section ->
       SettingsNavRow(
-        icon,
-        label,
-        active = activeSettingsSection(controller.settingsSection) == id,
+        section.icon,
+        section.label,
+        section.subtitle,
+        active = activeSettingsSection(controller.settingsSection) == section.id,
       ) {
-        controller.settingsSection = id
+        controller.settingsSection = section.id
       }
     }
   }
 }
 
 @Composable
-private fun SettingsNavRow(icon: ImageVector, label: String, active: Boolean, onClick: () -> Unit) {
+private fun SettingsNavRow(
+  icon: ImageVector,
+  label: String,
+  subtitle: String,
+  active: Boolean,
+  onClick: () -> Unit,
+) {
   val contentColor =
     if (active) MaterialTheme.colorScheme.primary
     else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f)
-  Surface(color = Color.Transparent, shape = RoundedCornerShape(8.dp)) {
+  Surface(
+    color =
+      if (active) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.52f)
+      else Color.Transparent,
+    shape = RoundedCornerShape(10.dp),
+  ) {
     Row(
       Modifier.fillMaxWidth()
-        .heightIn(min = 44.dp)
+        .heightIn(min = 54.dp)
         .clickable(onClick = onClick)
-        .padding(horizontal = 12.dp, vertical = 10.dp),
+        .padding(horizontal = 12.dp, vertical = 9.dp),
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
       Icon(icon, null, modifier = Modifier.size(17.dp), tint = contentColor)
-      Text(
-        label,
-        color = contentColor,
-        fontSize = 14.sp,
-        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-      )
+      Column(Modifier.weight(1f)) {
+        Text(
+          label,
+          color = contentColor,
+          fontSize = 14.sp,
+          fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+          subtitle.ifBlank { " " },
+          color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.48f),
+          fontSize = 12.sp,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+      }
     }
   }
 }
 
 private fun activeSettingsSection(section: String): String =
   if (section == "menu") "account" else section
+
+private data class SettingsSectionItem(
+  val id: String,
+  val label: String,
+  val subtitle: String,
+  val icon: ImageVector,
+)
+
+private fun accountSettingsSubtitle(controller: NotesController): String =
+  if (controller.hasToken) {
+    listOf(controller.accountUsername, controller.accountEmail)
+      .map { it.trim() }
+      .filter { it.isNotEmpty() }
+      .ifEmpty { listOf(controller.accountUsername) }
+      .joinToString(" - ")
+  } else {
+    "Local workspace"
+  }
 
 @Composable
 private fun SettingsContent(
@@ -189,7 +235,7 @@ private fun SettingsContent(
   section: String = activeSettingsSection(controller.settingsSection),
 ) {
   Column(
-    Modifier.fillMaxWidth().animateContentSize(tween(AppMotion.Slow)),
+    Modifier.fillMaxWidth().animateContentSize(appTween(AppMotion.Slow)),
     verticalArrangement = Arrangement.spacedBy(14.dp),
   ) {
     when (section) {
@@ -438,7 +484,8 @@ private fun SyncSettings(controller: NotesController) {
     if (controller.hasToken) {
       ActionRow(
         Icons.Outlined.Refresh,
-        if (controller.isSyncing) controller.syncLabel else "Sync now",
+        if (controller.isSyncing) "Syncing" else "Sync now",
+        enabled = !controller.isSyncing,
       ) {
         controller.syncNow()
       }
@@ -465,6 +512,7 @@ private fun SyncStatusTile(controller: NotesController) {
         SyncActivityIndicator(controller.isSyncing)
         Text(
           controller.syncLabel.ifBlank { " " },
+          modifier = Modifier.weight(1f),
           fontWeight = FontWeight.SemiBold,
           maxLines = 2,
           overflow = TextOverflow.Ellipsis,

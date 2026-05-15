@@ -64,7 +64,7 @@ internal fun LoginDialog(controller: NotesController) {
             controller.loginError = ""
           }
         } else {
-          MiniField(controller.loginTotpCodeValue, "2FA code", Modifier.fillMaxWidth()) {
+          MiniField(controller.loginTotpCodeValue, "Authenticator code", Modifier.fillMaxWidth()) {
             controller.loginTotpCodeValue = it
             controller.loginError = ""
           }

@@ -3,6 +3,7 @@ package com.author.ui
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -53,6 +54,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
@@ -65,6 +68,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.author.BuildConfig
 import com.author.core.formatDateTime
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.qrcode.QRCodeWriter
+import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import java.util.Locale
 
 @Composable
@@ -232,7 +239,8 @@ internal fun AccountSettings(controller: NotesController, showIdentity: Boolean 
       }
       if (controller.accountTotpEditing) {
         if (!controller.accountTwoFactorEnabled) {
-          MiniField(controller.accountTotpSecret, "2FA secret", Modifier.fillMaxWidth()) {
+          TotpQrCode(controller.accountTotpUrl)
+          MiniField(controller.accountTotpSecret, "Authenticator secret", Modifier.fillMaxWidth()) {
             controller.accountTotpSecret = it
           }
           SelectionContainer {
@@ -246,20 +254,22 @@ internal fun AccountSettings(controller: NotesController, showIdentity: Boolean 
         PasswordField(controller.accountTotpPasswordValue, "Current password") {
           controller.accountTotpPasswordValue = it
         }
-        MiniField(controller.accountTotpCodeValue, "2FA code", Modifier.fillMaxWidth()) {
+        MiniField(controller.accountTotpCodeValue, "Authenticator code", Modifier.fillMaxWidth()) {
           controller.accountTotpCodeValue = it
         }
         ActionRow(
           Icons.Outlined.Check,
-          if (controller.accountTwoFactorEnabled) "Disable 2FA" else "Enable 2FA",
+          if (controller.accountTwoFactorEnabled) "Disable authenticator 2FA"
+          else "Enable authenticator 2FA",
         ) {
           controller.saveTotp()
         }
-        ActionRow(Icons.Outlined.Close, "Cancel 2FA") { controller.cancelTotpEdit() }
+        ActionRow(Icons.Outlined.Close, "Cancel authenticator 2FA") { controller.cancelTotpEdit() }
       } else {
         ActionRow(
           Icons.Outlined.Settings,
-          if (controller.accountTwoFactorEnabled) "Disable 2FA" else "Enable 2FA",
+          if (controller.accountTwoFactorEnabled) "Disable authenticator 2FA"
+          else "Enable authenticator 2FA",
         ) {
           controller.startTotpEdit()
         }
@@ -643,6 +653,60 @@ private fun ThemeDot(choice: ThemeChoice, active: Boolean, onClick: () -> Unit) 
     Box(contentAlignment = Alignment.Center) {
       if (active) {
         Icon(Icons.Outlined.Check, null, modifier = Modifier.size(16.dp))
+      }
+    }
+  }
+}
+
+@Composable
+private fun TotpQrCode(value: String) {
+  val matrix =
+    remember(value) {
+      if (value.isBlank()) {
+        null
+      } else {
+        runCatching {
+            QRCodeWriter()
+              .encode(
+                value,
+                BarcodeFormat.QR_CODE,
+                1,
+                1,
+                mapOf<EncodeHintType, Any>(
+                  EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M,
+                  EncodeHintType.MARGIN to 3,
+                ),
+              )
+          }
+          .getOrNull()
+      }
+    } ?: return
+
+  Surface(
+    modifier = Modifier.semantics { contentDescription = "Authenticator setup QR code" },
+    color = Color.White,
+    contentColor = Color.Black,
+    shape = RoundedCornerShape(8.dp),
+    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+  ) {
+    Canvas(Modifier.size(190.dp).padding(12.dp)) {
+      drawRect(Color.White)
+      val moduleSize = minOf(size.width / matrix.width, size.height / matrix.height)
+      val width = moduleSize * matrix.width
+      val height = moduleSize * matrix.height
+      val left = (size.width - width) / 2f
+      val top = (size.height - height) / 2f
+
+      for (y in 0 until matrix.height) {
+        for (x in 0 until matrix.width) {
+          if (matrix[x, y]) {
+            drawRect(
+              Color.Black,
+              topLeft = Offset(left + x * moduleSize, top + y * moduleSize),
+              size = Size(moduleSize, moduleSize),
+            )
+          }
+        }
       }
     }
   }

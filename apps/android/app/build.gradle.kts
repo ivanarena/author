@@ -181,6 +181,7 @@ dependencies {
   implementation("androidx.compose.ui:ui")
   implementation("androidx.compose.ui:ui-tooling-preview")
   implementation("androidx.work:work-runtime-ktx:2.11.2")
+  implementation("com.google.zxing:core:3.5.3")
 
   coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 

@@ -166,7 +166,7 @@
   {:else}
     <div class="field-grid auth-field-grid">
       <div class="field-row">
-        <label for="sync-totp-code">2FA code</label>
+        <label for="sync-totp-code">Authenticator code</label>
         <input
           id="sync-totp-code"
           type="text"

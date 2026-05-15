@@ -27,6 +27,7 @@
     ZoomIn,
     ZoomOut
   } from 'lucide-svelte';
+  import { renderSVG } from 'uqr';
   import type {
     SettingsModalModel,
     Theme
@@ -78,6 +79,20 @@
     model.setEditorFont(font);
     fontMenuOpen = false;
   }
+
+  function qrCodeDataUrl(value: string): string {
+    if (!value) return '';
+    const svg = renderSVG(value, {
+      border: 3,
+      ecc: 'M',
+      pixelSize: 4,
+      blackColor: '#111111',
+      whiteColor: '#ffffff'
+    });
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  }
+
+  const accountTotpQrCode = $derived(qrCodeDataUrl(model.accountTotpUrl));
 
   function formatTrustedDeviceTime(value: string): string {
     if (!value) return 'Recently';
@@ -523,11 +538,20 @@
               >
                 <div class="settings-section-title">
                   <KeyRound size={15} strokeWidth={1.8} />
-                  <strong>2FA</strong>
+                  <strong>Authenticator 2FA</strong>
                 </div>
                 {#if !model.accountTwoFactorEnabled}
+                  {#if accountTotpQrCode}
+                    <div class="totp-qr-frame">
+                      <img
+                        class="totp-qr-code"
+                        src={accountTotpQrCode}
+                        alt="Authenticator setup QR code"
+                      />
+                    </div>
+                  {/if}
                   <div class="field-row">
-                    <label for="totp-secret">Secret</label>
+                    <label for="totp-secret">Authenticator secret</label>
                     <input
                       id="totp-secret"
                       type="text"
@@ -536,7 +560,7 @@
                     />
                   </div>
                   <div class="field-row">
-                    <label for="totp-url">Setup URI</label>
+                    <label for="totp-url">Authenticator setup URI</label>
                     <input
                       id="totp-url"
                       type="text"
@@ -577,7 +601,7 @@
                   </div>
                 </div>
                 <div class="field-row">
-                  <label for="totp-code">2FA code</label>
+                  <label for="totp-code">Authenticator code</label>
                   <input
                     id="totp-code"
                     type="text"
@@ -598,8 +622,8 @@
                     <KeyRound size={15} strokeWidth={1.8} />
                     <span
                       >{model.accountTwoFactorEnabled
-                        ? 'Disable 2FA'
-                        : 'Enable 2FA'}</span
+                        ? 'Disable authenticator 2FA'
+                        : 'Enable authenticator 2FA'}</span
                     >
                   </button>
                   <button
@@ -622,8 +646,8 @@
                 <KeyRound size={15} strokeWidth={1.8} />
                 <span
                   >{model.accountTwoFactorEnabled
-                    ? 'Disable 2FA'
-                    : 'Enable 2FA'}</span
+                    ? 'Disable authenticator 2FA'
+                    : 'Enable authenticator 2FA'}</span
                 >
               </button>
             {/if}

@@ -490,32 +490,37 @@ export class NotesPageController
   };
 
   handleWindowClick = (event: MouseEvent) => {
-    if (!(event.target instanceof Element)) return;
-    const target = event.target;
-    const insideContextMenu = Boolean(target.closest('.context-menu'));
+    const insideContextMenu = this.eventPathMatches(event, '.context-menu');
     if (!insideContextMenu) {
       this.closeContextMenu();
     }
     if (
-      !target.closest(
+      !this.eventPathMatches(
+        event,
         '.menu-dock, .batch-actions, .batch-popover, .link-popover, .row-actions, .context-menu'
       )
     ) {
       this.closeNotebookMenus();
     }
-    if (!target.closest('.profile-menu')) {
+    if (!this.eventPathMatches(event, '.profile-menu')) {
       this.closeAccountMenu();
     }
     if (!this.settingsOpen) return;
     if (
-      target.closest('.settings-modal') ||
-      target.closest('.login-layer') ||
-      target.closest('.login-modal') ||
-      target.closest('.profile-menu')
+      this.eventPathMatches(
+        event,
+        '.settings-modal, .login-layer, .login-modal, .profile-menu'
+      )
     )
       return;
     this.closeSettings();
   };
+
+  private eventPathMatches(event: Event, selector: string): boolean {
+    return event
+      .composedPath()
+      .some((node) => node instanceof Element && node.matches(selector));
+  }
 
   selectNote = async (note: LocalNote) => {
     this.closeMenus();

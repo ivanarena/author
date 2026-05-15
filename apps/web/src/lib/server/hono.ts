@@ -21,6 +21,7 @@ import type { Note, Notebook, SyncStatus } from '@author/schema';
 import { Hono, type Context } from 'hono';
 import {
   type AuthSession,
+  authenticateTrustedDevice,
   authenticateUser,
   changeUserPassword,
   createAuthSession,
@@ -36,6 +37,7 @@ import {
   normalizeUsername,
   requireAuth,
   sessionFromRequest,
+  trustAuthDevice,
   totpOtpauthUrl,
   updateUserProfile,
   unauthorized
@@ -755,7 +757,19 @@ api.post(API_PATHS.authLogin, async (c) => {
   if (!parsed.ok) return parsed.response;
   const body = parsed.body;
 
-  if (!hasDevicePayload(body?.device) || typeof body?.password !== 'string') {
+  if (
+    !hasDevicePayload(body?.device) ||
+    (body?.password !== undefined &&
+      body.password !== null &&
+      typeof body.password !== 'string')
+  ) {
+    return c.json({ error: 'Invalid login payload' }, 400);
+  }
+  const password =
+    typeof body.password === 'string' && body.password.trim()
+      ? body.password
+      : null;
+  if (!password && typeof body?.username !== 'string') {
     return c.json({ error: 'Invalid login payload' }, 400);
   }
 
@@ -773,12 +787,18 @@ api.post(API_PATHS.authLogin, async (c) => {
     let remote: NotesDb | null = null;
     try {
       remote = await openConfiguredDatabase(remoteConfig);
-      remoteUser = await authenticateUser(
-        remote,
-        body.username,
-        body.password,
-        body.totpCode
-      );
+      remoteUser = password
+        ? await authenticateUser(remote, body.username, password, body.totpCode)
+        : await authenticateTrustedDevice(
+            remote,
+            body.username,
+            body.device.id,
+            body.totpCode
+          );
+      if (remoteUser) {
+        await upsertDevice(remote, body.device, undefined, remoteUser.username);
+        await trustAuthDevice(remote, remoteUser.username, body.device.id);
+      }
     } catch (error) {
       console.warn(
         'Remote login failed:',
@@ -815,13 +835,15 @@ api.post(API_PATHS.authLogin, async (c) => {
     }
 
     const user = remoteUser
-      ? await authenticateUser(
-          db,
-          remoteUser.username,
-          body.password,
-          body.totpCode
-        )
-      : await authenticateUser(db, body.username, body.password, body.totpCode);
+      ? remoteUser
+      : password
+        ? await authenticateUser(db, body.username, password, body.totpCode)
+        : await authenticateTrustedDevice(
+            db,
+            body.username,
+            body.device.id,
+            body.totpCode
+          );
     if (!user) {
       recordFailedLogin(attemptKey);
       return c.json(
@@ -836,6 +858,7 @@ api.post(API_PATHS.authLogin, async (c) => {
     clearFailedLogins(attemptKey);
 
     await upsertDevice(db, body.device, undefined, user.username);
+    await trustAuthDevice(db, user.username, body.device.id);
     const session = await createAuthSession(db, user, body.device.id);
     await queueRemoteSyncAfter(undefined, c.env);
     return c.json({
@@ -914,6 +937,7 @@ api.post(API_PATHS.authSignup, async (c) => {
 
       clearFailedLogins(attemptKey);
       await upsertDevice(db, body.device, undefined, user.username);
+      await trustAuthDevice(db, user.username, body.device.id);
       const session = await createAuthSession(db, user, body.device.id);
       return c.json({
         token: session.token,
@@ -963,6 +987,8 @@ api.post(API_PATHS.authSignup, async (c) => {
       recordFailedLogin(attemptKey);
       return c.json({ error: 'Username or email is already taken' }, 409);
     }
+    await upsertDevice(remote, body.device, undefined, createdUser.username);
+    await trustAuthDevice(remote, createdUser.username, body.device.id);
     user = createdUser;
   } catch (error) {
     return c.json(
@@ -987,6 +1013,7 @@ api.post(API_PATHS.authSignup, async (c) => {
     }
 
     await upsertDevice(db, body.device, undefined, user.username);
+    await trustAuthDevice(db, user.username, body.device.id);
     const session = await createAuthSession(db, user, body.device.id);
     await queueRemoteSyncAfter(undefined, c.env);
     return c.json({

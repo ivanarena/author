@@ -26,6 +26,7 @@ Tables:
 - `devices`
 - `users`
 - `auth_sessions`
+- `trusted_auth_devices`
 - `invitation_codes` (legacy, unused by current signup)
 - `schema_migrations`
 - `notes`
@@ -45,6 +46,11 @@ Markdown is not parsed or rendered.
 Notes, notebooks, entity changes, tombstones, and version snapshots include `owner_username` so
 sync results are scoped to the authenticated account. Legacy token data is stored under
 `legacy-token`.
+
+`trusted_auth_devices` records browsers or Android installs that completed a
+password login for an account. Accounts with 2FA enabled can later issue a new
+session from that device with username plus TOTP code while local encryption key
+material remains on the device.
 
 Active notebook names are treated as unique after trimming and case-folding. The client prevents duplicates locally; the server rejects duplicate-name pushes as sync conflicts.
 

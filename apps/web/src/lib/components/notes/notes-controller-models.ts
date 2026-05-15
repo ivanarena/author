@@ -249,6 +249,7 @@ export interface SettingsModalModel {
   editorFontOptions: EditorFontOption[];
   loginOpen: boolean;
   authMode: AuthMode;
+  deviceOtpLoginAvailable: boolean;
   loginUsernameValue: string;
   loginPasswordValue: string;
   loginTotpCodeValue: string;

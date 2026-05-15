@@ -105,10 +105,12 @@ export function setStoredSession(session: StoredSession): void {
   }
 }
 
-export function clearStoredSession(): void {
+export function clearStoredSession({
+  clearEncryptionKeyMaterial = false
+}: { clearEncryptionKeyMaterial?: boolean } = {}): void {
   clearToken();
   clearUsername();
-  clearStoredEncryptionKeyMaterial();
+  if (clearEncryptionKeyMaterial) clearStoredEncryptionKeyMaterial();
 }
 
 export function getUsername(): string | null {

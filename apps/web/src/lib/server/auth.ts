@@ -459,6 +459,9 @@ export async function setUserPassword(
   const passwordHash = await hashPassword(safePassword);
 
   await run(db, 'DELETE FROM auth_sessions WHERE username = ?', [normalized]);
+  await run(db, 'DELETE FROM trusted_auth_devices WHERE username = ?', [
+    normalized
+  ]);
   await run(
     db,
     `INSERT INTO users (
@@ -555,6 +558,9 @@ export async function mirrorUserForLocalSession(
     await run(target, 'DELETE FROM auth_sessions WHERE username = ?', [
       normalized
     ]);
+    await run(target, 'DELETE FROM trusted_auth_devices WHERE username = ?', [
+      normalized
+    ]);
   }
 
   const now = new Date().toISOString();
@@ -628,6 +634,55 @@ export async function authenticateUser(
     return null;
   }
   return rowToAuthUser(recoveredRow);
+}
+
+export async function trustAuthDevice(
+  db: NotesExecutor,
+  username: string,
+  deviceId: string
+): Promise<void> {
+  const normalized = requireUsername(username);
+  if (!deviceId.trim()) throw new Error('Device is required');
+  const now = new Date().toISOString();
+  await run(
+    db,
+    `INSERT INTO trusted_auth_devices (
+       username, device_id, created_at, last_used_at
+     ) VALUES (?, ?, ?, ?)
+     ON CONFLICT(username, device_id) DO UPDATE SET
+       last_used_at = excluded.last_used_at`,
+    [normalized, deviceId, now, now]
+  );
+}
+
+async function isTrustedAuthDevice(
+  db: NotesExecutor,
+  username: string,
+  deviceId: string
+): Promise<boolean> {
+  const row = await get(
+    db,
+    `SELECT 1 AS trusted
+     FROM trusted_auth_devices
+     WHERE username = ? AND device_id = ?`,
+    [username, deviceId]
+  );
+  return Boolean(row);
+}
+
+export async function authenticateTrustedDevice(
+  db: NotesExecutor,
+  username: string | null | undefined,
+  deviceId: string | null | undefined,
+  totpCode?: string | null
+): Promise<AuthUser | null> {
+  if (typeof deviceId !== 'string' || !deviceId.trim()) return null;
+  const row = await getUserRowByLogin(db, username);
+  if (!row || !row.totp_secret || !row.totp_enabled_at) return null;
+  if (!(await isTrustedAuthDevice(db, row.username, deviceId))) return null;
+  if (!(await verifyTotpCode(row.totp_secret, totpCode))) return null;
+  await trustAuthDevice(db, row.username, deviceId);
+  return rowToAuthUser(row);
 }
 
 export async function createAuthSession(

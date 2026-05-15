@@ -24,7 +24,7 @@ export type ApiPath = (typeof API_PATHS)[keyof typeof API_PATHS];
 
 export interface AuthLoginRequest {
   username?: string;
-  password: string;
+  password?: string | null;
   totpCode?: string | null;
   device: Device;
 }

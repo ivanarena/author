@@ -46,7 +46,11 @@ internal fun LoginDialog(controller: NotesController) {
           controller.loginUsernameValue = it
           controller.loginError = ""
         }
-        PasswordField(controller.loginPasswordValue, "Password") {
+        PasswordField(
+          controller.loginPasswordValue,
+          if (controller.authMode == "signup" || !controller.deviceOtpLoginAvailable) "Password"
+          else "Password optional",
+        ) {
           controller.loginPasswordValue = it
           controller.loginError = ""
         }

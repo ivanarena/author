@@ -52,6 +52,7 @@ NOTES_BACKUP_RETENTION_COUNT=14
 ```
 
 `NOTES_LOGIN_USERNAME` and `NOTES_LOGIN_PASSWORD` bootstrap the first local user if it does not already exist. After login, the server returns a random session token, which the browser stores in local storage for later sync requests.
+When 2FA is enabled, a browser or Android install that has already completed a password login can request a new session with username plus TOTP code. The device must still have its local encryption key material for encrypted note sync.
 In production, there is no fallback password; set `NOTES_LOGIN_PASSWORD` or create a user before expecting browser login to work.
 
 Signup is email allow-list only when a remote database is configured. Set `NOTES_SIGNUP_ALLOWED_EMAILS` to a comma-separated list of lowercase email addresses; matching addresses can create a remote account and prepare the local session.
@@ -149,7 +150,7 @@ For GitHub Actions deploys, add these repository secrets:
 
 The workflow deploys the Worker and then syncs the GitHub app secrets into Cloudflare Worker secrets with `wrangler secret bulk`. If you deploy manually, run the `wrangler secret put` commands above once before using the app.
 
-The `Cloudflare Deploy` workflow runs on pushes to `main` that touch the web app, shared packages, or lockfile, and can also be started manually from the Actions tab.
+The `Cloudflare Deploy` workflow only deploys from `main`. It runs on pushes to `main` that touch the web app, shared packages, or lockfile, and manual runs from other branches are skipped.
 
 ### Cloudflare Workers Builds
 
@@ -368,4 +369,4 @@ This clears the configured server database, then seeds the deterministic fixture
 GitHub Actions includes:
 
 - `.github/workflows/ci.yml`: install, check, unit tests, coverage, Playwright browser sync tests, Android debug/release validation, connected Android tests, build.
-- `.github/workflows/docker.yml`: build and publish a GHCR image on pushes to `main` and version tags, attach SBOM/provenance, run Trivy scanning, and keylessly sign pushed images.
+- `.github/workflows/docker.yml`: build and publish a GHCR image on pushes to `main`, attach SBOM/provenance, run Trivy scanning, and keylessly sign pushed images. Pull requests build and scan without publishing.

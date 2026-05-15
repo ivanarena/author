@@ -7,6 +7,7 @@ import {
   getOrCreateDevice,
   getStoredSession,
   getTheme,
+  renameCurrentDevice,
   setDisplayName,
   setStoredSession,
   setTheme
@@ -88,6 +89,24 @@ describe('local browser state', () => {
 
     expect(crypto.randomUUID).toHaveBeenCalledTimes(1);
     expect(localDb.devices.put).toHaveBeenCalledTimes(1);
+  });
+
+  it('renames the current device without changing its id', async () => {
+    vi.mocked(localDb.devices.get).mockResolvedValue({
+      id: 'device-id',
+      name: 'This browser'
+    });
+    localStorage.setItem('author-device-id', 'device-id');
+
+    await expect(renameCurrentDevice('Writing laptop')).resolves.toEqual({
+      id: 'device-id',
+      name: 'Writing laptop'
+    });
+
+    expect(localDb.devices.put).toHaveBeenCalledWith({
+      id: 'device-id',
+      name: 'Writing laptop'
+    });
   });
 
   it('stores, hints, and clears auth session fields without losing the login hint or device key', () => {

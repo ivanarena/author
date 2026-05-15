@@ -33,6 +33,7 @@ private const val LAST_SYNC_ERROR_AT_KEY = "lastSyncErrorAt"
 private const val LAST_SYNC_ERROR_SOURCE_KEY = "lastSyncErrorSource"
 private const val LAST_SYNC_ERROR_MESSAGE_KEY = "lastSyncErrorMessage"
 private const val LAST_SYNC_ERROR_STACK_KEY = "lastSyncErrorStack"
+private const val LAST_PUSHED_DEVICE_SIGNATURE_KEY = "lastPushedDeviceSignature"
 private const val PUSH_BATCH_SIZE = 250
 private const val PULL_BATCH_SIZE = 1000
 private val THEMES =
@@ -171,6 +172,13 @@ class NotesRepository(context: Context) {
         prefs.edit { putString(DEVICE_KEY, id) }
       }
       db.getDevice(id) ?: Device(id, deviceName()).also { db.putDevice(it) }
+    }
+
+  suspend fun renameCurrentDevice(name: String): Device =
+    withContext(Dispatchers.IO) {
+      val trimmedName = name.trim()
+      require(trimmedName.isNotEmpty()) { "Device name required" }
+      getOrCreateDevice().copy(name = trimmedName.take(80)).also { db.putDevice(it) }
     }
 
   suspend fun createBlankNote(
@@ -507,6 +515,9 @@ class NotesRepository(context: Context) {
   suspend fun loadSyncStatus(token: String): RemoteSyncInfo =
     withContext(Dispatchers.IO) { syncClient.loadSyncStatus(token) }
 
+  suspend fun loadAccount(token: String): AccountResponse =
+    withContext(Dispatchers.IO) { syncClient.loadAccount(token) }
+
   suspend fun recordSyncError(error: Throwable, source: String = "Sync") =
     withContext(Dispatchers.IO) {
       if (error is CancellationException) throw error
@@ -523,19 +534,19 @@ class NotesRepository(context: Context) {
       rememberLocalWorkspaceAccount(username)
     }
 
-  suspend fun updateAccount(token: String, displayName: String?, email: String?): AuthUser =
+  suspend fun updateAccount(token: String, displayName: String?, email: String?): AccountResponse =
     withContext(Dispatchers.IO) { syncClient.updateAccount(token, displayName, email) }
 
   suspend fun changePassword(
     token: String,
     currentPassword: String,
     newPassword: String,
-  ): AuthUser =
+  ): AccountResponse =
     withContext(Dispatchers.IO) {
-      val user = syncClient.changePassword(token, currentPassword, newPassword)
-      val (previous, next) = crypto.rememberEncryptionPassword(user.username, newPassword)
+      val response = syncClient.changePassword(token, currentPassword, newPassword)
+      val (previous, next) = crypto.rememberEncryptionPassword(response.user.username, newPassword)
       reencryptLocalNotesInternal(previous, next)
-      user
+      response
     }
 
   suspend fun setupTotp(token: String): TotpSetup =
@@ -546,11 +557,18 @@ class NotesRepository(context: Context) {
     currentPassword: String,
     secret: String,
     totpCode: String,
-  ): AuthUser =
+  ): AccountResponse =
     withContext(Dispatchers.IO) { syncClient.enableTotp(token, currentPassword, secret, totpCode) }
 
-  suspend fun disableTotp(token: String, currentPassword: String, totpCode: String?): AuthUser =
+  suspend fun disableTotp(
+    token: String,
+    currentPassword: String,
+    totpCode: String?,
+  ): AccountResponse =
     withContext(Dispatchers.IO) { syncClient.disableTotp(token, currentPassword, totpCode) }
+
+  suspend fun revokeTrustedDevice(token: String, deviceId: String): AccountResponse =
+    withContext(Dispatchers.IO) { syncClient.revokeTrustedDevice(token, deviceId) }
 
   suspend fun logout(token: String) =
     withContext(Dispatchers.IO) { runCatching { syncClient.logout(token) } }
@@ -579,6 +597,17 @@ class NotesRepository(context: Context) {
         val totalPushCount = pendingNotes.size + pendingNotebooks.size
         var conflicts = 0
         var pushed = 0
+        val currentDeviceSignature = deviceSignature(device)
+        if (
+          pendingNotes.isEmpty() &&
+            pendingNotebooks.isEmpty() &&
+            db.getMeta(LAST_PUSHED_DEVICE_SIGNATURE_KEY) != currentDeviceSignature
+        ) {
+          onProgress(SyncProgress(SyncProgressPhase.PUSHING, batchSize = 0))
+          syncClient.pushSyncChanges(token, device, emptyList(), emptyList())
+          db.putMeta(LAST_PUSHED_DEVICE_SIGNATURE_KEY, currentDeviceSignature)
+          onProgress(SyncProgress(SyncProgressPhase.PUSHING, batchSize = 0))
+        }
 
         var noteBatchStart = 0
         var notebookBatchStart = 0
@@ -599,6 +628,7 @@ class NotesRepository(context: Context) {
             )
           )
           val response = syncClient.pushSyncChanges(token, device, notesBatch, notebooksBatch)
+          db.putMeta(LAST_PUSHED_DEVICE_SIGNATURE_KEY, currentDeviceSignature)
           pushed += batchSize
           onProgress(
             SyncProgress(
@@ -1337,6 +1367,8 @@ class NotesRepository(context: Context) {
   }
 
   private fun deviceName(deviceId: String): String = db.getDevice(deviceId)?.name ?: deviceId
+
+  private fun deviceSignature(device: Device): String = "${device.id}\u0000${device.name}"
 
   private fun deviceName(): String =
     if (Build.MODEL.isNullOrBlank()) "Android device" else Build.MODEL

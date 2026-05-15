@@ -26,6 +26,7 @@ import {
 
 const PUSH_BATCH_SIZE = 250;
 const PULL_BATCH_SIZE = 1000;
+const LAST_PUSHED_DEVICE_SIGNATURE_KEY = 'lastPushedDeviceSignature';
 
 export type SyncProgress =
   | { phase: 'preparing' }
@@ -136,6 +137,17 @@ function notebookNeedsRepair(
   );
 }
 
+function deviceSignature(device: Device): string {
+  return `${device.id}\0${device.name}`;
+}
+
+async function rememberPushedDevice(device: Device): Promise<void> {
+  await localDb.syncMeta.put({
+    key: LAST_PUSHED_DEVICE_SIGNATURE_KEY,
+    value: deviceSignature(device)
+  });
+}
+
 export {
   AuthError,
   SyncHttpError,
@@ -200,6 +212,28 @@ export async function runSync(
   let pushed = 0;
   let noteBatchStart = 0;
   let notebookBatchStart = 0;
+  const storedDeviceSignature =
+    (await localDb.syncMeta.get(LAST_PUSHED_DEVICE_SIGNATURE_KEY))?.value ?? '';
+  if (
+    pendingNotes.length === 0 &&
+    pendingNotebooks.length === 0 &&
+    storedDeviceSignature !== deviceSignature(device)
+  ) {
+    onProgress?.({
+      phase: 'pushing',
+      pushed,
+      total: totalPushCount,
+      batchSize: 0
+    });
+    await pushSyncChanges(token, { device, notes: [], notebooks: [] });
+    await rememberPushedDevice(device);
+    onProgress?.({
+      phase: 'pushing',
+      pushed,
+      total: totalPushCount,
+      batchSize: 0
+    });
+  }
   while (
     noteBatchStart < pendingNotes.length ||
     notebookBatchStart < pendingNotebooks.length
@@ -227,6 +261,7 @@ export async function runSync(
       batchSize
     });
     const pushResponse = await pushSyncChanges(token, pushPayload);
+    await rememberPushedDevice(device);
     pushed += batchSize;
     onProgress?.({
       phase: 'pushing',

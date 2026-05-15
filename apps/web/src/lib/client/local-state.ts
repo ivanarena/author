@@ -63,6 +63,19 @@ export async function getOrCreateDevice(): Promise<Device> {
   return device;
 }
 
+export async function renameCurrentDevice(name: string): Promise<Device> {
+  const trimmedName = name.trim();
+  if (!trimmedName) throw new Error('Device name required');
+
+  const current = await getOrCreateDevice();
+  const device: Device = {
+    ...current,
+    name: trimmedName.slice(0, 80)
+  };
+  await localDb.devices.put(device);
+  return device;
+}
+
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }

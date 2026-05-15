@@ -286,6 +286,188 @@ test('logs in from the profile menu when no session is stored', async ({
   ).toBeVisible();
 });
 
+test('signs up and manages trusted-device login without ending the active session', async ({
+  context,
+  page
+}, testInfo) => {
+  const signupDeviceId = `e2e-signup-device-${testInfo.retry}`;
+  const signupUsername = `e2e-signup-${testInfo.retry}-${Date.now()}`;
+  const signupEmail = `${signupUsername}@example.com`;
+  const signupPassword = 'e2e-signup-password';
+  let signedUpUser = {
+    username: signupUsername,
+    email: signupEmail,
+    displayName: null as string | null,
+    twoFactorEnabled: false
+  };
+  let trustedDevice = {
+    deviceId: signupDeviceId,
+    deviceName: 'This browser',
+    createdAt: new Date().toISOString(),
+    lastUsedAt: new Date().toISOString(),
+    current: true
+  };
+  await page.close();
+  const signupPage = await context.newPage();
+
+  await signupPage.addInitScript((deviceId) => {
+    localStorage.setItem('author-device-id', deviceId);
+  }, signupDeviceId);
+  await signupPage.route('**/api/config', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        apiBaseUrl: 'http://127.0.0.1:5179',
+        remote: { enabled: false, configured: false },
+        signup: {
+          enabled: true,
+          emailRequired: true,
+          emailAllowListRequired: true
+        }
+      })
+    });
+  });
+  await signupPage.route('**/api/auth/signup', async (route) => {
+    const body = route.request().postDataJSON() as {
+      username: string;
+      email: string;
+      displayName?: string | null;
+      device: { id: string; name: string };
+    };
+    signedUpUser = {
+      username: body.username,
+      email: body.email,
+      displayName: body.displayName ?? null,
+      twoFactorEnabled: false
+    };
+    trustedDevice = {
+      deviceId: body.device.id,
+      deviceName: body.device.name,
+      createdAt: new Date().toISOString(),
+      lastUsedAt: new Date().toISOString(),
+      current: true
+    };
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        token: 'signup-session-token',
+        user: signedUpUser,
+        device: body.device,
+        expiresAt: new Date(Date.now() + 86_400_000).toISOString()
+      })
+    });
+  });
+  await signupPage.route('**/api/account/trusted-devices/**', async (route) => {
+    trustedDevice = { ...trustedDevice, current: false };
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ user: signedUpUser, trustedDevices: [] })
+    });
+  });
+  await signupPage.route('**/api/account', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        user: signedUpUser,
+        trustedDevices: trustedDevice.current ? [trustedDevice] : []
+      })
+    });
+  });
+  await signupPage.route('**/api/sync/push', async (route) => {
+    const body = route.request().postDataJSON() as {
+      device?: { id: string; name: string };
+    };
+    if (body.device?.id === trustedDevice.deviceId) {
+      trustedDevice = {
+        ...trustedDevice,
+        deviceName: body.device.name,
+        lastUsedAt: new Date().toISOString()
+      };
+    }
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        accepted: [],
+        conflicts: [],
+        serverTime: new Date().toISOString()
+      })
+    });
+  });
+  await signupPage.route('**/api/sync/pull', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        notes: [],
+        notebooks: [],
+        devices: [],
+        deletedNoteIds: [],
+        deletedNotebookIds: [],
+        deletedDeviceIds: [],
+        serverTime: new Date().toISOString(),
+        serverRevision: 0
+      })
+    });
+  });
+  await signupPage.route('**/api/sync/status', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        remote: {
+          enabled: false,
+          state: 'disabled',
+          pendingSince: null,
+          lastStartedAt: null,
+          lastSyncedAt: null,
+          lastError: null
+        }
+      })
+    });
+  });
+
+  await signupPage.goto('/');
+
+  await signupPage
+    .getByRole('button', { name: 'Profile and settings' })
+    .click();
+  await signupPage.getByRole('menuitem', { name: 'Sign in to sync' }).click();
+  const authDialog = signupPage.getByRole('dialog');
+  await authDialog.getByRole('tab', { name: 'Sign up' }).click();
+  await authDialog.getByLabel('Username').fill(signupUsername);
+  await authDialog.getByLabel('Password', { exact: true }).fill(signupPassword);
+  await authDialog.getByLabel('Email').fill(signupEmail);
+  await authDialog.getByLabel('Confirm password').fill(signupPassword);
+  await authDialog.getByRole('button', { name: 'Create account' }).click();
+
+  await expect(authDialog).toBeHidden();
+  await expect
+    .poll(() => signupPage.evaluate(() => localStorage.getItem('author-token')))
+    .toEqual(expect.any(String));
+
+  await signupPage
+    .getByRole('button', { name: 'Profile and settings' })
+    .click();
+  await signupPage.getByRole('menuitem', { name: 'Settings' }).click();
+  const settingsDialog = signupPage.getByRole('dialog', { name: 'Settings' });
+  const trustedDevices = settingsDialog.locator(
+    '[aria-label="Trusted devices"]'
+  );
+  await expect(
+    trustedDevices.getByText(
+      'Removing trust stops future 2FA-code login without a password. It does not log out an active session on that device.'
+    )
+  ).toBeVisible();
+  await expect(trustedDevices.getByText('This browser')).toBeVisible();
+
+  await trustedDevices
+    .getByRole('button', { name: 'Remove trusted login for This browser' })
+    .click();
+
+  await expect(trustedDevices.getByText('No trusted devices')).toBeVisible();
+  await expect
+    .poll(() => signupPage.evaluate(() => localStorage.getItem('author-token')))
+    .toEqual(expect.any(String));
+});
+
 test('keeps local drafts when signing in and then syncs them remote', async ({
   page,
   request

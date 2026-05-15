@@ -98,6 +98,16 @@ data class AuthUser(
   val twoFactorEnabled: Boolean,
 )
 
+data class TrustedAuthDevice(
+  val deviceId: String,
+  val deviceName: String,
+  val createdAt: String,
+  val lastUsedAt: String,
+  val current: Boolean,
+)
+
+data class AccountResponse(val user: AuthUser, val trustedDevices: List<TrustedAuthDevice>)
+
 data class StoredSession(val token: String, val user: AuthUser, val expiresAt: String?)
 
 data class TotpSetup(val secret: String, val otpauthUrl: String)

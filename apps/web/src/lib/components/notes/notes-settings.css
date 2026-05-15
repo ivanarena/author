@@ -371,6 +371,13 @@
   padding-bottom: 14px;
 }
 
+.trusted-device-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .trusted-device-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

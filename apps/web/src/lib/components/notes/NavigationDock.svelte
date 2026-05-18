@@ -8,7 +8,7 @@
     RefreshCw,
     Settings,
     Sun
-  } from 'lucide-svelte';
+  } from '@lucide/svelte';
   import NoteListPanel from './NoteListPanel.svelte';
   import NotebookSidebar from './NotebookSidebar.svelte';
   import type { NavigationDockModel } from './notes-page-controller.svelte.js';

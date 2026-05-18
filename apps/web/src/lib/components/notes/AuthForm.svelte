@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Check, Eye, EyeOff, LogIn, X } from 'lucide-svelte';
+  import { Check, Eye, EyeOff, LogIn, X } from '@lucide/svelte';
   import type { SettingsModalModel } from './notes-page-controller.svelte.js';
 
   let {

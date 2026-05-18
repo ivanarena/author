@@ -6,7 +6,7 @@
     Pencil,
     Trash2,
     X
-  } from 'lucide-svelte';
+  } from '@lucide/svelte';
   import { noteDisplayTitle } from '$lib/client/note-utils';
   import NotebookLinkMenu from './NotebookLinkMenu.svelte';
   import type { ContextMenuModel } from './notes-page-controller.svelte.js';

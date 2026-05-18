@@ -31,7 +31,7 @@
     "@libsql/client": "^0.17.3",
     "dexie": "^4.4.2",
     "hono": "^4.12.18",
-    "lucide-svelte": "^1.0.1",
+    "@lucide/svelte": "^1.16.0",
     "uqr": "^0.1.3"
   },
   "devDependencies": {

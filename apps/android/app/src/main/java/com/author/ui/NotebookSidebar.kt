@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -90,9 +92,13 @@ internal fun NotebookSidebar(
           onFilterPicked()
         }
       }
+      if (controller.notebooks.isNotEmpty()) {
+        item { NotebookGroupGap() }
+      }
       items(controller.notebooks, key = { it.id }) { notebook ->
         NotebookRow(controller, notebook, onPicked = onFilterPicked)
       }
+      item { NotebookGroupGap() }
       item {
         NavRow(
           Icons.Outlined.Delete,
@@ -110,6 +116,11 @@ internal fun NotebookSidebar(
 
 private fun notebookCountLabel(count: Int, controller: NotesController): String =
   if (controller.isWorkspaceLoading) "..." else count.toString()
+
+@Composable
+private fun NotebookGroupGap() {
+  Spacer(Modifier.height(10.dp))
+}
 
 @Composable
 private fun NotebookRow(

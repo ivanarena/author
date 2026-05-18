@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import com.author.R
 
 internal object AppMotion {
@@ -70,15 +71,43 @@ private fun typography(fontFamily: FontFamily) =
     headlineLarge = BaseTypography.headlineLarge.copy(fontFamily = fontFamily),
     headlineMedium = BaseTypography.headlineMedium.copy(fontFamily = fontFamily),
     headlineSmall = BaseTypography.headlineSmall.copy(fontFamily = fontFamily),
-    titleLarge = BaseTypography.titleLarge.copy(fontFamily = fontFamily),
-    titleMedium = BaseTypography.titleMedium.copy(fontFamily = fontFamily),
-    titleSmall = BaseTypography.titleSmall.copy(fontFamily = fontFamily),
-    bodyLarge = BaseTypography.bodyLarge.copy(fontFamily = fontFamily),
-    bodyMedium = BaseTypography.bodyMedium.copy(fontFamily = fontFamily),
-    bodySmall = BaseTypography.bodySmall.copy(fontFamily = fontFamily),
-    labelLarge = BaseTypography.labelLarge.copy(fontFamily = fontFamily),
-    labelMedium = BaseTypography.labelMedium.copy(fontFamily = fontFamily),
-    labelSmall = BaseTypography.labelSmall.copy(fontFamily = fontFamily),
+    titleLarge =
+      BaseTypography.titleLarge.copy(
+        fontFamily = fontFamily,
+        fontSize = 20.sp,
+        lineHeight = 26.sp,
+        fontWeight = FontWeight.SemiBold,
+      ),
+    titleMedium =
+      BaseTypography.titleMedium.copy(
+        fontFamily = fontFamily,
+        fontSize = 16.sp,
+        lineHeight = 22.sp,
+        fontWeight = FontWeight.SemiBold,
+      ),
+    titleSmall =
+      BaseTypography.titleSmall.copy(
+        fontFamily = fontFamily,
+        fontSize = 14.sp,
+        lineHeight = 20.sp,
+        fontWeight = FontWeight.SemiBold,
+      ),
+    bodyLarge = BaseTypography.bodyLarge.copy(fontFamily = fontFamily, fontSize = 16.sp),
+    bodyMedium = BaseTypography.bodyMedium.copy(fontFamily = fontFamily, fontSize = 14.sp),
+    bodySmall = BaseTypography.bodySmall.copy(fontFamily = fontFamily, fontSize = 12.sp),
+    labelLarge =
+      BaseTypography.labelLarge.copy(
+        fontFamily = fontFamily,
+        fontSize = 14.sp,
+        fontWeight = FontWeight.Medium,
+      ),
+    labelMedium =
+      BaseTypography.labelMedium.copy(
+        fontFamily = fontFamily,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Medium,
+      ),
+    labelSmall = BaseTypography.labelSmall.copy(fontFamily = fontFamily, fontSize = 11.sp),
   )
 
 private fun fontFamily(font: String): FontFamily =

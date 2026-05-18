@@ -38,6 +38,7 @@ class NotesController(private val repository: NotesRepository, private val scope
   var devices by mutableStateOf<List<Device>>(emptyList())
   var conflicts by mutableStateOf<List<LocalConflict>>(emptyList())
   var selectedNote by mutableStateOf<LocalNote?>(null)
+  var noteSelectionMode by mutableStateOf(false)
   var selectedNoteIds by mutableStateOf<Set<String>>(emptySet())
   var titleValue by mutableStateOf("")
   var bodyValue by mutableStateOf("")
@@ -79,6 +80,7 @@ class NotesController(private val repository: NotesRepository, private val scope
   var accountTrustedDevices by mutableStateOf<List<TrustedAuthDevice>>(emptyList())
   var accountMessage by mutableStateOf("")
   var accountError by mutableStateOf("")
+  var accountPanel by mutableStateOf<String?>(null)
   var accountProfileEditing by mutableStateOf(false)
   var accountPasswordEditing by mutableStateOf(false)
   var accountTotpEditing by mutableStateOf(false)
@@ -125,6 +127,36 @@ class NotesController(private val repository: NotesRepository, private val scope
   private var syncQueued = false
   private var lastSnapshot = "" to ""
   private var preparedExport: ByteArray? = null
+
+  fun openAccountPanel(panel: String) {
+    accountPanel = panel
+    accountError = ""
+    accountMessage = ""
+    accountProfileEditing = panel == "email"
+    accountPasswordEditing = panel == "password"
+    accountDeleteEditing = panel == "delete"
+    if (panel != "device") deviceNameEditing = false
+    if (panel == "totp") {
+      startTotpEdit()
+    } else {
+      cancelTotpEdit()
+    }
+  }
+
+  fun closeAccountPanel() {
+    accountPanel = null
+    accountError = ""
+    accountMessage = ""
+    accountProfileEditing = false
+    accountPasswordEditing = false
+    accountDeleteEditing = false
+    currentPasswordValue = ""
+    newPasswordValue = ""
+    confirmPasswordValue = ""
+    deletePasswordValue = ""
+    cancelTotpEdit()
+    cancelDeviceNameEdit()
+  }
 
   fun initialize() {
     scope.launch {
@@ -384,16 +416,23 @@ class NotesController(private val repository: NotesRepository, private val scope
   }
 
   fun toggleSelection(note: LocalNote, selected: Boolean) {
+    noteSelectionMode = true
     selectedNoteIds = if (selected) selectedNoteIds + note.id else selectedNoteIds - note.id
   }
 
+  fun enterNoteSelectionMode() {
+    noteSelectionMode = true
+  }
+
   fun toggleAllVisible(selected: Boolean) {
+    noteSelectionMode = true
     selectedNoteIds =
       if (selected) selectedNoteIds + visibleNotes.map { it.id }
       else selectedNoteIds - visibleNotes.map { it.id }.toSet()
   }
 
   fun clearSelection() {
+    noteSelectionMode = false
     selectedNoteIds = emptySet()
   }
 
@@ -402,6 +441,7 @@ class NotesController(private val repository: NotesRepository, private val scope
       val notebook = repository.createNotebook(notebookNameValue)
       if (notebook == null) {
         notebookError = "Name required"
+        notify("error", "Notebook name required", "Enter a name before creating a notebook.")
         return@launch
       }
       filterId = notebook.id
@@ -554,31 +594,31 @@ class NotesController(private val repository: NotesRepository, private val scope
     val canUseDeviceOtpLogin =
       authMode == "signin" && !hasPassword && repository.hasStoredEncryptionKeyMaterial()
     if (username.isEmpty()) {
-      loginError = "Username required"
+      showLoginError("Username required")
       return
     }
     if (!hasPassword && authMode == "signup") {
-      loginError = "Password required"
+      showLoginError("Password required")
       return
     }
     if (!hasPassword && !canUseDeviceOtpLogin) {
-      loginError = "Password required on first login for this device"
+      showLoginError("Password required on first login for this device")
       return
     }
     if (canUseDeviceOtpLogin && loginTotpCodeValue.isBlank()) {
-      loginError = "2FA code required"
+      showLoginError("2FA code required")
       return
     }
     if (authMode == "signup" && password != signupConfirmPasswordValue) {
-      loginError = "Passwords do not match"
+      showLoginError("Passwords do not match")
       return
     }
     if (authMode == "signup" && !signupEnabled) {
-      loginError = "Signup is disabled"
+      showLoginError("Signup is disabled")
       return
     }
     if (authMode == "signup" && signupEmailRequired && signupEmailValue.isBlank()) {
-      loginError = "Email required"
+      showLoginError("Email required")
       return
     }
     scope.launch {
@@ -645,6 +685,11 @@ class NotesController(private val repository: NotesRepository, private val scope
         isLoggingIn = false
       }
     }
+  }
+
+  private fun showLoginError(message: String) {
+    loginError = message
+    notify("error", "Sign-in failed", message)
   }
 
   fun syncNow() {
@@ -733,10 +778,12 @@ class NotesController(private val repository: NotesRepository, private val scope
         if (session != null) repository.setStoredSession(session.copy(user = response.user))
         applyAccount(response.user, response.trustedDevices)
         accountProfileEditing = false
+        accountPanel = null
         accountMessage = "Email saved"
         notify("success", "Email saved")
       } catch (error: Throwable) {
         accountError = error.message ?: "Could not save email"
+        notify("error", "Email not saved", accountError)
       }
     }
   }
@@ -757,6 +804,7 @@ class NotesController(private val repository: NotesRepository, private val scope
   fun saveDeviceName() {
     if (deviceNameValue.isBlank()) {
       deviceNameError = "Device name required"
+      notify("error", "Device name required")
       return
     }
     scope.launch {
@@ -768,6 +816,7 @@ class NotesController(private val repository: NotesRepository, private val scope
           accountTrustedDevices.map {
             if (it.deviceId == device.id) it.copy(deviceName = device.name) else it
           }
+        accountPanel = null
         deviceNameEditing = false
         deviceNameError = ""
         accountMessage = "Device name saved"
@@ -776,6 +825,7 @@ class NotesController(private val repository: NotesRepository, private val scope
         if (hasToken) syncNow()
       } catch (error: Throwable) {
         deviceNameError = error.message ?: "Could not save device name"
+        notify("error", "Device name not saved", deviceNameError)
       }
     }
   }
@@ -793,6 +843,7 @@ class NotesController(private val repository: NotesRepository, private val scope
         notify("success", "Trusted device removed")
       } catch (error: Throwable) {
         accountError = error.message ?: "Could not remove trusted device"
+        notify("error", "Trusted device not removed", accountError)
       }
     }
   }
@@ -836,6 +887,7 @@ class NotesController(private val repository: NotesRepository, private val scope
         accountTotpUrl = setup.otpauthUrl
       } catch (error: Throwable) {
         accountError = error.message ?: "Could not start 2FA setup"
+        notify("error", "2FA setup failed", accountError)
         accountTotpEditing = false
       }
     }
@@ -854,14 +906,17 @@ class NotesController(private val repository: NotesRepository, private val scope
     val token = repository.getStoredSession()?.token ?: return
     if (accountTotpPasswordValue.isBlank()) {
       accountError = "Current password required"
+      notify("error", "Current password required")
       return
     }
     if (accountTotpCodeValue.isBlank()) {
       accountError = "2FA code required"
+      notify("error", "2FA code required")
       return
     }
     if (!accountTwoFactorEnabled && accountTotpSecret.isBlank()) {
       accountError = "2FA setup not ready"
+      notify("error", "2FA setup not ready")
       return
     }
     scope.launch {
@@ -883,6 +938,7 @@ class NotesController(private val repository: NotesRepository, private val scope
         notify("success", "2FA changed", "Sign in again to keep syncing.")
       } catch (error: Throwable) {
         accountError = error.message ?: "Could not update 2FA"
+        notify("error", "2FA not changed", accountError)
       }
     }
   }
@@ -891,14 +947,17 @@ class NotesController(private val repository: NotesRepository, private val scope
     val token = repository.getStoredSession()?.token ?: return
     if (currentPasswordValue.isBlank()) {
       accountError = "Current password required"
+      notify("error", "Current password required")
       return
     }
     if (newPasswordValue.isBlank()) {
       accountError = "New password required"
+      notify("error", "New password required")
       return
     }
     if (newPasswordValue != confirmPasswordValue) {
       accountError = "Passwords do not match"
+      notify("error", "Passwords do not match")
       return
     }
     scope.launch {
@@ -910,6 +969,7 @@ class NotesController(private val repository: NotesRepository, private val scope
         notify("success", "Password changed", "Sign in again to keep syncing.")
       } catch (error: Throwable) {
         accountError = error.message ?: "Could not change password"
+        notify("error", "Password not changed", accountError)
       }
     }
   }
@@ -927,6 +987,7 @@ class NotesController(private val repository: NotesRepository, private val scope
     val token = repository.getStoredSession()?.token ?: return
     if (deletePasswordValue.isBlank()) {
       accountError = "Password required to delete account"
+      notify("error", "Password required to delete account")
       return
     }
     scope.launch {
@@ -939,6 +1000,7 @@ class NotesController(private val repository: NotesRepository, private val scope
         notify("info", "Account deleted")
       } catch (error: Throwable) {
         accountError = error.message ?: "Could not delete account"
+        notify("error", "Account not deleted", accountError)
       }
     }
   }
@@ -1123,6 +1185,7 @@ class NotesController(private val repository: NotesRepository, private val scope
     accountTrustedDevices = emptyList()
     accountMessage = message
     accountError = ""
+    accountPanel = null
     accountProfileEditing = false
     accountPasswordEditing = false
     accountTotpEditing = false

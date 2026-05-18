@@ -1,7 +1,9 @@
 package com.author.ui
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,9 +19,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -29,20 +34,33 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+
+internal object AppTextSize {
+  val Debug = 11.sp
+  val Label = 12.sp
+  val Body = 14.sp
+  val Title = 18.sp
+}
 
 @Composable
 internal fun PageHeader(
@@ -80,6 +98,7 @@ internal fun NavRow(
   count: String,
   active: Boolean,
   trailing: @Composable (() -> Unit)? = null,
+  onLongClick: (() -> Unit)? = null,
   onClick: () -> Unit,
 ) {
   val contentColor =
@@ -90,7 +109,7 @@ internal fun NavRow(
       Modifier.fillMaxWidth()
         .clip(RoundedCornerShape(8.dp))
         .animateContentSize(appTween(AppMotion.Medium))
-        .clickable(onClick = onClick),
+        .navRowClick(onClick, onLongClick),
     color = Color.Transparent,
     shape = RoundedCornerShape(8.dp),
   ) {
@@ -104,7 +123,7 @@ internal fun NavRow(
         label,
         modifier = Modifier.weight(1f),
         color = contentColor,
-        fontSize = 14.sp,
+        fontSize = AppTextSize.Body,
         fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
@@ -113,23 +132,53 @@ internal fun NavRow(
         Text(
           count,
           color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-          fontSize = 12.sp,
+          fontSize = AppTextSize.Label,
           maxLines = 1,
         )
       }
-      Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) { trailing?.invoke() }
+      if (trailing != null) {
+        Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) { trailing() }
+      }
     }
   }
 }
+
+@OptIn(ExperimentalFoundationApi::class)
+private fun Modifier.navRowClick(onClick: () -> Unit, onLongClick: (() -> Unit)?): Modifier =
+  if (onLongClick == null) clickable(onClick = onClick)
+  else combinedClickable(onClick = onClick, onLongClick = onLongClick)
 
 @Composable
 internal fun DropdownSectionLabel(label: String) {
   Text(
     label,
     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-    fontSize = 12.sp,
+    fontSize = AppTextSize.Label,
     fontWeight = FontWeight.Bold,
     modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 4.dp),
+  )
+}
+
+@Composable
+internal fun AppDropdownMenuItem(
+  label: String,
+  onClick: () -> Unit,
+  enabled: Boolean = true,
+  leadingIcon: @Composable (() -> Unit)? = null,
+) {
+  DropdownMenuItem(
+    text = {
+      Text(
+        label,
+        fontSize = AppTextSize.Body,
+        fontWeight = FontWeight.Medium,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+      )
+    },
+    leadingIcon = leadingIcon,
+    enabled = enabled,
+    onClick = onClick,
   )
 }
 
@@ -193,7 +242,8 @@ internal fun ActionRow(
       Text(
         label,
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f),
-        fontSize = 14.sp,
+        fontSize = AppTextSize.Body,
+        fontWeight = FontWeight.Medium,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
       )
@@ -202,17 +252,20 @@ internal fun ActionRow(
 }
 
 @Composable
-internal fun InfoTile(label: String, value: String, detail: String) {
+internal fun InfoTile(label: String, value: String, detail: String, valueColor: Color? = null) {
+  val resolvedValueColor = valueColor ?: MaterialTheme.colorScheme.onSurface
   GlassPanel(Modifier.fillMaxWidth()) {
     Column(Modifier.padding(10.dp)) {
       Text(
         label,
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-        fontSize = 12.sp,
+        fontSize = AppTextSize.Label,
         fontWeight = FontWeight.SemiBold,
       )
       Text(
         value.ifBlank { " " },
+        color = resolvedValueColor,
+        fontSize = AppTextSize.Body,
         fontWeight = FontWeight.SemiBold,
         maxLines = 2,
         overflow = TextOverflow.Ellipsis,
@@ -221,7 +274,7 @@ internal fun InfoTile(label: String, value: String, detail: String) {
         Text(
           detail,
           color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-          fontSize = 12.sp,
+          fontSize = AppTextSize.Label,
           maxLines = 3,
           overflow = TextOverflow.Ellipsis,
         )
@@ -243,7 +296,7 @@ internal fun MiniField(
     placeholder = { Text(placeholder) },
     singleLine = true,
     modifier = modifier,
-    textStyle = TextStyle(fontSize = 14.sp, fontFamily = LocalAppFontFamily.current),
+    textStyle = TextStyle(fontSize = AppTextSize.Body, fontFamily = LocalAppFontFamily.current),
     shape = RoundedCornerShape(14.dp),
     colors = textFieldColors(),
   )
@@ -251,14 +304,26 @@ internal fun MiniField(
 
 @Composable
 internal fun PasswordField(value: String, placeholder: String, onChange: (String) -> Unit) {
+  var visible by remember { mutableStateOf(false) }
   TextField(
     value = value,
     onValueChange = onChange,
     placeholder = { Text(placeholder) },
     singleLine = true,
-    visualTransformation = PasswordVisualTransformation(),
+    visualTransformation =
+      if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+    trailingIcon = {
+      IconButton(onClick = { visible = !visible }) {
+        Icon(
+          if (visible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+          if (visible) "Hide password" else "Show password",
+          modifier = Modifier.size(18.dp),
+          tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
+        )
+      }
+    },
     modifier = Modifier.fillMaxWidth(),
-    textStyle = TextStyle(fontSize = 14.sp, fontFamily = LocalAppFontFamily.current),
+    textStyle = TextStyle(fontSize = AppTextSize.Body, fontFamily = LocalAppFontFamily.current),
     shape = RoundedCornerShape(14.dp),
     colors = textFieldColors(),
   )
@@ -298,7 +363,7 @@ internal fun SmallTextButton(label: String, active: Boolean = false, onClick: ()
       color =
         if (active) MaterialTheme.colorScheme.primary
         else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
-      fontSize = 12.sp,
+      fontSize = AppTextSize.Label,
       fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
     )
   }
@@ -346,20 +411,47 @@ internal fun GlassPanel(
 @Composable internal fun toolbarColor(): Color = MaterialTheme.colorScheme.background
 
 @Composable
-internal fun messageColor(): Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f)
+internal fun syncStatusColor(label: String): Color {
+  val normalized = label.lowercase()
+  val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+  return when {
+    normalized.contains("conflict") ||
+      normalized.contains("failed") ||
+      normalized.contains("error") -> MaterialTheme.colorScheme.error
+    normalized.contains("waiting") ||
+      normalized.contains("pending") ||
+      normalized.contains("queued") -> if (dark) Color(0xFFE8C46A) else Color(0xFF8B5E00)
+    normalized.contains("syncing") ||
+      normalized.contains("preparing") ||
+      normalized.contains("pushing") ||
+      normalized.contains("pulling") ||
+      normalized.contains("loading") -> MaterialTheme.colorScheme.primary
+    normalized.contains("synced") || normalized.contains("saved") ->
+      if (dark) Color(0xFF9AD7AA) else Color(0xFF2F7D52)
+    normalized.contains("local only") -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.56f)
+    else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
+  }
+}
 
 @Composable
-internal fun statusColor(label: String): Color =
-  MaterialTheme.colorScheme.onSurface.copy(
-    alpha = if (label.contains("Local only", true)) 0.52f else 0.72f
+internal fun SyncStatusText(label: String, modifier: Modifier = Modifier, maxLines: Int = 1) {
+  Text(
+    label.ifBlank { " " },
+    modifier = modifier,
+    color = syncStatusColor(label),
+    fontSize = AppTextSize.Label,
+    fontWeight = FontWeight.SemiBold,
+    maxLines = maxLines,
+    overflow = TextOverflow.Ellipsis,
   )
+}
 
 @Composable
 internal fun SyncActivityIndicator(active: Boolean, modifier: Modifier = Modifier) {
   if (!active) return
   CircularProgressIndicator(
     modifier = modifier.size(12.dp),
-    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+    color = syncStatusColor("Syncing"),
     trackColor = Color.Transparent,
     strokeWidth = 1.5.dp,
   )

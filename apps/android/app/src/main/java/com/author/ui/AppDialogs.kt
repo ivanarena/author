@@ -1,23 +1,28 @@
 package com.author.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import com.author.core.LocalConflict
 
 @Composable
@@ -68,14 +73,6 @@ internal fun LoginDialog(controller: NotesController) {
             controller.loginTotpCodeValue = it
             controller.loginError = ""
           }
-        }
-        if (controller.loginError.isNotBlank()) {
-          Text(
-            controller.loginError,
-            color = messageColor(),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-          )
         }
       }
     },
@@ -152,33 +149,70 @@ internal fun ConflictDialog(controller: NotesController, conflict: LocalConflict
 
 @Composable
 internal fun NotificationStack(controller: NotesController) {
-  Column(
-    Modifier.fillMaxWidth().padding(top = 8.dp),
-    horizontalAlignment = Alignment.CenterHorizontally,
-    verticalArrangement = Arrangement.spacedBy(8.dp),
-  ) {
-    controller.notifications.forEach { notification ->
-      GlassPanel(Modifier.width(360.dp)) {
-        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-          Text(
-            notification.title,
-            fontWeight = FontWeight.Bold,
-            fontSize = 14.sp,
-            modifier = Modifier.weight(1f),
-          )
-          GlassIcon(Icons.Outlined.Close, "Dismiss") {
-            controller.dismissNotification(notification.id)
+  if (controller.notifications.isEmpty()) return
+
+  Popup(alignment = Alignment.TopCenter, properties = PopupProperties(focusable = false)) {
+    Column(
+      Modifier.fillMaxWidth().padding(top = 8.dp),
+      horizontalAlignment = Alignment.CenterHorizontally,
+      verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      controller.notifications.forEach { notification ->
+        NotificationSurface(notification.kind, Modifier.fillMaxWidth().widthIn(max = 360.dp)) {
+          Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+              notification.title,
+              fontWeight = FontWeight.Bold,
+              fontSize = AppTextSize.Body,
+              modifier = Modifier.weight(1f),
+            )
+            GlassIcon(Icons.Outlined.Close, "Dismiss") {
+              controller.dismissNotification(notification.id)
+            }
           }
-        }
-        if (notification.message.isNotBlank()) {
-          Text(
-            notification.message,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-            fontSize = 12.sp,
-            modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp),
-          )
+          if (notification.message.isNotBlank()) {
+            Text(
+              notification.message,
+              color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+              fontSize = AppTextSize.Label,
+              modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp),
+            )
+          }
         }
       }
     }
   }
 }
+
+@Composable
+private fun NotificationSurface(
+  kind: String,
+  modifier: Modifier = Modifier,
+  content: @Composable () -> Unit,
+) {
+  Surface(
+    modifier = modifier.padding(horizontal = 20.dp),
+    shape = RoundedCornerShape(12.dp),
+    color = notificationBackground(kind),
+    border = BorderStroke(1.dp, notificationBorder(kind)),
+    tonalElevation = 0.dp,
+    shadowElevation = 10.dp,
+    content = content,
+  )
+}
+
+@Composable
+private fun notificationBackground(kind: String): Color =
+  when (kind) {
+    "error" -> MaterialTheme.colorScheme.errorContainer
+    "success" -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.82f)
+    else -> MaterialTheme.colorScheme.surfaceVariant
+  }
+
+@Composable
+private fun notificationBorder(kind: String): Color =
+  when (kind) {
+    "error" -> MaterialTheme.colorScheme.error.copy(alpha = 0.34f)
+    "success" -> MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
+    else -> MaterialTheme.colorScheme.outlineVariant
+  }

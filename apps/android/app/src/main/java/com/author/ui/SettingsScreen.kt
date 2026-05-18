@@ -27,25 +27,27 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Login
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Devices
 import androidx.compose.material.icons.outlined.Download
-import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.LightMode
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material.icons.outlined.ZoomIn
 import androidx.compose.material.icons.outlined.ZoomOut
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,6 +55,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -96,13 +99,14 @@ internal fun SettingsPage(controller: NotesController, onExport: () -> Unit, onI
         if (showingMenu) {
           SettingsSectionSelector(
             controller = controller,
-            modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp),
+            modifier =
+              Modifier.fillMaxSize().padding(horizontal = pageHorizontalPadding(), vertical = 16.dp),
           )
         } else {
           Column(
             Modifier.fillMaxSize()
               .verticalScroll(rememberScrollState())
-              .padding(horizontal = 20.dp, vertical = 16.dp)
+              .padding(horizontal = pageHorizontalPadding(), vertical = 16.dp)
           ) {
             SettingsContent(controller, onExport, onImport, section)
           }
@@ -132,7 +136,7 @@ private fun SettingsSectionSelector(controller: NotesController, modifier: Modif
         accountSettingsSubtitle(controller),
         Icons.Outlined.AccountCircle,
       ),
-      SettingsSectionItem("sync", "Sync", controller.syncLabel, Icons.Outlined.Refresh),
+      SettingsSectionItem("sync", "Sync", controller.syncLabel, Icons.Outlined.Refresh, true),
       SettingsSectionItem("data", "Data", "Import and export", Icons.Outlined.Download),
       SettingsSectionItem(
         "appearance",
@@ -152,6 +156,7 @@ private fun SettingsSectionSelector(controller: NotesController, modifier: Modif
         section.label,
         section.subtitle,
         active = activeSettingsSection(controller.settingsSection) == section.id,
+        syncStatus = section.syncStatus,
       ) {
         controller.settingsSection = section.id
       }
@@ -165,6 +170,7 @@ private fun SettingsNavRow(
   label: String,
   subtitle: String,
   active: Boolean,
+  syncStatus: Boolean = false,
   onClick: () -> Unit,
 ) {
   val contentColor =
@@ -189,15 +195,18 @@ private fun SettingsNavRow(
         Text(
           label,
           color = contentColor,
-          fontSize = 14.sp,
+          fontSize = AppTextSize.Body,
           fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
           maxLines = 1,
           overflow = TextOverflow.Ellipsis,
         )
         Text(
           subtitle.ifBlank { " " },
-          color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.48f),
-          fontSize = 12.sp,
+          color =
+            if (syncStatus) syncStatusColor(subtitle)
+            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.48f),
+          fontSize = AppTextSize.Label,
+          fontWeight = if (syncStatus) FontWeight.SemiBold else FontWeight.Normal,
           maxLines = 1,
           overflow = TextOverflow.Ellipsis,
         )
@@ -214,6 +223,7 @@ private data class SettingsSectionItem(
   val label: String,
   val subtitle: String,
   val icon: ImageVector,
+  val syncStatus: Boolean = false,
 )
 
 private fun accountSettingsSubtitle(controller: NotesController): String =
@@ -251,100 +261,56 @@ private fun SettingsContent(
 internal fun AccountSettings(controller: NotesController, showIdentity: Boolean = true) {
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
     if (controller.hasToken) {
-      if (showIdentity) {
-        Text(controller.accountUsername, fontWeight = FontWeight.Bold)
-        Text(
-          controller.accountEmail.ifBlank { "Signed in" },
-          color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-          fontSize = 12.sp,
-        )
-      }
-      if (controller.accountProfileEditing) {
-        MiniField(controller.accountEmail, "Email", Modifier.fillMaxWidth()) {
-          controller.accountEmail = it
-        }
-        ActionRow(Icons.Outlined.Check, "Save email") { controller.saveAccountProfile() }
+      val panel = controller.accountPanel
+      if (panel != null) {
+        AccountDetailPanel(controller, panel)
       } else {
-        ActionRow(Icons.Outlined.Edit, "Edit email") { controller.accountProfileEditing = true }
-      }
-      DeviceNameSettings(controller)
-      TrustedDevicesSettings(controller)
-      if (controller.accountPasswordEditing) {
-        PasswordField(controller.currentPasswordValue, "Current") {
-          controller.currentPasswordValue = it
+        if (showIdentity) {
+          InfoTile(
+            "Signed in",
+            controller.accountUsername,
+            controller.accountEmail.ifBlank { "Sync account" },
+          )
         }
-        PasswordField(controller.newPasswordValue, "New") { controller.newPasswordValue = it }
-        PasswordField(controller.confirmPasswordValue, "Confirm") {
-          controller.confirmPasswordValue = it
-        }
-        ActionRow(Icons.Outlined.Check, "Change password") { controller.changePassword() }
-      } else {
-        ActionRow(Icons.Outlined.Settings, "Change password") {
-          controller.accountPasswordEditing = true
-        }
-      }
-      if (controller.accountTotpEditing) {
-        if (!controller.accountTwoFactorEnabled) {
-          TotpQrCode(controller.accountTotpUrl)
-          MiniField(controller.accountTotpSecret, "Authenticator secret", Modifier.fillMaxWidth()) {
-            controller.accountTotpSecret = it
-          }
-          SelectionContainer {
-            Text(
-              controller.accountTotpUrl,
-              color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-              fontSize = 12.sp,
-            )
-          }
-        }
-        PasswordField(controller.accountTotpPasswordValue, "Current password") {
-          controller.accountTotpPasswordValue = it
-        }
-        MiniField(controller.accountTotpCodeValue, "Authenticator code", Modifier.fillMaxWidth()) {
-          controller.accountTotpCodeValue = it
-        }
-        ActionRow(
-          Icons.Outlined.Check,
-          if (controller.accountTwoFactorEnabled) "Disable authenticator 2FA"
-          else "Enable authenticator 2FA",
+        AccountMenuRow(
+          Icons.Outlined.Email,
+          "Email",
+          controller.accountEmail.ifBlank { "Signed in without email" },
         ) {
-          controller.saveTotp()
+          controller.openAccountPanel("email")
         }
-        ActionRow(Icons.Outlined.Close, "Cancel authenticator 2FA") { controller.cancelTotpEdit() }
-      } else {
-        ActionRow(
+        AccountMenuRow(
+          Icons.Outlined.Devices,
+          "This device",
+          controller.currentDeviceName.ifBlank { "Android device" },
+        ) {
+          controller.openAccountPanel("device")
+        }
+        AccountMenuRow(
+          Icons.Outlined.Security,
+          "Trusted devices",
+          trustedDeviceCountLabel(controller.accountTrustedDevices.size),
+        ) {
+          controller.openAccountPanel("trusted-devices")
+        }
+        AccountMenuRow(Icons.Outlined.Lock, "Change password", "Requires current password") {
+          controller.openAccountPanel("password")
+        }
+        AccountMenuRow(
           Icons.Outlined.Settings,
-          if (controller.accountTwoFactorEnabled) "Disable authenticator 2FA"
-          else "Enable authenticator 2FA",
+          "Authenticator 2FA",
+          if (controller.accountTwoFactorEnabled) "Enabled" else "Disabled",
         ) {
-          controller.startTotpEdit()
+          controller.openAccountPanel("totp")
         }
-      }
-      if (controller.accountDeleteEditing) {
-        PasswordField(controller.deletePasswordValue, "Password") {
-          controller.deletePasswordValue = it
+        AccountMenuRow(
+          Icons.Outlined.Delete,
+          "Delete account",
+          "Permanent account removal",
+          destructive = true,
+        ) {
+          controller.openAccountPanel("delete")
         }
-        ActionRow(Icons.Outlined.Delete, "Delete account") { controller.deleteAccount() }
-      } else {
-        ActionRow(Icons.Outlined.Delete, "Delete account") {
-          controller.accountDeleteEditing = true
-        }
-      }
-      if (controller.accountError.isNotBlank()) {
-        Text(
-          controller.accountError,
-          color = messageColor(),
-          fontSize = 12.sp,
-          fontWeight = FontWeight.SemiBold,
-        )
-      }
-      if (controller.accountMessage.isNotBlank()) {
-        Text(
-          controller.accountMessage,
-          color = messageColor(),
-          fontSize = 12.sp,
-          fontWeight = FontWeight.SemiBold,
-        )
       }
     } else {
       if (showIdentity) {
@@ -352,12 +318,160 @@ internal fun AccountSettings(controller: NotesController, showIdentity: Boolean 
         Text(
           "Sync is off for this device",
           color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-          fontSize = 12.sp,
+          fontSize = AppTextSize.Label,
         )
       }
       ActionRow(Icons.AutoMirrored.Outlined.Login, "Sign in to sync") { controller.openLogin() }
     }
   }
+}
+
+private fun trustedDeviceCountLabel(count: Int): String =
+  when (count) {
+    0 -> "No trusted devices"
+    1 -> "1 trusted device"
+    else -> "$count trusted devices"
+  }
+
+@Composable
+private fun AccountMenuRow(
+  icon: ImageVector,
+  label: String,
+  detail: String,
+  destructive: Boolean = false,
+  onClick: () -> Unit,
+) {
+  val contentColor =
+    if (destructive) MaterialTheme.colorScheme.error
+    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
+  Surface(
+    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)),
+    color = Color.Transparent,
+    shape = RoundedCornerShape(8.dp),
+  ) {
+    Row(
+      Modifier.fillMaxWidth()
+        .heightIn(min = 54.dp)
+        .clickable(onClick = onClick)
+        .padding(horizontal = 12.dp, vertical = 9.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+      Icon(icon, null, modifier = Modifier.size(17.dp), tint = contentColor)
+      Column(Modifier.weight(1f)) {
+        Text(
+          label,
+          color = if (destructive) contentColor else MaterialTheme.colorScheme.onSurface,
+          fontSize = AppTextSize.Body,
+          fontWeight = FontWeight.Medium,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+          detail.ifBlank { " " },
+          color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.48f),
+          fontSize = AppTextSize.Label,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+      }
+      Icon(
+        Icons.Outlined.ChevronRight,
+        null,
+        modifier = Modifier.size(18.dp),
+        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
+      )
+    }
+  }
+}
+
+@Composable
+private fun AccountDetailPanel(controller: NotesController, panel: String) {
+  Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    AccountDetailHeader(accountPanelTitle(panel), accountPanelDetail(controller, panel)) {
+      controller.closeAccountPanel()
+    }
+    when (panel) {
+      "email" -> AccountEmailPanel(controller)
+      "device" -> DeviceNameSettings(controller)
+      "trusted-devices" -> TrustedDevicesSettings(controller)
+      "password" -> PasswordSettingsPanel(controller)
+      "totp" -> TotpSettingsPanel(controller)
+      "delete" -> DeleteAccountPanel(controller)
+    }
+  }
+}
+
+@Composable
+private fun AccountDetailHeader(title: String, detail: String, onBack: () -> Unit) {
+  Surface(
+    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)),
+    color = Color.Transparent,
+    shape = RoundedCornerShape(8.dp),
+  ) {
+    Row(
+      Modifier.fillMaxWidth()
+        .heightIn(min = 52.dp)
+        .clickable(onClick = onBack)
+        .padding(horizontal = 12.dp, vertical = 8.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+      Icon(
+        Icons.AutoMirrored.Outlined.ArrowBack,
+        null,
+        modifier = Modifier.size(18.dp),
+        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+      )
+      Column(Modifier.weight(1f)) {
+        Text(
+          title,
+          fontSize = AppTextSize.Body,
+          fontWeight = FontWeight.SemiBold,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+          detail,
+          color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+          fontSize = AppTextSize.Label,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+      }
+    }
+  }
+}
+
+private fun accountPanelTitle(panel: String): String =
+  when (panel) {
+    "email" -> "Email"
+    "device" -> "This device"
+    "trusted-devices" -> "Trusted devices"
+    "password" -> "Change password"
+    "totp" -> "Authenticator 2FA"
+    "delete" -> "Delete account"
+    else -> "Account"
+  }
+
+private fun accountPanelDetail(controller: NotesController, panel: String): String =
+  when (panel) {
+    "email" -> controller.accountEmail.ifBlank { "Signed in without email" }
+    "device" -> controller.currentDeviceName.ifBlank { "Android device" }
+    "trusted-devices" -> trustedDeviceCountLabel(controller.accountTrustedDevices.size)
+    "password" -> "Requires current password"
+    "totp" -> if (controller.accountTwoFactorEnabled) "Enabled" else "Disabled"
+    "delete" -> "Permanent account removal"
+    else -> "Account"
+  }
+
+@Composable
+private fun AccountEmailPanel(controller: NotesController) {
+  MiniField(controller.accountEmail, "Email", Modifier.fillMaxWidth()) {
+    controller.accountEmail = it
+  }
+  ActionRow(Icons.Outlined.Check, "Save email") { controller.saveAccountProfile() }
+  ActionRow(Icons.Outlined.Close, "Cancel") { controller.closeAccountPanel() }
 }
 
 @Composable
@@ -369,14 +483,6 @@ private fun DeviceNameSettings(controller: NotesController) {
     }
     ActionRow(Icons.Outlined.Check, "Save device") { controller.saveDeviceName() }
     ActionRow(Icons.Outlined.Close, "Cancel") { controller.cancelDeviceNameEdit() }
-    if (controller.deviceNameError.isNotBlank()) {
-      Text(
-        controller.deviceNameError,
-        color = messageColor(),
-        fontSize = 12.sp,
-        fontWeight = FontWeight.SemiBold,
-      )
-    }
   } else {
     GlassPanel(Modifier.fillMaxWidth()) {
       Row(
@@ -388,7 +494,7 @@ private fun DeviceNameSettings(controller: NotesController) {
           Text(
             "This device",
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-            fontSize = 12.sp,
+            fontSize = AppTextSize.Label,
           )
           Text(
             controller.currentDeviceName.ifBlank { "Android device" },
@@ -397,7 +503,7 @@ private fun DeviceNameSettings(controller: NotesController) {
             overflow = TextOverflow.Ellipsis,
           )
         }
-        TextButton(onClick = { controller.startDeviceNameEdit() }) { Text("Rename") }
+        SmallTextButton("Rename") { controller.startDeviceNameEdit() }
       }
     }
   }
@@ -405,13 +511,11 @@ private fun DeviceNameSettings(controller: NotesController) {
 
 @Composable
 private fun TrustedDevicesSettings(controller: NotesController) {
-  Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-    Text("Trusted devices", fontWeight = FontWeight.SemiBold)
-    Text(
-      "Removing trust stops future 2FA-code login without a password. It does not log out an active session on that device.",
-      color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-      fontSize = 12.sp,
-      lineHeight = 16.sp,
+  Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    InfoTile(
+      "Trusted-device login",
+      trustedDeviceCountLabel(controller.accountTrustedDevices.size),
+      "Removing trust stops future 2FA-code login without a password. Active sessions stay signed in.",
     )
     if (controller.accountTrustedDevices.isEmpty()) {
       InfoTile("Trusted devices", "None", "Sign in with a password to trust this device")
@@ -426,6 +530,7 @@ private fun TrustedDevicesSettings(controller: NotesController) {
             Column(Modifier.weight(1f)) {
               Text(
                 device.deviceName,
+                fontSize = AppTextSize.Body,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -433,19 +538,74 @@ private fun TrustedDevicesSettings(controller: NotesController) {
               Text(
                 "${if (device.current) "This device" else "Last used"} - ${formatTrustedDeviceTime(device.lastUsedAt)}",
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-                fontSize = 12.sp,
+                fontSize = AppTextSize.Label,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
               )
             }
-            TextButton(onClick = { controller.revokeTrustedDevice(device.deviceId) }) {
-              Text("Remove")
-            }
+            SmallTextButton("Remove") { controller.revokeTrustedDevice(device.deviceId) }
           }
         }
       }
     }
   }
+}
+
+@Composable
+private fun PasswordSettingsPanel(controller: NotesController) {
+  PasswordField(controller.currentPasswordValue, "Current password") {
+    controller.currentPasswordValue = it
+  }
+  PasswordField(controller.newPasswordValue, "New password") { controller.newPasswordValue = it }
+  PasswordField(controller.confirmPasswordValue, "Confirm password") {
+    controller.confirmPasswordValue = it
+  }
+  ActionRow(Icons.Outlined.Check, "Change password") { controller.changePassword() }
+  ActionRow(Icons.Outlined.Close, "Cancel") { controller.closeAccountPanel() }
+}
+
+@Composable
+private fun TotpSettingsPanel(controller: NotesController) {
+  if (!controller.accountTwoFactorEnabled) {
+    TotpQrCode(controller.accountTotpUrl)
+    MiniField(controller.accountTotpSecret, "Authenticator secret", Modifier.fillMaxWidth()) {
+      controller.accountTotpSecret = it
+    }
+    SelectionContainer {
+      Text(
+        controller.accountTotpUrl,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+        fontSize = AppTextSize.Label,
+      )
+    }
+  }
+  PasswordField(controller.accountTotpPasswordValue, "Current password") {
+    controller.accountTotpPasswordValue = it
+  }
+  MiniField(controller.accountTotpCodeValue, "Authenticator code", Modifier.fillMaxWidth()) {
+    controller.accountTotpCodeValue = it
+  }
+  ActionRow(
+    Icons.Outlined.Check,
+    if (controller.accountTwoFactorEnabled) "Disable authenticator 2FA"
+    else "Enable authenticator 2FA",
+  ) {
+    controller.saveTotp()
+  }
+  ActionRow(Icons.Outlined.Close, "Cancel") { controller.closeAccountPanel() }
+}
+
+@Composable
+private fun DeleteAccountPanel(controller: NotesController) {
+  InfoTile(
+    "Delete account",
+    "Permanent",
+    "Remote account data will be removed after your password is confirmed.",
+    valueColor = MaterialTheme.colorScheme.error,
+  )
+  PasswordField(controller.deletePasswordValue, "Password") { controller.deletePasswordValue = it }
+  ActionRow(Icons.Outlined.Delete, "Delete account") { controller.deleteAccount() }
+  ActionRow(Icons.Outlined.Close, "Cancel") { controller.closeAccountPanel() }
 }
 
 @Composable
@@ -456,6 +616,7 @@ private fun SyncSettings(controller: NotesController) {
       "Pending local changes",
       controller.pendingSyncCount.toString(),
       "${controller.pendingSyncCount} items waiting to sync",
+      valueColor = syncStatusColor(if (controller.pendingSyncCount > 0) "Pending" else "Saved"),
     )
     InfoTile("Last sync pass", controller.lastSyncPassTitle, controller.lastSyncPassDetail)
     InfoTile("Installed API", BuildConfig.DEFAULT_API_BASE_URL, buildApiDetail())
@@ -470,6 +631,7 @@ private fun SyncSettings(controller: NotesController) {
         "Remote sync",
         controller.remoteSyncState,
         controller.remoteSyncError.ifBlank { "Remote worker status from the last check" },
+        valueColor = syncStatusColor(controller.remoteSyncState),
       )
     }
     SyncDebugTile(controller)
@@ -502,7 +664,7 @@ private fun SyncStatusTile(controller: NotesController) {
       Text(
         "Status",
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-        fontSize = 12.sp,
+        fontSize = AppTextSize.Label,
         fontWeight = FontWeight.SemiBold,
       )
       Row(
@@ -510,19 +672,13 @@ private fun SyncStatusTile(controller: NotesController) {
         horizontalArrangement = Arrangement.spacedBy(6.dp),
       ) {
         SyncActivityIndicator(controller.isSyncing)
-        Text(
-          controller.syncLabel.ifBlank { " " },
-          modifier = Modifier.weight(1f),
-          fontWeight = FontWeight.SemiBold,
-          maxLines = 2,
-          overflow = TextOverflow.Ellipsis,
-        )
+        SyncStatusText(controller.syncLabel, modifier = Modifier.weight(1f), maxLines = 2)
       }
       if (controller.syncDetail.isNotBlank()) {
         Text(
           controller.syncDetail,
           color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-          fontSize = 12.sp,
+          fontSize = AppTextSize.Label,
           maxLines = 3,
           overflow = TextOverflow.Ellipsis,
         )
@@ -566,21 +722,21 @@ private fun SyncDebugTile(controller: NotesController) {
       Text(
         "Debug",
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-        fontSize = 12.sp,
+        fontSize = AppTextSize.Label,
         fontWeight = FontWeight.SemiBold,
       )
       Text(controller.syncDebugTitle, fontWeight = FontWeight.SemiBold)
       Text(
         controller.syncDebugDetail,
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-        fontSize = 12.sp,
+        fontSize = AppTextSize.Label,
       )
       SelectionContainer {
         Text(
           controller.syncDebugLog,
           color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
           fontFamily = FontFamily.Monospace,
-          fontSize = 11.sp,
+          fontSize = AppTextSize.Debug,
           lineHeight = 15.sp,
         )
       }
@@ -591,14 +747,6 @@ private fun SyncDebugTile(controller: NotesController) {
 @Composable
 private fun DataSettings(controller: NotesController, onExport: () -> Unit, onImport: () -> Unit) {
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-    if (controller.importBanner.isNotBlank()) {
-      Text(
-        controller.importBanner,
-        color = messageColor(),
-        fontSize = 12.sp,
-        fontWeight = FontWeight.SemiBold,
-      )
-    }
     ActionRow(
       Icons.Outlined.Download,
       if (controller.isArchiveBusy) "Working" else "Export MD ZIP",
@@ -780,7 +928,7 @@ private fun FontDropdown(controller: NotesController) {
           Text(
             selected.label,
             modifier = Modifier.weight(1f),
-            fontSize = 14.sp,
+            fontSize = AppTextSize.Body,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
           )
@@ -794,8 +942,8 @@ private fun FontDropdown(controller: NotesController) {
       }
       AppDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
         FontChoices.forEach { choice ->
-          DropdownMenuItem(
-            text = { Text(choice.label) },
+          AppDropdownMenuItem(
+            label = choice.label,
             leadingIcon = { MenuCheck(controller.editorFont == choice.value) },
             onClick = {
               controller.chooseEditorFont(choice.value)
@@ -814,7 +962,7 @@ private fun SettingsChoiceGroup(label: String, content: @Composable ColumnScope.
     Text(
       label,
       color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-      fontSize = 12.sp,
+      fontSize = AppTextSize.Label,
       fontWeight = FontWeight.SemiBold,
     )
     Column(verticalArrangement = Arrangement.spacedBy(4.dp), content = content)
@@ -832,8 +980,12 @@ private fun SettingsStepper(
     horizontalArrangement = Arrangement.spacedBy(8.dp),
   ) {
     Column(Modifier.weight(1f)) {
-      Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-      Text(value, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f), fontSize = 12.sp)
+      Text(label, fontSize = AppTextSize.Body, fontWeight = FontWeight.SemiBold)
+      Text(
+        value,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+        fontSize = AppTextSize.Label,
+      )
     }
     controls()
   }

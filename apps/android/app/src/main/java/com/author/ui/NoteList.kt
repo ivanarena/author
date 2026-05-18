@@ -6,7 +6,9 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,14 +24,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Sort
+import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.RestoreFromTrash
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -49,7 +50,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.author.core.LocalNote
 import com.author.core.formatListDate
 import com.author.core.noteDisplayTitle
@@ -72,7 +72,7 @@ internal fun NoteListPanel(controller: NotesController, modifier: Modifier = Mod
       SortMenu(controller)
     }
     AnimatedVisibility(
-      visible = controller.selectedNoteIds.isNotEmpty(),
+      visible = controller.noteSelectionMode || controller.selectedNoteIds.isNotEmpty(),
       enter = fadeIn(appTween(AppMotion.Medium)) + expandVertically(appTween(AppMotion.Slow)),
       exit = fadeOut(appTween(AppMotion.Fast)) + shrinkVertically(appTween(AppMotion.Medium)),
     ) {
@@ -81,12 +81,12 @@ internal fun NoteListPanel(controller: NotesController, modifier: Modifier = Mod
         verticalAlignment = Alignment.CenterVertically,
       ) {
         Text(
-          "${controller.selectedNoteIds.size} selected",
+          if (controller.selectedNoteIds.isEmpty()) "Select notes"
+          else "${controller.selectedNoteIds.size} selected",
           color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
-          fontSize = 12.sp,
+          fontSize = AppTextSize.Label,
           fontWeight = FontWeight.SemiBold,
         )
-        BulkActionsMenu(controller)
         Spacer(Modifier.weight(1f))
         Checkbox(
           checked =
@@ -105,7 +105,7 @@ internal fun NoteListPanel(controller: NotesController, modifier: Modifier = Mod
           Text(
             label,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-            fontSize = 12.sp,
+            fontSize = AppTextSize.Label,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(top = 10.dp, start = 8.dp),
           )
@@ -117,7 +117,7 @@ internal fun NoteListPanel(controller: NotesController, modifier: Modifier = Mod
           Text(
             "Loading local notes",
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-            fontSize = 12.sp,
+            fontSize = AppTextSize.Label,
             modifier = Modifier.padding(14.dp),
           )
         }
@@ -126,7 +126,7 @@ internal fun NoteListPanel(controller: NotesController, modifier: Modifier = Mod
           Text(
             if (controller.searchValue.isBlank()) "No notes" else "No matching notes",
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-            fontSize = 12.sp,
+            fontSize = AppTextSize.Label,
             modifier = Modifier.padding(14.dp),
           )
         }
@@ -160,12 +160,20 @@ private fun SearchNotesField(controller: NotesController, modifier: Modifier = M
         singleLine = true,
         cursorBrush = SolidColor(textColor),
         textStyle =
-          TextStyle(color = textColor, fontSize = 14.sp, fontFamily = LocalAppFontFamily.current),
+          TextStyle(
+            color = textColor,
+            fontSize = AppTextSize.Body,
+            fontFamily = LocalAppFontFamily.current,
+          ),
         modifier = Modifier.weight(1f),
         decorationBox = { inner ->
           Box {
             if (controller.searchValue.isBlank()) {
-              Text("Search notes", color = textColor.copy(alpha = 0.42f), fontSize = 14.sp)
+              Text(
+                "Search notes",
+                color = textColor.copy(alpha = 0.42f),
+                fontSize = AppTextSize.Body,
+              )
             }
             inner()
           }
@@ -221,8 +229,8 @@ private fun SortMenuItem(
   controller: NotesController,
   onPicked: () -> Unit,
 ) {
-  DropdownMenuItem(
-    text = { Text(label) },
+  AppDropdownMenuItem(
+    label = label,
     leadingIcon = { MenuCheck(controller.noteSort == sort) },
     onClick = {
       controller.setSort(sort)
@@ -232,194 +240,220 @@ private fun SortMenuItem(
 }
 
 @Composable
-private fun BulkActionsMenu(controller: NotesController) {
-  var open by remember { mutableStateOf(false) }
+private fun BulkActionsMenuContent(controller: NotesController, onDismiss: () -> Unit) {
   val hasActiveNotes = controller.selectedNotes.any { it.trashedAt == null }
   val hasTrashedNotes = controller.selectedNotes.any { it.trashedAt != null }
 
-  Box {
-    GlassIcon(Icons.Outlined.MoreVert, "Selection actions") { open = true }
-    AppDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-      if (hasActiveNotes) {
-        DropdownSectionLabel("Move selected")
-        NotebookAssignmentMenuItems(controller, note = null, selectedMode = true) { open = false }
-        HorizontalDivider()
-        DropdownMenuItem(
-          text = { Text("Move selected to Trash") },
-          leadingIcon = { Icon(Icons.Outlined.Delete, null, modifier = Modifier.size(18.dp)) },
-          onClick = {
-            open = false
-            controller.trashSelected()
-          },
-        )
-      }
-      if (hasTrashedNotes) {
-        if (hasActiveNotes) HorizontalDivider()
-        DropdownMenuItem(
-          text = { Text("Restore selected") },
-          leadingIcon = {
-            Icon(Icons.Outlined.RestoreFromTrash, null, modifier = Modifier.size(18.dp))
-          },
-          onClick = {
-            open = false
-            controller.restoreSelected()
-          },
-        )
-        DropdownMenuItem(
-          text = { Text("Delete selected permanently") },
-          leadingIcon = { Icon(Icons.Outlined.Delete, null, modifier = Modifier.size(18.dp)) },
-          onClick = {
-            open = false
-            controller.deleteSelectedPermanently()
-          },
-        )
-      }
-      HorizontalDivider()
-      DropdownMenuItem(
-        text = { Text("Clear selection") },
-        leadingIcon = { Icon(Icons.Outlined.Close, null, modifier = Modifier.size(18.dp)) },
-        onClick = {
-          open = false
-          controller.clearSelection()
-        },
-      )
-    }
+  if (hasActiveNotes) {
+    DropdownSectionLabel("Move selected")
+    NotebookAssignmentMenuItems(controller, note = null, selectedMode = true) { onDismiss() }
+    HorizontalDivider()
+    AppDropdownMenuItem(
+      label = "Move selected to Trash",
+      leadingIcon = { Icon(Icons.Outlined.Delete, null, modifier = Modifier.size(18.dp)) },
+      onClick = {
+        onDismiss()
+        controller.trashSelected()
+      },
+    )
   }
+  if (hasTrashedNotes) {
+    if (hasActiveNotes) HorizontalDivider()
+    AppDropdownMenuItem(
+      label = "Restore selected",
+      leadingIcon = {
+        Icon(Icons.Outlined.RestoreFromTrash, null, modifier = Modifier.size(18.dp))
+      },
+      onClick = {
+        onDismiss()
+        controller.restoreSelected()
+      },
+    )
+    AppDropdownMenuItem(
+      label = "Delete selected permanently",
+      leadingIcon = { Icon(Icons.Outlined.Delete, null, modifier = Modifier.size(18.dp)) },
+      onClick = {
+        onDismiss()
+        controller.deleteSelectedPermanently()
+      },
+    )
+  }
+  HorizontalDivider()
+  AppDropdownMenuItem(
+    label = "Clear selection",
+    leadingIcon = { Icon(Icons.Outlined.Close, null, modifier = Modifier.size(18.dp)) },
+    onClick = {
+      onDismiss()
+      controller.clearSelection()
+    },
+  )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun NoteRow(controller: NotesController, note: LocalNote) {
   val active = controller.selectedNote?.id == note.id
   val selected = controller.selectedNoteIds.contains(note.id)
-  val selecting = controller.selectedNoteIds.isNotEmpty()
+  val selecting = controller.noteSelectionMode || controller.selectedNoteIds.isNotEmpty()
+  var menuOpen by remember(note.id) { mutableStateOf(false) }
+  var menuMode by remember(note.id) { mutableStateOf("note") }
   val titleColor =
     if (active || selected) MaterialTheme.colorScheme.primary
     else MaterialTheme.colorScheme.onSurface
 
-  Surface(
-    modifier =
-      Modifier.fillMaxWidth()
-        .clip(RoundedCornerShape(8.dp))
-        .animateContentSize(appTween(AppMotion.Medium))
-        .clickable {
-          if (selecting) {
-            controller.toggleSelection(note, !selected)
-          } else {
-            controller.selectNote(note)
-          }
-        },
-    color = Color.Transparent,
-    shape = RoundedCornerShape(8.dp),
-  ) {
-    Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-      if (selecting) {
-        Checkbox(
-          checked = selected,
-          onCheckedChange = { controller.toggleSelection(note, it) },
-          colors = appCheckboxColors(),
-        )
-      }
-      Column(Modifier.weight(1f).padding(horizontal = if (selecting) 8.dp else 4.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-          Text(
-            noteDisplayTitle(note),
-            color = titleColor,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 14.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
+  Box {
+    Surface(
+      modifier =
+        Modifier.fillMaxWidth()
+          .clip(RoundedCornerShape(8.dp))
+          .animateContentSize(appTween(AppMotion.Medium))
+          .combinedClickable(
+            onClick = {
+              if (selecting) {
+                controller.toggleSelection(note, !selected)
+              } else {
+                controller.selectNote(note)
+              }
+            },
+            onLongClick = {
+              val wasSelecting =
+                controller.noteSelectionMode || controller.selectedNoteIds.isNotEmpty()
+              val hasSelection = controller.selectedNoteIds.isNotEmpty()
+              controller.enterNoteSelectionMode()
+              if (wasSelecting) {
+                menuMode = if (hasSelection) "bulk" else "note"
+                menuOpen = true
+              }
+            },
+          ),
+      color = Color.Transparent,
+      shape = RoundedCornerShape(8.dp),
+    ) {
+      Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (selecting) {
+          Checkbox(
+            checked = selected,
+            onCheckedChange = { controller.toggleSelection(note, it) },
+            colors = appCheckboxColors(),
           )
-          if (controller.compactView) {
-            Text(
-              relativeAge(note.updatedAt),
-              fontSize = 12.sp,
-              color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-            )
-          }
         }
-        if (!controller.compactView) {
-          Text(
-            notePreview(note).ifBlank { "No text" },
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-            fontSize = 12.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-          )
-          val notebookNames =
-            noteNotebookIds(note).mapNotNull { id ->
-              controller.notebooks.firstOrNull { it.id == id }?.name
-            }
-          if (notebookNames.isNotEmpty()) {
+        Column(Modifier.weight(1f).padding(horizontal = if (selecting) 8.dp else 4.dp)) {
+          Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-              notebookNames.joinToString(", "),
-              fontSize = 12.sp,
+              noteDisplayTitle(note),
+              color = titleColor,
               fontWeight = FontWeight.SemiBold,
+              fontSize = AppTextSize.Body,
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis,
+              modifier = Modifier.weight(1f),
+            )
+            if (controller.compactView) {
+              Text(
+                relativeAge(note.updatedAt),
+                fontSize = AppTextSize.Label,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+              )
+            }
+          }
+          if (!controller.compactView) {
+            Text(
+              notePreview(note).ifBlank { "No text" },
+              color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+              fontSize = AppTextSize.Label,
               maxLines = 1,
               overflow = TextOverflow.Ellipsis,
             )
+            val notebookNames =
+              noteNotebookIds(note).mapNotNull { id ->
+                controller.notebooks.firstOrNull { it.id == id }?.name
+              }
+            if (notebookNames.isNotEmpty()) {
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+              ) {
+                Icon(
+                  Icons.Outlined.Book,
+                  null,
+                  modifier = Modifier.size(13.dp),
+                  tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.58f),
+                )
+                Text(
+                  notebookNames.joinToString(", "),
+                  fontSize = AppTextSize.Label,
+                  fontWeight = FontWeight.SemiBold,
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis,
+                )
+              }
+            }
+            Text(
+              "Updated ${formatListDate(note.updatedAt)}   Created ${formatListDate(note.createdAt)}",
+              color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+              fontSize = AppTextSize.Label,
+              maxLines = 1,
+            )
           }
-          Text(
-            "Updated ${formatListDate(note.updatedAt)}   Created ${formatListDate(note.createdAt)}",
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-            fontSize = 12.sp,
-            maxLines = 1,
-          )
         }
       }
-      if (!selecting) NoteActionsMenu(controller, note)
+    }
+    AppDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+      if (menuMode == "bulk") {
+        BulkActionsMenuContent(controller) { menuOpen = false }
+      } else {
+        NoteActionsMenuContent(controller, note) { menuOpen = false }
+      }
     }
   }
 }
 
 @Composable
-private fun NoteActionsMenu(controller: NotesController, note: LocalNote) {
-  var open by remember(note.id) { mutableStateOf(false) }
-  Box {
-    GlassIcon(Icons.Outlined.MoreVert, "Note actions") { open = true }
-    AppDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-      DropdownMenuItem(
-        text = { Text("Select") },
-        leadingIcon = { Icon(Icons.Outlined.Check, null, modifier = Modifier.size(18.dp)) },
-        onClick = {
-          open = false
-          controller.toggleSelection(note, true)
-        },
-      )
-      HorizontalDivider()
-      if (note.trashedAt != null) {
-        DropdownMenuItem(
-          text = { Text("Restore") },
-          leadingIcon = {
-            Icon(Icons.Outlined.RestoreFromTrash, null, modifier = Modifier.size(18.dp))
-          },
-          onClick = {
-            open = false
-            controller.restoreNote(note)
-          },
-        )
-        DropdownMenuItem(
-          text = { Text("Delete permanently") },
-          leadingIcon = { Icon(Icons.Outlined.Delete, null, modifier = Modifier.size(18.dp)) },
-          onClick = {
-            open = false
-            controller.deleteNotePermanently(note)
-          },
-        )
-      } else {
-        DropdownSectionLabel("Notebooks")
-        NotebookAssignmentMenuItems(controller, note = note, selectedMode = false) { open = false }
-        HorizontalDivider()
-        DropdownMenuItem(
-          text = { Text("Move to Trash") },
-          leadingIcon = { Icon(Icons.Outlined.Delete, null, modifier = Modifier.size(18.dp)) },
-          onClick = {
-            open = false
-            controller.trashNote(note)
-          },
-        )
-      }
-    }
+private fun NoteActionsMenuContent(
+  controller: NotesController,
+  note: LocalNote,
+  onDismiss: () -> Unit,
+) {
+  AppDropdownMenuItem(
+    label = "Select",
+    leadingIcon = { Icon(Icons.Outlined.Check, null, modifier = Modifier.size(18.dp)) },
+    onClick = {
+      onDismiss()
+      controller.toggleSelection(note, true)
+    },
+  )
+  HorizontalDivider()
+  if (note.trashedAt != null) {
+    AppDropdownMenuItem(
+      label = "Restore",
+      leadingIcon = {
+        Icon(Icons.Outlined.RestoreFromTrash, null, modifier = Modifier.size(18.dp))
+      },
+      onClick = {
+        onDismiss()
+        controller.restoreNote(note)
+      },
+    )
+    AppDropdownMenuItem(
+      label = "Delete permanently",
+      leadingIcon = { Icon(Icons.Outlined.Delete, null, modifier = Modifier.size(18.dp)) },
+      onClick = {
+        onDismiss()
+        controller.deleteNotePermanently(note)
+      },
+    )
+  } else {
+    DropdownSectionLabel("Notebooks")
+    NotebookAssignmentMenuItems(controller, note = note, selectedMode = false) { onDismiss() }
+    HorizontalDivider()
+    AppDropdownMenuItem(
+      label = "Move to Trash",
+      leadingIcon = { Icon(Icons.Outlined.Delete, null, modifier = Modifier.size(18.dp)) },
+      onClick = {
+        onDismiss()
+        controller.trashNote(note)
+      },
+    )
   }
 }
 
@@ -439,8 +473,8 @@ internal fun NotebookAssignmentMenuItems(
       note?.let { noteNotebookIds(it).isEmpty() } == true
     }
 
-  DropdownMenuItem(
-    text = { Text("Unfiled") },
+  AppDropdownMenuItem(
+    label = "Unfiled",
     leadingIcon = { MenuCheck(unfiledActive) },
     onClick = {
       onPicked()
@@ -456,8 +490,8 @@ internal fun NotebookAssignmentMenuItems(
       } else {
         note?.let { noteNotebookIds(it).contains(notebook.id) } == true
       }
-    DropdownMenuItem(
-      text = { Text(notebook.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+    AppDropdownMenuItem(
+      label = notebook.name,
       leadingIcon = { MenuCheck(active) },
       onClick = {
         onPicked()

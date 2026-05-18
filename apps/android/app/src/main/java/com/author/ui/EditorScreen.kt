@@ -26,7 +26,6 @@ import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.RestoreFromTrash
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -179,8 +178,8 @@ private fun EditorMoreMenu(controller: NotesController) {
     GlassIcon(Icons.Outlined.MoreVert, "Note actions") { open = true }
     AppDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
       if (note == null) {
-        DropdownMenuItem(
-          text = { Text("Open notes") },
+        AppDropdownMenuItem(
+          label = "Open notes",
           leadingIcon = { Icon(Icons.Outlined.FolderOpen, null, modifier = Modifier.size(18.dp)) },
           onClick = {
             open = false
@@ -188,8 +187,8 @@ private fun EditorMoreMenu(controller: NotesController) {
           },
         )
       } else if (note.trashedAt != null) {
-        DropdownMenuItem(
-          text = { Text("Restore") },
+        AppDropdownMenuItem(
+          label = "Restore",
           leadingIcon = {
             Icon(Icons.Outlined.RestoreFromTrash, null, modifier = Modifier.size(18.dp))
           },
@@ -198,8 +197,8 @@ private fun EditorMoreMenu(controller: NotesController) {
             controller.restoreNote(note)
           },
         )
-        DropdownMenuItem(
-          text = { Text("Delete permanently") },
+        AppDropdownMenuItem(
+          label = "Delete permanently",
           leadingIcon = { Icon(Icons.Outlined.Delete, null, modifier = Modifier.size(18.dp)) },
           onClick = {
             open = false
@@ -210,8 +209,8 @@ private fun EditorMoreMenu(controller: NotesController) {
         DropdownSectionLabel("Notebooks")
         NotebookAssignmentMenuItems(controller, note = note, selectedMode = false) { open = false }
         HorizontalDivider()
-        DropdownMenuItem(
-          text = { Text("Move to Trash") },
+        AppDropdownMenuItem(
+          label = "Move to Trash",
           leadingIcon = { Icon(Icons.Outlined.Delete, null, modifier = Modifier.size(18.dp)) },
           onClick = {
             open = false
@@ -220,8 +219,8 @@ private fun EditorMoreMenu(controller: NotesController) {
         )
       }
       HorizontalDivider()
-      DropdownMenuItem(
-        text = { Text("Metadata") },
+      AppDropdownMenuItem(
+        label = "Metadata",
         leadingIcon = { Icon(Icons.Outlined.Info, null, modifier = Modifier.size(18.dp)) },
         enabled = note != null,
         onClick = {
@@ -229,16 +228,16 @@ private fun EditorMoreMenu(controller: NotesController) {
           metadataOpen = true
         },
       )
-      DropdownMenuItem(
-        text = { Text("Account") },
+      AppDropdownMenuItem(
+        label = "Account",
         leadingIcon = { Icon(Icons.Outlined.AccountCircle, null, modifier = Modifier.size(18.dp)) },
         onClick = {
           open = false
           controller.navigateTo("account")
         },
       )
-      DropdownMenuItem(
-        text = { Text("Settings") },
+      AppDropdownMenuItem(
+        label = "Settings",
         leadingIcon = { Icon(Icons.Outlined.Settings, null, modifier = Modifier.size(18.dp)) },
         onClick = {
           open = false
@@ -265,7 +264,8 @@ private fun NoteMetadataDialog(
     title = { Text("Metadata") },
     text = {
       Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        InfoTile("Status", syncStatusLabel(note.syncStatus), "")
+        val status = syncStatusLabel(note.syncStatus)
+        InfoTile("Status", status, "", valueColor = syncStatusColor(status))
         InfoTile("Last synced", lastSyncedLabel(controller, note), "")
         InfoTile("Updated", formatDateTime(note.updatedAt), "")
         InfoTile("Created", formatDateTime(note.createdAt), "")
@@ -287,15 +287,10 @@ private fun EditorStatusBar(controller: NotesController, muted: Color) {
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(8.dp),
   ) {
-    Text(status, color = muted, fontSize = 12.sp, maxLines = 1)
-    Text("/", color = muted, fontSize = 12.sp, maxLines = 1)
+    Text(status, color = muted, fontSize = AppTextSize.Label, maxLines = 1)
+    Text("/", color = muted, fontSize = AppTextSize.Label, maxLines = 1)
     SyncActivityIndicator(controller.isSyncing)
-    Text(
-      controller.syncLabel,
-      color = statusColor(controller.syncLabel),
-      fontSize = 12.sp,
-      maxLines = 1,
-    )
+    SyncStatusText(controller.syncLabel)
   }
 }
 

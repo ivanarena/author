@@ -16,8 +16,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Login
 import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.AccountCircle
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.AutoStories
+import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
@@ -29,14 +28,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 
 @Composable
 internal fun NotesPage(controller: NotesController) {
   Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
     PageHeader(
       leading = {
-        GlassIcon(Icons.Outlined.AutoStories, "Notebooks") { controller.navigateTo("notebooks") }
+        GlassIcon(Icons.Outlined.Book, "Notebooks") { controller.navigateTo("notebooks") }
       },
       actions = {
         GlassIcon(Icons.Outlined.AccountCircle, "Account") { controller.navigateTo("account") }
@@ -55,10 +53,7 @@ internal fun NotebooksPage(controller: NotesController) {
         GlassIcon(Icons.AutoMirrored.Outlined.ArrowBack, "Back to notes") {
           controller.navigateTo("notes")
         }
-      },
-      actions = {
-        GlassIcon(Icons.Outlined.Add, "New notebook") { controller.newNotebookOpen = true }
-      },
+      }
     )
     NotebookSidebar(
       controller = controller,
@@ -115,7 +110,7 @@ private fun AccountSummary(controller: NotesController) {
         Text(
           if (controller.hasToken) controller.accountUsername else "Local workspace",
           fontWeight = FontWeight.Bold,
-          fontSize = 18.sp,
+          fontSize = AppTextSize.Title,
           maxLines = 1,
           overflow = TextOverflow.Ellipsis,
         )
@@ -123,7 +118,7 @@ private fun AccountSummary(controller: NotesController) {
           Text(
             controller.accountEmail.ifBlank { "Signed in" },
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-            fontSize = 12.sp,
+            fontSize = AppTextSize.Label,
           )
         }
         Row(
@@ -131,18 +126,13 @@ private fun AccountSummary(controller: NotesController) {
           horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
           SyncActivityIndicator(controller.isSyncing)
-          Text(
-            controller.syncLabel,
-            color = statusColor(controller.syncLabel),
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-          )
+          SyncStatusText(controller.syncLabel)
         }
         if (controller.syncDetail.isNotBlank()) {
           Text(
             controller.syncDetail,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-            fontSize = 12.sp,
+            fontSize = AppTextSize.Label,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
           )

@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,15 +17,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Article
-import androidx.compose.material.icons.automirrored.outlined.MenuBook
+import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -37,7 +36,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.author.core.LocalNotebook
 
 @Composable
@@ -66,14 +64,6 @@ internal fun NotebookSidebar(
           }
           GlassIcon(Icons.Outlined.Check, "Create") { controller.createNotebook() }
           GlassIcon(Icons.Outlined.Close, "Close") { controller.newNotebookOpen = false }
-        }
-        if (controller.notebookError.isNotBlank()) {
-          Text(
-            controller.notebookError,
-            color = messageColor(),
-            fontSize = 12.sp,
-            modifier = Modifier.padding(start = 10.dp, bottom = 8.dp),
-          )
         }
       }
     }
@@ -136,15 +126,21 @@ private fun NotebookRow(
       GlassIcon(Icons.Outlined.Close, "Cancel") { controller.renamingNotebookId = null }
     }
   } else {
-    NavRow(
-      icon = Icons.AutoMirrored.Outlined.MenuBook,
-      label = notebook.name,
-      count = (controller.notebookCounts[notebook.id] ?: 0).toString(),
-      active = controller.filterId == notebook.id,
-      trailing = { NotebookActionsMenu(controller, notebook) },
-    ) {
-      controller.filterId = notebook.id
-      onPicked()
+    var open by remember(notebook.id) { mutableStateOf(false) }
+    Box {
+      NavRow(
+        icon = Icons.Outlined.Book,
+        label = notebook.name,
+        count = (controller.notebookCounts[notebook.id] ?: 0).toString(),
+        active = controller.filterId == notebook.id,
+        onLongClick = { open = true },
+      ) {
+        controller.filterId = notebook.id
+        onPicked()
+      }
+      AppDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+        NotebookActionsMenuContent(controller, notebook) { open = false }
+      }
     }
     if (controller.deletingNotebookId == notebook.id) {
       DeleteNotebookDialog(controller, notebook)
@@ -153,29 +149,27 @@ private fun NotebookRow(
 }
 
 @Composable
-private fun NotebookActionsMenu(controller: NotesController, notebook: LocalNotebook) {
-  var open by remember(notebook.id) { mutableStateOf(false) }
-  Row {
-    GlassIcon(Icons.Outlined.MoreVert, "Notebook actions") { open = true }
-    AppDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-      DropdownMenuItem(
-        text = { Text("Rename") },
-        leadingIcon = { Icon(Icons.Outlined.Edit, null, modifier = Modifier.size(18.dp)) },
-        onClick = {
-          open = false
-          controller.startRename(notebook)
-        },
-      )
-      DropdownMenuItem(
-        text = { Text("Delete") },
-        leadingIcon = { Icon(Icons.Outlined.Delete, null, modifier = Modifier.size(18.dp)) },
-        onClick = {
-          open = false
-          controller.deletingNotebookId = notebook.id
-        },
-      )
-    }
-  }
+private fun NotebookActionsMenuContent(
+  controller: NotesController,
+  notebook: LocalNotebook,
+  onDismiss: () -> Unit,
+) {
+  AppDropdownMenuItem(
+    label = "Rename",
+    leadingIcon = { Icon(Icons.Outlined.Edit, null, modifier = Modifier.size(18.dp)) },
+    onClick = {
+      onDismiss()
+      controller.startRename(notebook)
+    },
+  )
+  AppDropdownMenuItem(
+    label = "Delete",
+    leadingIcon = { Icon(Icons.Outlined.Delete, null, modifier = Modifier.size(18.dp)) },
+    onClick = {
+      onDismiss()
+      controller.deletingNotebookId = notebook.id
+    },
+  )
 }
 
 @Composable

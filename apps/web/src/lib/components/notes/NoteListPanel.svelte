@@ -16,7 +16,7 @@
     List,
     Trash2,
     X
-  } from 'lucide-svelte';
+  } from '@lucide/svelte';
   import { noteDisplayTitle } from '$lib/client/note-utils';
   import { formatListDate, notePreview } from '$lib/client/view-model';
   import type { NoteGroupBy, NoteSort } from '$lib/client/view-model';

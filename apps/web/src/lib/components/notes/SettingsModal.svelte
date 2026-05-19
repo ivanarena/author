@@ -26,7 +26,7 @@
     X,
     ZoomIn,
     ZoomOut
-  } from 'lucide-svelte';
+  } from '@lucide/svelte';
   import { renderSVG } from 'uqr';
   import type {
     SettingsModalModel,

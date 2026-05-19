@@ -20,6 +20,8 @@ Each changed entity is sent as:
 }
 ```
 
+Clients send at most 20 note/notebook changes in a single push request so
+remote database round trips stay below Worker subrequest limits.
 `baseVersion` is the last remote version the client successfully synced. New local entities use `0`.
 For notes, the browser encrypts `title` and `body` into `enc:v1` string envelopes before storage
 and push, then decrypts them after pull. Encryption uses random AES-GCM IVs; stable keyed

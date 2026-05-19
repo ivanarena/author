@@ -26,7 +26,7 @@ import {
   saveConflict
 } from './store';
 
-const PUSH_BATCH_SIZE = 250;
+const PUSH_BATCH_SIZE = 20;
 const PULL_BATCH_SIZE = 1000;
 const LAST_PUSHED_DEVICE_SIGNATURE_KEY = 'lastPushedDeviceSignature';
 
@@ -143,6 +143,13 @@ function deviceSignature(device: Device): string {
   return `${device.id}\0${device.name}`;
 }
 
+function isLocalOnlyDeleted(record: {
+  deletedAt?: string | null;
+  lastSyncedVersion?: number | null;
+}): boolean {
+  return safeBaseVersion(record) === 0 && Boolean(record.deletedAt);
+}
+
 async function rememberPushedDevice(device: Device): Promise<void> {
   await localDb.syncMeta.put({
     key: LAST_PUSHED_DEVICE_SIGNATURE_KEY,
@@ -182,17 +189,39 @@ export async function runSync(
     localDb.notebooks.where('syncStatus').equals('pending').toArray()
   ]);
 
-  const preparedNotes = notes.map((record) =>
+  const localOnlyDeletedNoteIds = notes
+    .filter(isLocalOnlyDeleted)
+    .map((record) => record.id);
+  const localOnlyDeletedNotebookIds = notebooks
+    .filter(isLocalOnlyDeleted)
+    .map((record) => record.id);
+  await Promise.all([
+    localOnlyDeletedNoteIds.length
+      ? localDb.notes.bulkDelete(localOnlyDeletedNoteIds)
+      : undefined,
+    localOnlyDeletedNotebookIds.length
+      ? localDb.notebooks.bulkDelete(localOnlyDeletedNotebookIds)
+      : undefined
+  ]);
+
+  const syncableNotes = notes.filter(
+    (record) => !localOnlyDeletedNoteIds.includes(record.id)
+  );
+  const syncableNotebooks = notebooks.filter(
+    (record) => !localOnlyDeletedNotebookIds.includes(record.id)
+  );
+
+  const preparedNotes = syncableNotes.map((record) =>
     preparePendingNote(record, device)
   );
-  const preparedNotebooks = notebooks.map((record) =>
+  const preparedNotebooks = syncableNotebooks.map((record) =>
     preparePendingNotebook(record, device)
   );
   const repairedNotes = preparedNotes.filter((record, index) =>
-    noteNeedsRepair(notes[index], record)
+    noteNeedsRepair(syncableNotes[index], record)
   );
   const repairedNotebooks = preparedNotebooks.filter((record, index) =>
-    notebookNeedsRepair(notebooks[index], record)
+    notebookNeedsRepair(syncableNotebooks[index], record)
   );
   await Promise.all([
     repairedNotes.length > 0 ? localDb.notes.bulkPut(repairedNotes) : undefined,
@@ -241,13 +270,14 @@ export async function runSync(
     noteBatchStart < pendingNotes.length ||
     notebookBatchStart < pendingNotebooks.length
   ) {
-    const noteBatchEnd = Math.min(
-      noteBatchStart + PUSH_BATCH_SIZE,
-      pendingNotes.length
-    );
     const notebookBatchEnd = Math.min(
       notebookBatchStart + PUSH_BATCH_SIZE,
       pendingNotebooks.length
+    );
+    const noteSlots = PUSH_BATCH_SIZE - (notebookBatchEnd - notebookBatchStart);
+    const noteBatchEnd = Math.min(
+      noteBatchStart + noteSlots,
+      pendingNotes.length
     );
     const pushPayload: PushRequest = {
       device,

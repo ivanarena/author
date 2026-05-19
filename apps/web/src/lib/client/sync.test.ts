@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { PushRequest } from '@author/api-types';
 import type { Note, Notebook } from '@author/schema';
 import {
   AuthError,
@@ -42,11 +43,13 @@ vi.mock('./db', () => ({
   localDb: {
     notes: {
       where: vi.fn(),
-      bulkPut: vi.fn()
+      bulkPut: vi.fn(),
+      bulkDelete: vi.fn()
     },
     notebooks: {
       where: vi.fn(),
-      bulkPut: vi.fn()
+      bulkPut: vi.fn(),
+      bulkDelete: vi.fn()
     },
     syncMeta: {
       get: vi.fn(),
@@ -110,7 +113,7 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
 }
 
 function mockFetch(...responses: Response[]) {
-  const fetchMock = vi.fn(async () => {
+  const fetchMock = vi.fn<typeof fetch>(async () => {
     const response = responses.shift();
     if (!response) throw new Error('Unexpected fetch call');
     return response;
@@ -143,6 +146,8 @@ beforeEach(() => {
   vi.mocked(localDb.syncMeta.delete).mockResolvedValue(undefined);
   vi.mocked(localDb.notes.bulkPut).mockResolvedValue(note.id);
   vi.mocked(localDb.notebooks.bulkPut).mockResolvedValue(notebook.id);
+  vi.mocked(localDb.notes.bulkDelete).mockResolvedValue(undefined);
+  vi.mocked(localDb.notebooks.bulkDelete).mockResolvedValue(undefined);
   mockPendingNotes([]);
   mockPendingNotebooks([]);
 });
@@ -310,6 +315,62 @@ describe('client sync orchestration', () => {
     });
   });
 
+  it('chunks pending pushes by total entity count', async () => {
+    const pendingNotes = Array.from({ length: 15 }, (_, index) => ({
+      ...note,
+      id: `note-${index}`,
+      lastSyncedVersion: 0,
+      lastSyncedAt: null
+    }));
+    const pendingNotebooks = Array.from({ length: 10 }, (_, index) => ({
+      ...notebook,
+      id: `notebook-${index}`,
+      lastSyncedVersion: 0,
+      lastSyncedAt: null
+    }));
+    mockPendingNotes(pendingNotes);
+    mockPendingNotebooks(pendingNotebooks);
+    const fetchMock = mockFetch(
+      jsonResponse({
+        accepted: [],
+        conflicts: [],
+        serverTime: '2026-05-01T10:10:00.000Z'
+      }),
+      jsonResponse({
+        accepted: [],
+        conflicts: [],
+        serverTime: '2026-05-01T10:10:01.000Z'
+      }),
+      jsonResponse({
+        notes: [],
+        notebooks: [],
+        devices: [],
+        deletedNoteIds: [],
+        deletedNotebookIds: [],
+        deletedDeviceIds: [],
+        serverTime: '2026-05-01T10:11:00.000Z',
+        serverRevision: 42
+      })
+    );
+
+    await expect(runSync('session-token')).resolves.toEqual({
+      pushed: 25,
+      pulled: 0,
+      conflicts: 0
+    });
+
+    const firstPush = JSON.parse(
+      String((fetchMock.mock.calls[0]?.[1] as RequestInit).body)
+    ) as PushRequest;
+    const secondPush = JSON.parse(
+      String((fetchMock.mock.calls[1]?.[1] as RequestInit).body)
+    ) as PushRequest;
+    expect(firstPush.notebooks).toHaveLength(10);
+    expect(firstPush.notes).toHaveLength(10);
+    expect(secondPush.notebooks).toHaveLength(0);
+    expect(secondPush.notes).toHaveLength(5);
+  });
+
   it('absorbs same-device push conflicts as pending rebases', async () => {
     const pendingNote = {
       ...note,
@@ -454,6 +515,51 @@ describe('client sync orchestration', () => {
           updatedAt: notebook.updatedAt
         }
       ]
+    );
+  });
+
+  it('drops local-only deleted pending records instead of pushing tombstones', async () => {
+    mockPendingNotes([
+      {
+        ...note,
+        deletedAt: '2026-05-01T10:06:00.000Z',
+        lastSyncedVersion: 0,
+        lastSyncedAt: null
+      }
+    ]);
+    mockPendingNotebooks([
+      {
+        ...notebook,
+        deletedAt: '2026-05-01T10:06:00.000Z',
+        lastSyncedVersion: 0,
+        lastSyncedAt: null
+      }
+    ]);
+    const fetchMock = mockFetch(
+      jsonResponse({
+        notes: [],
+        notebooks: [],
+        devices: [],
+        deletedNoteIds: [],
+        deletedNotebookIds: [],
+        deletedDeviceIds: [],
+        serverTime: '2026-05-01T10:12:00.000Z',
+        serverRevision: 42
+      })
+    );
+
+    await expect(runSync('session-token')).resolves.toEqual({
+      pushed: 0,
+      pulled: 0,
+      conflicts: 0
+    });
+
+    expect(localDb.notes.bulkDelete).toHaveBeenCalledWith([note.id]);
+    expect(localDb.notebooks.bulkDelete).toHaveBeenCalledWith([notebook.id]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/sync/pull',
+      expect.any(Object)
     );
   });
 

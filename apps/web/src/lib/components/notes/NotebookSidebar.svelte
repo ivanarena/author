@@ -8,7 +8,7 @@
     Pencil,
     Trash2,
     X
-  } from 'lucide-svelte';
+  } from '@lucide/svelte';
   import type { NotebookSidebarModel } from './notes-page-controller.svelte.js';
 
   let { model }: { model: NotebookSidebarModel } = $props();

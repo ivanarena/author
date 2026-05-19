@@ -3,6 +3,7 @@ import type { LocalConflict, LocalNote } from './db';
 import {
   adoptLocalWorkspaceForAccount,
   assertLocalWorkspaceCanUseAccount,
+  deleteNotePermanently,
   ensureLocalNotesEncrypted,
   prepareLocalWorkspaceForAccount,
   reencryptLocalNotes
@@ -20,6 +21,9 @@ vi.mock('./db', () => ({
   localDb: {
     notes: {
       count: vi.fn(),
+      get: vi.fn(),
+      put: vi.fn(),
+      delete: vi.fn(),
       toArray: vi.fn(),
       bulkPut: vi.fn()
     },
@@ -102,6 +106,9 @@ beforeEach(() => {
   vi.mocked(localDb.conflicts.bulkPut).mockResolvedValue('conflict-1');
   vi.mocked(localDb.notes.toArray).mockResolvedValue([note]);
   vi.mocked(localDb.notes.bulkPut).mockResolvedValue('note-1');
+  vi.mocked(localDb.notes.get).mockResolvedValue(note);
+  vi.mocked(localDb.notes.put).mockResolvedValue('note-1');
+  vi.mocked(localDb.notes.delete).mockResolvedValue(undefined);
   vi.mocked(localDb.syncMeta.get).mockResolvedValue(undefined);
   vi.mocked(localDb.syncMeta.put).mockResolvedValue('localWorkspaceOwner');
   vi.mocked(clearLocalWorkspace).mockResolvedValue(undefined);
@@ -403,5 +410,34 @@ describe('local note encryption sync state', () => {
         })
       })
     ]);
+  });
+});
+
+describe('local-only deletes', () => {
+  it('removes a never-synced note locally instead of queuing a server delete', async () => {
+    await deleteNotePermanently(note.id);
+
+    expect(localDb.notes.delete).toHaveBeenCalledWith(note.id);
+    expect(localDb.notes.put).not.toHaveBeenCalled();
+  });
+
+  it('queues a delete when the note exists on the server', async () => {
+    vi.mocked(localDb.notes.get).mockResolvedValue({
+      ...note,
+      syncStatus: 'synced',
+      lastSyncedVersion: 2
+    });
+
+    await deleteNotePermanently(note.id);
+
+    expect(localDb.notes.delete).not.toHaveBeenCalled();
+    expect(localDb.notes.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: note.id,
+        deletedAt: '2026-05-06T12:00:00.000Z',
+        syncStatus: 'pending',
+        lastSyncedVersion: 2
+      })
+    );
   });
 });

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CheckCircle2, Info, X, XCircle } from 'lucide-svelte';
+  import { CheckCircle2, Info, X, XCircle } from '@lucide/svelte';
   import type { NotificationStackModel } from './notes-page-controller.svelte.js';
 
   let { model }: { model: NotificationStackModel } = $props();

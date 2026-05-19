@@ -4,6 +4,7 @@ import {
   decryptNoteFields,
   ENCRYPTION_KEY_MATERIAL_STORAGE_KEY,
   encryptNoteFields,
+  getEncryptionKeyMaterial,
   isEncryptedText,
   keyMaterialFromPassword
 } from '../../src/lib/client/encryption';
@@ -52,13 +53,14 @@ async function browserStoredNotes(page: Page): Promise<RemoteNote[]> {
 async function expectBrowserStoredEncryptedNote(
   page: Page,
   title: string,
-  body: string
+  body: string,
+  keyMaterial = e2eKeyMaterial
 ) {
   await expect
     .poll(async () => {
       const rawNotes = await browserStoredNotes(page);
       const decryptedNotes = await Promise.all(
-        rawNotes.map((note) => decryptNoteFields(note, e2eKeyMaterial))
+        rawNotes.map((note) => decryptNoteFields(note, keyMaterial))
       );
       const noteIndex = decryptedNotes.findIndex(
         (note) => note.title === title && note.body === body
@@ -168,6 +170,12 @@ async function expectFieldsInVerticalOrder(
   }
 }
 
+async function waitForDraftEditorReady(page: Page) {
+  await expect(
+    page.getByLabel('Note metadata').getByText(/Unsaved draft|Pending sync/)
+  ).toBeVisible();
+}
+
 test.beforeEach(async ({ page, request }) => {
   token = await loginForToken(request);
   e2eKeyMaterial = await keyMaterialFromPassword(loginUsername, loginPassword);
@@ -236,6 +244,7 @@ test('keeps a stored online session synced from local edits', async ({
   request
 }) => {
   await page.goto('/');
+  await waitForVisibleSyncedStatus(page);
 
   const titleText = `Online session note ${Date.now()}`;
   const bodyText = 'Autosynced from a local IndexedDB edit';
@@ -257,6 +266,7 @@ test('keeps a stored online session synced from local edits', async ({
 
 test('shows local IndexedDB notes after a browser reload', async ({ page }) => {
   await page.goto('/');
+  await waitForVisibleSyncedStatus(page);
 
   const titleText = `Reloaded local note ${Date.now()}`;
   const bodyText = 'Still here after a browser reload';
@@ -517,12 +527,18 @@ test('keeps local drafts when signing in and then syncs them remote', async ({
   });
 
   await page.goto('/');
+  await waitForDraftEditorReady(page);
 
   const titleText = `Local before login ${Date.now()}`;
   const bodyText = 'This local draft must survive account sign-in';
   await page.getByLabel('Note title').fill(titleText);
   await page.getByLabel('Note body').fill(bodyText);
-  await expectBrowserStoredEncryptedNote(page, titleText, bodyText);
+  await expectBrowserStoredEncryptedNote(
+    page,
+    titleText,
+    bodyText,
+    getEncryptionKeyMaterial()
+  );
 
   await page.getByRole('button', { name: 'Profile and settings' }).click();
   await page.getByRole('menuitem', { name: 'Sign in to sync' }).click();
@@ -583,6 +599,7 @@ test('keeps edits made during an online sync pending until the latest local vers
   });
 
   await page.goto('/');
+  await waitForVisibleSyncedStatus(page);
 
   const titleText = `In-flight local edit ${Date.now()}`;
   const firstBody = 'First version sent to the server';

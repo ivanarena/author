@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { LogIn, X } from 'lucide-svelte';
+  import { LogIn, X } from '@lucide/svelte';
   import AuthForm from './AuthForm.svelte';
   import type { SettingsModalModel } from './notes-page-controller.svelte.js';
 

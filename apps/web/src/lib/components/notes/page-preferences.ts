@@ -1,6 +1,7 @@
-import type { NoteSort } from '$lib/client/view-model';
+import type { NoteGroupBy, NoteSort } from '$lib/client/view-model';
 
 const SORT_KEY = 'author-sort';
+const GROUP_KEY = 'author-note-group';
 const COMPACT_VIEW_KEY = 'author-compact-view';
 const EDITOR_ZOOM_KEY = 'author-editor-zoom';
 const EDITOR_FONT_KEY = 'author-editor-font';
@@ -55,6 +56,20 @@ export function getStoredSort(): NoteSort {
 
 export function setStoredSort(sort: NoteSort): void {
   localStorage.setItem(SORT_KEY, sort);
+}
+
+export function getStoredGroup(): NoteGroupBy {
+  const stored = localStorage.getItem(GROUP_KEY);
+  return stored === 'smart' ||
+    stored === 'month' ||
+    stored === 'year' ||
+    stored === 'none'
+    ? stored
+    : 'smart';
+}
+
+export function setStoredGroup(group: NoteGroupBy): void {
+  localStorage.setItem(GROUP_KEY, group);
 }
 
 export function getStoredCompactView(): boolean {

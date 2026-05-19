@@ -16,6 +16,7 @@
     "test:e2e": "playwright test",
     "test:watch": "vitest",
     "seed": "tsx scripts/seed.ts",
+    "seed:test-account": "tsx scripts/seed-test-account.ts",
     "user:create": "tsx scripts/create-user.ts",
     "db:check": "tsx scripts/check-db-integration.ts",
     "sync:bench": "tsx scripts/benchmark-sync.ts",

@@ -16,10 +16,16 @@ aube audit --audit-level high
 aube deprecations --transitive --exit-code
 aube run test
 aube run test:coverage
-aube -F @author/web run test:e2e
+aube run test:e2e
 aube -F @author/web run build
 aube -F @author/web run cf:build
 docker build .
+```
+
+If Playwright has not been used on the machine before, install Chromium first:
+
+```sh
+aube -F @author/web exec -- playwright install chromium
 ```
 
 For Cloudflare Workers, also run:

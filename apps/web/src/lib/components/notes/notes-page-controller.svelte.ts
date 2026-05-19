@@ -11,7 +11,6 @@ import { noteNotebookIds, normalizeNotebookName } from '$lib/client/note-utils';
 import {
   adoptLocalWorkspaceForAccount,
   assignNoteToNotebook,
-  assertLocalWorkspaceCanUseAccount,
   clearSyncError,
   clearLocalWorkspace,
   clearStoredSession,
@@ -35,6 +34,7 @@ import {
   loadTrash,
   moveNoteToTrash,
   notebookNameExists,
+  prepareLocalWorkspaceForAccount,
   rememberLocalWorkspaceAccount,
   renameNotebook,
   renameCurrentDevice,
@@ -70,9 +70,10 @@ import {
   countWords,
   filterNotesBySearch,
   filterNotesForView,
-  groupNotesByDateRange,
+  groupNotes,
   sortNotes,
   syncIndicatorState,
+  type NoteGroupBy,
   type NoteSort
 } from '$lib/client/view-model';
 import { pushEditorHistory, sameEditorSnapshot } from './editor-history';
@@ -109,6 +110,7 @@ import {
   getStoredEditorLineHeight,
   getStoredEditorTextSize,
   getStoredEditorZoom,
+  getStoredGroup,
   applyAppFont,
   getStoredSort,
   MAX_EDITOR_LINE_HEIGHT,
@@ -123,6 +125,7 @@ import {
   setStoredEditorLineHeight,
   setStoredEditorTextSize,
   setStoredEditorZoom,
+  setStoredGroup,
   setStoredSort,
   type EditorFont,
   zoomPercent as formatZoomPercent
@@ -235,6 +238,7 @@ export class NotesPageController
   renameNotebookError = $state('');
   deletingNotebookId = $state<string | null>(null);
   noteSort = $state<NoteSort>('date-desc');
+  noteGroup = $state<NoteGroupBy>('smart');
   searchValue = $state('');
   compactView = $state(false);
   editorZoom = $state(1);
@@ -298,7 +302,12 @@ export class NotesPageController
   );
   visibleNotes = $derived(sortNotes(this.searchedNotes, this.noteSort));
   visibleNoteGroups = $derived(
-    groupNotesByDateRange(this.visibleNotes, this.noteSort, this.currentTime)
+    groupNotes(
+      this.visibleNotes,
+      this.noteSort,
+      this.noteGroup,
+      this.currentTime
+    )
   );
   selectedNoteCount = $derived(this.selectedNoteIds.size);
   selectedVisibleNoteCount = $derived(
@@ -711,6 +720,11 @@ export class NotesPageController
   setNoteSort = (sort: NoteSort) => {
     this.noteSort = sort;
     setStoredSort(sort);
+  };
+
+  setNoteGroup = (group: NoteGroupBy) => {
+    this.noteGroup = group;
+    setStoredGroup(group);
   };
 
   toggleNoteSelection = (note: LocalNote, selected: boolean) => {
@@ -1542,11 +1556,13 @@ export class NotesPageController
               hasPassword ? password : null,
               this.loginTotpCodeValue.trim() || null
             );
+      let workspaceCleared = false;
       try {
-        await assertLocalWorkspaceCanUseAccount(
+        const workspace = await prepareLocalWorkspaceForAccount(
           session.user.username,
           previousUsername
         );
+        workspaceCleared = workspace.cleared;
       } catch (error) {
         await logout(session.token).catch(() => undefined);
         throw error;
@@ -1559,7 +1575,7 @@ export class NotesPageController
           };
       await adoptLocalWorkspaceForAccount({
         username: session.user.username,
-        fallbackOwnerUsername: previousUsername,
+        fallbackOwnerUsername: workspaceCleared ? null : previousUsername,
         previousMaterial: encryption.previousMaterial,
         nextMaterial: encryption.nextMaterial
       });
@@ -1874,6 +1890,7 @@ export class NotesPageController
     this.theme = getTheme();
     setTheme(this.theme);
     this.noteSort = getStoredSort();
+    this.noteGroup = getStoredGroup();
     this.compactView = getStoredCompactView();
     this.editorZoom = getStoredEditorZoom();
     this.editorFont = getStoredEditorFont();

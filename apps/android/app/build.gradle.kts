@@ -67,7 +67,7 @@ val releaseKeyAlias = configValue("ANDROID_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = configValue("ANDROID_RELEASE_KEY_PASSWORD")
 val androidUpdateCheckUrl =
   configValue("ANDROID_UPDATE_CHECK_URL")
-    ?: "https://raw.githubusercontent.com/ivanarena/author/main/apps/android/app/build.gradle.kts"
+    ?: "https://api.github.com/repos/ivanarena/author/releases/latest"
 val androidUpdateDownloadUrl =
   configValue("ANDROID_UPDATE_DOWNLOAD_URL")
     ?: "https://github.com/ivanarena/author/releases/latest"

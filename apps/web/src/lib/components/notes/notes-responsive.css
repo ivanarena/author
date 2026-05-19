@@ -81,6 +81,7 @@
   .menu-dock.open {
     width: var(--side-menu-width);
     height: calc(100vh - var(--side-menu-top) * 2);
+    height: calc(100dvh - var(--side-menu-top) * 2);
   }
 
   .dock-buttons {
@@ -96,6 +97,7 @@
     left: 100%;
     width: var(--side-menu-gap);
     height: min(260px, calc(100vh - var(--side-menu-top) * 2));
+    height: min(260px, calc(100dvh - var(--side-menu-top) * 2));
     transform: none;
   }
 
@@ -178,6 +180,7 @@
 
   .settings-modal {
     max-height: calc(100vh - 28px);
+    max-height: calc(100dvh - 28px);
     overflow: auto;
   }
 
@@ -232,6 +235,7 @@
   .editor-wrap,
   .writer {
     min-height: 100vh;
+    min-height: 100dvh;
   }
 
   .writer {
@@ -284,6 +288,19 @@
   .notes {
     gap: 14px;
     padding: 10px;
+  }
+
+  .notes-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .notes-toolbar .sort-menu {
+    justify-self: stretch;
+  }
+
+  .notes-toolbar .sort-trigger {
+    width: 100%;
+    min-width: 0;
   }
 
   .notebooks {

@@ -10,9 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -26,6 +24,7 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -93,12 +92,12 @@ internal fun NotebookSidebar(
         }
       }
       if (controller.notebooks.isNotEmpty()) {
-        item { NotebookGroupGap() }
+        item { NotebookGroupSeparator() }
       }
       items(controller.notebooks, key = { it.id }) { notebook ->
         NotebookRow(controller, notebook, onPicked = onFilterPicked)
       }
-      item { NotebookGroupGap() }
+      item { NotebookGroupSeparator() }
       item {
         NavRow(
           Icons.Outlined.Delete,
@@ -118,8 +117,13 @@ private fun notebookCountLabel(count: Int, controller: NotesController): String 
   if (controller.isWorkspaceLoading) "..." else count.toString()
 
 @Composable
-private fun NotebookGroupGap() {
-  Spacer(Modifier.height(10.dp))
+private fun NotebookGroupSeparator() {
+  Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+    HorizontalDivider(
+      color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.11f),
+      thickness = 1.dp,
+    )
+  }
 }
 
 @Composable

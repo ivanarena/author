@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.work.BackoffPolicy
@@ -29,15 +30,17 @@ private const val UPDATE_CHANNEL_ID = "app_updates"
 private const val UPDATE_NOTIFICATION_ID = 2001
 private const val UPDATE_PREFS = "author_update_check"
 private const val LAST_NOTIFIED_VERSION_CODE = "lastNotifiedVersionCode"
+private const val LAST_NOTIFIED_VERSION_NAME = "lastNotifiedVersionName"
 private const val UNIQUE_PERIODIC_WORK_NAME = "author-android-update-check"
 private const val UNIQUE_STARTUP_WORK_NAME = "author-android-update-check-after-startup"
+private const val UNIQUE_MANUAL_WORK_NAME = "author-android-update-check-now"
 
 class UpdateCheckWorker(appContext: Context, params: WorkerParameters) :
   CoroutineWorker(appContext, params) {
   override suspend fun doWork(): Result =
     runCatching {
         val latest = loadLatestUpdate()
-        if (latest.versionCode > BuildConfig.VERSION_CODE) {
+        if (latest.isNewerThanInstalled(BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME)) {
           notifyOnce(latest)
         }
       }
@@ -60,54 +63,43 @@ class UpdateCheckWorker(appContext: Context, params: WorkerParameters) :
       val status = connection.responseCode
       val body = readResponse(connection, status)
       if (status !in 200..299) error("Update check failed: $status")
-      return parseUpdateInfo(body)
+      return parseUpdateInfo(body, BuildConfig.UPDATE_DOWNLOAD_URL)
     } finally {
       connection.disconnect()
     }
   }
 
-  private fun parseUpdateInfo(body: String): UpdateInfo {
-    val trimmed = body.trim()
-    if (trimmed.startsWith("{")) {
-      val json = JSONObject(trimmed)
-      return UpdateInfo(
-        versionCode = json.getInt("versionCode"),
-        versionName = json.optString("versionName", json.getInt("versionCode").toString()),
-        downloadUrl = json.optString("apkUrl", BuildConfig.UPDATE_DOWNLOAD_URL),
-      )
-    }
-
-    val versionCode =
-      Regex("""versionCode\s*=\s*(\d+)""").find(trimmed)?.groupValues?.get(1)?.toIntOrNull()
-        ?: error("Could not find Android versionCode")
-    val versionName =
-      Regex("versionName\\s*=\\s*\"([^\"]+)\"").find(trimmed)?.groupValues?.get(1)
-        ?: versionCode.toString()
-
-    return UpdateInfo(versionCode, versionName, BuildConfig.UPDATE_DOWNLOAD_URL)
-  }
-
   private fun notifyOnce(update: UpdateInfo) {
     val prefs = applicationContext.getSharedPreferences(UPDATE_PREFS, Context.MODE_PRIVATE)
-    if (prefs.getInt(LAST_NOTIFIED_VERSION_CODE, 0) >= update.versionCode) return
+    if (update.versionCode != null) {
+      if (prefs.getInt(LAST_NOTIFIED_VERSION_CODE, 0) >= update.versionCode) return
+    } else if (prefs.getString(LAST_NOTIFIED_VERSION_NAME, null) == update.versionName) {
+      return
+    }
 
     createChannel(applicationContext)
     val manager = applicationContext.getSystemService(NotificationManager::class.java)
     if (!manager.areNotificationsEnabled()) return
+    val body = applicationContext.getString(R.string.update_notification_body, update.versionName)
 
     val notification =
       Notification.Builder(applicationContext, UPDATE_CHANNEL_ID)
         .setSmallIcon(R.drawable.ic_launcher)
         .setContentTitle(applicationContext.getString(R.string.update_notification_title))
-        .setContentText(
-          applicationContext.getString(R.string.update_notification_body, update.versionName)
-        )
+        .setContentText(body)
+        .setStyle(Notification.BigTextStyle().bigText(body))
         .setContentIntent(updateIntent(update.downloadUrl))
+        .setColor(Color.rgb(47, 125, 82))
+        .setCategory(Notification.CATEGORY_STATUS)
+        .setVisibility(Notification.VISIBILITY_PUBLIC)
         .setAutoCancel(true)
         .build()
 
     manager.notify(UPDATE_NOTIFICATION_ID, notification)
-    prefs.edit { putInt(LAST_NOTIFIED_VERSION_CODE, update.versionCode) }
+    prefs.edit {
+      update.versionCode?.let { putInt(LAST_NOTIFIED_VERSION_CODE, it) }
+      putString(LAST_NOTIFIED_VERSION_NAME, update.versionName)
+    }
   }
 
   private fun updateIntent(downloadUrl: String): PendingIntent {
@@ -158,6 +150,19 @@ class UpdateCheckWorker(appContext: Context, params: WorkerParameters) :
         .enqueueUniqueWork(UNIQUE_STARTUP_WORK_NAME, ExistingWorkPolicy.KEEP, startup)
     }
 
+    fun checkNow(context: Context) {
+      val appContext = context.applicationContext
+      createChannel(appContext)
+      val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+      val request =
+        OneTimeWorkRequestBuilder<UpdateCheckWorker>()
+          .setConstraints(constraints)
+          .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+          .build()
+      WorkManager.getInstance(appContext)
+        .enqueueUniqueWork(UNIQUE_MANUAL_WORK_NAME, ExistingWorkPolicy.REPLACE, request)
+    }
+
     private fun createChannel(context: Context) {
       val manager = context.getSystemService(NotificationManager::class.java)
       if (manager.getNotificationChannel(UPDATE_CHANNEL_ID) != null) return
@@ -170,14 +175,117 @@ class UpdateCheckWorker(appContext: Context, params: WorkerParameters) :
           )
           .apply {
             description = context.getString(R.string.update_notification_channel_description)
+            enableLights(true)
+            lightColor = Color.rgb(47, 125, 82)
           }
       manager.createNotificationChannel(channel)
     }
   }
 }
 
-private data class UpdateInfo(
-  val versionCode: Int,
+internal fun parseUpdateInfo(body: String, fallbackDownloadUrl: String): UpdateInfo {
+  val trimmed = body.trim()
+  if (trimmed.startsWith("{")) {
+    val json = JSONObject(trimmed)
+    if (json.has("tag_name") || json.has("assets")) {
+      return parseGithubRelease(json, fallbackDownloadUrl)
+    }
+
+    val versionCode = json.optInt("versionCode").takeIf { it > 0 }
+    return UpdateInfo(
+      versionCode = versionCode,
+      versionName = json.optString("versionName").ifBlank { versionCode?.toString().orEmpty() },
+      downloadUrl = json.optString("apkUrl", fallbackDownloadUrl),
+    )
+  }
+
+  val versionCode =
+    Regex("""versionCode\s*=\s*(\d+)""").find(trimmed)?.groupValues?.get(1)?.toIntOrNull()
+      ?: error("Could not find Android versionCode")
+  val versionName =
+    Regex("versionName\\s*=\\s*\"([^\"]+)\"").find(trimmed)?.groupValues?.get(1)
+      ?: versionCode.toString()
+
+  return UpdateInfo(versionCode, versionName, fallbackDownloadUrl)
+}
+
+private fun parseGithubRelease(json: JSONObject, fallbackDownloadUrl: String): UpdateInfo {
+  val releaseName = json.optString("tag_name").ifBlank { json.optString("name") }
+  val versionName = normalizeReleaseVersion(releaseName)
+  val releaseUrl = json.optString("html_url", fallbackDownloadUrl)
+  val assets = json.optJSONArray("assets")
+  var apkUrl = ""
+  if (assets != null) {
+    for (index in 0 until assets.length()) {
+      val asset = assets.optJSONObject(index) ?: continue
+      val name = asset.optString("name")
+      if (name.endsWith(".apk", ignoreCase = true) && name.contains("android", true)) {
+        apkUrl = asset.optString("browser_download_url")
+        break
+      }
+      if (apkUrl.isBlank() && name.endsWith(".apk", ignoreCase = true)) {
+        apkUrl = asset.optString("browser_download_url")
+      }
+    }
+  }
+  return UpdateInfo(null, versionName, apkUrl.ifBlank { releaseUrl })
+}
+
+internal data class UpdateInfo(
+  val versionCode: Int?,
   val versionName: String,
   val downloadUrl: String,
-)
+) {
+  fun isNewerThanInstalled(installedVersionCode: Int, installedVersionName: String): Boolean {
+    if (versionCode != null) return versionCode > installedVersionCode
+    if (versionName.isBlank()) return false
+    return isVersionNameNewer(versionName, installedVersionName)
+  }
+}
+
+internal fun normalizeReleaseVersion(value: String): String = stripKnownVersionPrefixes(value)
+
+private fun normalizeVersionName(value: String): String = stripKnownVersionPrefixes(value)
+
+private fun stripKnownVersionPrefixes(value: String): String {
+  var normalized = value.trim()
+  val prefixes = listOf("author-android-", "android-", "Author Android ", "v")
+  var changed = true
+  while (changed) {
+    changed = false
+    for (prefix in prefixes) {
+      if (normalized.startsWith(prefix, ignoreCase = true)) {
+        normalized = normalized.drop(prefix.length).trim()
+        changed = true
+        break
+      }
+    }
+  }
+  return normalized
+}
+
+private fun isVersionNameNewer(latest: String, installed: String): Boolean {
+  val latestNormalized = normalizeVersionName(latest)
+  val installedNormalized = normalizeVersionName(installed)
+  val latestParts = versionParts(latestNormalized)
+  val installedParts = versionParts(installedNormalized)
+  if (latestParts != null && installedParts != null) {
+    return compareVersionParts(latestParts, installedParts) > 0
+  }
+  return latestNormalized != installedNormalized
+}
+
+private fun versionParts(value: String): List<Int>? {
+  val match = Regex("""^\d+(?:\.\d+)*""").find(value) ?: return null
+  return match.value.split(".").mapNotNull { it.toIntOrNull() }.takeIf { it.isNotEmpty() }
+}
+
+private fun compareVersionParts(left: List<Int>, right: List<Int>): Int {
+  val length = maxOf(left.size, right.size)
+  for (index in 0 until length) {
+    val leftPart = left.getOrElse(index) { 0 }
+    val rightPart = right.getOrElse(index) { 0 }
+    if (leftPart != rightPart) return leftPart.compareTo(rightPart)
+  }
+  return 0
+}

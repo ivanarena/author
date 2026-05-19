@@ -90,7 +90,7 @@ internal fun SettingsPage(controller: NotesController, onExport: () -> Unit, onI
             if (compactScreen && controller.settingsSection != "menu") {
               controller.settingsSection = "menu"
             } else {
-              controller.navigateTo("notes")
+              controller.handleBack()
             }
           }
         }
@@ -643,6 +643,7 @@ private fun SyncSettings(controller: NotesController) {
     ActionRow(Icons.Outlined.Refresh, "Check API") {
       controller.refreshServerConfig(showNotification = true)
     }
+    ActionRow(Icons.Outlined.Download, "Check for updates") { controller.checkForUpdates() }
     if (controller.hasToken) {
       ActionRow(
         Icons.Outlined.Refresh,

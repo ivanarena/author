@@ -97,6 +97,9 @@
         <span class="nav-count">{model.unfiledCount}</span>
       </div>
     </div>
+    {#if model.notebooks.length}
+      <div class="nav-separator" role="separator" aria-hidden="true"></div>
+    {/if}
     {#each model.notebooks as notebook}
       <div
         class="nav-row notebook-row"
@@ -209,6 +212,7 @@
         {/if}
       </div>
     {/each}
+    <div class="nav-separator" role="separator" aria-hidden="true"></div>
     <div class="nav-row" class:active={model.filterId === 'trash'}>
       <button class="nav-main" onclick={() => (model.filterId = 'trash')}>
         <Trash2 size={15} strokeWidth={1.8} />

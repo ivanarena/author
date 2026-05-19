@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.os.Build
 import androidx.core.content.edit
 import com.author.BuildConfig
+import com.author.UpdateCheckWorker
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -20,6 +21,7 @@ private const val TWO_FACTOR_KEY = "author-two-factor-enabled"
 private const val SESSION_EXPIRES_KEY = "author-session-expires-at"
 private const val THEME_KEY = "author-theme"
 private const val SORT_KEY = "author-sort"
+private const val GROUP_KEY = "author-note-group"
 private const val COMPACT_VIEW_KEY = "author-compact-view"
 private const val EDITOR_ZOOM_KEY = "author-editor-zoom"
 private const val EDITOR_FONT_KEY = "author-editor-font"
@@ -48,6 +50,7 @@ private val THEMES =
     "dark-lavender",
   )
 private val FONTS = setOf("kedebideri", "system-sans", "system-serif", "mono")
+private val GROUPS = setOf("smart", "month", "year", "none")
 
 class NotesRepository(context: Context) {
   private val appContext = context.applicationContext
@@ -72,6 +75,15 @@ class NotesRepository(context: Context) {
 
   fun setSort(sort: String) {
     prefs.edit { putString(SORT_KEY, sort) }
+  }
+
+  fun getGroup(): String {
+    val stored = prefs.getString(GROUP_KEY, null)
+    return if (stored in GROUPS) stored ?: "smart" else "smart"
+  }
+
+  fun setGroup(group: String) {
+    prefs.edit { putString(GROUP_KEY, if (group in GROUPS) group else "smart") }
   }
 
   fun getCompactView(): Boolean = prefs.getBoolean(COMPACT_VIEW_KEY, false)
@@ -398,29 +410,36 @@ class NotesRepository(context: Context) {
       )
     }
 
-  suspend fun loadWorkspace(): Workspace =
-    withContext(Dispatchers.IO) {
-      val notes = db.allNotes().map { crypto.decryptNoteFields(it) }
-      val notebooks = db.allNotebooks().map { crypto.decryptNotebookFields(it) }
-      val activeNotes =
-        notes
-          .filter { it.deletedAt == null && it.trashedAt == null }
-          .sortedByDescending { it.updatedAt }
-      val trash =
-        notes
-          .filter { it.deletedAt == null && it.trashedAt != null }
-          .sortedByDescending { it.trashedAt ?: "" }
-      Workspace(
-        notes = activeNotes,
-        notebooks = notebooks.filter { it.deletedAt == null }.sortedBy { it.name.lowercase() },
-        trash = trash,
-        devices = db.allDevices(),
-        conflicts = loadPendingConflictsInternal(),
-        pendingSyncCount = db.pendingSyncCount(),
-        lastSyncPass = loadLastSyncPassInternal(),
-        syncDebugInfo = loadSyncDebugInfoInternal(),
-      )
-    }
+  fun loadWorkspaceSnapshot(): Workspace = loadWorkspaceInternal()
+
+  suspend fun loadWorkspace(): Workspace = withContext(Dispatchers.IO) { loadWorkspaceInternal() }
+
+  private fun loadWorkspaceInternal(): Workspace {
+    val notes = db.allNotes().map { crypto.decryptNoteFields(it) }
+    val notebooks = db.allNotebooks().map { crypto.decryptNotebookFields(it) }
+    val activeNotes =
+      notes
+        .filter { it.deletedAt == null && it.trashedAt == null }
+        .sortedByDescending { it.updatedAt }
+    val trash =
+      notes
+        .filter { it.deletedAt == null && it.trashedAt != null }
+        .sortedByDescending { it.trashedAt ?: "" }
+    return Workspace(
+      notes = activeNotes,
+      notebooks = notebooks.filter { it.deletedAt == null }.sortedBy { it.name.lowercase() },
+      trash = trash,
+      devices = db.allDevices(),
+      conflicts = loadPendingConflictsInternal(),
+      pendingSyncCount = db.pendingSyncCount(),
+      lastSyncPass = loadLastSyncPassInternal(),
+      syncDebugInfo = loadSyncDebugInfoInternal(),
+    )
+  }
+
+  fun enqueueUpdateCheck() {
+    UpdateCheckWorker.checkNow(appContext)
+  }
 
   suspend fun ensureLocalNotesEncrypted() =
     withContext(Dispatchers.IO) {
@@ -487,6 +506,14 @@ class NotesRepository(context: Context) {
   suspend fun assertLocalWorkspaceCanUseAccount(username: String, previousUsername: String?) =
     withContext(Dispatchers.IO) {
       assertLocalWorkspaceCanUseAccountInternal(username, previousUsername)
+    }
+
+  suspend fun prepareLocalWorkspaceForAccount(
+    username: String,
+    previousUsername: String?,
+  ): Boolean =
+    withContext(Dispatchers.IO) {
+      prepareLocalWorkspaceForAccountInternal(username, previousUsername)
     }
 
   suspend fun rememberPasswordAndAdopt(
@@ -587,9 +614,13 @@ class NotesRepository(context: Context) {
         val device = getOrCreateDevice()
         ensureLocalNotesEncrypted()
         repairSameDevicePendingConflicts()
-        val pendingNotes = db.pendingNotes().map { it to it.lastSyncedVersion }.toMutableList()
-        val pendingNotebooks =
-          db.pendingNotebooks().map { it to it.lastSyncedVersion }.toMutableList()
+        val preparedNotes = db.pendingNotes().map { preparePendingNoteForPush(it, device) }
+        val preparedNotebooks =
+          db.pendingNotebooks().map { preparePendingNotebookForPush(it, device) }
+        if (preparedNotes.isNotEmpty()) db.putNotes(preparedNotes)
+        if (preparedNotebooks.isNotEmpty()) db.putNotebooks(preparedNotebooks)
+        val pendingNotes = preparedNotes.map { it to it.lastSyncedVersion }.toMutableList()
+        val pendingNotebooks = preparedNotebooks.map { it to it.lastSyncedVersion }.toMutableList()
         val totalPushCount = pendingNotes.size + pendingNotebooks.size
         var conflicts = 0
         var pushed = 0
@@ -674,7 +705,7 @@ class NotesRepository(context: Context) {
             response.deletedNotebookIds,
             response.deletedDeviceIds,
           )
-          mergeRemoteChanges(response.notes, response.notebooks, response.serverTime)
+          mergeRemoteChanges(response.notes, response.notebooks, response.serverTime, device)
           db.putMeta("lastPulledAt", response.serverTime)
           db.putMeta("lastPulledRevision", nextCursor.toString())
           val pageSize =
@@ -969,12 +1000,13 @@ class NotesRepository(context: Context) {
     notes: List<LocalNote>,
     notebooks: List<LocalNotebook>,
     syncedAt: String,
+    currentDevice: Device,
   ) {
-    notebooks.forEach { mergeRemoteNotebook(it, syncedAt) }
-    notes.forEach { mergeRemoteNote(it, syncedAt) }
+    notebooks.forEach { mergeRemoteNotebook(it, syncedAt, currentDevice) }
+    notes.forEach { mergeRemoteNote(it, syncedAt, currentDevice) }
   }
 
-  private fun mergeRemoteNote(remote: LocalNote, syncedAt: String) {
+  private fun mergeRemoteNote(remote: LocalNote, syncedAt: String, currentDevice: Device) {
     val local = db.getNote(remote.id)
     val remotePlain = crypto.decryptNoteFields(remote)
     val remoteStored = crypto.encryptNoteFields(remotePlain)
@@ -985,6 +1017,8 @@ class NotesRepository(context: Context) {
         remote.bodyHash != remoteStored.bodyHash
     val remoteLocal =
       remoteStored.copy(
+        deviceId = if (shouldRepublish) currentDevice.id else remoteStored.deviceId,
+        version = if (shouldRepublish) nextVersionAfter(remote.version) else remoteStored.version,
         syncStatus = if (shouldRepublish) "pending" else "synced",
         lastSyncedVersion = remote.version,
         lastSyncedAt = syncedAt,
@@ -1038,7 +1072,7 @@ class NotesRepository(context: Context) {
     if (local.syncStatus != "pending" && local.syncStatus != "conflict") db.putNote(remoteLocal)
   }
 
-  private fun mergeRemoteNotebook(remote: LocalNotebook, syncedAt: String) {
+  private fun mergeRemoteNotebook(remote: LocalNotebook, syncedAt: String, currentDevice: Device) {
     val local = db.getNotebook(remote.id)
     val remotePlain = crypto.decryptNotebookFields(remote)
     val remoteStored = crypto.encryptNotebookFields(remotePlain)
@@ -1046,6 +1080,8 @@ class NotesRepository(context: Context) {
       !crypto.isEncryptedText(remote.name) || remote.nameHash != remoteStored.nameHash
     val remoteLocal =
       remoteStored.copy(
+        deviceId = if (shouldRepublish) currentDevice.id else remoteStored.deviceId,
+        version = if (shouldRepublish) nextVersionAfter(remote.version) else remoteStored.version,
         syncStatus = if (shouldRepublish) "pending" else "synced",
         lastSyncedVersion = remote.version,
         lastSyncedAt = syncedAt,
@@ -1287,13 +1323,6 @@ class NotesRepository(context: Context) {
       }
   }
 
-  private fun safePendingVersion(record: LocalNote): Int =
-    if (record.version > record.lastSyncedVersion && record.version > 0) {
-      record.version
-    } else {
-      record.lastSyncedVersion + 1
-    }
-
   private fun decryptNoteConflictForDisplay(
     conflict: SyncConflict<LocalNote>,
     keyMaterial: String = crypto.getEncryptionKeyMaterial(),
@@ -1395,11 +1424,34 @@ class NotesRepository(context: Context) {
     val hasData =
       db.allNotes().isNotEmpty() || db.allNotebooks().isNotEmpty() || db.rawConflicts().isNotEmpty()
     if (currentOwner != null && currentOwner != normalized && hasData) {
+      if (!localWorkspaceHasUnsyncedData()) return
       throw IllegalStateException(
-        "This device has local notes for $currentOwner. Sign in as $currentOwner before switching accounts."
+        "Local notes on this device belong to $currentOwner. Sign in as $currentOwner to sync or export them before using another account here. If this is only test data, clear the app's local data first."
       )
     }
   }
+
+  private fun prepareLocalWorkspaceForAccountInternal(
+    username: String,
+    fallbackOwnerUsername: String?,
+  ): Boolean {
+    val normalized = username.trim().lowercase()
+    val storedOwner = db.getMeta(LOCAL_WORKSPACE_OWNER_KEY)
+    val fallback = fallbackOwnerUsername?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+    val currentOwner = storedOwner ?: fallback
+    val hasData =
+      db.allNotes().isNotEmpty() || db.allNotebooks().isNotEmpty() || db.rawConflicts().isNotEmpty()
+    if (currentOwner == null || currentOwner == normalized || !hasData) return false
+
+    assertLocalWorkspaceCanUseAccountInternal(username, fallbackOwnerUsername)
+    db.clearAll()
+    return true
+  }
+
+  private fun localWorkspaceHasUnsyncedData(): Boolean =
+    db.allNotes().any { it.syncStatus != "synced" } ||
+      db.allNotebooks().any { it.syncStatus != "synced" } ||
+      db.rawConflicts().any { it.status != "resolved" }
 
   private fun rememberLocalWorkspaceAccount(username: String) {
     val normalized = username.trim().lowercase()

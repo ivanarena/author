@@ -3,6 +3,7 @@ import { noteDisplayTitle, noteNotebookIds } from './note-utils';
 import type { RemoteSyncState } from '@author/api-types';
 
 export type NoteSort = 'date-desc' | 'az' | 'za';
+export type NoteGroupBy = 'smart' | 'month' | 'year' | 'none';
 export type NoteGroup = { label: string; notes: LocalNote[] };
 
 export type SyncIndicatorKind =
@@ -101,12 +102,37 @@ export function groupNotesByDateRange(
   sort: NoteSort,
   now = new Date()
 ): NoteGroup[] {
+  if (!items.length) return [];
   if (sort !== 'date-desc')
     return [{ label: sort === 'az' ? 'A-Z' : 'Z-A', notes: items }];
 
+  return groupNotesByLabel(items, (note) =>
+    dateRangeLabel(note.updatedAt, now)
+  );
+}
+
+export function groupNotes(
+  items: LocalNote[],
+  sort: NoteSort,
+  groupBy: NoteGroupBy,
+  now = new Date()
+): NoteGroup[] {
+  if (!items.length) return [];
+  if (groupBy === 'none') return [{ label: '', notes: items }];
+  if (groupBy === 'month')
+    return groupNotesByLabel(items, (note) => monthLabel(note.updatedAt));
+  if (groupBy === 'year')
+    return groupNotesByLabel(items, (note) => yearLabel(note.updatedAt));
+  return groupNotesByDateRange(items, sort, now);
+}
+
+function groupNotesByLabel(
+  items: LocalNote[],
+  getLabel: (note: LocalNote) => string
+): NoteGroup[] {
   const groups = new Map<string, LocalNote[]>();
   for (const note of items) {
-    const label = dateRangeLabel(note.updatedAt, now);
+    const label = getLabel(note);
     groups.set(label, [...(groups.get(label) ?? []), note]);
   }
 
@@ -128,6 +154,18 @@ export function dateRangeLabel(iso: string, now = new Date()): string {
   if (daysAgo < 7) return 'Previous 7 days';
   if (daysAgo < 30) return 'Previous 30 days';
   if (daysAgo < 365) return date.toLocaleString(undefined, { month: 'long' });
+  return String(date.getFullYear());
+}
+
+function monthLabel(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return 'Unknown';
+  return date.toLocaleString(undefined, { month: 'long', year: 'numeric' });
+}
+
+function yearLabel(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return 'Unknown';
   return String(date.getFullYear());
 }
 

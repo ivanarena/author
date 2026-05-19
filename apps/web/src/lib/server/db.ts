@@ -78,10 +78,6 @@ const schemaSql = `
   CREATE INDEX IF NOT EXISTS users_updated_at_idx
     ON users(updated_at);
 
-  CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique_idx
-    ON users(email)
-    WHERE email IS NOT NULL;
-
   CREATE TABLE IF NOT EXISTS invitation_codes (
     code TEXT PRIMARY KEY,
     created_at TEXT NOT NULL,
@@ -122,12 +118,6 @@ const schemaSql = `
   CREATE INDEX IF NOT EXISTS entity_changes_entity_idx
     ON entity_changes(entity_type, entity_id, revision);
 
-  CREATE INDEX IF NOT EXISTS entity_changes_owner_revision_idx
-    ON entity_changes(owner_username, revision);
-
-  CREATE INDEX IF NOT EXISTS entity_changes_owner_entity_revision_idx
-    ON entity_changes(owner_username, entity_type, entity_id, revision);
-
   CREATE TABLE IF NOT EXISTS notebooks (
     id TEXT PRIMARY KEY,
     owner_username TEXT NOT NULL DEFAULT 'legacy-token',
@@ -143,9 +133,6 @@ const schemaSql = `
 
   CREATE INDEX IF NOT EXISTS notebooks_updated_at_idx
     ON notebooks(updated_at);
-
-  CREATE INDEX IF NOT EXISTS notebooks_active_name_idx
-    ON notebooks(owner_username, deleted_at, name);
 
   CREATE TABLE IF NOT EXISTS notes (
     id TEXT PRIMARY KEY,

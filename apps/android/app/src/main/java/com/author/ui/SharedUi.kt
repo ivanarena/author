@@ -356,8 +356,13 @@ internal fun appCheckboxColors() =
   )
 
 @Composable
-internal fun SmallTextButton(label: String, active: Boolean = false, onClick: () -> Unit) {
-  TextButton(onClick = onClick, modifier = Modifier.clip(RoundedCornerShape(8.dp))) {
+internal fun SmallTextButton(
+  label: String,
+  active: Boolean = false,
+  modifier: Modifier = Modifier,
+  onClick: () -> Unit,
+) {
+  TextButton(onClick = onClick, modifier = modifier.clip(RoundedCornerShape(8.dp))) {
     Text(
       label,
       color =

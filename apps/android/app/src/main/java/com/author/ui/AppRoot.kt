@@ -1,10 +1,10 @@
 package com.author.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.shape.CircleShape
@@ -30,15 +30,14 @@ private fun AuthorScaffold(
   onExport: () -> Unit,
   onImport: () -> Unit,
 ) {
+  BackHandler(enabled = controller.canHandleBack) { controller.handleBack() }
   Scaffold(
     modifier = Modifier.fillMaxSize(),
     containerColor = MaterialTheme.colorScheme.background,
     contentWindowInsets = WindowInsets.safeDrawing,
     floatingActionButton = { PageFloatingAction(controller) },
   ) { innerPadding ->
-    Box(Modifier.fillMaxSize().padding(innerPadding).imePadding()) {
-      AppPage(controller, onExport, onImport)
-    }
+    Box(Modifier.fillMaxSize().padding(innerPadding)) { AppPage(controller, onExport, onImport) }
   }
 }
 

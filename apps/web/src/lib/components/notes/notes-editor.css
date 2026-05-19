@@ -2,6 +2,7 @@
   display: grid;
   min-width: 0;
   min-height: 100vh;
+  min-height: 100dvh;
   background: var(--paper);
   transition: margin-left var(--motion-slow) var(--motion-ease);
 }
@@ -18,6 +19,7 @@
   width: min(940px, 100%);
   min-width: 0;
   min-height: 100vh;
+  min-height: 100dvh;
   justify-self: center;
   padding: clamp(54px, 7vw, 96px) clamp(48px, 8vw, 118px)
     clamp(48px, 8vw, 118px);

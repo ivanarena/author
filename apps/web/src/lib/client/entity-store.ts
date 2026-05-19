@@ -1,6 +1,7 @@
 import type { SyncConflict } from '@author/api-types';
 import type { Device, Note, Notebook } from '@author/schema';
 import {
+  clearLocalWorkspace,
   localDb,
   type LocalConflict,
   type LocalNote,
@@ -452,6 +453,19 @@ export async function localWorkspaceHasUserData(): Promise<boolean> {
   return notes + notebooks + conflicts > 0;
 }
 
+async function localWorkspaceHasUnsyncedUserData(): Promise<boolean> {
+  const [notes, notebooks, conflicts] = await Promise.all([
+    localDb.notes.toArray(),
+    localDb.notebooks.toArray(),
+    localDb.conflicts.toArray()
+  ]);
+  return (
+    notes.some((note) => note.syncStatus !== 'synced') ||
+    notebooks.some((notebook) => notebook.syncStatus !== 'synced') ||
+    conflicts.some((conflict) => conflict.status !== 'resolved')
+  );
+}
+
 export async function rememberLocalWorkspaceAccount(
   username: string
 ): Promise<void> {
@@ -495,10 +509,26 @@ export async function assertLocalWorkspaceCanUseAccount(
     fallbackOwnerUsername
   );
   if (!conflictingOwner) return;
+  if (!(await localWorkspaceHasUnsyncedUserData())) return;
 
   throw new Error(
-    `This browser has local notes for ${conflictingOwner}. Sign in as ${conflictingOwner} before switching accounts.`
+    `Local notes in this browser belong to ${conflictingOwner}. Sign in as ${conflictingOwner} to sync or export them before using another account here. If this is only test data, clear this site's local data first.`
   );
+}
+
+export async function prepareLocalWorkspaceForAccount(
+  username: string,
+  fallbackOwnerUsername?: string | null
+): Promise<{ cleared: boolean; previousOwner: string | null }> {
+  const conflictingOwner = await localWorkspaceOwnerConflict(
+    username,
+    fallbackOwnerUsername
+  );
+  if (!conflictingOwner) return { cleared: false, previousOwner: null };
+
+  await assertLocalWorkspaceCanUseAccount(username, fallbackOwnerUsername);
+  await clearLocalWorkspace();
+  return { cleared: true, previousOwner: conflictingOwner };
 }
 
 export async function adoptLocalWorkspaceForAccount({

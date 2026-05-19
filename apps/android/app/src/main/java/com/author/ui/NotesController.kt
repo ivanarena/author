@@ -32,11 +32,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class NotesController(private val repository: NotesRepository, private val scope: CoroutineScope) {
-  var notes by mutableStateOf<List<LocalNote>>(emptyList())
-  var notebooks by mutableStateOf<List<LocalNotebook>>(emptyList())
-  var trash by mutableStateOf<List<LocalNote>>(emptyList())
-  var devices by mutableStateOf<List<Device>>(emptyList())
-  var conflicts by mutableStateOf<List<LocalConflict>>(emptyList())
+  private val initialWorkspace = runCatching { repository.loadWorkspaceSnapshot() }.getOrNull()
+  private val initialSession = repository.getStoredSession()
+  private var pageBackStack by mutableStateOf<List<String>>(emptyList())
+
+  var notes by mutableStateOf<List<LocalNote>>(initialWorkspace?.notes ?: emptyList())
+  var notebooks by mutableStateOf<List<LocalNotebook>>(initialWorkspace?.notebooks ?: emptyList())
+  var trash by mutableStateOf<List<LocalNote>>(initialWorkspace?.trash ?: emptyList())
+  var devices by mutableStateOf<List<Device>>(initialWorkspace?.devices ?: emptyList())
+  var conflicts by mutableStateOf<List<LocalConflict>>(initialWorkspace?.conflicts ?: emptyList())
   var selectedNote by mutableStateOf<LocalNote?>(null)
   var noteSelectionMode by mutableStateOf(false)
   var selectedNoteIds by mutableStateOf<Set<String>>(emptySet())
@@ -45,6 +49,7 @@ class NotesController(private val repository: NotesRepository, private val scope
   var filterId by mutableStateOf("all")
   var searchValue by mutableStateOf("")
   var noteSort by mutableStateOf(repository.getSort())
+  var noteGroup by mutableStateOf(repository.getGroup())
   var compactView by mutableStateOf(repository.getCompactView())
   var editorZoom by mutableFloatStateOf(repository.getEditorZoom())
   var editorFont by mutableStateOf(repository.getEditorFont())
@@ -71,12 +76,11 @@ class NotesController(private val repository: NotesRepository, private val scope
   var signupEmailRequired by mutableStateOf(true)
   var loginError by mutableStateOf("")
   var isLoggingIn by mutableStateOf(false)
-  var hasToken by mutableStateOf(repository.getStoredSession() != null)
-  var accountUsername by mutableStateOf(repository.getStoredSession()?.user?.username ?: "")
-  var accountEmail by mutableStateOf(repository.getStoredSession()?.user?.email ?: "")
-  var accountDisplayName by mutableStateOf(repository.getStoredSession()?.user?.displayName ?: "")
-  var accountTwoFactorEnabled by
-    mutableStateOf(repository.getStoredSession()?.user?.twoFactorEnabled ?: false)
+  var hasToken by mutableStateOf(initialSession != null)
+  var accountUsername by mutableStateOf(initialSession?.user?.username ?: "")
+  var accountEmail by mutableStateOf(initialSession?.user?.email ?: "")
+  var accountDisplayName by mutableStateOf(initialSession?.user?.displayName ?: "")
+  var accountTwoFactorEnabled by mutableStateOf(initialSession?.user?.twoFactorEnabled ?: false)
   var accountTrustedDevices by mutableStateOf<List<TrustedAuthDevice>>(emptyList())
   var accountMessage by mutableStateOf("")
   var accountError by mutableStateOf("")
@@ -106,13 +110,40 @@ class NotesController(private val repository: NotesRepository, private val scope
   var syncActivityLabel by mutableStateOf("")
   var syncActivityDetail by mutableStateOf("")
   var isSyncing by mutableStateOf(false)
-  var isWorkspaceLoading by mutableStateOf(true)
-  var pendingSyncCount by mutableIntStateOf(0)
-  var lastSyncPassTitle by mutableStateOf("No completed pass yet")
-  var lastSyncPassDetail by mutableStateOf("Sync has not completed on this device.")
-  var syncDebugTitle by mutableStateOf("No sync errors recorded")
-  var syncDebugDetail by mutableStateOf("The last caught sync error will appear here.")
-  var syncDebugLog by mutableStateOf("No sync errors recorded on this device.")
+  var isWorkspaceLoading by mutableStateOf(initialWorkspace == null)
+  var pendingSyncCount by mutableIntStateOf(initialWorkspace?.pendingSyncCount ?: 0)
+  var lastSyncPassTitle by
+    mutableStateOf(
+      initialWorkspace?.lastSyncPass?.completedAt?.let { formatDateTime(it) }
+        ?: "No completed pass yet"
+    )
+  var lastSyncPassDetail by
+    mutableStateOf(
+      initialWorkspace?.lastSyncPass?.let {
+        if (it.completedAt == null) {
+          "Sync has not completed on this device."
+        } else {
+          "${it.pushed} pushed, ${it.pulled} pulled, ${it.conflicts} conflicts"
+        }
+      } ?: "Sync has not completed on this device."
+    )
+  var syncDebugTitle by
+    mutableStateOf(
+      initialWorkspace?.syncDebugInfo?.lastErrorAt?.let { formatDateTime(it) }
+        ?: "No sync errors recorded"
+    )
+  var syncDebugDetail by
+    mutableStateOf(
+      initialWorkspace?.syncDebugInfo?.lastErrorMessage?.ifBlank {
+        "The last caught sync error will appear here."
+      } ?: "The last caught sync error will appear here."
+    )
+  var syncDebugLog by
+    mutableStateOf(
+      initialWorkspace?.syncDebugInfo?.let {
+        formatSyncDebugLog(it.lastErrorAt, it.lastErrorMessage, it.lastErrorStack)
+      } ?: "No sync errors recorded on this device."
+    )
   var remoteSyncEnabled by mutableStateOf(false)
   var remoteSyncState by mutableStateOf("unknown")
   var remoteSyncError by mutableStateOf("")
@@ -182,9 +213,47 @@ class NotesController(private val repository: NotesRepository, private val scope
     scope.launch { refresh() }
   }
 
-  fun navigateTo(page: String) {
+  val canHandleBack: Boolean
+    get() =
+      loginOpen ||
+        noteSelectionMode ||
+        selectedNoteIds.isNotEmpty() ||
+        (currentPage == "settings" && settingsSection != "menu") ||
+        pageBackStack.isNotEmpty() ||
+        currentPage != "editor"
+
+  fun navigateTo(page: String, addToBackStack: Boolean = true) {
+    if (page == currentPage) return
+    if (addToBackStack) pageBackStack = (pageBackStack + currentPage).takeLast(24)
     currentPage = page
     if (page == "settings") settingsSection = "menu"
+  }
+
+  fun handleBack() {
+    if (loginOpen) {
+      if (!isLoggingIn) loginOpen = false
+      return
+    }
+    if (noteSelectionMode || selectedNoteIds.isNotEmpty()) {
+      clearSelection()
+      return
+    }
+    if (currentPage == "settings" && settingsSection != "menu") {
+      settingsSection = "menu"
+      return
+    }
+
+    val previous = pageBackStack.lastOrNull()
+    if (previous != null) {
+      pageBackStack = pageBackStack.dropLast(1)
+      currentPage = previous
+      if (previous == "settings") settingsSection = "menu"
+      return
+    }
+
+    if (currentPage != "editor") {
+      currentPage = "editor"
+    }
   }
 
   fun openLogin(mode: String = "signin") {
@@ -385,6 +454,11 @@ class NotesController(private val repository: NotesRepository, private val scope
     repository.setSort(sort)
   }
 
+  fun setGroup(group: String) {
+    noteGroup = group
+    repository.setGroup(group)
+  }
+
   fun toggleCompactView() {
     compactView = !compactView
     repository.setCompactView(compactView)
@@ -393,6 +467,15 @@ class NotesController(private val repository: NotesRepository, private val scope
   fun toggleTheme() {
     theme = if (theme.startsWith("dark")) "light" else "dark"
     repository.setTheme(theme)
+  }
+
+  fun checkForUpdates() {
+    repository.enqueueUpdateCheck()
+    notify(
+      "success",
+      "Checking for updates",
+      "Author will notify you if a newer Android release is available.",
+    )
   }
 
   fun setThemeChoice(value: String) {
@@ -635,16 +718,31 @@ class NotesController(private val repository: NotesRepository, private val scope
           } else {
             repository.login(username, password, loginTotpCodeValue.trim().ifBlank { null })
           }
+        val workspaceCleared =
+          try {
+            repository.prepareLocalWorkspaceForAccount(response.user.username, previousUsername)
+          } catch (error: Throwable) {
+            runCatching { repository.logout(response.token) }
+            throw error
+          }
+        val adoptionPreviousUsername = if (workspaceCleared) null else previousUsername
         try {
-          repository.assertLocalWorkspaceCanUseAccount(response.user.username, previousUsername)
+          repository.assertLocalWorkspaceCanUseAccount(
+            response.user.username,
+            adoptionPreviousUsername,
+          )
         } catch (error: Throwable) {
           runCatching { repository.logout(response.token) }
           throw error
         }
         if (hasPassword) {
-          repository.rememberPasswordAndAdopt(response.user.username, password, previousUsername)
+          repository.rememberPasswordAndAdopt(
+            response.user.username,
+            password,
+            adoptionPreviousUsername,
+          )
         } else {
-          repository.adoptWithStoredKey(response.user.username, previousUsername)
+          repository.adoptWithStoredKey(response.user.username, adoptionPreviousUsername)
         }
         repository.setStoredSession(
           StoredSession(response.token, response.user, response.expiresAt)

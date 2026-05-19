@@ -6,6 +6,7 @@ import {
   dateRangeLabel,
   filterNotesBySearch,
   filterNotesForView,
+  groupNotes,
   groupNotesByDateRange,
   relativeAge,
   sortNotes,
@@ -90,6 +91,39 @@ describe('client note view model', () => {
       'Previous 30 days'
     );
     expect(relativeAge('2026-03-30T08:00:00.000Z', now)).toBe('1mo ago');
+  });
+
+  it('groups notes by explicit month, year, or no heading', () => {
+    const now = new Date('2026-04-30T12:00:00.000Z');
+    const notes = [
+      note({ id: 'april-new', updatedAt: '2026-04-30T08:00:00.000Z' }),
+      note({ id: 'april-old', updatedAt: '2026-04-02T08:00:00.000Z' }),
+      note({ id: 'march', updatedAt: '2026-03-29T08:00:00.000Z' })
+    ];
+    const aprilLabel = new Date('2026-04-30T08:00:00.000Z').toLocaleString(
+      undefined,
+      { month: 'long', year: 'numeric' }
+    );
+    const marchLabel = new Date('2026-03-29T08:00:00.000Z').toLocaleString(
+      undefined,
+      { month: 'long', year: 'numeric' }
+    );
+
+    expect(
+      groupNotes(notes, 'date-desc', 'month', now).map((group) => [
+        group.label,
+        group.notes.map((item) => item.id)
+      ])
+    ).toEqual([
+      [aprilLabel, ['april-new', 'april-old']],
+      [marchLabel, ['march']]
+    ]);
+    expect(
+      groupNotes(notes, 'date-desc', 'year', now).map((group) => group.label)
+    ).toEqual(['2026']);
+    expect(groupNotes(notes, 'az', 'none', now)).toEqual([
+      { label: '', notes }
+    ]);
   });
 
   it('normalizes notebook ids and counts multi-notebook notes once per notebook', () => {

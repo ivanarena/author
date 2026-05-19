@@ -5,7 +5,7 @@ import com.author.core.countNotesByNotebook
 import com.author.core.countWords
 import com.author.core.filterNotesBySearch
 import com.author.core.filterNotesForView
-import com.author.core.groupNotesByDateRange
+import com.author.core.groupNotes
 import com.author.core.sortNotes
 
 val NotesController.notebookCounts: Map<String, Int>
@@ -22,7 +22,7 @@ val NotesController.visibleNotes: List<LocalNote>
     )
 
 val NotesController.visibleGroups: List<Pair<String, List<LocalNote>>>
-  get() = groupNotesByDateRange(visibleNotes, noteSort)
+  get() = groupNotes(visibleNotes, noteSort, noteGroup)
 
 val NotesController.selectedNotes: List<LocalNote>
   get() = (notes + trash).filter { selectedNoteIds.contains(it.id) }

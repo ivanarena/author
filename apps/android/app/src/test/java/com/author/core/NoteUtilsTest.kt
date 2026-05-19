@@ -1,6 +1,9 @@
 package com.author.core
 
 import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -71,6 +74,38 @@ class NoteUtilsTest {
   }
 
   @Test
+  fun groupNotesSupportsMonthYearAndNoHeadingModes() {
+    val now = Instant.parse("2026-05-07T12:00:00Z")
+    val notes =
+      listOf(
+        note("may-new", title = "May new", updatedAt = "2026-05-07T10:00:00Z"),
+        note("may-old", title = "May old", updatedAt = "2026-05-01T10:00:00Z"),
+        note("april", title = "April", updatedAt = "2026-04-30T10:00:00Z"),
+      )
+    val monthFormatter =
+      DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault()).withZone(ZoneId.systemDefault())
+    val mayLabel = monthFormatter.format(Instant.parse("2026-05-07T10:00:00Z"))
+    val aprilLabel = monthFormatter.format(Instant.parse("2026-04-30T10:00:00Z"))
+
+    assertEquals(
+      listOf(mayLabel to listOf("may-new", "may-old"), aprilLabel to listOf("april")),
+      groupNotes(notes, "date-desc", "month", now).map { (label, group) ->
+        label to group.map { it.id }
+      },
+    )
+    assertEquals(
+      listOf("2026" to listOf("may-new", "may-old", "april")),
+      groupNotes(notes, "date-desc", "year", now).map { (label, group) ->
+        label to group.map { it.id }
+      },
+    )
+    assertEquals(
+      listOf("" to listOf("may-new", "may-old", "april")),
+      groupNotes(notes, "az", "none", now).map { (label, group) -> label to group.map { it.id } },
+    )
+  }
+
+  @Test
   fun recordsDifferUsesHashesAndNotebookMembershipForSyncConflicts() {
     val local =
       note(
@@ -98,6 +133,53 @@ class NoteUtilsTest {
       listOf("remote", "other"),
       remapNotebookIds(listOf("local", "other", "local"), "local", "remote"),
     )
+  }
+
+  @Test
+  fun preparePendingNoteForPushUsesCurrentDeviceAndValidBaseVersion() {
+    val prepared =
+      preparePendingNoteForPush(
+        note(
+            "pulled",
+            title = "Pulled",
+            notebookIds = listOf(" work ", "", "work", "home"),
+            notebookId = "legacy",
+          )
+          .copy(
+            deviceId = "remote-device",
+            version = 1,
+            syncStatus = "pending",
+            lastSyncedVersion = 1,
+          ),
+        Device("android-device", "Android"),
+      )
+
+    assertEquals("android-device", prepared.deviceId)
+    assertEquals(2, prepared.version)
+    assertEquals("pending", prepared.syncStatus)
+    assertEquals(1, prepared.lastSyncedVersion)
+    assertEquals(listOf("work", "home"), prepared.notebookIds)
+    assertEquals("work", prepared.notebookId)
+  }
+
+  @Test
+  fun preparePendingNotebookForPushClampsInvalidBaseVersion() {
+    val prepared =
+      preparePendingNotebookForPush(
+        notebook("book", "Work")
+          .copy(
+            deviceId = "remote-device",
+            version = 0,
+            syncStatus = "pending",
+            lastSyncedVersion = -1,
+          ),
+        Device("android-device", "Android"),
+      )
+
+    assertEquals("android-device", prepared.deviceId)
+    assertEquals(1, prepared.version)
+    assertEquals("pending", prepared.syncStatus)
+    assertEquals(0, prepared.lastSyncedVersion)
   }
 
   @Test

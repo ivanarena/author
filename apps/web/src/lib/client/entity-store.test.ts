@@ -4,9 +4,10 @@ import {
   adoptLocalWorkspaceForAccount,
   assertLocalWorkspaceCanUseAccount,
   ensureLocalNotesEncrypted,
+  prepareLocalWorkspaceForAccount,
   reencryptLocalNotes
 } from './entity-store';
-import { localDb } from './db';
+import { clearLocalWorkspace, localDb } from './db';
 import {
   encryptNoteFields,
   isEncryptedText,
@@ -15,6 +16,7 @@ import {
 import { getOrCreateDevice } from './local-state';
 
 vi.mock('./db', () => ({
+  clearLocalWorkspace: vi.fn(),
   localDb: {
     notes: {
       count: vi.fn(),
@@ -102,6 +104,7 @@ beforeEach(() => {
   vi.mocked(localDb.notes.bulkPut).mockResolvedValue('note-1');
   vi.mocked(localDb.syncMeta.get).mockResolvedValue(undefined);
   vi.mocked(localDb.syncMeta.put).mockResolvedValue('localWorkspaceOwner');
+  vi.mocked(clearLocalWorkspace).mockResolvedValue(undefined);
 });
 
 describe('local workspace account adoption', () => {
@@ -133,9 +136,28 @@ describe('local workspace account adoption', () => {
     });
 
     await expect(assertLocalWorkspaceCanUseAccount('bob')).rejects.toThrow(
-      'This browser has local notes for alice'
+      'Local notes in this browser belong to alice'
     );
     expect(localDb.notes.bulkPut).not.toHaveBeenCalled();
+  });
+
+  it('clears synced local data when switching accounts', async () => {
+    vi.mocked(localDb.syncMeta.get).mockResolvedValue({
+      key: 'localWorkspaceOwner',
+      value: 'alice'
+    });
+    vi.mocked(localDb.notes.toArray).mockResolvedValue([
+      { ...note, syncStatus: 'synced', lastSyncedVersion: 1 }
+    ]);
+
+    await expect(prepareLocalWorkspaceForAccount('bob')).resolves.toMatchObject(
+      {
+        cleared: true,
+        previousOwner: 'alice'
+      }
+    );
+
+    expect(clearLocalWorkspace).toHaveBeenCalledTimes(1);
   });
 });
 

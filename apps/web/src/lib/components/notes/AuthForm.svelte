@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Check, Eye, EyeOff, LogIn, X } from 'lucide-svelte';
+  import { Check, Eye, EyeOff, LoaderCircle, LogIn, X } from 'lucide-svelte';
   import type { SettingsModalModel } from './notes-page-controller.svelte.js';
 
   let {
@@ -8,6 +8,16 @@
   }: { model: SettingsModalModel; showCancel?: boolean } = $props();
   let passwordVisible = $state(false);
   let confirmPasswordVisible = $state(false);
+
+  function submitLabel(): string {
+    if (model.isLoggingIn) {
+      return model.authMode === 'signup'
+        ? 'Creating sync account...'
+        : 'Signing in to sync...';
+    }
+
+    return model.authMode === 'signup' ? 'Create account' : 'Sign in to sync';
+  }
 </script>
 
 <form
@@ -79,6 +89,23 @@
         oninput={() => (model.loginError = '')}
       />
     </div>
+
+    {#if model.authMode === 'signup'}
+      <div class="field-row">
+        <label for="signup-email">Email</label>
+        <input
+          id="signup-email"
+          type="email"
+          bind:value={model.signupEmailValue}
+          autocomplete="email"
+          placeholder="you@example.com"
+          required={model.signupEmailRequired}
+          disabled={model.isLoggingIn}
+          oninput={() => (model.loginError = '')}
+        />
+      </div>
+    {/if}
+
     <div class="field-row">
       <label for="sync-password">Password</label>
       <div class="password-field">
@@ -113,23 +140,8 @@
         </button>
       </div>
     </div>
-  </div>
 
-  {#if model.authMode === 'signup'}
-    <div class="field-grid auth-field-grid">
-      <div class="field-row">
-        <label for="signup-email">Email</label>
-        <input
-          id="signup-email"
-          type="email"
-          bind:value={model.signupEmailValue}
-          autocomplete="email"
-          placeholder="you@example.com"
-          required={model.signupEmailRequired}
-          disabled={model.isLoggingIn}
-          oninput={() => (model.loginError = '')}
-        />
-      </div>
+    {#if model.authMode === 'signup'}
       <div class="field-row">
         <label for="signup-confirm-password">Confirm password</label>
         <div class="password-field">
@@ -162,9 +174,7 @@
           </button>
         </div>
       </div>
-    </div>
-  {:else}
-    <div class="field-grid auth-field-grid">
+    {:else}
       <div class="field-row">
         <label for="sync-totp-code">Authenticator code</label>
         <input
@@ -180,8 +190,8 @@
           oninput={() => (model.loginError = '')}
         />
       </div>
-    </div>
-  {/if}
+    {/if}
+  </div>
 
   {#if model.loginError}
     <p class="form-error" role="alert">{model.loginError}</p>
@@ -190,19 +200,21 @@
   <div class="login-actions">
     <button
       class="settings-action login-submit"
+      class:loading={model.isLoggingIn}
       type="submit"
       disabled={model.isLoggingIn || model.isArchiveBusy}
     >
-      <Check size={15} strokeWidth={1.9} />
-      <span>
-        {model.isLoggingIn
-          ? model.authMode === 'signup'
-            ? 'Creating account'
-            : 'Signing in'
-          : model.authMode === 'signup'
-            ? 'Create account'
-            : 'Sign in'}
-      </span>
+      {#if model.isLoggingIn}
+        <LoaderCircle
+          class="loading-icon"
+          size={15}
+          strokeWidth={1.9}
+          aria-hidden="true"
+        />
+      {:else}
+        <Check size={15} strokeWidth={1.9} />
+      {/if}
+      <span>{submitLabel()}</span>
     </button>
     {#if showCancel}
       <button

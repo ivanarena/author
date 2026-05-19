@@ -1,25 +1,38 @@
 package com.author.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
@@ -32,17 +45,8 @@ internal fun LoginDialog(controller: NotesController) {
     containerColor = MaterialTheme.colorScheme.background,
     title = { Text(if (controller.authMode == "signup") "Create account" else "Sign in") },
     text = {
-      Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-          SmallTextButton("Sign in", active = controller.authMode == "signin") {
-            controller.chooseAuthMode("signin")
-          }
-          if (controller.signupEnabled) {
-            SmallTextButton("Sign up", active = controller.authMode == "signup") {
-              controller.chooseAuthMode("signup")
-            }
-          }
-        }
+      Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        AuthModeTabs(controller)
         MiniField(
           controller.loginUsernameValue,
           if (controller.authMode == "signup") "Username" else "Username or email",
@@ -50,6 +54,12 @@ internal fun LoginDialog(controller: NotesController) {
         ) {
           controller.loginUsernameValue = it
           controller.loginError = ""
+        }
+        if (controller.authMode == "signup") {
+          MiniField(controller.signupEmailValue, "Email", Modifier.fillMaxWidth()) {
+            controller.signupEmailValue = it
+            controller.loginError = ""
+          }
         }
         PasswordField(
           controller.loginPasswordValue,
@@ -60,10 +70,6 @@ internal fun LoginDialog(controller: NotesController) {
           controller.loginError = ""
         }
         if (controller.authMode == "signup") {
-          MiniField(controller.signupEmailValue, "Email", Modifier.fillMaxWidth()) {
-            controller.signupEmailValue = it
-            controller.loginError = ""
-          }
           PasswordField(controller.signupConfirmPasswordValue, "Confirm password") {
             controller.signupConfirmPasswordValue = it
             controller.loginError = ""
@@ -74,27 +80,171 @@ internal fun LoginDialog(controller: NotesController) {
             controller.loginError = ""
           }
         }
+        if (controller.loginError.isNotBlank()) {
+          Text(
+            controller.loginError,
+            color = MaterialTheme.colorScheme.error,
+            fontSize = AppTextSize.Label,
+            fontWeight = FontWeight.SemiBold,
+          )
+        }
+        LoginDialogActions(controller)
       }
     },
-    confirmButton = {
-      TextButton(
-        onClick = { controller.submitLogin() },
-        enabled = !controller.isLoggingIn && !controller.isArchiveBusy,
-      ) {
-        Text(
-          if (controller.isLoggingIn) {
-            "Working"
-          } else if (controller.authMode == "signup") {
-            "Create account"
-          } else {
-            "Sign in"
-          }
-        )
-      }
-    },
-    dismissButton = { TextButton(onClick = { controller.loginOpen = false }) { Text("Cancel") } },
+    confirmButton = {},
+    dismissButton = {},
   )
 }
+
+@Composable
+private fun AuthModeTabs(controller: NotesController) {
+  Surface(
+    modifier = Modifier.fillMaxWidth(),
+    shape = RoundedCornerShape(12.dp),
+    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f),
+  ) {
+    Row(Modifier.fillMaxWidth().padding(3.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+      AuthModeTab(
+        label = "Sign in",
+        active = controller.authMode == "signin",
+        enabled = !controller.isLoggingIn,
+        modifier = Modifier.weight(1f),
+      ) {
+        controller.chooseAuthMode("signin")
+      }
+      if (controller.signupEnabled) {
+        AuthModeTab(
+          label = "Sign up",
+          active = controller.authMode == "signup",
+          enabled = !controller.isLoggingIn,
+          modifier = Modifier.weight(1f),
+        ) {
+          controller.chooseAuthMode("signup")
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun AuthModeTab(
+  label: String,
+  active: Boolean,
+  enabled: Boolean,
+  modifier: Modifier = Modifier,
+  onClick: () -> Unit,
+) {
+  val contentColor =
+    if (active) MaterialTheme.colorScheme.onSurface
+    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f)
+  Surface(
+    modifier =
+      modifier
+        .heightIn(min = 38.dp)
+        .clip(RoundedCornerShape(10.dp))
+        .clickable(enabled = enabled, onClick = onClick),
+    shape = RoundedCornerShape(10.dp),
+    color = if (active) MaterialTheme.colorScheme.background else Color.Transparent,
+    tonalElevation = 0.dp,
+    shadowElevation = 0.dp,
+  ) {
+    Box(
+      Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 9.dp),
+      contentAlignment = Alignment.Center,
+    ) {
+      Text(
+        label,
+        color = contentColor,
+        fontSize = AppTextSize.Body,
+        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+      )
+    }
+  }
+}
+
+@Composable
+private fun LoginDialogActions(controller: NotesController) {
+  Row(
+    Modifier.fillMaxWidth().padding(top = 4.dp),
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
+  ) {
+    DialogActionButton(
+      label = "Cancel",
+      enabled = !controller.isLoggingIn,
+      modifier = Modifier.weight(1f),
+    ) {
+      controller.loginOpen = false
+    }
+    DialogActionButton(
+      label = authSubmitLabel(controller),
+      primary = true,
+      loading = controller.isLoggingIn,
+      enabled = !controller.isLoggingIn && !controller.isArchiveBusy,
+      modifier = Modifier.weight(1f),
+    ) {
+      controller.submitLogin()
+    }
+  }
+}
+
+@Composable
+private fun DialogActionButton(
+  label: String,
+  modifier: Modifier = Modifier,
+  primary: Boolean = false,
+  loading: Boolean = false,
+  enabled: Boolean = true,
+  onClick: () -> Unit,
+) {
+  val background =
+    if (primary) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.09f) else Color.Transparent
+  val contentColor =
+    MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled || loading) 0.88f else 0.36f)
+  Surface(
+    modifier =
+      modifier
+        .heightIn(min = 44.dp)
+        .clip(RoundedCornerShape(10.dp))
+        .clickable(enabled = enabled, onClick = onClick),
+    shape = RoundedCornerShape(10.dp),
+    color = background,
+    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.24f)),
+  ) {
+    Row(
+      Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 11.dp),
+      horizontalArrangement = Arrangement.Center,
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      if (loading) {
+        CircularProgressIndicator(
+          modifier = Modifier.size(14.dp),
+          strokeWidth = 2.dp,
+          color = contentColor,
+        )
+        Spacer(Modifier.width(8.dp))
+      }
+      Text(
+        label,
+        color = contentColor,
+        fontSize = AppTextSize.Body,
+        fontWeight = if (primary) FontWeight.SemiBold else FontWeight.Medium,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+      )
+    }
+  }
+}
+
+private fun authSubmitLabel(controller: NotesController): String =
+  if (controller.isLoggingIn) {
+    if (controller.authMode == "signup") "Creating sync account..." else "Signing in to sync..."
+  } else if (controller.authMode == "signup") {
+    "Create account"
+  } else {
+    "Sign in to sync"
+  }
 
 @Composable
 internal fun ConflictDialog(controller: NotesController, conflict: LocalConflict) {
@@ -158,28 +308,53 @@ internal fun NotificationStack(controller: NotesController) {
       verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
       controller.notifications.forEach { notification ->
-        NotificationSurface(notification.kind, Modifier.fillMaxWidth().widthIn(max = 360.dp)) {
-          Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-              notification.title,
-              fontWeight = FontWeight.Bold,
-              fontSize = AppTextSize.Body,
-              modifier = Modifier.weight(1f),
-            )
-            GlassIcon(Icons.Outlined.Close, "Dismiss") {
-              controller.dismissNotification(notification.id)
-            }
-          }
-          if (notification.message.isNotBlank()) {
-            Text(
-              notification.message,
-              color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-              fontSize = AppTextSize.Label,
-              modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp),
-            )
-          }
+        NotificationSurface(notification.kind, Modifier.fillMaxWidth().widthIn(max = 420.dp)) {
+          NotificationContent(notification, controller)
         }
       }
+    }
+  }
+}
+
+@Composable
+private fun NotificationContent(notification: AppNotification, controller: NotesController) {
+  val colors = notificationColors(notification.kind)
+  Row(
+    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 11.dp),
+    verticalAlignment = Alignment.Top,
+    horizontalArrangement = Arrangement.spacedBy(10.dp),
+  ) {
+    Box(Modifier.padding(top = 4.dp).size(9.dp).clip(CircleShape).background(colors.accent))
+    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+      Text(
+        notification.title,
+        color = colors.content,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = AppTextSize.Body,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+      )
+      if (notification.message.isNotBlank()) {
+        Text(
+          notification.message,
+          color = colors.content.copy(alpha = 0.72f),
+          fontSize = AppTextSize.Label,
+          lineHeight = AppTextSize.Body,
+          maxLines = 3,
+          overflow = TextOverflow.Ellipsis,
+        )
+      }
+    }
+    IconButton(
+      onClick = { controller.dismissNotification(notification.id) },
+      modifier = Modifier.size(32.dp),
+    ) {
+      Icon(
+        Icons.Outlined.Close,
+        "Dismiss",
+        modifier = Modifier.size(17.dp),
+        tint = colors.content.copy(alpha = 0.68f),
+      )
     }
   }
 }
@@ -190,29 +365,41 @@ private fun NotificationSurface(
   modifier: Modifier = Modifier,
   content: @Composable () -> Unit,
 ) {
+  val colors = notificationColors(kind)
   Surface(
-    modifier = modifier.padding(horizontal = 20.dp),
-    shape = RoundedCornerShape(12.dp),
-    color = notificationBackground(kind),
-    border = BorderStroke(1.dp, notificationBorder(kind)),
+    modifier = modifier.padding(horizontal = 12.dp),
+    shape = RoundedCornerShape(8.dp),
+    color = colors.background,
+    border = BorderStroke(1.dp, colors.border),
     tonalElevation = 0.dp,
-    shadowElevation = 10.dp,
+    shadowElevation = 14.dp,
+    contentColor = colors.content,
     content = content,
   )
 }
 
 @Composable
-private fun notificationBackground(kind: String): Color =
-  when (kind) {
-    "error" -> MaterialTheme.colorScheme.errorContainer
-    "success" -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.82f)
-    else -> MaterialTheme.colorScheme.surfaceVariant
-  }
+private fun notificationColors(kind: String): NotificationColors {
+  val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+  val surface = if (dark) Color(0xFF202020) else Color(0xFFFFFFFF)
+  val content = if (dark) Color(0xFFF4F4F2) else Color(0xFF202020)
+  val accent =
+    when (kind) {
+      "error" -> if (dark) Color(0xFFFFB4AB) else Color(0xFFBA1A1A)
+      "success" -> if (dark) Color(0xFF9AD7AA) else Color(0xFF2F7D52)
+      else -> MaterialTheme.colorScheme.primary
+    }
+  return NotificationColors(
+    background = surface,
+    content = content,
+    accent = accent,
+    border = accent.copy(alpha = if (kind == "error") 0.5f else 0.34f),
+  )
+}
 
-@Composable
-private fun notificationBorder(kind: String): Color =
-  when (kind) {
-    "error" -> MaterialTheme.colorScheme.error.copy(alpha = 0.34f)
-    "success" -> MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
-    else -> MaterialTheme.colorScheme.outlineVariant
-  }
+private data class NotificationColors(
+  val background: Color,
+  val content: Color,
+  val accent: Color,
+  val border: Color,
+)

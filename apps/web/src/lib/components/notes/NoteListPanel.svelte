@@ -10,17 +10,16 @@
     ChevronDown,
     ArrowDownAZ,
     ArrowDownZA,
+    CalendarDays,
+    CalendarRange,
     Clock3,
+    List,
     Trash2,
     X
   } from 'lucide-svelte';
   import { noteDisplayTitle } from '$lib/client/note-utils';
-  import {
-    formatListDate,
-    notePreview,
-    relativeAge
-  } from '$lib/client/view-model';
-  import type { NoteSort } from '$lib/client/view-model';
+  import { formatListDate, notePreview } from '$lib/client/view-model';
+  import type { NoteGroupBy, NoteSort } from '$lib/client/view-model';
   import NotebookLinkMenu from './NotebookLinkMenu.svelte';
   import type { NoteListPanelModel } from './notes-page-controller.svelte.js';
 
@@ -42,10 +41,30 @@
     { value: 'az', label: 'A-Z', shortLabel: 'A-Z', icon: ArrowDownAZ },
     { value: 'za', label: 'Z-A', shortLabel: 'Z-A', icon: ArrowDownZA }
   ];
+  const groupOptions: Array<{
+    value: NoteGroupBy;
+    label: string;
+    shortLabel: string;
+    icon: typeof Clock3;
+  }> = [
+    {
+      value: 'smart',
+      label: 'Recent ranges',
+      shortLabel: 'Recent',
+      icon: Clock3
+    },
+    { value: 'month', label: 'Month', shortLabel: 'Month', icon: CalendarDays },
+    { value: 'year', label: 'Year', shortLabel: 'Year', icon: CalendarRange },
+    { value: 'none', label: 'None', shortLabel: 'None', icon: List }
+  ];
 
   const activeSort = $derived(
     sortOptions.find((option) => option.value === model.noteSort) ??
       sortOptions[0]
+  );
+  const activeGroup = $derived(
+    groupOptions.find((option) => option.value === model.noteGroup) ??
+      groupOptions[0]
   );
 
   function indeterminate(node: HTMLInputElement, value: boolean) {
@@ -73,9 +92,99 @@
     model.setNoteSort(sort);
     sortMenuOpen = false;
   }
+
+  function pickGroup(group: NoteGroupBy) {
+    model.setNoteGroup(group);
+    sortMenuOpen = false;
+  }
 </script>
 
 <aside class="notes" aria-label="Notes">
+  <div class="notes-toolbar">
+    <div class="search-row">
+      <label class="sr-only" for="note-search">Search notes</label>
+      <Search size={14} strokeWidth={1.8} />
+      <input
+        id="note-search"
+        type="search"
+        bind:value={model.searchValue}
+        autocomplete="off"
+        placeholder="Search notes"
+      />
+      {#if model.searchValue}
+        <button
+          class="icon-button mini"
+          title="Clear search"
+          aria-label="Clear search"
+          type="button"
+          onclick={() => (model.searchValue = '')}
+        >
+          <X size={13} strokeWidth={1.8} />
+        </button>
+      {/if}
+    </div>
+
+    <div
+      class="sort-menu"
+      role="group"
+      aria-label="Sort and group notes"
+      onfocusout={closeSortMenuOnBlur}
+    >
+      <button
+        class="sort-trigger"
+        type="button"
+        aria-label={`Sort and group notes: ${activeSort.label}, grouped by ${activeGroup.label}`}
+        aria-haspopup="menu"
+        aria-expanded={sortMenuOpen}
+        onclick={() => (sortMenuOpen = !sortMenuOpen)}
+      >
+        <activeSort.icon size={14} strokeWidth={1.8} />
+        <span>{activeSort.shortLabel} · {activeGroup.shortLabel}</span>
+        <ChevronDown size={13} strokeWidth={1.8} />
+      </button>
+      {#if sortMenuOpen}
+        <div class="sort-popover" role="menu" aria-label="Sort and group notes">
+          <div class="sort-popover-section">Sort notes</div>
+          {#each sortOptions as option}
+            <button
+              type="button"
+              role="menuitemradio"
+              aria-checked={model.noteSort === option.value}
+              class:active={model.noteSort === option.value}
+              onclick={() => pickSort(option.value)}
+            >
+              <option.icon size={14} strokeWidth={1.8} />
+              <span>{option.label}</span>
+              <Check
+                size={13}
+                strokeWidth={1.8}
+                opacity={model.noteSort === option.value ? 1 : 0}
+              />
+            </button>
+          {/each}
+          <div class="sort-popover-section">Group notes</div>
+          {#each groupOptions as option}
+            <button
+              type="button"
+              role="menuitemradio"
+              aria-checked={model.noteGroup === option.value}
+              class:active={model.noteGroup === option.value}
+              onclick={() => pickGroup(option.value)}
+            >
+              <option.icon size={14} strokeWidth={1.8} />
+              <span>{option.label}</span>
+              <Check
+                size={13}
+                strokeWidth={1.8}
+                opacity={model.noteGroup === option.value ? 1 : 0}
+              />
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
+  </div>
+
   <div class="icon-row">
     <button
       class="icon-button"
@@ -175,75 +284,14 @@
         <span class="sync-detail">{model.syncIndicator.detail}</span>
       {/if}
     </p>
-    <div
-      class="sort-menu"
-      role="group"
-      aria-label="Sort notes"
-      onfocusout={closeSortMenuOnBlur}
-    >
-      <button
-        class="sort-trigger"
-        type="button"
-        aria-label={`Sort notes: ${activeSort.label}`}
-        aria-haspopup="menu"
-        aria-expanded={sortMenuOpen}
-        onclick={() => (sortMenuOpen = !sortMenuOpen)}
-      >
-        <activeSort.icon size={14} strokeWidth={1.8} />
-        <span>{activeSort.shortLabel}</span>
-        <ChevronDown size={13} strokeWidth={1.8} />
-      </button>
-      {#if sortMenuOpen}
-        <div class="sort-popover" role="menu" aria-label="Sort notes">
-          {#each sortOptions as option}
-            <button
-              type="button"
-              role="menuitemradio"
-              aria-checked={model.noteSort === option.value}
-              class:active={model.noteSort === option.value}
-              onclick={() => pickSort(option.value)}
-            >
-              <option.icon size={14} strokeWidth={1.8} />
-              <span>{option.label}</span>
-              <Check
-                size={13}
-                strokeWidth={1.8}
-                opacity={model.noteSort === option.value ? 1 : 0}
-              />
-            </button>
-          {/each}
-        </div>
-      {/if}
-    </div>
-  </div>
-
-  <div class="search-row">
-    <label class="sr-only" for="note-search">Search notes</label>
-    <Search size={14} strokeWidth={1.8} />
-    <input
-      id="note-search"
-      type="search"
-      bind:value={model.searchValue}
-      autocomplete="off"
-      placeholder="Search notes"
-    />
-    {#if model.searchValue}
-      <button
-        class="icon-button mini"
-        title="Clear search"
-        aria-label="Clear search"
-        type="button"
-        onclick={() => (model.searchValue = '')}
-      >
-        <X size={13} strokeWidth={1.8} />
-      </button>
-    {/if}
   </div>
 
   <div class="note-list" class:compact={model.compactView}>
     {#each model.visibleNoteGroups as group}
       {#if group.notes.length}
-        <div class="date-range">{group.label}</div>
+        {#if group.label}
+          <div class="date-range">{group.label}</div>
+        {/if}
         {#each group.notes as note}
           {@const noteNotebookNames = model.notebookNamesForNote(note)}
           <div
@@ -276,7 +324,7 @@
                 <span class="note-title">{noteDisplayTitle(note)}</span>
                 {#if model.compactView}
                   <time class="note-age" datetime={note.updatedAt}
-                    >{relativeAge(note.updatedAt, model.currentTime)}</time
+                    >{formatListDate(note.updatedAt)}</time
                   >
                 {/if}
               </span>

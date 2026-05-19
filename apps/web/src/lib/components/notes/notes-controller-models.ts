@@ -3,6 +3,7 @@ import type { LocalConflict, LocalNote, LocalNotebook } from '$lib/client/db';
 import type { StoredTheme } from '$lib/client/local-state';
 import type {
   NoteGroup,
+  NoteGroupBy,
   NoteSort,
   SyncIndicator
 } from '$lib/client/view-model';
@@ -96,12 +97,14 @@ export interface NoteListPanelModel {
   linkingNoteId: string | null;
   selectedNotebookMenuOpen: boolean;
   noteSort: NoteSort;
+  noteGroup: NoteGroupBy;
   searchValue: string;
   currentTime: Date;
   syncIndicator: SyncIndicator;
   newNote: () => void | Promise<void>;
   changeSort: (event: Event) => void;
   setNoteSort: (sort: NoteSort) => void;
+  setNoteGroup: (group: NoteGroupBy) => void;
   selectNote: NoteCallback;
   toggleNoteSelection: (note: LocalNote, selected: boolean) => void;
   toggleAllVisibleNotes: (selected: boolean) => void;

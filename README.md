@@ -51,6 +51,12 @@ aube -F @author/web run build  # Production web build
 aube run emulator:window       # Start the Android emulator with a visible window and no boot animation
 ```
 
+Before the first local Playwright run, install the browser once:
+
+```sh
+aube -F @author/web exec -- playwright install chromium
+```
+
 ## Production Readiness
 
 Use `docs/production-readiness.md` as the release checklist for web, API,

@@ -27,6 +27,50 @@ fun noteNotebookIds(note: LocalNote): List<String> {
 
 fun primaryNotebookId(ids: List<String>): String? = ids.firstOrNull()
 
+fun nextVersionAfter(remoteVersion: Int): Int = remoteVersion + 1
+
+fun safeBaseVersion(lastSyncedVersion: Int): Int =
+  if (lastSyncedVersion >= 0) lastSyncedVersion else 0
+
+fun safePendingVersion(version: Int, lastSyncedVersion: Int): Int {
+  val baseVersion = safeBaseVersion(lastSyncedVersion)
+  return if (version > baseVersion && version > 0) version else nextVersionAfter(baseVersion)
+}
+
+fun safePendingVersion(record: LocalNote): Int =
+  safePendingVersion(record.version, record.lastSyncedVersion)
+
+fun safePendingVersion(record: LocalNotebook): Int =
+  safePendingVersion(record.version, record.lastSyncedVersion)
+
+fun preparePendingNoteForPush(record: LocalNote, device: Device): LocalNote {
+  val notebookIds = noteNotebookIds(record)
+  val baseVersion = safeBaseVersion(record.lastSyncedVersion)
+  return record.copy(
+    notebookIds = notebookIds,
+    notebookId = primaryNotebookId(notebookIds),
+    deletedAt = record.deletedAt,
+    trashedAt = record.trashedAt,
+    deviceId = device.id,
+    version = safePendingVersion(record.version, baseVersion),
+    syncStatus = "pending",
+    lastSyncedVersion = baseVersion,
+    lastSyncedAt = record.lastSyncedAt,
+  )
+}
+
+fun preparePendingNotebookForPush(record: LocalNotebook, device: Device): LocalNotebook {
+  val baseVersion = safeBaseVersion(record.lastSyncedVersion)
+  return record.copy(
+    deletedAt = record.deletedAt,
+    deviceId = device.id,
+    version = safePendingVersion(record.version, baseVersion),
+    syncStatus = "pending",
+    lastSyncedVersion = baseVersion,
+    lastSyncedAt = record.lastSyncedAt,
+  )
+}
+
 fun remapNotebookIds(
   ids: List<String>,
   fromNotebookId: String,
@@ -127,8 +171,31 @@ fun groupNotesByDateRange(
   sort: String,
   now: Instant = Instant.now(),
 ): List<Pair<String, List<LocalNote>>> {
+  if (items.isEmpty()) return emptyList()
   if (sort != "date-desc") return listOf((if (sort == "az") "A-Z" else "Z-A") to items)
-  return items.groupBy { dateRangeLabel(it.updatedAt, now) }.map { it.key to it.value }
+  return groupNotesByLabel(items) { dateRangeLabel(it.updatedAt, now) }
+}
+
+fun groupNotes(
+  items: List<LocalNote>,
+  sort: String,
+  groupBy: String,
+  now: Instant = Instant.now(),
+): List<Pair<String, List<LocalNote>>> {
+  if (items.isEmpty()) return emptyList()
+  return when (groupBy) {
+    "none" -> listOf("" to items)
+    "month" -> groupNotesByLabel(items) { monthLabel(it.updatedAt) }
+    "year" -> groupNotesByLabel(items) { yearLabel(it.updatedAt) }
+    else -> groupNotesByDateRange(items, sort, now)
+  }
+}
+
+private fun groupNotesByLabel(
+  items: List<LocalNote>,
+  labelFor: (LocalNote) -> String,
+): List<Pair<String, List<LocalNote>>> {
+  return items.groupBy(labelFor).map { it.key to it.value }
 }
 
 fun dateRangeLabel(iso: String, now: Instant = Instant.now()): String {
@@ -146,6 +213,20 @@ fun dateRangeLabel(iso: String, now: Instant = Instant.now()): String {
       target.month.getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault())
     else -> target.year.toString()
   }
+}
+
+private fun monthLabel(iso: String): String {
+  val target = runCatching { Instant.parse(iso) }.getOrNull() ?: return "Unknown"
+  return DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault())
+    .withZone(ZoneId.systemDefault())
+    .format(target)
+}
+
+private fun yearLabel(iso: String): String {
+  val target = runCatching { Instant.parse(iso) }.getOrNull() ?: return "Unknown"
+  return DateTimeFormatter.ofPattern("yyyy", Locale.getDefault())
+    .withZone(ZoneId.systemDefault())
+    .format(target)
 }
 
 fun formatListDate(iso: String): String =

@@ -242,16 +242,20 @@ talk directly to Turso.
 
 The Android app is sideloaded, so it checks GitHub instead of relying on Play Store update delivery. On startup the app schedules a delayed background check, then recurring background checks after that; the network update check itself runs later in WorkManager and does not block app launch. The default startup delay is 10 minutes, and the default recurring interval is 12 hours.
 
-The default check URL reads the Android version from `main`:
+The default check URL reads the latest GitHub release metadata and looks for an
+Android APK asset:
 
 ```env
-ANDROID_UPDATE_CHECK_URL=https://raw.githubusercontent.com/ivanarena/author/main/apps/android/app/build.gradle.kts
+ANDROID_UPDATE_CHECK_URL=https://api.github.com/repos/ivanarena/author/releases/latest
 ANDROID_UPDATE_DOWNLOAD_URL=https://github.com/ivanarena/author/releases/latest
 ANDROID_UPDATE_STARTUP_DELAY_MINUTES=10
 ANDROID_UPDATE_CHECK_INTERVAL_HOURS=12
 ```
 
-When the remote `versionCode` is higher than the installed APK's `versionCode`, the app posts a local notification. Tapping it opens `ANDROID_UPDATE_DOWNLOAD_URL`.
+When the remote `versionCode` is higher than the installed APK's `versionCode`,
+or the latest GitHub Android release version is newer than the installed
+`versionName`, the app posts a local notification. Tapping it opens the APK asset
+URL when one is present, otherwise `ANDROID_UPDATE_DOWNLOAD_URL`.
 
 For a private GitHub repo, prefer publishing a small public JSON manifest instead of embedding a GitHub token in the APK:
 

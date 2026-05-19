@@ -102,6 +102,126 @@ describe('server database migrations', () => {
     }
   });
 
+  it('upgrades older databases before creating indexes on new columns', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'author-old-schema-'));
+    const dbPath = join(tempDir, 'old.sqlite');
+    const { createClient } = await import('@libsql/client');
+    const legacy = createClient({ url: `file:${dbPath}` });
+    let legacyClosed = false;
+
+    try {
+      await legacy.executeMultiple(`
+        CREATE TABLE devices (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          last_seen_at TEXT NOT NULL
+        );
+        CREATE TABLE users (
+          username TEXT PRIMARY KEY,
+          password_hash TEXT NOT NULL,
+          password_salt TEXT NOT NULL,
+          password_iterations INTEGER NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE entity_changes (
+          revision INTEGER PRIMARY KEY AUTOINCREMENT,
+          entity_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          operation TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE notebooks (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT,
+          device_id TEXT NOT NULL,
+          version INTEGER NOT NULL,
+          sync_status TEXT NOT NULL
+        );
+        CREATE TABLE notes (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          body TEXT NOT NULL,
+          notebook_id TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT,
+          trashed_at TEXT,
+          device_id TEXT NOT NULL,
+          version INTEGER NOT NULL,
+          sync_status TEXT NOT NULL
+        );
+        CREATE TABLE note_versions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          note_id TEXT NOT NULL,
+          title TEXT NOT NULL,
+          body TEXT NOT NULL,
+          notebook_id TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT,
+          trashed_at TEXT,
+          device_id TEXT NOT NULL,
+          version INTEGER NOT NULL,
+          saved_at TEXT NOT NULL,
+          reason TEXT NOT NULL
+        );
+        CREATE TABLE notebook_versions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          notebook_id TEXT NOT NULL,
+          name TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          deleted_at TEXT,
+          device_id TEXT NOT NULL,
+          version INTEGER NOT NULL,
+          saved_at TEXT NOT NULL,
+          reason TEXT NOT NULL
+        );
+      `);
+      legacy.close();
+      legacyClosed = true;
+
+      const upgraded = await openConfiguredDatabase({
+        provider: 'local',
+        filePath: dbPath,
+        client: { url: `file:${dbPath}` }
+      });
+      try {
+        await expect(
+          get(
+            upgraded,
+            'SELECT email, display_name, totp_secret FROM users LIMIT 1'
+          )
+        ).resolves.toBeNull();
+        await expect(
+          get(
+            upgraded,
+            'SELECT owner_username, name_hash FROM notebooks LIMIT 1'
+          )
+        ).resolves.toBeNull();
+        await expect(
+          get(
+            upgraded,
+            `SELECT name FROM sqlite_master
+             WHERE type = 'index' AND name = 'users_email_unique_idx'`
+          )
+        ).resolves.toMatchObject({ name: 'users_email_unique_idx' });
+        expect(await appliedMigrationVersions(upgraded)).toEqual(
+          new Set(SERVER_MIGRATIONS.map((migration) => migration.version))
+        );
+      } finally {
+        upgraded.close();
+      }
+    } finally {
+      if (!legacyClosed) legacy.close();
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('restores a copied SQLite backup into a fresh database path', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'author-restore-'));
     const sourcePath = join(tempDir, 'source.sqlite');

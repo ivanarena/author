@@ -142,6 +142,32 @@ async function waitForVisibleSyncedStatus(page: Page) {
   ).toBeVisible();
 }
 
+async function clickSignInSubmit(page: Page) {
+  await page
+    .getByRole('dialog', { name: 'Sign in' })
+    .getByRole('button', { name: 'Sign in to sync' })
+    .click();
+}
+
+async function expectFieldsInVerticalOrder(
+  fields: Array<{ name: string; locator: ReturnType<Page['getByLabel']> }>
+) {
+  const boxes = await Promise.all(
+    fields.map(async ({ name, locator }) => {
+      const box = await locator.boundingBox();
+      if (!box) throw new Error(`${name} field is not visible`);
+      return { name, top: box.y };
+    })
+  );
+
+  for (let index = 1; index < boxes.length; index += 1) {
+    expect(
+      boxes[index].top,
+      `${boxes[index].name} should appear below ${boxes[index - 1].name}`
+    ).toBeGreaterThan(boxes[index - 1].top);
+  }
+}
+
 test.beforeEach(async ({ page, request }) => {
   token = await loginForToken(request);
   e2eKeyMaterial = await keyMaterialFromPassword(loginUsername, loginPassword);
@@ -264,9 +290,7 @@ test('logs in from the profile menu when no session is stored', async ({
   const loginDialog = page.getByRole('dialog', { name: 'Sign in' });
   await loginDialog.getByLabel('Username').fill(loginUsername);
   await loginDialog.getByLabel('Password', { exact: true }).fill(loginPassword);
-  await loginDialog
-    .getByRole('button', { name: 'Sign in', exact: true })
-    .click();
+  await clickSignInSubmit(page);
 
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('author-token')))
@@ -432,10 +456,22 @@ test('signs up and manages trusted-device login without ending the active sessio
   await signupPage.getByRole('menuitem', { name: 'Sign in to sync' }).click();
   const authDialog = signupPage.getByRole('dialog');
   await authDialog.getByRole('tab', { name: 'Sign up' }).click();
-  await authDialog.getByLabel('Username').fill(signupUsername);
-  await authDialog.getByLabel('Password', { exact: true }).fill(signupPassword);
-  await authDialog.getByLabel('Email').fill(signupEmail);
-  await authDialog.getByLabel('Confirm password').fill(signupPassword);
+  const signupUsernameField = authDialog.getByLabel('Username');
+  const signupEmailField = authDialog.getByLabel('Email');
+  const signupPasswordField = authDialog.getByLabel('Password', {
+    exact: true
+  });
+  const signupConfirmPasswordField = authDialog.getByLabel('Confirm password');
+  await expectFieldsInVerticalOrder([
+    { name: 'Username', locator: signupUsernameField },
+    { name: 'Email', locator: signupEmailField },
+    { name: 'Password', locator: signupPasswordField },
+    { name: 'Confirm password', locator: signupConfirmPasswordField }
+  ]);
+  await signupUsernameField.fill(signupUsername);
+  await signupEmailField.fill(signupEmail);
+  await signupPasswordField.fill(signupPassword);
+  await signupConfirmPasswordField.fill(signupPassword);
   await authDialog.getByRole('button', { name: 'Create account' }).click();
 
   await expect(authDialog).toBeHidden();
@@ -493,9 +529,7 @@ test('keeps local drafts when signing in and then syncs them remote', async ({
   const loginDialog = page.getByRole('dialog', { name: 'Sign in' });
   await loginDialog.getByLabel('Username').fill(loginUsername);
   await loginDialog.getByLabel('Password', { exact: true }).fill(loginPassword);
-  await loginDialog
-    .getByRole('button', { name: 'Sign in', exact: true })
-    .click();
+  await clickSignInSubmit(page);
 
   await expect(loginDialog).toBeHidden();
   await hoverMenusThroughBridge(page);

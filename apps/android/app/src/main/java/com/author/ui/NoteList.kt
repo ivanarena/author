@@ -63,14 +63,6 @@ internal fun NoteListPanel(controller: NotesController, modifier: Modifier = Mod
     modifier.padding(horizontal = pageHorizontalPadding(), vertical = 12.dp),
     verticalArrangement = Arrangement.spacedBy(10.dp),
   ) {
-    Row(
-      Modifier.fillMaxWidth(),
-      horizontalArrangement = Arrangement.spacedBy(8.dp),
-      verticalAlignment = Alignment.CenterVertically,
-    ) {
-      SearchNotesField(controller, Modifier.weight(1f))
-      SortMenu(controller)
-    }
     AnimatedVisibility(
       visible = controller.noteSelectionMode || controller.selectedNoteIds.isNotEmpty(),
       enter = fadeIn(appTween(AppMotion.Medium)) + expandVertically(appTween(AppMotion.Slow)),
@@ -101,27 +93,20 @@ internal fun NoteListPanel(controller: NotesController, modifier: Modifier = Mod
     }
     LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
       controller.visibleGroups.forEach { (label, groupNotes) ->
-        item {
-          Text(
-            label,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-            fontSize = AppTextSize.Label,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(top = 10.dp, start = 8.dp),
-          )
+        if (label.isNotBlank()) {
+          item {
+            Text(
+              label,
+              color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+              fontSize = AppTextSize.Label,
+              fontWeight = FontWeight.SemiBold,
+              modifier = Modifier.padding(top = 10.dp, start = 8.dp),
+            )
+          }
         }
         items(groupNotes, key = { it.id }) { note -> NoteRow(controller, note) }
       }
-      if (controller.isWorkspaceLoading) {
-        item {
-          Text(
-            "Loading local notes",
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-            fontSize = AppTextSize.Label,
-            modifier = Modifier.padding(14.dp),
-          )
-        }
-      } else if (controller.visibleNotes.isEmpty()) {
+      if (controller.visibleNotes.isEmpty()) {
         item {
           Text(
             if (controller.searchValue.isBlank()) "No notes" else "No matching notes",
@@ -136,11 +121,11 @@ internal fun NoteListPanel(controller: NotesController, modifier: Modifier = Mod
 }
 
 @Composable
-private fun SearchNotesField(controller: NotesController, modifier: Modifier = Modifier) {
+internal fun SearchNotesField(controller: NotesController, modifier: Modifier = Modifier) {
   val textColor = MaterialTheme.colorScheme.onSurface
   Surface(
     modifier = modifier.animateContentSize(appTween(AppMotion.Medium)),
-    color = Color.Transparent,
+    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.055f),
     shape = RoundedCornerShape(18.dp),
   ) {
     Row(
@@ -204,20 +189,27 @@ private fun SearchNotesField(controller: NotesController, modifier: Modifier = M
 }
 
 @Composable
-private fun SortMenu(controller: NotesController) {
+internal fun SortMenu(controller: NotesController) {
   var open by remember { mutableStateOf(false) }
   Box {
     GlassIcon(
       Icons.AutoMirrored.Outlined.Sort,
       "Sort notes",
-      active = controller.noteSort != "date-desc",
+      active = controller.noteSort != "date-desc" || controller.noteGroup != "smart",
     ) {
       open = true
     }
     AppDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+      DropdownSectionLabel("Sort notes")
       SortMenuItem("date-desc", "Newest first", controller) { open = false }
       SortMenuItem("az", "A-Z", controller) { open = false }
       SortMenuItem("za", "Z-A", controller) { open = false }
+      HorizontalDivider()
+      DropdownSectionLabel("Group notes")
+      GroupMenuItem("smart", "Recent ranges", controller) { open = false }
+      GroupMenuItem("month", "Month", controller) { open = false }
+      GroupMenuItem("year", "Year", controller) { open = false }
+      GroupMenuItem("none", "None", controller) { open = false }
     }
   }
 }
@@ -234,6 +226,23 @@ private fun SortMenuItem(
     leadingIcon = { MenuCheck(controller.noteSort == sort) },
     onClick = {
       controller.setSort(sort)
+      onPicked()
+    },
+  )
+}
+
+@Composable
+private fun GroupMenuItem(
+  group: String,
+  label: String,
+  controller: NotesController,
+  onPicked: () -> Unit,
+) {
+  AppDropdownMenuItem(
+    label = label,
+    leadingIcon = { MenuCheck(controller.noteGroup == group) },
+    onClick = {
+      controller.setGroup(group)
       onPicked()
     },
   )
@@ -337,7 +346,10 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
             colors = appCheckboxColors(),
           )
         }
-        Column(Modifier.weight(1f).padding(horizontal = if (selecting) 8.dp else 4.dp)) {
+        Column(
+          Modifier.weight(1f).padding(horizontal = if (selecting) 8.dp else 4.dp),
+          verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
           Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
               noteDisplayTitle(note),
@@ -370,6 +382,7 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
               }
             if (notebookNames.isNotEmpty()) {
               Row(
+                modifier = Modifier.padding(top = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
               ) {
@@ -390,7 +403,7 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
             }
             Text(
               "Updated ${formatListDate(note.updatedAt)}   Created ${formatListDate(note.createdAt)}",
-              color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+              color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
               fontSize = AppTextSize.Label,
               maxLines = 1,
             )

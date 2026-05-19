@@ -83,6 +83,7 @@ const MAX_SIGNUP_ATTEMPTS = 4;
 const MAX_LOGIN_ATTEMPT_KEYS = 500;
 const MAX_LOGIN_BODY_BYTES = 16 * 1024;
 const MAX_SYNC_BODY_BYTES = 5 * 1024 * 1024;
+const MAX_SYNC_CHANGES_PER_PUSH = 20;
 const REMOTE_SYNC_RETRY_BASE_MS = 5_000;
 const REMOTE_SYNC_RETRY_MAX_MS = 5 * 60_000;
 const REMOTE_SYNC_PENDING_KEY = 'remote.sync.pending';
@@ -711,6 +712,10 @@ function recordsBelongToDevice(body: PushRequest): boolean {
     body.notes.every((change) => change.record.deviceId === body.device.id) &&
     body.notebooks.every((change) => change.record.deviceId === body.device.id)
   );
+}
+
+function pushChangeCount(body: PushRequest): number {
+  return body.notes.length + body.notebooks.length;
 }
 
 function pullSince(value: unknown): string | null {
@@ -1637,6 +1642,15 @@ api.post(API_PATHS.syncPush, async (c) => {
       !recordsBelongToDevice(body)
     ) {
       return c.json({ error: 'Invalid push payload' }, 400);
+    }
+    if (pushChangeCount(body) > MAX_SYNC_CHANGES_PER_PUSH) {
+      return c.json(
+        {
+          error:
+            'Too many changes in one sync push; refresh Author and try again.'
+        },
+        413
+      );
     }
 
     if (!(await syncRemoteBestEffort(db, c.env))) {

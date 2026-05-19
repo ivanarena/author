@@ -14,7 +14,7 @@ vi.mock('./db', () => ({
     },
     notebooks: {
       toArray: vi.fn(),
-      put: vi.fn()
+      bulkPut: vi.fn()
     },
     transaction: vi.fn(async (_mode, _tables, operation) => operation())
   }
@@ -74,7 +74,7 @@ beforeEach(() => {
   vi.mocked(localDb.notes.toArray).mockResolvedValue([note]);
   vi.mocked(localDb.notebooks.toArray).mockResolvedValue([notebook]);
   vi.mocked(localDb.notes.bulkPut).mockResolvedValue('imported-note-id');
-  vi.mocked(localDb.notebooks.put).mockResolvedValue('notebook-1');
+  vi.mocked(localDb.notebooks.bulkPut).mockResolvedValue('notebook-1');
 });
 
 describe('archive store import and export', () => {
@@ -117,13 +117,13 @@ describe('archive store import and export', () => {
       noteIds: ['imported-note-id']
     });
 
-    expect(localDb.notebooks.put).toHaveBeenCalledWith(
+    expect(localDb.notebooks.bulkPut).toHaveBeenCalledWith([
       expect.objectContaining({
         id: 'imported-notebook-id',
         name: 'Ideas',
         syncStatus: 'pending'
       })
-    );
+    ]);
     expect(localDb.notes.bulkPut).toHaveBeenCalledWith([
       expect.objectContaining({
         id: 'imported-note-id',

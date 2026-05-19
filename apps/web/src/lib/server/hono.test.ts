@@ -1396,6 +1396,33 @@ describe('Hono API', () => {
     });
   });
 
+  it('rejects oversized sync push batches before they hit storage', async () => {
+    const token = await loginToken();
+    const notes = Array.from({ length: 21 }, (_, index) => ({
+      record: {
+        ...fixtureNote,
+        id: `bulk-note-${index}`,
+        deviceId: fixtureDevice.id
+      },
+      baseVersion: 0
+    }));
+
+    const push = await post(
+      '/api/sync/push',
+      {
+        device: fixtureDevice,
+        notebooks: [],
+        notes
+      },
+      token
+    );
+
+    expect(push.status).toBe(413);
+    await expect(push.json()).resolves.toMatchObject({
+      error: 'Too many changes in one sync push; refresh Author and try again.'
+    });
+  });
+
   it('rejects pushes that spoof a different record device id', async () => {
     const token = await loginToken();
     const push = await post(

@@ -124,6 +124,16 @@ function noteNotebookRefsChanged(original: Note, normalized: Note): boolean {
   );
 }
 
+function notebookDuplicateKey(notebook: Notebook): string {
+  return notebook.nameHash
+    ? `hash:${notebook.nameHash}`
+    : `name:${notebookDuplicateNameKey(notebook.name)}`;
+}
+
+function notebookDuplicateNameKey(name: string): string {
+  return name.trim().toLocaleLowerCase();
+}
+
 function toNote(row: Row): Note {
   const notebookIds = noteNotebookIdsFromRow(row);
   return {
@@ -296,20 +306,6 @@ async function putEntityTombstone(
   );
 }
 
-async function clearEntityTombstone(
-  db: NotesExecutor,
-  ownerUsername: string,
-  entityType: 'note' | 'notebook',
-  entityId: string
-): Promise<void> {
-  await runSql(
-    db,
-    `DELETE FROM entity_tombstones
-     WHERE owner_username = ? AND entity_type = ? AND entity_id = ?`,
-    [ownerUsername, entityType, entityId]
-  );
-}
-
 async function recordEntityChange(
   db: NotesExecutor,
   entityType: EntityType,
@@ -437,12 +433,45 @@ function placeholders(count: number): string {
   return Array.from({ length: count }, () => '?').join(', ');
 }
 
+function valuesPlaceholders(rowWidth: number, rowCount: number): string {
+  return Array.from(
+    { length: rowCount },
+    () => `(${placeholders(rowWidth)})`
+  ).join(', ');
+}
+
+function uniqueEntityIds(ids: string[]): string[] {
+  return [...new Set(ids)].filter(Boolean);
+}
+
+async function idsOwnedByAnotherUser(
+  db: NotesExecutor,
+  table: 'notes' | 'notebooks',
+  ids: string[],
+  ownerUsername: string
+): Promise<Set<string>> {
+  const ownedByAnotherUser = new Set<string>();
+  for (const chunk of chunks(uniqueEntityIds(ids), 200)) {
+    const rows = (await queryAll(
+      db,
+      `SELECT id FROM ${table}
+       WHERE owner_username <> ?
+         AND id IN (${placeholders(chunk.length)})`,
+      [ownerUsername, ...chunk]
+    )) as Row[];
+    for (const row of rows) {
+      ownedByAnotherUser.add(asString(row.id));
+    }
+  }
+  return ownedByAnotherUser;
+}
+
 export async function getNotesByIds(
   db: NotesExecutor,
   ids: string[],
   ownerUsername = LEGACY_OWNER_USERNAME
 ): Promise<Map<string, Note>> {
-  const uniqueIds = [...new Set(ids)].filter(Boolean);
+  const uniqueIds = uniqueEntityIds(ids);
   const notes = new Map<string, Note>();
   for (const chunk of chunks(uniqueIds, 200)) {
     const rows = (await queryAll(
@@ -463,7 +492,7 @@ export async function getNotebooksByIds(
   ids: string[],
   ownerUsername = LEGACY_OWNER_USERNAME
 ): Promise<Map<string, Notebook>> {
-  const uniqueIds = [...new Set(ids)].filter(Boolean);
+  const uniqueIds = uniqueEntityIds(ids);
   const notebooks = new Map<string, Notebook>();
   for (const chunk of chunks(uniqueIds, 200)) {
     const rows = (await queryAll(
@@ -483,7 +512,7 @@ export async function getDevicesByIds(
   db: NotesExecutor,
   ids: string[]
 ): Promise<Map<string, Device>> {
-  const uniqueIds = [...new Set(ids)].filter(Boolean);
+  const uniqueIds = uniqueEntityIds(ids);
   const devices = new Map<string, Device>();
   for (const chunk of chunks(uniqueIds, 200)) {
     const rows = (await queryAll(
@@ -636,40 +665,91 @@ export async function deleteDevicesByIds(
   }
 }
 
-async function getActiveNotebookByName(
+function addNotebookDuplicateCandidate(
+  candidates: Map<string, Notebook[]>,
+  key: string,
+  notebook: Notebook
+): void {
+  const existing = candidates.get(key);
+  if (existing) {
+    existing.push(notebook);
+    return;
+  }
+  candidates.set(key, [notebook]);
+}
+
+async function getActiveNotebookDuplicateCandidates(
   db: NotesExecutor,
-  name: string,
-  nameHash: string | null | undefined,
-  excludeId: string,
-  ownerUsername = LEGACY_OWNER_USERNAME
-): Promise<Notebook | null> {
-  if (nameHash) {
-    const row = (await queryOne(
+  ownerUsername: string,
+  notebooks: Notebook[]
+): Promise<Map<string, Notebook[]>> {
+  const candidates = new Map<string, Notebook[]>();
+  const activeNotebooks = notebooks.filter((notebook) => !notebook.deletedAt);
+  const nameHashes = [
+    ...new Set(
+      activeNotebooks
+        .map((notebook) => notebook.nameHash?.trim() ?? '')
+        .filter(Boolean)
+    )
+  ];
+  const names = [
+    ...new Set(
+      activeNotebooks
+        .filter((notebook) => !notebook.nameHash)
+        .map((notebook) => notebookDuplicateNameKey(notebook.name))
+        .filter(Boolean)
+    )
+  ];
+
+  for (const chunk of chunks(nameHashes, 200)) {
+    const rows = (await queryAll(
       db,
       `SELECT * FROM notebooks
        WHERE owner_username = ?
          AND deleted_at IS NULL
-         AND id <> ?
-         AND name_hash = ?
-       LIMIT 1`,
-      [ownerUsername, excludeId, nameHash]
-    )) as Row | null;
-
-    return row ? toNotebook(row) : null;
+         AND name_hash IN (${placeholders(chunk.length)})`,
+      [ownerUsername, ...chunk]
+    )) as Row[];
+    for (const row of rows) {
+      const notebook = toNotebook(row);
+      if (notebook.nameHash) {
+        addNotebookDuplicateCandidate(
+          candidates,
+          `hash:${notebook.nameHash}`,
+          notebook
+        );
+      }
+    }
   }
 
-  const row = (await queryOne(
-    db,
-    `SELECT * FROM notebooks
-     WHERE owner_username = ?
-       AND deleted_at IS NULL
-       AND id <> ?
-       AND lower(trim(name)) = lower(?)
-     LIMIT 1`,
-    [ownerUsername, excludeId, name.trim()]
-  )) as Row | null;
+  for (const chunk of chunks(names, 200)) {
+    const rows = (await queryAll(
+      db,
+      `SELECT * FROM notebooks
+       WHERE owner_username = ?
+         AND deleted_at IS NULL
+         AND lower(trim(name)) IN (${placeholders(chunk.length)})`,
+      [ownerUsername, ...chunk]
+    )) as Row[];
+    for (const row of rows) {
+      const notebook = toNotebook(row);
+      addNotebookDuplicateCandidate(
+        candidates,
+        `name:${notebookDuplicateNameKey(notebook.name)}`,
+        notebook
+      );
+    }
+  }
 
-  return row ? toNotebook(row) : null;
+  return candidates;
+}
+
+function firstNotebookDuplicate(
+  notebook: Notebook,
+  candidates: Map<string, Notebook[]>
+): Notebook | null {
+  const matches = candidates.get(notebookDuplicateKey(notebook)) ?? [];
+  return matches.find((candidate) => candidate.id !== notebook.id) ?? null;
 }
 
 export async function listNotes(
@@ -895,113 +975,270 @@ async function saveNotebookSnapshot(
   );
 }
 
-async function putNote(
+async function clearEntityTombstonesByIds(
   db: NotesExecutor,
-  note: Note,
-  ownerUsername = LEGACY_OWNER_USERNAME
-): Promise<Note> {
-  await runSql(
-    db,
-    `INSERT INTO notes (
-       id, owner_username, title, body, title_hash, body_hash, notebook_ids, notebook_id, created_at, updated_at,
-       deleted_at, trashed_at, device_id, version, sync_status
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET
-       title = excluded.title,
-       body = excluded.body,
-       title_hash = excluded.title_hash,
-       body_hash = excluded.body_hash,
-       notebook_ids = excluded.notebook_ids,
-       notebook_id = excluded.notebook_id,
-       created_at = excluded.created_at,
-       updated_at = excluded.updated_at,
-       deleted_at = excluded.deleted_at,
-       trashed_at = excluded.trashed_at,
-       device_id = excluded.device_id,
-       version = excluded.version,
-       sync_status = excluded.sync_status
-       WHERE notes.owner_username = excluded.owner_username`,
-    [
-      note.id,
-      ownerUsername,
-      note.title,
-      note.body,
-      note.titleHash ?? null,
-      note.bodyHash ?? null,
-      JSON.stringify(noteNotebookIds(note)),
-      noteNotebookIds(note)[0] ?? null,
-      note.createdAt,
-      note.updatedAt,
-      note.deletedAt,
-      note.trashedAt,
-      note.deviceId,
-      note.version,
-      'synced'
-    ]
-  );
-  await clearEntityTombstone(db, ownerUsername, 'note', note.id);
-  if (!(await getNote(db, note.id, ownerUsername))) {
-    throw new Error('Record id belongs to another owner');
+  ownerUsername: string,
+  entityType: 'note' | 'notebook',
+  entityIds: string[]
+): Promise<void> {
+  for (const chunk of chunks(uniqueEntityIds(entityIds), 200)) {
+    await runSql(
+      db,
+      `DELETE FROM entity_tombstones
+       WHERE owner_username = ?
+         AND entity_type = ?
+         AND entity_id IN (${placeholders(chunk.length)})`,
+      [ownerUsername, entityType, ...chunk]
+    );
   }
-  await recordEntityChange(
-    db,
-    'note',
-    note.id,
-    'upsert',
-    note.updatedAt,
-    ownerUsername
-  );
-
-  return { ...note, syncStatus: 'synced' };
 }
 
-async function putNotebook(
+async function recordEntityChanges(
   db: NotesExecutor,
-  notebook: Notebook,
+  changes: Array<{
+    entityType: EntityType;
+    entityId: string;
+    operation: EntityOperation;
+    updatedAt: string;
+  }>,
+  ownerUsername: string
+): Promise<void> {
+  for (const chunk of chunks(changes, 200)) {
+    await runSql(
+      db,
+      `INSERT INTO entity_changes (
+         owner_username, entity_type, entity_id, operation, updated_at
+       ) VALUES ${valuesPlaceholders(5, chunk.length)}`,
+      chunk.flatMap((change) => [
+        ownerUsername,
+        change.entityType,
+        change.entityId,
+        change.operation,
+        change.updatedAt
+      ])
+    );
+  }
+}
+
+async function putNotes(
+  db: NotesExecutor,
+  notes: Note[],
   ownerUsername = LEGACY_OWNER_USERNAME
-): Promise<Notebook> {
-  await runSql(
+): Promise<Note[]> {
+  if (!notes.length) return [];
+
+  const foreignIds = await idsOwnedByAnotherUser(
     db,
-    `INSERT INTO notebooks (
-       id, owner_username, name, name_hash, created_at, updated_at, deleted_at, device_id, version, sync_status
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET
-       name = excluded.name,
-       name_hash = excluded.name_hash,
-       created_at = excluded.created_at,
-       updated_at = excluded.updated_at,
-       deleted_at = excluded.deleted_at,
-       device_id = excluded.device_id,
-       version = excluded.version,
-       sync_status = excluded.sync_status
-       WHERE notebooks.owner_username = excluded.owner_username`,
-    [
-      notebook.id,
-      ownerUsername,
-      notebook.name,
-      notebook.nameHash ?? null,
-      notebook.createdAt,
-      notebook.updatedAt,
-      notebook.deletedAt,
-      notebook.deviceId,
-      notebook.version,
-      'synced'
-    ]
+    'notes',
+    notes.map((note) => note.id),
+    ownerUsername
   );
-  await clearEntityTombstone(db, ownerUsername, 'notebook', notebook.id);
-  if (!(await getNotebook(db, notebook.id, ownerUsername))) {
+  if (foreignIds.size) {
     throw new Error('Record id belongs to another owner');
   }
-  await recordEntityChange(
+
+  const syncedNotes = notes.map((note) => ({
+    ...note,
+    syncStatus: 'synced' as const
+  }));
+
+  for (const chunk of chunks(syncedNotes, 100)) {
+    await runSql(
+      db,
+      `INSERT INTO notes (
+         id, owner_username, title, body, title_hash, body_hash, notebook_ids, notebook_id, created_at, updated_at,
+         deleted_at, trashed_at, device_id, version, sync_status
+       ) VALUES ${valuesPlaceholders(15, chunk.length)}
+       ON CONFLICT(id) DO UPDATE SET
+         title = excluded.title,
+         body = excluded.body,
+         title_hash = excluded.title_hash,
+         body_hash = excluded.body_hash,
+         notebook_ids = excluded.notebook_ids,
+         notebook_id = excluded.notebook_id,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at,
+         deleted_at = excluded.deleted_at,
+         trashed_at = excluded.trashed_at,
+         device_id = excluded.device_id,
+         version = excluded.version,
+         sync_status = excluded.sync_status
+         WHERE notes.owner_username = excluded.owner_username`,
+      chunk.flatMap((note) => [
+        note.id,
+        ownerUsername,
+        note.title,
+        note.body,
+        note.titleHash ?? null,
+        note.bodyHash ?? null,
+        JSON.stringify(noteNotebookIds(note)),
+        noteNotebookIds(note)[0] ?? null,
+        note.createdAt,
+        note.updatedAt,
+        note.deletedAt,
+        note.trashedAt,
+        note.deviceId,
+        note.version,
+        'synced'
+      ])
+    );
+  }
+
+  await clearEntityTombstonesByIds(
     db,
-    'notebook',
-    notebook.id,
-    'upsert',
-    notebook.updatedAt,
+    ownerUsername,
+    'note',
+    syncedNotes.map((note) => note.id)
+  );
+  await recordEntityChanges(
+    db,
+    syncedNotes.map((note) => ({
+      entityType: 'note' as const,
+      entityId: note.id,
+      operation: 'upsert' as const,
+      updatedAt: note.updatedAt
+    })),
     ownerUsername
   );
 
-  return { ...notebook, syncStatus: 'synced' };
+  return syncedNotes;
+}
+
+async function putNotebooks(
+  db: NotesExecutor,
+  notebooks: Notebook[],
+  ownerUsername = LEGACY_OWNER_USERNAME
+): Promise<Notebook[]> {
+  if (!notebooks.length) return [];
+
+  const foreignIds = await idsOwnedByAnotherUser(
+    db,
+    'notebooks',
+    notebooks.map((notebook) => notebook.id),
+    ownerUsername
+  );
+  if (foreignIds.size) {
+    throw new Error('Record id belongs to another owner');
+  }
+
+  const syncedNotebooks = notebooks.map((notebook) => ({
+    ...notebook,
+    syncStatus: 'synced' as const
+  }));
+
+  for (const chunk of chunks(syncedNotebooks, 100)) {
+    await runSql(
+      db,
+      `INSERT INTO notebooks (
+         id, owner_username, name, name_hash, created_at, updated_at, deleted_at, device_id, version, sync_status
+       ) VALUES ${valuesPlaceholders(10, chunk.length)}
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         name_hash = excluded.name_hash,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at,
+         deleted_at = excluded.deleted_at,
+         device_id = excluded.device_id,
+         version = excluded.version,
+         sync_status = excluded.sync_status
+         WHERE notebooks.owner_username = excluded.owner_username`,
+      chunk.flatMap((notebook) => [
+        notebook.id,
+        ownerUsername,
+        notebook.name,
+        notebook.nameHash ?? null,
+        notebook.createdAt,
+        notebook.updatedAt,
+        notebook.deletedAt,
+        notebook.deviceId,
+        notebook.version,
+        'synced'
+      ])
+    );
+  }
+
+  await clearEntityTombstonesByIds(
+    db,
+    ownerUsername,
+    'notebook',
+    syncedNotebooks.map((notebook) => notebook.id)
+  );
+  await recordEntityChanges(
+    db,
+    syncedNotebooks.map((notebook) => ({
+      entityType: 'notebook' as const,
+      entityId: notebook.id,
+      operation: 'upsert' as const,
+      updatedAt: notebook.updatedAt
+    })),
+    ownerUsername
+  );
+
+  return syncedNotebooks;
+}
+
+async function saveNoteSnapshots(
+  db: NotesExecutor,
+  snapshots: Array<{ note: Note; reason: string }>,
+  ownerUsername = LEGACY_OWNER_USERNAME
+): Promise<void> {
+  const savedAt = new Date().toISOString();
+  for (const chunk of chunks(snapshots, 100)) {
+    await runSql(
+      db,
+      `INSERT INTO note_versions (
+         note_id, owner_username, title, body, title_hash, body_hash, notebook_ids, notebook_id, created_at, updated_at,
+         deleted_at, trashed_at, device_id, version, saved_at, reason
+       ) VALUES ${valuesPlaceholders(16, chunk.length)}`,
+      chunk.flatMap(({ note, reason }) => [
+        note.id,
+        ownerUsername,
+        note.title,
+        note.body,
+        note.titleHash ?? null,
+        note.bodyHash ?? null,
+        JSON.stringify(noteNotebookIds(note)),
+        noteNotebookIds(note)[0] ?? null,
+        note.createdAt,
+        note.updatedAt,
+        note.deletedAt,
+        note.trashedAt,
+        note.deviceId,
+        note.version,
+        savedAt,
+        reason
+      ])
+    );
+  }
+}
+
+async function saveNotebookSnapshots(
+  db: NotesExecutor,
+  snapshots: Array<{ notebook: Notebook; reason: string }>,
+  ownerUsername = LEGACY_OWNER_USERNAME
+): Promise<void> {
+  const savedAt = new Date().toISOString();
+  for (const chunk of chunks(snapshots, 100)) {
+    await runSql(
+      db,
+      `INSERT INTO notebook_versions (
+         notebook_id, owner_username, name, name_hash, created_at, updated_at, deleted_at, device_id, version, saved_at, reason
+       ) VALUES ${valuesPlaceholders(11, chunk.length)}`,
+      chunk.flatMap(({ notebook, reason }) => [
+        notebook.id,
+        ownerUsername,
+        notebook.name,
+        notebook.nameHash ?? null,
+        notebook.createdAt,
+        notebook.updatedAt,
+        notebook.deletedAt,
+        notebook.deviceId,
+        notebook.version,
+        savedAt,
+        reason
+      ])
+    );
+  }
 }
 
 function accepted(
@@ -1050,61 +1287,6 @@ async function makeConflict<T extends Note | Notebook>(
     local: await conflictVersion(db, 'local', local, localDeviceName),
     remote: await conflictVersion(db, 'remote', remote)
   };
-}
-
-async function acceptNoteChange(
-  db: NotesExecutor,
-  local: Note,
-  remote: Note | null,
-  ownerUsername = LEGACY_OWNER_USERNAME,
-  forceWrite = false
-): Promise<Note> {
-  if (!forceWrite && remote && !recordsDiffer(local, remote)) {
-    return remote;
-  }
-
-  const version = remote ? remote.version + 1 : Math.max(local.version, 1);
-  const acceptedNote = await putNote(
-    db,
-    {
-      ...local,
-      version,
-      syncStatus: 'synced'
-    },
-    ownerUsername
-  );
-  await saveNoteSnapshot(db, acceptedNote, 'push', undefined, ownerUsername);
-  return acceptedNote;
-}
-
-async function acceptNotebookChange(
-  db: NotesExecutor,
-  local: Notebook,
-  remote: Notebook | null,
-  ownerUsername = LEGACY_OWNER_USERNAME
-): Promise<Notebook> {
-  if (remote && !recordsDiffer(local, remote)) {
-    return remote;
-  }
-
-  const version = remote ? remote.version + 1 : Math.max(local.version, 1);
-  const acceptedNotebook = await putNotebook(
-    db,
-    {
-      ...local,
-      version,
-      syncStatus: 'synced'
-    },
-    ownerUsername
-  );
-  await saveNotebookSnapshot(
-    db,
-    acceptedNotebook,
-    'push',
-    undefined,
-    ownerUsername
-  );
-  return acceptedNotebook;
 }
 
 function deletedRemoteNote(
@@ -1159,15 +1341,11 @@ function tombstoneOverwriteAllowed(
   return record.deviceId.localeCompare(tombstone.deviceId) >= 0;
 }
 
-async function noteWithSyncableNotebookRefs(
-  db: NotesExecutor,
+function noteWithSyncableNotebookRefsFromMap(
   note: Note,
-  ownerUsername: string
-): Promise<{ note: Note; changed: boolean }> {
+  notebooks: Map<string, Notebook>
+): { note: Note; changed: boolean } {
   const ids = noteNotebookIds(note);
-  const notebooks = ids.length
-    ? await getNotebooksByIds(db, ids, ownerUsername)
-    : new Map<string, Notebook>();
   const syncableIds = ids.filter((id) => {
     const notebook = notebooks.get(id);
     return notebook && !notebook.deletedAt;
@@ -1197,34 +1375,43 @@ export async function pushChanges(
   await withWriteTransaction(db, async (tx) => {
     await upsertDevice(tx, request.device, now, ownerUsername);
 
+    const remoteNotebooks = await getNotebooksByIds(
+      tx,
+      request.notebooks.map((change) => change.record.id),
+      ownerUsername
+    );
+    const notebookTombstones = await getEntityTombstonesByIds(
+      tx,
+      ownerUsername,
+      'notebook',
+      request.notebooks
+        .map((change) => change.record.id)
+        .filter((id) => !remoteNotebooks.has(id))
+    );
+    const notebookDuplicateCandidates =
+      await getActiveNotebookDuplicateCandidates(
+        tx,
+        ownerUsername,
+        request.notebooks.map((change) => change.record)
+      );
+    const notebooksToWrite: Notebook[] = [];
+    const notebookSnapshots: Array<{ notebook: Notebook; reason: string }> = [];
+    const acceptedActiveNotebooks = new Map<string, Notebook>();
+    const acceptedDeletedNotebookIds = new Set<string>();
+
     for (const change of request.notebooks) {
-      const remote = await getNotebook(tx, change.record.id, ownerUsername);
+      const remote = remoteNotebooks.get(change.record.id) ?? null;
       const tombstone = remote
         ? null
-        : await getEntityTombstone(
-            tx,
-            ownerUsername,
-            'notebook',
-            change.record.id
-          );
+        : (notebookTombstones.get(change.record.id) ?? null);
       if (
         tombstone &&
         !tombstoneOverwriteAllowed(change.record, tombstone, options)
       ) {
         const deletedRemote = deletedRemoteNotebook(change.record, tombstone);
-        await saveNotebookSnapshot(
-          tx,
-          change.record,
-          'conflict',
-          undefined,
-          ownerUsername
-        );
-        await saveNotebookSnapshot(
-          tx,
-          deletedRemote,
-          'conflict',
-          undefined,
-          ownerUsername
+        notebookSnapshots.push(
+          { notebook: change.record, reason: 'conflict' },
+          { notebook: deletedRemote, reason: 'conflict' }
         );
         conflicts.push(
           await makeConflict<Notebook>(
@@ -1239,19 +1426,9 @@ export async function pushChanges(
         continue;
       }
       if (remote && shouldConflict(change.record, remote, change.baseVersion)) {
-        await saveNotebookSnapshot(
-          tx,
-          change.record,
-          'conflict',
-          undefined,
-          ownerUsername
-        );
-        await saveNotebookSnapshot(
-          tx,
-          remote,
-          'conflict',
-          undefined,
-          ownerUsername
+        notebookSnapshots.push(
+          { notebook: change.record, reason: 'conflict' },
+          { notebook: remote, reason: 'conflict' }
         );
         conflicts.push(
           await makeConflict<Notebook>(
@@ -1265,29 +1442,23 @@ export async function pushChanges(
         continue;
       }
 
-      const duplicate = change.record.deletedAt
+      const inRequestDuplicate = acceptedActiveNotebooks.get(
+        notebookDuplicateKey(change.record)
+      );
+      const duplicateCandidate = change.record.deletedAt
         ? null
-        : await getActiveNotebookByName(
-            tx,
-            change.record.name,
-            change.record.nameHash,
-            change.record.id,
-            ownerUsername
-          );
+        : inRequestDuplicate && inRequestDuplicate.id !== change.record.id
+          ? inRequestDuplicate
+          : firstNotebookDuplicate(change.record, notebookDuplicateCandidates);
+      const duplicate =
+        duplicateCandidate &&
+        acceptedDeletedNotebookIds.has(duplicateCandidate.id)
+          ? null
+          : duplicateCandidate;
       if (duplicate) {
-        await saveNotebookSnapshot(
-          tx,
-          change.record,
-          'conflict',
-          undefined,
-          ownerUsername
-        );
-        await saveNotebookSnapshot(
-          tx,
-          duplicate,
-          'conflict',
-          undefined,
-          ownerUsername
+        notebookSnapshots.push(
+          { notebook: change.record, reason: 'conflict' },
+          { notebook: duplicate, reason: 'conflict' }
         );
         conflicts.push(
           await makeConflict<Notebook>(
@@ -1302,42 +1473,81 @@ export async function pushChanges(
         continue;
       }
 
-      acceptedChanges.push(
-        accepted(
-          'notebook',
-          await acceptNotebookChange(tx, change.record, remote, ownerUsername)
-        )
-      );
+      const acceptedNotebook =
+        remote && !recordsDiffer(change.record, remote)
+          ? remote
+          : {
+              ...change.record,
+              version: remote
+                ? remote.version + 1
+                : Math.max(change.record.version, 1),
+              syncStatus: 'synced' as const
+            };
+      acceptedChanges.push(accepted('notebook', acceptedNotebook));
+      if (acceptedNotebook.deletedAt) {
+        acceptedDeletedNotebookIds.add(acceptedNotebook.id);
+      } else {
+        acceptedActiveNotebooks.set(
+          notebookDuplicateKey(acceptedNotebook),
+          acceptedNotebook
+        );
+      }
+      if (acceptedNotebook !== remote) {
+        notebooksToWrite.push(acceptedNotebook);
+        notebookSnapshots.push({
+          notebook: acceptedNotebook,
+          reason: 'push'
+        });
+      }
     }
 
+    await putNotebooks(tx, notebooksToWrite, ownerUsername);
+    await saveNotebookSnapshots(tx, notebookSnapshots, ownerUsername);
+
+    const remoteNotes = await getNotesByIds(
+      tx,
+      request.notes.map((change) => change.record.id),
+      ownerUsername
+    );
+    const noteTombstones = await getEntityTombstonesByIds(
+      tx,
+      ownerUsername,
+      'note',
+      request.notes
+        .map((change) => change.record.id)
+        .filter((id) => !remoteNotes.has(id))
+    );
+    const syncableNotebookIds = request.notes.flatMap((change) =>
+      noteNotebookIds(change.record)
+    );
+    const syncableNotebooks = await getNotebooksByIds(
+      tx,
+      syncableNotebookIds,
+      ownerUsername
+    );
+    for (const notebook of notebooksToWrite) {
+      syncableNotebooks.set(notebook.id, notebook);
+    }
+    const notesToWrite: Note[] = [];
+    const noteSnapshots: Array<{ note: Note; reason: string }> = [];
+
     for (const change of request.notes) {
-      const remote = await getNote(tx, change.record.id, ownerUsername);
-      const syncableNote = await noteWithSyncableNotebookRefs(
-        tx,
+      const remote = remoteNotes.get(change.record.id) ?? null;
+      const syncableNote = noteWithSyncableNotebookRefsFromMap(
         change.record,
-        ownerUsername
+        syncableNotebooks
       );
       const tombstone = remote
         ? null
-        : await getEntityTombstone(tx, ownerUsername, 'note', change.record.id);
+        : (noteTombstones.get(change.record.id) ?? null);
       if (
         tombstone &&
         !tombstoneOverwriteAllowed(syncableNote.note, tombstone, options)
       ) {
         const deletedRemote = deletedRemoteNote(change.record, tombstone);
-        await saveNoteSnapshot(
-          tx,
-          change.record,
-          'conflict',
-          undefined,
-          ownerUsername
-        );
-        await saveNoteSnapshot(
-          tx,
-          deletedRemote,
-          'conflict',
-          undefined,
-          ownerUsername
+        noteSnapshots.push(
+          { note: change.record, reason: 'conflict' },
+          { note: deletedRemote, reason: 'conflict' }
         );
         conflicts.push(
           await makeConflict<Note>(
@@ -1355,19 +1565,9 @@ export async function pushChanges(
         remote &&
         shouldConflict(syncableNote.note, remote, change.baseVersion)
       ) {
-        await saveNoteSnapshot(
-          tx,
-          syncableNote.note,
-          'conflict',
-          undefined,
-          ownerUsername
-        );
-        await saveNoteSnapshot(
-          tx,
-          remote,
-          'conflict',
-          undefined,
-          ownerUsername
+        noteSnapshots.push(
+          { note: syncableNote.note, reason: 'conflict' },
+          { note: remote, reason: 'conflict' }
         );
         conflicts.push(
           await makeConflict<Note>(
@@ -1381,19 +1581,27 @@ export async function pushChanges(
         continue;
       }
 
-      acceptedChanges.push(
-        accepted(
-          'note',
-          await acceptNoteChange(
-            tx,
-            syncableNote.note,
-            remote,
-            ownerUsername,
-            syncableNote.changed
-          )
-        )
-      );
+      const acceptedNote =
+        remote &&
+        !syncableNote.changed &&
+        !recordsDiffer(syncableNote.note, remote)
+          ? remote
+          : {
+              ...syncableNote.note,
+              version: remote
+                ? remote.version + 1
+                : Math.max(syncableNote.note.version, 1),
+              syncStatus: 'synced' as const
+            };
+      acceptedChanges.push(accepted('note', acceptedNote));
+      if (acceptedNote !== remote) {
+        notesToWrite.push(acceptedNote);
+        noteSnapshots.push({ note: acceptedNote, reason: 'push' });
+      }
     }
+
+    await putNotes(tx, notesToWrite, ownerUsername);
+    await saveNoteSnapshots(tx, noteSnapshots, ownerUsername);
   });
 
   return {

@@ -36,6 +36,12 @@ function normalizeAccountUsername(username: string): string {
   return username.trim().toLowerCase();
 }
 
+function isLocalOnlyRecord(record: {
+  lastSyncedVersion?: number | null;
+}): boolean {
+  return Number(record.lastSyncedVersion) === 0;
+}
+
 export async function createBlankNote(
   initial: { title?: string; body?: string; notebookId?: string | null } = {}
 ): Promise<LocalNote> {
@@ -125,14 +131,18 @@ export async function deleteNotebook(notebookId: string): Promise<void> {
     'rw',
     [localDb.notebooks, localDb.notes],
     async () => {
-      await localDb.notebooks.put({
-        ...notebook,
-        deletedAt: now,
-        updatedAt: now,
-        deviceId: device.id,
-        version: notebook.version + 1,
-        syncStatus: 'pending'
-      });
+      if (isLocalOnlyRecord(notebook)) {
+        await localDb.notebooks.delete(notebookId);
+      } else {
+        await localDb.notebooks.put({
+          ...notebook,
+          deletedAt: now,
+          updatedAt: now,
+          deviceId: device.id,
+          version: notebook.version + 1,
+          syncStatus: 'pending'
+        });
+      }
 
       const assignedNotes = await localDb.notes.toArray();
       const updatedNotes = assignedNotes
@@ -278,6 +288,11 @@ export async function restoreNote(noteId: string): Promise<void> {
 export async function deleteNotePermanently(noteId: string): Promise<void> {
   const note = await localDb.notes.get(noteId);
   if (!note || note.deletedAt) return;
+
+  if (isLocalOnlyRecord(note)) {
+    await localDb.notes.delete(noteId);
+    return;
+  }
 
   const device = await getOrCreateDevice();
   const now = nowIso();

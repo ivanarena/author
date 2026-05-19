@@ -1,4 +1,4 @@
-import { localDb, type LocalNote } from './db';
+import { localDb, type LocalNote, type LocalNotebook } from './db';
 import type { ParsedImportPayload } from './archive-parser';
 import {
   decryptNoteFields,
@@ -91,121 +91,124 @@ async function importParsedNotes(
   let reusedNotebooks = 0;
   let skippedNotes = 0;
 
+  const existingNotebooks = await Promise.all(
+    (await localDb.notebooks.toArray()).map((notebook) =>
+      decryptNotebookFields(notebook)
+    )
+  );
+  const notebookIdBySourceId = new Map<string, string>();
+  const notebookIdByName = new Map<string, string>();
+  const importedNotebookRows: LocalNotebook[] = [];
+  const importedNotes: LocalNote[] = [];
+
+  for (const notebook of existingNotebooks) {
+    if (notebook.deletedAt) continue;
+    notebookIdByName.set(normalizeNotebookName(notebook.name), notebook.id);
+  }
+
+  const ensureNotebook = (
+    name: string,
+    sourceId: string | null,
+    createdAt: string | null,
+    updatedAt: string | null
+  ): string => {
+    const trimmed = name.trim();
+    const normalized = normalizeNotebookName(trimmed);
+    const existingId = notebookIdByName.get(normalized);
+    if (existingId) {
+      if (sourceId) notebookIdBySourceId.set(sourceId, existingId);
+      reusedNotebooks += 1;
+      return existingId;
+    }
+
+    const now = nowIso();
+    const created = createdAt ?? now;
+    const updated = updatedAt ?? created;
+    const id = newId();
+    importedNotebookRows.push({
+      id,
+      name: trimmed,
+      createdAt: created,
+      updatedAt: updated,
+      deletedAt: null,
+      deviceId: device.id,
+      version: 1,
+      syncStatus: 'pending',
+      lastSyncedVersion: 0,
+      lastSyncedAt: null
+    });
+    notebookIdByName.set(normalized, id);
+    if (sourceId) notebookIdBySourceId.set(sourceId, id);
+    importedNotebooks += 1;
+    return id;
+  };
+
+  for (const notebook of notebooks) {
+    ensureNotebook(
+      notebook.name,
+      notebook.sourceId,
+      notebook.createdAt,
+      notebook.updatedAt
+    );
+  }
+
+  for (const note of notes) {
+    if (!note.title.trim() && !note.body.trim()) {
+      skippedNotes += 1;
+      continue;
+    }
+
+    const notebookIds = new Set<string>();
+    for (const sourceNotebookId of note.sourceNotebookIds) {
+      const notebookId = notebookIdBySourceId.get(sourceNotebookId);
+      if (notebookId) notebookIds.add(notebookId);
+    }
+
+    for (const sourceNotebookName of note.sourceNotebookNames) {
+      notebookIds.add(ensureNotebook(sourceNotebookName, null, null, null));
+    }
+
+    const resolvedNotebookIds = [...notebookIds];
+
+    const now = nowIso();
+    const createdAt = note.createdAt ?? note.updatedAt ?? now;
+    const updatedAt = note.updatedAt ?? createdAt;
+    const id = newId();
+    importedNotes.push({
+      id,
+      title: note.title.trim(),
+      body: note.body,
+      notebookIds: resolvedNotebookIds,
+      notebookId: primaryNotebookId(resolvedNotebookIds),
+      createdAt,
+      updatedAt,
+      deletedAt: null,
+      trashedAt: note.trashedAt,
+      deviceId: device.id,
+      version: 1,
+      syncStatus: 'pending',
+      lastSyncedVersion: 0,
+      lastSyncedAt: null
+    });
+    importedNoteIds.push(id);
+  }
+
+  const encryptedNotebooks = await Promise.all(
+    importedNotebookRows.map((notebook) => encryptNotebookFields(notebook))
+  );
+  const encryptedNotes = await Promise.all(
+    importedNotes.map((note) => encryptNoteFields(note))
+  );
+
   await localDb.transaction(
     'rw',
     [localDb.notebooks, localDb.notes],
     async () => {
-      const existingNotebooks = await Promise.all(
-        (await localDb.notebooks.toArray()).map((notebook) =>
-          decryptNotebookFields(notebook)
-        )
-      );
-      const notebookIdBySourceId = new Map<string, string>();
-      const notebookIdByName = new Map<string, string>();
-
-      for (const notebook of existingNotebooks) {
-        if (notebook.deletedAt) continue;
-        notebookIdByName.set(normalizeNotebookName(notebook.name), notebook.id);
+      if (encryptedNotebooks.length) {
+        await localDb.notebooks.bulkPut(encryptedNotebooks);
       }
-
-      const ensureNotebook = async (
-        name: string,
-        sourceId: string | null,
-        createdAt: string | null,
-        updatedAt: string | null
-      ): Promise<string> => {
-        const trimmed = name.trim();
-        const normalized = normalizeNotebookName(trimmed);
-        const existingId = notebookIdByName.get(normalized);
-        if (existingId) {
-          if (sourceId) notebookIdBySourceId.set(sourceId, existingId);
-          reusedNotebooks += 1;
-          return existingId;
-        }
-
-        const now = nowIso();
-        const created = createdAt ?? now;
-        const updated = updatedAt ?? created;
-        const id = newId();
-        await localDb.notebooks.put(
-          await encryptNotebookFields({
-            id,
-            name: trimmed,
-            createdAt: created,
-            updatedAt: updated,
-            deletedAt: null,
-            deviceId: device.id,
-            version: 1,
-            syncStatus: 'pending',
-            lastSyncedVersion: 0,
-            lastSyncedAt: null
-          })
-        );
-        notebookIdByName.set(normalized, id);
-        if (sourceId) notebookIdBySourceId.set(sourceId, id);
-        importedNotebooks += 1;
-        return id;
-      };
-
-      for (const notebook of notebooks) {
-        await ensureNotebook(
-          notebook.name,
-          notebook.sourceId,
-          notebook.createdAt,
-          notebook.updatedAt
-        );
-      }
-
-      const importedNotes: LocalNote[] = [];
-      for (const note of notes) {
-        if (!note.title.trim() && !note.body.trim()) {
-          skippedNotes += 1;
-          continue;
-        }
-
-        const notebookIds = new Set<string>();
-        for (const sourceNotebookId of note.sourceNotebookIds) {
-          const notebookId = notebookIdBySourceId.get(sourceNotebookId);
-          if (notebookId) notebookIds.add(notebookId);
-        }
-
-        for (const sourceNotebookName of note.sourceNotebookNames) {
-          notebookIds.add(
-            await ensureNotebook(sourceNotebookName, null, null, null)
-          );
-        }
-
-        const resolvedNotebookIds = [...notebookIds];
-
-        const now = nowIso();
-        const createdAt = note.createdAt ?? note.updatedAt ?? now;
-        const updatedAt = note.updatedAt ?? createdAt;
-        const id = newId();
-        importedNotes.push({
-          id,
-          title: note.title.trim(),
-          body: note.body,
-          notebookIds: resolvedNotebookIds,
-          notebookId: primaryNotebookId(resolvedNotebookIds),
-          createdAt,
-          updatedAt,
-          deletedAt: null,
-          trashedAt: note.trashedAt,
-          deviceId: device.id,
-          version: 1,
-          syncStatus: 'pending',
-          lastSyncedVersion: 0,
-          lastSyncedAt: null
-        });
-        importedNoteIds.push(id);
-      }
-
-      if (importedNotes.length) {
-        await localDb.notes.bulkPut(
-          await Promise.all(
-            importedNotes.map((note) => encryptNoteFields(note))
-          )
-        );
+      if (encryptedNotes.length) {
+        await localDb.notes.bulkPut(encryptedNotes);
       }
     }
   );

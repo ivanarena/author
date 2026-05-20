@@ -19,7 +19,9 @@ import {
   loadTrash,
   getLoginHint,
   getStoredSession,
-  setTheme
+  setTheme,
+  watchSystemTheme,
+  type ResolvedTheme
 } from '$lib/client/store';
 import { loadConfig } from '$lib/client/api-client';
 import type { SyncProgress } from '$lib/client/sync';
@@ -167,6 +169,7 @@ export class NotesPageController
   deletePasswordValue = $state('');
   isBrowserOnline = $state(true);
   theme = $state<Theme>('light');
+  resolvedTheme = $state<ResolvedTheme>('light');
   newNotebookOpen = $state(false);
   notebookNameValue = $state('');
   notebookError = $state('');
@@ -367,6 +370,9 @@ export class NotesPageController
         this.handleVisibilityChange
       );
       window.addEventListener('pagehide', this.handlePageHide);
+      const stopWatchingSystemTheme = watchSystemTheme((theme) => {
+        this.resolvedTheme = theme;
+      });
 
       void this.initialize();
 
@@ -389,6 +395,7 @@ export class NotesPageController
           this.handleVisibilityChange
         );
         window.removeEventListener('pagehide', this.handlePageHide);
+        stopWatchingSystemTheme();
       };
     });
   }
@@ -893,7 +900,7 @@ export class NotesPageController
 
   private initialize = async () => {
     this.theme = getTheme();
-    setTheme(this.theme);
+    this.resolvedTheme = setTheme(this.theme);
     this.noteSort = getStoredSort();
     this.noteGroup = getStoredGroup();
     this.compactView = getStoredCompactView();

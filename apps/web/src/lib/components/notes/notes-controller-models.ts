@@ -1,6 +1,6 @@
 import type { RemoteSyncState, TrustedAuthDevice } from '@author/api-types';
 import type { LocalConflict, LocalNote, LocalNotebook } from '$lib/client/db';
-import type { StoredTheme } from '$lib/client/local-state';
+import type { ResolvedTheme, StoredTheme } from '$lib/client/local-state';
 import type {
   NoteGroup,
   NoteGroupBy,
@@ -159,6 +159,7 @@ export interface NavigationDockModel
   isSyncing: boolean;
   isArchiveBusy: boolean;
   theme: Theme;
+  resolvedTheme: ResolvedTheme;
   openMenus: () => void;
   scheduleMenusClose: () => void;
   closeMenusOnBlur: (event: FocusEvent) => void;
@@ -251,6 +252,7 @@ export interface SettingsModalModel {
   importBanner: ImportBanner | null;
   compactView: boolean;
   theme: Theme;
+  resolvedTheme: ResolvedTheme;
   settingsSection: SettingsSection;
   editorZoom: number;
   editorFont: EditorFont;

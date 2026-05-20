@@ -1,4 +1,4 @@
-import { setTheme } from '$lib/client/store';
+import { setTheme, type ResolvedTheme } from '$lib/client/store';
 import type { NoteGroupBy, NoteSort } from '$lib/client/view-model';
 import type { SettingsSection, Theme } from './notes-controller-models';
 import {
@@ -26,6 +26,7 @@ export interface NotesUiActionController {
   menusOpen: boolean;
   noteGroup: NoteGroupBy;
   noteSort: NoteSort;
+  resolvedTheme: ResolvedTheme;
   settingsOpen: boolean;
   settingsSection: SettingsSection;
   theme: Theme;
@@ -203,8 +204,10 @@ export function setEditorLineHeight(
 }
 
 export function toggleTheme(controller: NotesUiActionController): void {
-  controller.theme = controller.theme.startsWith('dark') ? 'light' : 'dark';
-  setTheme(controller.theme);
+  controller.theme = controller.resolvedTheme.startsWith('dark')
+    ? 'light'
+    : 'dark';
+  controller.resolvedTheme = setTheme(controller.theme);
 }
 
 export function setThemeChoice(
@@ -212,7 +215,7 @@ export function setThemeChoice(
   theme: Theme
 ): void {
   controller.theme = theme;
-  setTheme(theme);
+  controller.resolvedTheme = setTheme(theme);
 }
 
 function closeMenus(controller: NotesUiActionController): void {

@@ -18,6 +18,7 @@ export const COOKIE_SESSION_TOKEN = '__author_cookie_session__';
 let volatileToken: string | null = null;
 
 export type StoredTheme =
+  | 'system'
   | 'light'
   | 'light-mint'
   | 'light-rose'
@@ -26,6 +27,21 @@ export type StoredTheme =
   | 'dark-mint'
   | 'dark-rose'
   | 'dark-lavender';
+
+export type ResolvedTheme = Exclude<StoredTheme, 'system'>;
+
+const THEME_VALUES = new Set<string>([
+  'system',
+  'light',
+  'light-mint',
+  'light-rose',
+  'light-lavender',
+  'dark',
+  'dark-mint',
+  'dark-rose',
+  'dark-lavender'
+]);
+const SYSTEM_DARK_QUERY = '(prefers-color-scheme: dark)';
 
 export interface StoredAuthUser {
   username: string;
@@ -240,24 +256,53 @@ export function setDisplayName(displayName: string | null): void {
   }
 }
 
-export function getTheme(): StoredTheme {
-  const stored = localStorage.getItem(THEME_KEY);
-  if (
-    stored === 'light' ||
-    stored === 'light-mint' ||
-    stored === 'light-rose' ||
-    stored === 'light-lavender' ||
-    stored === 'dark' ||
-    stored === 'dark-mint' ||
-    stored === 'dark-rose' ||
-    stored === 'dark-lavender'
-  ) {
-    return stored;
-  }
-  return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+function isStoredTheme(value: string | null): value is StoredTheme {
+  return value !== null && THEME_VALUES.has(value);
 }
 
-export function setTheme(theme: StoredTheme): void {
-  localStorage.setItem(THEME_KEY, theme);
-  document.documentElement.dataset.theme = theme;
+function systemTheme(): ResolvedTheme {
+  if (typeof matchMedia !== 'function') return 'light';
+  return matchMedia(SYSTEM_DARK_QUERY).matches ? 'dark' : 'light';
+}
+
+export function resolveTheme(theme: StoredTheme): ResolvedTheme {
+  return theme === 'system' ? systemTheme() : theme;
+}
+
+function applyTheme(theme: StoredTheme): ResolvedTheme {
+  const resolvedTheme = resolveTheme(theme);
+  document.documentElement.dataset.theme = resolvedTheme;
+  document
+    .querySelector?.('meta[name="theme-color"]')
+    ?.setAttribute(
+      'content',
+      resolvedTheme.startsWith('dark') ? '#111111' : '#f8f7f3'
+    );
+  return resolvedTheme;
+}
+
+export function getTheme(): StoredTheme {
+  const stored = localStorage.getItem(THEME_KEY);
+  return isStoredTheme(stored) ? stored : 'system';
+}
+
+export function setTheme(theme: StoredTheme): ResolvedTheme {
+  const storedTheme = isStoredTheme(theme) ? theme : 'system';
+  localStorage.setItem(THEME_KEY, storedTheme);
+  return applyTheme(storedTheme);
+}
+
+export function watchSystemTheme(
+  callback: (theme: ResolvedTheme) => void
+): () => void {
+  if (typeof matchMedia !== 'function') return () => {};
+
+  const media = matchMedia(SYSTEM_DARK_QUERY);
+  const listener = () => {
+    if (getTheme() !== 'system') return;
+    callback(applyTheme('system'));
+  };
+
+  media.addEventListener?.('change', listener);
+  return () => media.removeEventListener?.('change', listener);
 }

@@ -3,6 +3,7 @@ package com.author.ui
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.TweenSpec
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -51,10 +52,11 @@ internal data class ThemeChoice(val value: String, val label: String)
 
 internal val ThemeChoices =
   listOf(
+    ThemeChoice("system", "Auto"),
     ThemeChoice("light", "Light"),
-    ThemeChoice("light-mint", "Mint"),
-    ThemeChoice("light-rose", "Rose"),
-    ThemeChoice("light-lavender", "Lavender"),
+    ThemeChoice("light-mint", "Light mint"),
+    ThemeChoice("light-rose", "Light rose"),
+    ThemeChoice("light-lavender", "Light lavender"),
     ThemeChoice("dark", "Dark"),
     ThemeChoice("dark-mint", "Dark mint"),
     ThemeChoice("dark-rose", "Dark rose"),
@@ -118,13 +120,24 @@ private fun fontFamily(font: String): FontFamily =
     else -> AppFontFamily
   }
 
+internal fun resolveThemeChoice(theme: String, systemDark: Boolean): String =
+  if (theme == "system") {
+    if (systemDark) "dark" else "light"
+  } else {
+    theme
+  }
+
+internal fun themeChoiceLabel(theme: String): String =
+  ThemeChoices.find { it.value == theme }?.label ?: theme
+
 @Composable
 internal fun AuthorTheme(theme: String, font: String, content: @Composable () -> Unit) {
+  val resolvedTheme = resolveThemeChoice(theme, isSystemInDarkTheme())
   val colors =
-    if (theme.startsWith("dark")) {
+    if (resolvedTheme.startsWith("dark")) {
       darkColorScheme(
         primary =
-          when (theme) {
+          when (resolvedTheme) {
             "dark-mint" -> Color(0xFFA7D7B4)
             "dark-rose" -> Color(0xFFE7B1BC)
             "dark-lavender" -> Color(0xFFC8BEEF)
@@ -138,21 +151,21 @@ internal fun AuthorTheme(theme: String, font: String, content: @Composable () ->
         outline = Color(0xFF4A4A4A),
         outlineVariant = Color(0xFF33363A),
         background =
-          when (theme) {
+          when (resolvedTheme) {
             "dark-mint" -> Color(0xFF111512)
             "dark-rose" -> Color(0xFF171213)
             "dark-lavender" -> Color(0xFF14131A)
             else -> Color(0xFF111111)
           },
         surface =
-          when (theme) {
+          when (resolvedTheme) {
             "dark-mint" -> Color(0xFF121814)
             "dark-rose" -> Color(0xFF1A1415)
             "dark-lavender" -> Color(0xFF171620)
             else -> Color(0xFF151515)
           },
         surfaceVariant =
-          when (theme) {
+          when (resolvedTheme) {
             "dark-mint" -> Color(0xFF141D17)
             "dark-rose" -> Color(0xFF211719)
             "dark-lavender" -> Color(0xFF1C1A28)
@@ -164,7 +177,7 @@ internal fun AuthorTheme(theme: String, font: String, content: @Composable () ->
     } else {
       lightColorScheme(
         primary =
-          when (theme) {
+          when (resolvedTheme) {
             "light-mint" -> Color(0xFF527E5F)
             "light-rose" -> Color(0xFF985966)
             "light-lavender" -> Color(0xFF655B91)
@@ -172,7 +185,7 @@ internal fun AuthorTheme(theme: String, font: String, content: @Composable () ->
           },
         onPrimary = Color.White,
         primaryContainer =
-          when (theme) {
+          when (resolvedTheme) {
             "light-mint" -> Color(0xFFE3F0E6)
             "light-rose" -> Color(0xFFF6E4E8)
             "light-lavender" -> Color(0xFFECE8FA)
@@ -184,7 +197,7 @@ internal fun AuthorTheme(theme: String, font: String, content: @Composable () ->
         outline = Color(0xFFD9DAD7),
         outlineVariant = Color(0xFFE7E8E4),
         background =
-          when (theme) {
+          when (resolvedTheme) {
             "light-mint" -> Color(0xFFFBFDFB)
             "light-rose" -> Color(0xFFFFFAFA)
             "light-lavender" -> Color(0xFFFCFBFF)
@@ -192,7 +205,7 @@ internal fun AuthorTheme(theme: String, font: String, content: @Composable () ->
           },
         surface = Color.White,
         surfaceVariant =
-          when (theme) {
+          when (resolvedTheme) {
             "light-mint" -> Color(0xFFF6FBF7)
             "light-rose" -> Color(0xFFFFF6F7)
             "light-lavender" -> Color(0xFFF8F6FF)

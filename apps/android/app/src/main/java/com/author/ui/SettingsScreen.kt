@@ -4,6 +4,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -59,6 +60,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -128,6 +130,8 @@ internal fun SettingsPage(controller: NotesController, onExport: () -> Unit, onI
 
 @Composable
 private fun SettingsSectionSelector(controller: NotesController, modifier: Modifier = Modifier) {
+  val systemDark = isSystemInDarkTheme()
+  val resolvedTheme = resolveThemeChoice(controller.theme, systemDark)
   val sections =
     listOf(
       SettingsSectionItem(
@@ -141,9 +145,8 @@ private fun SettingsSectionSelector(controller: NotesController, modifier: Modif
       SettingsSectionItem(
         "appearance",
         "Appearance",
-        ThemeChoices.find { it.value == controller.theme }?.label ?: controller.theme,
-        if (controller.theme.startsWith("dark")) Icons.Outlined.LightMode
-        else Icons.Outlined.DarkMode,
+        themeSettingsSubtitle(controller.theme, systemDark),
+        if (resolvedTheme.startsWith("dark")) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
       ),
     )
   Column(
@@ -235,6 +238,13 @@ private fun accountSettingsSubtitle(controller: NotesController): String =
       .joinToString(" - ")
   } else {
     "Local workspace"
+  }
+
+private fun themeSettingsSubtitle(theme: String, systemDark: Boolean): String =
+  if (theme == "system") {
+    "Auto (${if (systemDark) "dark" else "light"})"
+  } else {
+    themeChoiceLabel(theme)
   }
 
 @Composable
@@ -765,16 +775,17 @@ private fun DataSettings(controller: NotesController, onExport: () -> Unit, onIm
 
 @Composable
 private fun AppearanceSettings(controller: NotesController) {
+  val systemDark = isSystemInDarkTheme()
+  val resolvedTheme = resolveThemeChoice(controller.theme, systemDark)
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
     ActionRow(Icons.Outlined.FolderOpen, "Compact notes") { controller.toggleCompactView() }
     ActionRow(
-      if (controller.theme.startsWith("dark")) Icons.Outlined.LightMode
-      else Icons.Outlined.DarkMode,
-      if (controller.theme.startsWith("dark")) "Light mode" else "Dark mode",
+      if (resolvedTheme.startsWith("dark")) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
+      if (resolvedTheme.startsWith("dark")) "Light mode" else "Dark mode",
     ) {
-      controller.toggleTheme()
+      controller.toggleTheme(systemDark)
     }
-    ThemeDotPicker(controller)
+    ThemePicker(controller)
     FontDropdown(controller)
     SettingsStepper("Text size", "${controller.editorTextSize.toInt()}sp") {
       GlassIcon(Icons.Outlined.ZoomOut, "Smaller text", enabled = controller.editorTextSize > 14f) {
@@ -815,14 +826,60 @@ private fun AppearanceSettings(controller: NotesController) {
 }
 
 @Composable
-private fun ThemeDotPicker(controller: NotesController) {
-  SettingsChoiceGroup("Themes") {
-    ThemeChoices.chunked(4).forEach { row ->
-      Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        row.forEach { choice ->
-          ThemeDot(choice, active = controller.theme == choice.value) {
-            controller.setThemeChoice(choice.value)
-          }
+private fun ThemePicker(controller: NotesController) {
+  SettingsChoiceGroup("Theme") {
+    ThemeChoices.forEach { choice ->
+      ThemeChoiceRow(choice, active = controller.theme == choice.value) {
+        controller.setThemeChoice(choice.value)
+      }
+    }
+  }
+}
+
+@Composable
+private fun ThemeChoiceRow(choice: ThemeChoice, active: Boolean, onClick: () -> Unit) {
+  val background =
+    if (active) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.52f)
+    else Color.Transparent
+  Surface(
+    modifier =
+      Modifier.fillMaxWidth()
+        .semantics {
+          contentDescription = choice.label
+          stateDescription = if (active) "Selected" else "Not selected"
+        }
+        .clickable(onClick = onClick),
+    color = background,
+    contentColor = MaterialTheme.colorScheme.onSurface,
+    shape = RoundedCornerShape(8.dp),
+  ) {
+    Row(
+      Modifier.heightIn(min = 42.dp).padding(horizontal = 12.dp, vertical = 8.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+      ThemeSwatch(choice.value)
+      Column(Modifier.weight(1f)) {
+        Text(
+          choice.label,
+          fontSize = AppTextSize.Body,
+          fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+        if (choice.value == "system") {
+          Text(
+            "Follows device",
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+            fontSize = AppTextSize.Label,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+          )
+        }
+      }
+      Box(Modifier.size(16.dp), contentAlignment = Alignment.Center) {
+        if (active) {
+          Icon(Icons.Outlined.Check, null, modifier = Modifier.size(16.dp))
         }
       }
     }
@@ -830,26 +887,19 @@ private fun ThemeDotPicker(controller: NotesController) {
 }
 
 @Composable
-private fun ThemeDot(choice: ThemeChoice, active: Boolean, onClick: () -> Unit) {
-  val borderColor =
-    if (active) MaterialTheme.colorScheme.primary
-    else MaterialTheme.colorScheme.outline.copy(alpha = 0.62f)
+private fun ThemeSwatch(theme: String) {
+  val borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.62f)
   Surface(
-    modifier =
-      Modifier.size(34.dp)
-        .semantics {
-          contentDescription = choice.label
-          stateDescription = if (active) "Selected" else "Not selected"
-        }
-        .clickable(onClick = onClick),
-    color = themeDotColor(choice.value),
-    contentColor = themeDotContentColor(choice.value),
+    modifier = Modifier.size(18.dp),
     shape = CircleShape,
-    border = BorderStroke(if (active) 2.dp else 1.dp, borderColor),
+    color = if (theme == "system") Color.Transparent else themeDotColor(theme),
+    border = BorderStroke(1.dp, borderColor),
   ) {
-    Box(contentAlignment = Alignment.Center) {
-      if (active) {
-        Icon(Icons.Outlined.Check, null, modifier = Modifier.size(16.dp))
+    if (theme == "system") {
+      Canvas(Modifier.fillMaxSize()) {
+        drawArc(Color.White, startAngle = 90f, sweepAngle = 180f, useCenter = true)
+        drawArc(Color(0xFF151515), startAngle = -90f, sweepAngle = 180f, useCenter = true)
+        drawCircle(borderColor, style = Stroke(width = 1.dp.toPx()))
       }
     }
   }
@@ -1006,13 +1056,3 @@ private fun themeDotColor(theme: String): Color =
 
 private fun formatTrustedDeviceTime(value: String): String =
   value.ifBlank { null }?.let { formatDateTime(it) } ?: "Recently"
-
-private fun themeDotContentColor(theme: String): Color =
-  when (theme) {
-    "light",
-    "light-mint",
-    "light-rose",
-    "light-lavender" -> Color(0xFF202020)
-    "dark" -> Color(0xFFF4F4F2)
-    else -> Color(0xFF111111)
-  }

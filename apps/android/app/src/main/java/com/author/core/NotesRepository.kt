@@ -45,6 +45,7 @@ private const val PULL_BATCH_SIZE = 1000
 private val syncMutex = Mutex()
 private val THEMES =
   setOf(
+    "system",
     "light",
     "light-mint",
     "light-rose",
@@ -69,12 +70,11 @@ class NotesRepository(context: Context) {
 
   fun getTheme(): String {
     val stored = prefs.getString(THEME_KEY, null)
-    if (stored in THEMES) return stored ?: "light"
-    return if ((appContext.resources.configuration.uiMode and 0x30) == 0x20) "dark" else "light"
+    return if (stored in THEMES) stored ?: "system" else "system"
   }
 
   fun setTheme(theme: String) {
-    prefs.edit { putString(THEME_KEY, if (theme in THEMES) theme else "light") }
+    prefs.edit { putString(THEME_KEY, if (theme in THEMES) theme else "system") }
   }
 
   fun getSort(): String = prefs.getString(SORT_KEY, "date-desc") ?: "date-desc"

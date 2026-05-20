@@ -182,7 +182,9 @@ describe('local browser state', () => {
     setDisplayName('  ');
     expect(localStorage.getItem('author-display-name')).toBeNull();
 
-    expect(getTheme()).toBe('light');
+    expect(getTheme()).toBe('system');
+    expect(setTheme('system')).toBe('light');
+    expect(document.documentElement.dataset.theme).toBe('light');
     localStorage.setItem('author-theme', 'dark-rose');
     expect(getTheme()).toBe('dark-rose');
 

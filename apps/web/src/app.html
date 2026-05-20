@@ -8,6 +8,7 @@
       (() => {
         try {
           const themes = new Set([
+            'system',
             'light',
             'light-mint',
             'light-rose',
@@ -17,19 +18,22 @@
             'dark-rose',
             'dark-lavender'
           ]);
-          const stored = localStorage.getItem('author-theme');
-          const theme = themes.has(stored)
-            ? stored
-            : matchMedia('(prefers-color-scheme: dark)').matches
-              ? 'dark'
-              : 'light';
-          document.documentElement.dataset.theme = theme;
-          document
-            .querySelector('meta[name="theme-color"]')
-            ?.setAttribute(
-              'content',
-              theme.startsWith('dark') ? '#111111' : '#f8f7f3'
-            );
+          const media = matchMedia('(prefers-color-scheme: dark)');
+          const applyTheme = () => {
+            const stored = localStorage.getItem('author-theme');
+            const theme = themes.has(stored) ? stored : 'system';
+            const resolvedTheme =
+              theme === 'system' ? (media.matches ? 'dark' : 'light') : theme;
+            document.documentElement.dataset.theme = resolvedTheme;
+            document
+              .querySelector('meta[name="theme-color"]')
+              ?.setAttribute(
+                'content',
+                resolvedTheme.startsWith('dark') ? '#111111' : '#f8f7f3'
+              );
+          };
+          applyTheme();
+          media.addEventListener?.('change', applyTheme);
         } catch {
           document.documentElement.dataset.theme = 'light';
         }

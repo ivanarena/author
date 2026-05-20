@@ -481,6 +481,10 @@
   background: #ffffff;
 }
 
+.theme-swatch.system {
+  background: linear-gradient(90deg, #ffffff 0 50%, #151515 50% 100%);
+}
+
 .theme-swatch.light-mint {
   background: #dff0e4;
 }

@@ -19,10 +19,11 @@
   let fontMenuOpen = $state(false);
 
   const themeOptions: Array<{ value: Theme; label: string }> = [
+    { value: 'system', label: 'Auto' },
     { value: 'light', label: 'Light' },
-    { value: 'light-mint', label: 'Mint' },
-    { value: 'light-rose', label: 'Rose' },
-    { value: 'light-lavender', label: 'Lavender' },
+    { value: 'light-mint', label: 'Light mint' },
+    { value: 'light-rose', label: 'Light rose' },
+    { value: 'light-lavender', label: 'Light lavender' },
     { value: 'dark', label: 'Dark' },
     { value: 'dark-mint', label: 'Dark mint' },
     { value: 'dark-rose', label: 'Dark rose' },
@@ -73,7 +74,7 @@
     <span>Compact notes</span>
   </button>
   <button class="settings-action" onclick={model.toggleTheme}>
-    {#if model.theme.startsWith('dark')}
+    {#if model.resolvedTheme.startsWith('dark')}
       <Sun size={15} strokeWidth={1.8} />
       <span>Light mode</span>
     {:else}

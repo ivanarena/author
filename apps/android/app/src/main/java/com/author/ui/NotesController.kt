@@ -486,8 +486,9 @@ class NotesController(private val repository: NotesRepository, private val scope
     repository.setCompactView(compactView)
   }
 
-  fun toggleTheme() {
-    theme = if (theme.startsWith("dark")) "light" else "dark"
+  fun toggleTheme(systemDark: Boolean = false) {
+    val resolvedTheme = resolveThemeChoice(theme, systemDark)
+    theme = if (resolvedTheme.startsWith("dark")) "light" else "dark"
     repository.setTheme(theme)
   }
 

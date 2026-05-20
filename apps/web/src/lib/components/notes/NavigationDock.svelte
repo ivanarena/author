@@ -141,7 +141,7 @@
             role="menuitem"
             onclick={model.toggleTheme}
           >
-            {#if model.theme.startsWith('dark')}
+            {#if model.resolvedTheme.startsWith('dark')}
               <Sun size={14} strokeWidth={1.8} />
               <span>Light</span>
             {:else}

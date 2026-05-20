@@ -1,7 +1,7 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
 
-  const updated = 'May 8, 2026';
+  const updated = 'May 20, 2026';
 </script>
 
 <svelte:head>
@@ -21,9 +21,9 @@
     <h2>Encrypted content</h2>
     <p>
       Note titles, note bodies, and notebook names are encrypted on your device
-      before sync using key material derived from your login password. Author
-      does not add a recovery key or a separate encryption passphrase, so the
-      same simple login flow unlocks synced content on your own devices.
+      before sync using Argon2id key material derived from your login password.
+      Author does not add a recovery key or a separate encryption passphrase, so
+      the same simple login flow unlocks synced content on your own devices.
     </p>
   </section>
 

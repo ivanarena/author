@@ -68,6 +68,7 @@ time:
   '@libsql/win32-x64-msvc@0.5.29': 2026-03-25T08:29:25.197Z
   '@lucide/svelte@1.16.0': 2026-05-14T11:41:48.732Z
   '@neon-rs/load@0.0.4': 2023-04-23T00:18:27.745Z
+  '@noble/hashes@2.2.0': 2026-04-11T17:09:41.131Z
   '@oxc-project/types@0.129.0': 2026-05-05T09:00:54.648Z
   '@playwright/test@1.59.1': 2026-04-01T17:59:00.155Z
   '@polka/url@1.0.0-next.29': 2025-04-09T18:41:21.389Z
@@ -416,6 +417,9 @@ importers:
       '@lucide/svelte':
         specifier: ^1.16.0
         version: 1.16.0(svelte@5.55.7)
+      '@noble/hashes':
+        specifier: ^2.2.0
+        version: 2.2.0
       dexie:
         specifier: ^4.4.2
         version: 4.4.2
@@ -882,6 +886,10 @@ packages:
 
   '@neon-rs/load@0.0.4':
     resolution: {integrity: sha512-kTPhdZyTQxB+2wpiRcFWrDcejc4JI6tkPuS7UZCG4l6Zvc5kU/gGQ/ozvHTh1XR5tS+UlfAfGuPajjzQjCiHCw==}
+
+  '@noble/hashes@2.2.0':
+    resolution: {integrity: sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg==}
+    engines: {node: '>= 20.19.0'}
 
   '@oxc-project/types@0.129.0':
     resolution: {integrity: sha512-3oz8m3FGdr2nDXVqmFUw7jolKliC4MoyXYIG2c7gpjBnzUWQpUGIYcXYKxTdTi+N2jusvt610ckTMkxdwHkYEg==}
@@ -2485,6 +2493,8 @@ snapshots:
       svelte: 5.55.7
 
   '@neon-rs/load@0.0.4': {}
+
+  '@noble/hashes@2.2.0': {}
 
   '@oxc-project/types@0.129.0': {}
 

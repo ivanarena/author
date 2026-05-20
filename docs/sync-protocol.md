@@ -34,12 +34,15 @@ silently moved to another notebook. Stable HMAC field hashes (`titleHash`,
 `bodyHash`, and `nameHash`) let sync compare encrypted fields and check duplicate notebook names
 without reusing nonces or exposing plaintext names. Sync metadata and notebook assignment remain
 plain so versioning and relationship repair stay small.
-Password-derived note key material uses PBKDF2-SHA-256. Sync-capable password key material is kept
-in browser `sessionStorage` for the active session; unsigned local-only browsers generate random
-local key material in `localStorage` so offline drafts still work without an account. New key
-material can still decrypt older `enc:v1` SHA-256-derived envelopes so browsers can re-encrypt and
-republish notes during normal sync. This avoids storing note plaintext remotely, but it is not a
-hardened zero-knowledge design for weak passwords or compromised browsers.
+Password-derived note key material uses Argon2id for primary encryption with compatibility
+PBKDF2-SHA-256 and legacy SHA-256 fallback material embedded in the local key-material string so
+upgraded clients can decrypt and republish older encrypted rows. Sync-capable password key material
+is kept in browser `sessionStorage` for the active session; unsigned local-only browsers generate
+random local key material in `localStorage` so offline drafts still work without an account. New key
+material can still decrypt older PBKDF2-derived `enc:v2` envelopes and `enc:v1` SHA-256-derived
+envelopes so browsers and Android can re-encrypt and republish notes during normal sync. This
+avoids storing note plaintext remotely, but it is not a hardened zero-knowledge design for weak
+passwords or compromised browsers.
 Older local fallback envelopes remain decryptable so existing local data can be migrated.
 Browsers with an old session token but no stored encryption key material must sign in again before
 syncing encrypted notes.

@@ -53,6 +53,10 @@ Notes, notebooks, entity changes, tombstones, and version snapshots include `own
 sync results are scoped to the authenticated account. Legacy token data is stored under
 `legacy-token`.
 
+Password-derived client encryption keys use Argon2id for new ciphertext. Existing PBKDF2-derived
+and legacy SHA-256-derived password envelopes remain decryptable so clients can republish them
+under the active key material during the normal encryption audit.
+
 `trusted_auth_devices` records browsers or Android installs that completed a
 password login for an account and presented a local device trust secret. The
 server stores only a hash of that trust secret. Accounts with 2FA enabled can

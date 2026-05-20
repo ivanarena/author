@@ -13,7 +13,7 @@ import {
   reencryptConflictForStorage
 } from './conflict-crypto';
 import {
-  canDecryptEncryptedText,
+  canDecryptEncryptedTextWithPrimaryMaterial,
   decryptNoteFields,
   decryptNotebookFields,
   encryptNoteFields,
@@ -573,12 +573,12 @@ export async function ensureLocalNotesEncrypted(): Promise<void> {
   const noteEncryptionChecks = await Promise.all(
     notes.map(async (note) => ({
       note,
-      titleDecrypts: await canDecryptEncryptedText(
+      titleDecrypts: await canDecryptEncryptedTextWithPrimaryMaterial(
         note.title,
         undefined,
         `note:${note.id}:title`
       ),
-      bodyDecrypts: await canDecryptEncryptedText(
+      bodyDecrypts: await canDecryptEncryptedTextWithPrimaryMaterial(
         note.body,
         undefined,
         `note:${note.id}:body`
@@ -611,7 +611,7 @@ export async function ensureLocalNotesEncrypted(): Promise<void> {
   const notebookEncryptionChecks = await Promise.all(
     notebooks.map(async (notebook) => ({
       notebook,
-      nameDecrypts: await canDecryptEncryptedText(
+      nameDecrypts: await canDecryptEncryptedTextWithPrimaryMaterial(
         notebook.name,
         undefined,
         notebookNameContext(notebook)

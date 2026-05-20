@@ -1,4 +1,5 @@
 import type { Note, Notebook } from '@author/schema';
+import { argon2idAsync } from '@noble/hashes/argon2.js';
 import { normalizeNotebookName } from './note-utils';
 
 export const ENCRYPTION_PREFIX = 'enc:v2:';
@@ -9,14 +10,24 @@ const HASH_V2_PREFIX = 'hash:v2:';
 const USERNAME_KEY = 'author-username';
 const FALLBACK_KEY_MATERIAL = 'author:local:v1';
 const LOCAL_KEY_MATERIAL_PREFIX = 'local:v2:';
-const PASSWORD_KDF_ITERATIONS = 210_000;
-const PASSWORD_KDF_SALT_PREFIX = 'author:password-key:v2';
+const PASSWORD_PBKDF2_ITERATIONS = 210_000;
+const PASSWORD_PBKDF2_SALT_PREFIX = 'author:password-key:v2';
+const PASSWORD_ARGON2_MEMORY_KIB = 19_456;
+const PASSWORD_ARGON2_ITERATIONS = 2;
+const PASSWORD_ARGON2_PARALLELISM = 1;
+const PASSWORD_ARGON2_SALT_PREFIX = 'author:password-key:v3';
 const LEGACY_NOTEBOOK_NAME_CONTEXT = 'notebook:name';
 
 const keyCache = new Map<string, Promise<CryptoKey>>();
 const hashKeyCache = new Map<string, Promise<CryptoKey>>();
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+
+type EncryptionEnvelope = {
+  version: 'v1' | 'v2';
+  iv: Uint8Array;
+  ciphertext: Uint8Array;
+};
 
 function storage(): Storage | null {
   try {
@@ -59,30 +70,59 @@ export async function canDecryptEncryptedText(
   keyMaterial = getEncryptionKeyMaterial(),
   context = 'text'
 ): Promise<boolean> {
+  if (
+    await canDecryptEncryptedTextWithPrimaryMaterial(
+      value,
+      keyMaterial,
+      context
+    )
+  ) {
+    return true;
+  }
   const envelope = encryptedEnvelope(value);
   if (!envelope) return false;
 
-  for (const material of decryptionKeyMaterials(keyMaterial)) {
-    try {
-      const key = await encryptionKey(material, envelope.version);
-      await cryptoImpl().subtle.decrypt(
-        envelope.version === 'v2'
-          ? {
-              name: 'AES-GCM',
-              iv: bufferSource(envelope.iv),
-              additionalData: aad(context)
-            }
-          : { name: 'AES-GCM', iv: bufferSource(envelope.iv) },
-        key,
-        bufferSource(envelope.ciphertext)
-      );
+  for (const material of fallbackKeyMaterials(keyMaterial)) {
+    if (await canDecryptEnvelopeWithMaterial(envelope, material, context)) {
       return true;
-    } catch {
-      continue;
     }
   }
 
   return false;
+}
+
+export async function canDecryptEncryptedTextWithPrimaryMaterial(
+  value: string,
+  keyMaterial = getEncryptionKeyMaterial(),
+  context = 'text'
+): Promise<boolean> {
+  const envelope = encryptedEnvelope(value);
+  if (!envelope) return false;
+  return canDecryptEnvelopeWithMaterial(envelope, keyMaterial, context);
+}
+
+async function canDecryptEnvelopeWithMaterial(
+  envelope: EncryptionEnvelope,
+  keyMaterial: string,
+  context: string
+): Promise<boolean> {
+  try {
+    const key = await encryptionKey(keyMaterial, envelope.version);
+    await cryptoImpl().subtle.decrypt(
+      envelope.version === 'v2'
+        ? {
+            name: 'AES-GCM',
+            iv: bufferSource(envelope.iv),
+            additionalData: aad(context)
+          }
+        : { name: 'AES-GCM', iv: bufferSource(envelope.iv) },
+      key,
+      bufferSource(envelope.ciphertext)
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function getEncryptionKeyMaterial(): string {
@@ -130,11 +170,50 @@ export async function keyMaterialFromPassword(
   password: string
 ): Promise<string> {
   const normalized = normalizedUsername(username);
-  const legacyDigest = await cryptoImpl().subtle.digest(
-    'SHA-256',
-    encoder.encode(`${normalized}\0${password}`)
+  const legacy = await legacyPasswordMaterial(normalized, password);
+  const pbkdf2 = await pbkdf2PasswordMaterial(normalized, password);
+  const argon2 = await argon2idAsync(
+    encoder.encode(password),
+    encoder.encode(`${PASSWORD_ARGON2_SALT_PREFIX}:${normalized}`),
+    {
+      t: PASSWORD_ARGON2_ITERATIONS,
+      m: PASSWORD_ARGON2_MEMORY_KIB,
+      p: PASSWORD_ARGON2_PARALLELISM,
+      dkLen: 32,
+      maxmem: PASSWORD_ARGON2_MEMORY_KIB * 1024 + 1024 * 1024
+    }
   );
-  const legacy = base64UrlEncode(new Uint8Array(legacyDigest));
+
+  return [
+    'password',
+    'v3',
+    'argon2id',
+    `m=${PASSWORD_ARGON2_MEMORY_KIB},t=${PASSWORD_ARGON2_ITERATIONS},p=${PASSWORD_ARGON2_PARALLELISM}`,
+    base64UrlEncode(argon2),
+    'pbkdf2',
+    'v2',
+    String(PASSWORD_PBKDF2_ITERATIONS),
+    pbkdf2,
+    'legacy',
+    legacy
+  ].join(':');
+}
+
+async function legacyPasswordMaterial(
+  normalizedUsernameValue: string,
+  password: string
+): Promise<string> {
+  const digest = await cryptoImpl().subtle.digest(
+    'SHA-256',
+    encoder.encode(`${normalizedUsernameValue}\0${password}`)
+  );
+  return base64UrlEncode(new Uint8Array(digest));
+}
+
+async function pbkdf2PasswordMaterial(
+  normalizedUsernameValue: string,
+  password: string
+): Promise<string> {
   const passwordKey = await cryptoImpl().subtle.importKey(
     'raw',
     encoder.encode(password),
@@ -146,13 +225,15 @@ export async function keyMaterialFromPassword(
     {
       name: 'PBKDF2',
       hash: 'SHA-256',
-      iterations: PASSWORD_KDF_ITERATIONS,
-      salt: encoder.encode(`${PASSWORD_KDF_SALT_PREFIX}:${normalized}`)
+      iterations: PASSWORD_PBKDF2_ITERATIONS,
+      salt: encoder.encode(
+        `${PASSWORD_PBKDF2_SALT_PREFIX}:${normalizedUsernameValue}`
+      )
     },
     passwordKey,
     256
   );
-  return `password:v2:${PASSWORD_KDF_ITERATIONS}:${base64UrlEncode(new Uint8Array(derived))}:legacy:${legacy}`;
+  return base64UrlEncode(new Uint8Array(derived));
 }
 
 export async function rememberEncryptionPassword(
@@ -248,22 +329,29 @@ export async function encryptNoteFields<T extends Note>(
 ): Promise<T> {
   const titleContext = `note:${note.id}:title`;
   const bodyContext = `note:${note.id}:body`;
-  const titleAlreadyEncrypted = await canDecryptEncryptedText(
-    note.title,
-    keyMaterial,
-    titleContext
-  );
-  const bodyAlreadyEncrypted = await canDecryptEncryptedText(
+  const titleAlreadyEncrypted =
+    await canDecryptEncryptedTextWithPrimaryMaterial(
+      note.title,
+      keyMaterial,
+      titleContext
+    );
+  const bodyAlreadyEncrypted = await canDecryptEncryptedTextWithPrimaryMaterial(
     note.body,
     keyMaterial,
     bodyContext
   );
+  const plainTitle = titleAlreadyEncrypted
+    ? null
+    : await decryptText(note.title, keyMaterial, titleContext);
+  const plainBody = bodyAlreadyEncrypted
+    ? null
+    : await decryptText(note.body, keyMaterial, bodyContext);
   const titleHash = titleAlreadyEncrypted
     ? (note.titleHash ?? null)
-    : await fieldHash(note.title, keyMaterial, titleContext);
+    : await fieldHash(plainTitle ?? note.title, keyMaterial, titleContext);
   const bodyHash = bodyAlreadyEncrypted
     ? (note.bodyHash ?? null)
-    : await fieldHash(note.body, keyMaterial, bodyContext);
+    : await fieldHash(plainBody ?? note.body, keyMaterial, bodyContext);
 
   return {
     ...note,
@@ -271,10 +359,10 @@ export async function encryptNoteFields<T extends Note>(
     bodyHash,
     title: titleAlreadyEncrypted
       ? note.title
-      : await encryptText(note.title, keyMaterial, titleContext),
+      : await encryptText(plainTitle ?? note.title, keyMaterial, titleContext),
     body: bodyAlreadyEncrypted
       ? note.body
-      : await encryptText(note.body, keyMaterial, bodyContext)
+      : await encryptText(plainBody ?? note.body, keyMaterial, bodyContext)
   };
 }
 
@@ -303,7 +391,7 @@ export async function encryptNotebookFields<T extends Notebook>(
   keyMaterial = getEncryptionKeyMaterial()
 ): Promise<T> {
   const nameContext = notebookNameContext(notebook);
-  const nameAlreadyEncrypted = await canDecryptEncryptedText(
+  const nameAlreadyEncrypted = await canDecryptEncryptedTextWithPrimaryMaterial(
     notebook.name,
     keyMaterial,
     nameContext
@@ -384,14 +472,15 @@ function encryptionKey(
   keyMaterial: string,
   version: 'v1' | 'v2'
 ): Promise<CryptoKey> {
-  const cacheKey = `${version}:${keyMaterial}`;
+  const primaryMaterial = primaryEncryptionKeyMaterial(keyMaterial);
+  const cacheKey = `${version}:${primaryMaterial}`;
   const cached = keyCache.get(cacheKey);
   if (cached) return cached;
 
   const domain =
     version === 'v2'
-      ? `author:encryption:v2:${keyMaterial}`
-      : `author:${keyMaterial}`;
+      ? `author:encryption:v2:${primaryMaterial}`
+      : `author:${primaryMaterial}`;
   const key = cryptoImpl()
     .subtle.digest('SHA-256', encoder.encode(domain))
     .then((digest) =>
@@ -402,6 +491,23 @@ function encryptionKey(
     );
   keyCache.set(cacheKey, key);
   return key;
+}
+
+function primaryEncryptionKeyMaterial(material: string): string {
+  if (!material.startsWith('password:v3:')) return material;
+
+  const parts = material.split(':');
+  if (
+    parts[0] === 'password' &&
+    parts[1] === 'v3' &&
+    parts[2] === 'argon2id' &&
+    parts[3] &&
+    parts[4]
+  ) {
+    return parts.slice(0, 5).join(':');
+  }
+
+  return material;
 }
 
 function fieldHashKey(keyMaterial: string): Promise<CryptoKey> {
@@ -424,9 +530,7 @@ function aad(context: string): ArrayBuffer {
 }
 
 function decryptionKeyMaterials(primary: string): string[] {
-  const candidates = [primary];
-  const legacy = legacyKeyMaterial(primary);
-  if (legacy) candidates.push(legacy);
+  const candidates = [primary, ...fallbackKeyMaterials(primary)];
   const currentStorage = storage();
   const username = currentStorage?.getItem(USERNAME_KEY);
 
@@ -438,10 +542,35 @@ function decryptionKeyMaterials(primary: string): string[] {
   return [...new Set(candidates)];
 }
 
-function legacyKeyMaterial(material: string): string | null {
-  if (!material.startsWith('password:v2:')) return null;
-  const legacy = material.split(':legacy:')[1];
-  return legacy ? `password:${legacy}` : null;
+function fallbackKeyMaterials(material: string): string[] {
+  if (material.startsWith('password:v2:')) {
+    const legacy = material.split(':legacy:')[1];
+    return legacy ? [`password:${legacy}`] : [];
+  }
+
+  if (material.startsWith('password:v3:')) {
+    const parts = material.split(':');
+    const pbkdf2Index = parts.indexOf('pbkdf2');
+    const legacyIndex = parts.indexOf('legacy');
+    const fallbacks: string[] = [];
+    if (
+      pbkdf2Index >= 0 &&
+      legacyIndex > pbkdf2Index &&
+      parts[pbkdf2Index + 1] === 'v2'
+    ) {
+      const iterations = parts[pbkdf2Index + 2];
+      const pbkdf2 = parts[pbkdf2Index + 3];
+      const legacy = parts[legacyIndex + 1];
+      if (iterations && pbkdf2 && legacy) {
+        fallbacks.push(`password:v2:${iterations}:${pbkdf2}:legacy:${legacy}`);
+      }
+    }
+    const legacy = legacyIndex >= 0 ? parts[legacyIndex + 1] : null;
+    if (legacy) fallbacks.push(`password:${legacy}`);
+    return fallbacks;
+  }
+
+  return [];
 }
 
 function encryptionIv(): Uint8Array {
@@ -460,11 +589,7 @@ function isSyncKeyMaterial(material: string): boolean {
   return material.startsWith('password:') || material.startsWith('account:');
 }
 
-function encryptedEnvelope(value: string): {
-  version: 'v1' | 'v2';
-  iv: Uint8Array;
-  ciphertext: Uint8Array;
-} | null {
+function encryptedEnvelope(value: string): EncryptionEnvelope | null {
   const parts = value.split(':');
   const version = parts[1];
   if (

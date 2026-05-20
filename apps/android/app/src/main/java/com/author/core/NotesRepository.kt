@@ -486,9 +486,15 @@ class NotesRepository(context: Context) {
       val changed =
         notes.filter {
           !crypto.isCurrentEncryptedText(it.title) ||
-            !crypto.canDecryptEncryptedText(it.title, context = "note:${it.id}:title") ||
+            !crypto.canDecryptEncryptedTextWithPrimaryMaterial(
+              it.title,
+              context = "note:${it.id}:title",
+            ) ||
             !crypto.isCurrentEncryptedText(it.body) ||
-            !crypto.canDecryptEncryptedText(it.body, context = "note:${it.id}:body") ||
+            !crypto.canDecryptEncryptedTextWithPrimaryMaterial(
+              it.body,
+              context = "note:${it.id}:body",
+            ) ||
             !crypto.isCurrentFieldHash(it.titleHash) ||
             !crypto.isCurrentFieldHash(it.bodyHash)
         }
@@ -513,7 +519,10 @@ class NotesRepository(context: Context) {
       val changedNotebooks =
         notebooks.filter {
           !crypto.isCurrentEncryptedText(it.name) ||
-            !crypto.canDecryptEncryptedText(it.name, context = crypto.notebookNameContext(it)) ||
+            !crypto.canDecryptEncryptedTextWithPrimaryMaterial(
+              it.name,
+              context = crypto.notebookNameContext(it),
+            ) ||
             !crypto.isCurrentFieldHash(it.nameHash)
         }
       if (changedNotebooks.isNotEmpty()) {

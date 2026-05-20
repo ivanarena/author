@@ -49,6 +49,7 @@ vi.mock('./db', () => ({
 
 vi.mock('./encryption', () => ({
   canDecryptEncryptedText: vi.fn(async () => true),
+  canDecryptEncryptedTextWithPrimaryMaterial: vi.fn(async () => true),
   decryptNoteFields: vi.fn(async (note) => note),
   decryptNotebookFields: vi.fn(async (notebook) => notebook),
   encryptNoteFields: vi.fn(async (note) => note),

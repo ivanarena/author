@@ -1,6 +1,10 @@
 package com.author.core
 
 import android.content.SharedPreferences
+import java.nio.charset.StandardCharsets.UTF_8
+import java.security.MessageDigest
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -66,6 +70,46 @@ class NoteCryptoTest {
     assertEquals(notebook.name, crypto.decryptNotebookFields(migrated, "sync-key").name)
   }
 
+  @Test
+  fun derivesArgon2idPasswordMaterialWithLegacyFallbacks() {
+    val material = crypto.keyMaterialFromPassword("Owner", "test-password")
+
+    assertTrue(
+      Regex(
+          "^password:v3:argon2id:m=19456,t=2,p=1:[A-Za-z0-9_-]+:pbkdf2:v2:210000:[A-Za-z0-9_-]+:legacy:[A-Za-z0-9_-]+$"
+        )
+        .matches(material)
+    )
+  }
+
+  @Test
+  fun usesOnlyActiveArgon2idSegmentForV3PrimaryEncryption() {
+    val material = crypto.keyMaterialFromPassword("Owner", "test-password")
+    val encrypted = crypto.encryptText("argon secret", material)
+    val tamperedFallbacks =
+      (material.split(":").take(5) +
+          listOf("pbkdf2", "v2", "210000", "unused-fallback", "legacy", "unused-legacy"))
+        .joinToString(":")
+
+    assertEquals("argon secret", crypto.decryptText(encrypted, tamperedFallbacks))
+  }
+
+  @Test
+  fun migratesPbkdf2PasswordNotesToActiveArgon2idMaterial() {
+    val oldMaterial = passwordV2MaterialFromPassword("Owner", "password")
+    val oldEncrypted = crypto.encryptNoteFields(note("note-1", "Title", "Body"), oldMaterial)
+    val nextMaterial = crypto.keyMaterialFromPassword("Owner", "password")
+
+    assertEquals("Body", crypto.decryptNoteFields(oldEncrypted, nextMaterial).body)
+
+    val migrated = crypto.encryptNoteFields(oldEncrypted, nextMaterial)
+
+    assertNotEquals(oldEncrypted.title, migrated.title)
+    assertNotEquals(oldEncrypted.body, migrated.body)
+    assertEquals(migrated.body, crypto.decryptText(migrated.body, oldMaterial, "note:note-1:body"))
+    assertEquals("Body", crypto.decryptNoteFields(migrated, nextMaterial).body)
+  }
+
   private fun note(id: String, title: String, body: String) =
     LocalNote(
       id = id,
@@ -85,6 +129,22 @@ class NoteCryptoTest {
       lastSyncedVersion = 0,
       lastSyncedAt = null,
     )
+
+  private fun passwordV2MaterialFromPassword(username: String, password: String): String {
+    val normalized = username.trim().lowercase()
+    val passwordKey =
+      PBEKeySpec(
+        password.toCharArray(),
+        "author:password-key:v2:$normalized".toByteArray(UTF_8),
+        210_000,
+        256,
+      )
+    val derived =
+      SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(passwordKey).encoded
+    val legacy =
+      MessageDigest.getInstance("SHA-256").digest("$normalized\u0000$password".toByteArray(UTF_8))
+    return "password:v2:210000:${base64UrlEncode(derived)}:legacy:${base64UrlEncode(legacy)}"
+  }
 
   private fun notebook(id: String, name: String) =
     LocalNotebook(

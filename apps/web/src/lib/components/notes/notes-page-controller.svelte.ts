@@ -2,28 +2,12 @@ import { onMount, tick } from 'svelte';
 import type { Device } from '@author/schema';
 import type { RemoteSyncState, TrustedAuthDevice } from '@author/api-types';
 import type { LocalConflict, LocalNote, LocalNotebook } from '$lib/client/db';
-import {
-  commitEncryptionKeyMaterial,
-  getEncryptionKeyMaterial,
-  hasStoredEncryptionKeyMaterial,
-  prepareEncryptionPassword
-} from '$lib/client/encryption';
+import { hasStoredEncryptionKeyMaterial } from '$lib/client/encryption';
 import { noteNotebookIds, normalizeNotebookName } from '$lib/client/note-utils';
 import {
-  adoptLocalWorkspaceForAccount,
-  assignNoteToNotebook,
-  clearSyncError,
-  clearLocalWorkspace,
   clearStoredSession,
-  createBlankNote,
-  createNotebook,
-  deleteNotebook,
-  deleteNotePermanently,
   ensureLocalNotesEncrypted,
-  exportNotesMarkdownZip,
   getTheme,
-  importNotesMarkdownFiles,
-  importNotesMarkdownSummary,
   getOrCreateDevice,
   loadDevices,
   loadLastSyncPass,
@@ -33,40 +17,12 @@ import {
   loadPendingSyncCount,
   loadSyncDebugInfo,
   loadTrash,
-  moveNoteToTrash,
-  notebookNameExists,
-  preflightReencryptLocalNotes,
-  prepareLocalWorkspaceForAccount,
-  rememberLocalWorkspaceAccount,
-  renameNotebook,
-  renameCurrentDevice,
-  reencryptLocalNotes,
-  recordLastSyncPass,
-  recordSyncError,
-  restoreNote,
-  resolveConflict,
   getLoginHint,
   getStoredSession,
-  setTheme,
-  setStoredSession,
-  updateNoteContent
+  setTheme
 } from '$lib/client/store';
-import {
-  AuthError,
-  changePassword,
-  deleteAccount,
-  disableTotp,
-  enableTotp,
-  loadAccount,
-  loadConfig,
-  loadSyncStatus,
-  logout,
-  revokeTrustedDevice as revokeTrustedDeviceRequest,
-  setupTotp,
-  updateAccount,
-  validateSession
-} from '$lib/client/api-client';
-import { login, runSync, signup, type SyncProgress } from '$lib/client/sync';
+import { loadConfig } from '$lib/client/api-client';
+import type { SyncProgress } from '$lib/client/sync';
 import {
   countNotesByNotebook,
   countWords,
@@ -78,14 +34,12 @@ import {
   type NoteGroupBy,
   type NoteSort
 } from '$lib/client/view-model';
-import { pushEditorHistory, sameEditorSnapshot } from './editor-history';
 import {
   editorMetadataRowsForNote,
   formatSyncDebugLog,
   formatSyncPassDetail,
   formatSyncPassTime,
-  metadataRowsForNote,
-  syncProgressCopy
+  metadataRowsForNote
 } from './notes-controller-copy';
 import type {
   AppNotification,
@@ -121,18 +75,16 @@ import {
   MIN_EDITOR_LINE_HEIGHT,
   MIN_EDITOR_TEXT_SIZE,
   MIN_EDITOR_ZOOM,
-  nextEditorZoom,
-  setStoredCompactView,
-  setStoredEditorFont,
-  setStoredEditorLineHeight,
-  setStoredEditorTextSize,
-  setStoredEditorZoom,
-  setStoredGroup,
-  setStoredSort,
   type EditorFont,
   zoomPercent as formatZoomPercent
 } from './page-preferences';
 import type { ContextMenuState, EditorSnapshot } from './ui-types';
+import * as accountActions from './notes-account-actions';
+import * as archiveActions from './notes-archive-actions';
+import * as editorActions from './notes-editor-actions';
+import * as libraryActions from './notes-library-actions';
+import * as syncActions from './notes-sync-actions';
+import * as uiActions from './notes-ui-actions';
 
 export type {
   AppNotification,
@@ -154,16 +106,9 @@ export type {
   Theme
 } from './notes-controller-models';
 
-const EMPTY_NOTEBOOK_FILTERS = new Set<NotesFilterId>([
-  'all',
-  'unfiled',
-  'trash'
-]);
-const MAX_EDITOR_HISTORY = 120;
 const AUTO_SYNC_DELAY_MS = 600;
 const SYNC_RETRY_DELAY_MS = 12_000;
 const ONLINE_SESSION_SYNC_MS = 60_000;
-const MIN_PASSWORD_LENGTH = 12;
 
 export class NotesPageController
   implements
@@ -285,19 +230,19 @@ export class NotesPageController
   readonly maxEditorLineHeight = MAX_EDITOR_LINE_HEIGHT;
   readonly editorFontOptions = EDITOR_FONT_OPTIONS;
 
-  private saveTimer: ReturnType<typeof setTimeout> | null = null;
-  private pendingSaveNoteId: string | null = null;
-  private autoSyncTimer: ReturnType<typeof setTimeout> | null = null;
-  private retrySyncTimer: ReturnType<typeof setTimeout> | null = null;
+  saveTimer: ReturnType<typeof setTimeout> | null = null;
+  pendingSaveNoteId: string | null = null;
+  autoSyncTimer: ReturnType<typeof setTimeout> | null = null;
+  retrySyncTimer: ReturnType<typeof setTimeout> | null = null;
   private onlineSessionTimer: ReturnType<typeof setInterval> | null = null;
-  private menuCloseTimer: ReturnType<typeof setTimeout> | null = null;
-  private accountMenuCloseTimer: ReturnType<typeof setTimeout> | null = null;
-  private remoteStatusTimer: ReturnType<typeof setTimeout> | null = null;
+  menuCloseTimer: ReturnType<typeof setTimeout> | null = null;
+  accountMenuCloseTimer: ReturnType<typeof setTimeout> | null = null;
+  remoteStatusTimer: ReturnType<typeof setTimeout> | null = null;
   private notificationTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  private draftCreatePromise: Promise<LocalNote> | null = null;
-  private editorSessionId = 0;
-  private syncQueued = false;
-  private lastHistorySnapshot: EditorSnapshot = { title: '', body: '' };
+  draftCreatePromise: Promise<LocalNote> | null = null;
+  editorSessionId = 0;
+  syncQueued = false;
+  lastHistorySnapshot: EditorSnapshot = { title: '', body: '' };
 
   filteredNotes = $derived(
     filterNotesForView(this.notes, this.trash, this.filterId)
@@ -550,358 +495,147 @@ export class NotesPageController
   }
 
   selectNote = async (note: LocalNote) => {
-    this.closeMenus();
-    await this.flushPendingSave();
-    this.editorSessionId += 1;
-    this.selectedNote = note;
-    this.closeNotebookMenus();
-    this.titleValue = note.title;
-    this.bodyValue = note.body;
-    this.resetEditorHistory();
-    void this.focusEditor(note.title || note.body ? 'body' : 'title');
+    await editorActions.selectNote(this, note);
   };
 
   newNote = async () => {
-    this.closeMenus();
-    await this.flushPendingSave();
-    this.filterId = 'all';
-    this.openDraftNote();
+    await editorActions.newNote(this);
   };
 
   handleEditorInput = (event: Event, field: 'title' | 'body') => {
-    const value = (
-      event.currentTarget as HTMLInputElement | HTMLTextAreaElement
-    ).value;
-    const nextSnapshot = {
-      title: field === 'title' ? value : this.titleValue,
-      body: field === 'body' ? value : this.bodyValue
-    };
-
-    if (field === 'title') {
-      this.titleValue = value;
-    } else {
-      this.bodyValue = value;
-    }
-
-    if (!sameEditorSnapshot(this.lastHistorySnapshot, nextSnapshot)) {
-      this.undoStack = pushEditorHistory(
-        this.undoStack,
-        this.lastHistorySnapshot,
-        MAX_EDITOR_HISTORY
-      );
-      this.redoStack = [];
-      this.lastHistorySnapshot = nextSnapshot;
-    }
-
-    this.scheduleNoteSave();
+    editorActions.handleEditorInput(this, event, field);
   };
 
   undoEditorHistory = () => {
-    if (!this.canUndoEditor) return;
-    const current = this.currentEditorSnapshot();
-    const snapshot = this.undoStack[this.undoStack.length - 1];
-    if (!snapshot) return;
-    this.undoStack = this.undoStack.slice(0, -1);
-    this.redoStack = pushEditorHistory(
-      this.redoStack,
-      current,
-      MAX_EDITOR_HISTORY
-    );
-    this.applyEditorHistorySnapshot(snapshot);
+    editorActions.undoEditorHistory(this);
   };
 
   redoEditorHistory = () => {
-    if (!this.canRedoEditor) return;
-    const current = this.currentEditorSnapshot();
-    const snapshot = this.redoStack[this.redoStack.length - 1];
-    if (!snapshot) return;
-    this.redoStack = this.redoStack.slice(0, -1);
-    this.undoStack = pushEditorHistory(
-      this.undoStack,
-      current,
-      MAX_EDITOR_HISTORY
-    );
-    this.applyEditorHistorySnapshot(snapshot);
+    editorActions.redoEditorHistory(this);
   };
 
   openMenus = () => {
-    if (this.settingsOpen || this.loginOpen) return;
-    if (this.menuCloseTimer) {
-      clearTimeout(this.menuCloseTimer);
-      this.menuCloseTimer = null;
-    }
-    this.closeAccountMenu();
-    this.menusOpen = true;
+    uiActions.openMenus(this);
   };
 
   toggleMenus = () => {
-    if (this.settingsOpen || this.loginOpen) {
-      this.closeMenus();
-      return;
-    }
-    if (this.menuCloseTimer) {
-      clearTimeout(this.menuCloseTimer);
-      this.menuCloseTimer = null;
-    }
-    this.closeAccountMenu();
-    this.menusOpen = !this.menusOpen;
+    uiActions.toggleMenus(this);
   };
 
   openAccountMenu = () => {
-    if (this.accountMenuCloseTimer) {
-      clearTimeout(this.accountMenuCloseTimer);
-      this.accountMenuCloseTimer = null;
-    }
-    this.accountMenuOpen = true;
-    this.menusOpen = false;
-    this.closeContextMenu();
+    uiActions.openAccountMenu(this);
   };
 
   closeAccountMenu = () => {
-    if (this.accountMenuCloseTimer) {
-      clearTimeout(this.accountMenuCloseTimer);
-      this.accountMenuCloseTimer = null;
-    }
-    this.accountMenuOpen = false;
+    uiActions.closeAccountMenu(this);
   };
 
   scheduleAccountMenuClose = () => {
-    if (this.accountMenuCloseTimer) clearTimeout(this.accountMenuCloseTimer);
-    this.accountMenuCloseTimer = setTimeout(() => {
-      this.accountMenuOpen = false;
-      this.accountMenuCloseTimer = null;
-    }, 260);
+    uiActions.scheduleAccountMenuClose(this);
   };
 
   scheduleMenusClose = () => {
-    if (this.menuCloseTimer) clearTimeout(this.menuCloseTimer);
-    this.menuCloseTimer = setTimeout(() => {
-      this.menusOpen = false;
-      this.menuCloseTimer = null;
-    }, 180);
+    uiActions.scheduleMenusClose(this);
   };
 
   closeMenusOnBlur = (event: FocusEvent) => {
-    const current = event.currentTarget as HTMLElement;
-    const next = event.relatedTarget as Node | null;
-    if (next && current.contains(next)) return;
-    this.closeMenus();
+    uiActions.closeMenusOnBlur(this, event);
   };
 
   closeAccountMenuOnBlur = (event: FocusEvent) => {
-    const current = event.currentTarget as HTMLElement;
-    const next = event.relatedTarget as Node | null;
-    if (next && current.contains(next)) return;
-    this.closeAccountMenu();
+    uiActions.closeAccountMenuOnBlur(this, event);
   };
 
   openSettingsModal = (section: SettingsSection = 'account') => {
-    this.closeMenus();
-    this.settingsSection = section;
-    this.settingsOpen = true;
-    this.closeAccountMenu();
-    this.closeContextMenu();
-    if (section === 'account') void this.refreshAccount();
+    uiActions.openSettingsModal(this, section);
   };
 
   openLoginSettings = () => {
     this.settingsOpen = false;
-    this.loginOpen = true;
-    this.authMode = 'signin';
-    void this.refreshPublicConfig();
-    this.loginUsernameValue = getLoginHint();
-    this.deviceOtpLoginAvailable = hasStoredEncryptionKeyMaterial();
-    this.loginPasswordValue = '';
-    this.loginTotpCodeValue = '';
-    this.signupEmailValue = '';
-    this.signupConfirmPasswordValue = '';
-    this.loginError = '';
-    this.closeAccountMenu();
+    accountActions.openLoginSettings(this);
     this.closeContextMenu();
   };
 
   closeSettings = () => {
-    this.settingsOpen = false;
-    this.loginOpen = false;
+    uiActions.closeSettings(this);
   };
 
   setSettingsSection = (section: SettingsSection) => {
-    this.settingsSection = section;
+    uiActions.setSettingsSection(this, section);
   };
 
   changeSort = (event: Event) => {
-    this.noteSort = (event.currentTarget as HTMLSelectElement)
-      .value as NoteSort;
-    setStoredSort(this.noteSort);
+    uiActions.changeSort(this, event);
   };
 
   setNoteSort = (sort: NoteSort) => {
-    this.noteSort = sort;
-    setStoredSort(sort);
+    uiActions.setNoteSort(this, sort);
   };
 
   setNoteGroup = (group: NoteGroupBy) => {
-    this.noteGroup = group;
-    setStoredGroup(group);
+    uiActions.setNoteGroup(this, group);
   };
 
   toggleNoteSelection = (note: LocalNote, selected: boolean) => {
-    const next = new Set(this.selectedNoteIds);
-    if (selected) {
-      next.add(note.id);
-    } else {
-      next.delete(note.id);
-    }
-    this.selectedNoteIds = next;
-    this.selectedNotebookMenuOpen = false;
+    libraryActions.toggleNoteSelection(this, note, selected);
   };
 
   toggleAllVisibleNotes = (selected: boolean) => {
-    const next = new Set(this.selectedNoteIds);
-    for (const note of this.visibleNotes) {
-      if (selected) {
-        next.add(note.id);
-      } else {
-        next.delete(note.id);
-      }
-    }
-    this.selectedNoteIds = next;
-    this.selectedNotebookMenuOpen = false;
+    libraryActions.toggleAllVisibleNotes(this, selected);
   };
 
   clearSelectedNotes = () => {
-    this.selectedNoteIds = new Set();
-    this.selectedNotebookMenuOpen = false;
+    libraryActions.clearSelectedNotes(this);
   };
 
   toggleSelectedNotebookMenu = () => {
-    if (!this.selectedActiveNoteCount) return;
-    this.selectedNotebookMenuOpen = !this.selectedNotebookMenuOpen;
-    this.linkingNoteId = null;
-    this.closeContextMenu();
+    libraryActions.toggleSelectedNotebookMenu(this);
   };
 
   toggleNotebookMenuForNote = (note: LocalNote) => {
-    if (note.trashedAt) return;
-    this.linkingNoteId = this.linkingNoteId === note.id ? null : note.id;
-    this.selectedNotebookMenuOpen = false;
-    this.closeContextMenu();
+    libraryActions.toggleNotebookMenuForNote(this, note);
   };
 
   assignNotebookForSelected = async (notebookId: string | null) => {
-    const notes = this.selectedNotes.filter((note) => !note.trashedAt);
-    if (!notes.length) return;
-    const assigned =
-      notebookId === null
-        ? false
-        : !notes.every((note) => noteNotebookIds(note).includes(notebookId));
-    for (const note of notes) {
-      await assignNoteToNotebook(note.id, notebookId, assigned);
-    }
-    this.selectedNotebookMenuOpen = false;
-    await this.refresh();
+    await libraryActions.assignNotebookForSelected(this, notebookId);
   };
 
   selectedNotesHaveNotebook = (notebookId: string | null): boolean => {
-    const notes = this.selectedNotes.filter((note) => !note.trashedAt);
-    if (!notes.length) return false;
-    if (notebookId === null)
-      return notes.every((note) => noteNotebookIds(note).length === 0);
-    return notes.every((note) => noteNotebookIds(note).includes(notebookId));
+    return libraryActions.selectedNotesHaveNotebook(this, notebookId);
   };
 
   trashSelectedNotes = async () => {
-    const notes = this.selectedNotes.filter((note) => !note.trashedAt);
-    if (!notes.length) return;
-    await this.flushPendingSave();
-    for (const note of notes) {
-      await moveNoteToTrash(note.id);
-    }
-    const selectedNoteWasTrashed = Boolean(
-      this.selectedNote &&
-      notes.some((note) => note.id === this.selectedNote?.id)
-    );
-    this.clearSelectedNotes();
-    await this.refresh();
-
-    if (selectedNoteWasTrashed) {
-      const next = this.notes.find((candidate) => !candidate.trashedAt) ?? null;
-      if (next) {
-        await this.selectNote(next);
-      } else {
-        await this.newNote();
-      }
-    }
+    await libraryActions.trashSelectedNotes(this);
   };
 
   restoreSelectedNotes = async () => {
-    const notes = this.selectedNotes.filter((note) => note.trashedAt);
-    if (!notes.length) return;
-    for (const note of notes) {
-      await restoreNote(note.id);
-    }
-    const firstRestoredId = notes[0]?.id ?? null;
-    this.filterId = 'all';
-    this.clearSelectedNotes();
-    await this.refresh();
-    const restored = firstRestoredId
-      ? this.notes.find((note) => note.id === firstRestoredId)
-      : null;
-    if (restored) await this.selectNote(restored);
+    await libraryActions.restoreSelectedNotes(this);
   };
 
   deleteSelectedNotesPermanently = async () => {
-    const notes = this.selectedNotes.filter((note) => note.trashedAt);
-    if (!notes.length) return;
-    await this.flushPendingSave();
-    for (const note of notes) {
-      await deleteNotePermanently(note.id);
-    }
-    const selectedNoteWasDeleted = Boolean(
-      this.selectedNote &&
-      notes.some((note) => note.id === this.selectedNote?.id)
-    );
-    this.clearSelectedNotes();
-    await this.refresh();
-
-    if (selectedNoteWasDeleted) {
-      const next =
-        this.filterId === 'trash'
-          ? (this.trash[0] ?? null)
-          : (this.notes[0] ?? null);
-      if (next) {
-        await this.selectNote(next);
-      } else {
-        await this.newNote();
-      }
-    }
+    await libraryActions.deleteSelectedNotesPermanently(this);
   };
 
   toggleCompactView = () => {
-    this.compactView = !this.compactView;
-    setStoredCompactView(this.compactView);
+    uiActions.toggleCompactView(this);
   };
 
   zoomEditor = (direction: -1 | 1) => {
-    this.editorZoom = nextEditorZoom(this.editorZoom, direction);
-    setStoredEditorZoom(this.editorZoom);
+    uiActions.zoomEditor(this, direction);
   };
 
   zoomPercent = (): string => formatZoomPercent(this.editorZoom);
 
   setEditorFont = (font: EditorFont) => {
-    this.editorFont = font;
-    setStoredEditorFont(font);
+    uiActions.setEditorFont(this, font);
   };
 
   setEditorTextSize = (size: number) => {
-    this.editorTextSize = size;
-    setStoredEditorTextSize(size);
+    uiActions.setEditorTextSize(this, size);
   };
 
   setEditorLineHeight = (lineHeight: number) => {
-    this.editorLineHeight = lineHeight;
-    setStoredEditorLineHeight(lineHeight);
+    uiActions.setEditorLineHeight(this, lineHeight);
   };
 
   openNotebookContext = (event: MouseEvent, notebook: LocalNotebook) => {
@@ -982,982 +716,171 @@ export class NotesPageController
     note: LocalNote,
     rawName: string
   ): Promise<string | null> => {
-    const name = rawName.trim();
-    if (!name) return 'Name required';
-    if (
-      this.localNotebookNameExists(name) ||
-      (await notebookNameExists(name))
-    ) {
-      return 'Notebook already exists';
-    }
-
-    const notebook = await createNotebook(name);
-    if (!notebook) return 'Notebook already exists';
-
-    const updated = await assignNoteToNotebook(note.id, notebook.id, true);
-    if (updated && this.selectedNote?.id === note.id) {
-      this.selectedNote = updated;
-    }
-    this.filterId = notebook.id;
-    await this.refresh();
-    this.closeContextMenu();
-    return null;
+    return libraryActions.contextCreateNotebookForNote(this, note, rawName);
   };
 
   assignNotebookForNote = async (
     note: LocalNote,
     notebookId: string | null
   ) => {
-    const updated = await assignNoteToNotebook(
-      note.id,
-      notebookId,
-      notebookId ? !noteNotebookIds(note).includes(notebookId) : false
-    );
-    if (updated && this.selectedNote?.id === note.id)
-      this.selectedNote = updated;
-    await this.refresh();
+    await libraryActions.assignNotebookForNote(this, note, notebookId);
   };
 
   toggleNewNotebookMenu = () => {
-    this.newNotebookOpen = !this.newNotebookOpen;
-    this.loginOpen = false;
-    this.renamingNotebookId = null;
-    this.deletingNotebookId = null;
-    this.notebookNameValue = '';
-    this.notebookError = '';
+    libraryActions.toggleNewNotebookMenu(this);
   };
 
   submitNewNotebookMenu = async () => {
-    const name = this.notebookNameValue.trim();
-    if (!name) {
-      this.notebookError = 'Name required';
-      return;
-    }
-
-    if (
-      this.localNotebookNameExists(name) ||
-      (await notebookNameExists(name))
-    ) {
-      this.notebookError = 'Notebook already exists';
-      return;
-    }
-
-    const notebook = await createNotebook(name);
-    if (notebook) {
-      this.filterId = notebook.id;
-      if (this.selectedNote && !this.selectedNote.trashedAt) {
-        const updated = await assignNoteToNotebook(
-          this.selectedNote.id,
-          notebook.id,
-          true
-        );
-        if (updated) this.selectedNote = updated;
-      }
-      await this.refresh();
-      this.newNotebookOpen = false;
-      this.notebookNameValue = '';
-      this.notebookError = '';
-    } else {
-      this.notebookError = 'Notebook already exists';
-    }
+    await libraryActions.submitNewNotebookMenu(this);
   };
 
   startRenameNotebook = (notebook: LocalNotebook) => {
-    this.renamingNotebookId = notebook.id;
-    this.deletingNotebookId = null;
-    this.newNotebookOpen = false;
-    this.loginOpen = false;
-    this.renameNotebookValue = notebook.name;
-    this.renameNotebookError = '';
+    libraryActions.startRenameNotebook(this, notebook);
   };
 
   cancelRenameNotebook = () => {
-    this.renamingNotebookId = null;
-    this.renameNotebookValue = '';
-    this.renameNotebookError = '';
+    libraryActions.cancelRenameNotebook(this);
   };
 
   submitRenameNotebook = async (notebook: LocalNotebook) => {
-    const name = this.renameNotebookValue.trim();
-    if (!name) {
-      this.renameNotebookError = 'Name required';
-      return;
-    }
-
-    if (
-      this.localNotebookNameExists(name, notebook.id) ||
-      (await notebookNameExists(name, notebook.id))
-    ) {
-      this.renameNotebookError = 'Notebook already exists';
-      return;
-    }
-
-    const updated = await renameNotebook(notebook.id, name);
-    if (!updated) {
-      this.renameNotebookError = 'Notebook already exists';
-      return;
-    }
-
-    await this.refresh();
-    this.cancelRenameNotebook();
+    await libraryActions.submitRenameNotebook(this, notebook);
   };
 
   askDeleteNotebook = (notebook: LocalNotebook) => {
-    this.deletingNotebookId = notebook.id;
-    this.renamingNotebookId = null;
-    this.newNotebookOpen = false;
-    this.loginOpen = false;
+    libraryActions.askDeleteNotebook(this, notebook);
   };
 
   cancelDeleteNotebook = () => {
-    this.deletingNotebookId = null;
+    libraryActions.cancelDeleteNotebook(this);
   };
 
   confirmDeleteNotebook = async (notebook: LocalNotebook) => {
-    const selectedNoteWasInNotebook = Boolean(
-      this.selectedNote &&
-      !this.selectedNote.trashedAt &&
-      noteNotebookIds(this.selectedNote).includes(notebook.id)
-    );
-
-    await deleteNotebook(notebook.id);
-
-    if (this.filterId === notebook.id) {
-      this.filterId = 'all';
-    }
-
-    this.deletingNotebookId = null;
-    await this.refresh();
-
-    if (selectedNoteWasInNotebook) {
-      const next = this.notes.find((note) => note.id !== this.selectedNote?.id);
-      if (next) {
-        await this.selectNote(next);
-      } else {
-        await this.newNote();
-      }
-    }
+    await libraryActions.confirmDeleteNotebook(this, notebook);
   };
 
   trashNote = async (note: LocalNote) => {
-    await moveNoteToTrash(note.id);
-    await this.refresh();
-
-    if (this.selectedNote?.id === note.id) {
-      const next =
-        this.notes.find((candidate) => candidate.id !== note.id) ?? null;
-      if (next) {
-        await this.selectNote(next);
-      } else {
-        await this.newNote();
-      }
-    }
+    await libraryActions.trashNote(this, note);
   };
 
   restoreNoteFromRow = async (note: LocalNote) => {
-    await restoreNote(note.id);
-    this.filterId = 'all';
-    await this.refresh();
-    const restored = this.notes.find((candidate) => candidate.id === note.id);
-    if (restored) await this.selectNote(restored);
+    await libraryActions.restoreNoteFromRow(this, note);
   };
 
   deleteNotePermanentlyFromRow = async (note: LocalNote) => {
-    if (!note.trashedAt) return;
-    await this.flushPendingSave();
-    await deleteNotePermanently(note.id);
-    const selectedNoteWasDeleted = this.selectedNote?.id === note.id;
-    this.selectedNoteIds.delete(note.id);
-    this.selectedNoteIds = new Set(this.selectedNoteIds);
-    await this.refresh();
-
-    if (selectedNoteWasDeleted) {
-      const next =
-        this.filterId === 'trash'
-          ? (this.trash.find((candidate) => candidate.id !== note.id) ?? null)
-          : (this.notes[0] ?? null);
-      if (next) {
-        await this.selectNote(next);
-      } else {
-        await this.newNote();
-      }
-    }
+    await libraryActions.deleteNotePermanentlyFromRow(this, note);
   };
 
   syncNow = async () => {
-    if (this.isArchiveBusy) {
-      this.syncQueued = true;
-      this.syncMessage = 'Sync paused during import/export';
-      return;
-    }
-    const token = getStoredSession()?.token ?? null;
-    this.hasToken = Boolean(token);
-    if (!token) return;
-    if (!hasStoredEncryptionKeyMaterial()) {
-      this.expireSession('Sign in again to sync encrypted notes');
-      return;
-    }
-    if (!this.isBrowserOnline) {
-      this.syncMessage = 'Offline';
-      return;
-    }
-    if (this.isSyncing) {
-      this.syncQueued = true;
-      return;
-    }
-
-    await this.flushPendingSave();
-
-    if (this.autoSyncTimer) {
-      clearTimeout(this.autoSyncTimer);
-      this.autoSyncTimer = null;
-    }
-    if (this.retrySyncTimer) {
-      clearTimeout(this.retrySyncTimer);
-      this.retrySyncTimer = null;
-    }
-    this.isSyncing = true;
-    this.updateSyncProgress({ phase: 'preparing' });
-    let syncCompleted = false;
-    try {
-      const result = await runSync(token, this.updateSyncProgress);
-      this.syncMessage =
-        result.conflicts > 0
-          ? `${result.conflicts} conflict${result.conflicts === 1 ? '' : 's'}`
-          : 'Local changes saved';
-      this.lastSyncPass = {
-        completedAt: new Date().toISOString(),
-        pushed: result.pushed,
-        pulled: result.pulled,
-        conflicts: result.conflicts
-      };
-      await clearSyncError();
-      await recordLastSyncPass(this.lastSyncPass);
-      await this.refresh();
-      await this.refreshRemoteSyncStatus(token);
-      this.pollRemoteSyncStatusIfBusy();
-      syncCompleted = true;
-    } catch (error) {
-      await this.handleSyncError(error);
-    } finally {
-      this.isSyncing = false;
-      this.syncActivityLabel = '';
-      this.syncActivityDetail = '';
-      const shouldSyncAgain =
-        syncCompleted && (this.syncQueued || this.pendingSyncCount > 0);
-      this.syncQueued = false;
-      if (shouldSyncAgain) {
-        this.scheduleSync(0);
-      }
-    }
+    await syncActions.syncNow(this);
   };
 
   exportMarkdown = async () => {
-    if (this.isArchiveBusy) return;
-    await this.flushPendingSave();
-    this.beginArchiveOperation('Exporting Markdown', 'Collecting notes', 16);
-    try {
-      await this.yieldToUi();
-      const archive = await exportNotesMarkdownZip();
-      this.updateArchiveOperation('Writing ZIP archive', 78);
-      await this.yieldToUi();
-      this.downloadBlob(archive.blob, archive.fileName);
-      this.updateArchiveOperation('Done', 100);
-      this.syncMessage = `Exported ${archive.noteCount} ${
-        archive.noteCount === 1 ? 'note' : 'notes'
-      }`;
-      this.notify('success', 'Export complete', this.syncMessage);
-      await this.yieldToUi();
-    } catch (error) {
-      this.syncMessage =
-        error instanceof Error ? error.message : 'Export failed';
-      this.notify('error', 'Export failed', this.syncMessage);
-    } finally {
-      this.endArchiveOperation();
-    }
+    await archiveActions.exportMarkdown(this);
   };
 
   startMarkdownImport = () => {
-    if (this.isArchiveBusy) return;
-    this.importMarkdownInput?.click();
+    archiveActions.startMarkdownImport(this);
   };
 
   handleMarkdownImport = async (event: Event) => {
-    const input = event.currentTarget as HTMLInputElement;
-    const files = input.files ? [...input.files] : [];
-    input.value = '';
-    if (!files.length || this.isArchiveBusy) return;
-
-    await this.flushPendingSave();
-    this.beginArchiveOperation('Importing Markdown', 'Reading folder', 8);
-    try {
-      await this.yieldToUi();
-      this.updateArchiveOperation(`Reading ${files.length} files`, 28);
-      const result = await importNotesMarkdownFiles(files);
-      this.updateArchiveOperation('Adding notes', 62);
-      await this.yieldToUi();
-      await this.refresh();
-      this.updateArchiveOperation('Refreshing library', 86);
-
-      const importedNote = this.notes.find(
-        (note) => note.id === result.noteIds[0]
-      );
-      if (importedNote) {
-        await this.selectNote(importedNote);
-      }
-
-      const message = importNotesMarkdownSummary(result);
-      this.syncMessage = message;
-      this.importBanner = {
-        kind: 'success',
-        title: 'Import succeeded',
-        message
-      };
-      this.notify('success', 'Import succeeded', message);
-      this.updateArchiveOperation('Done', 100);
-      await this.yieldToUi();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Import failed';
-      this.syncMessage = message;
-      this.importBanner = {
-        kind: 'error',
-        title: 'Import failed',
-        message
-      };
-      this.notify('error', 'Import failed', message);
-    } finally {
-      this.endArchiveOperation(true);
-    }
+    await archiveActions.handleMarkdownImport(this, event);
   };
 
   toggleLoginMenu = () => {
-    this.loginOpen = true;
     this.newNotebookOpen = false;
-    this.authMode = 'signin';
-    void this.refreshPublicConfig();
-    this.loginUsernameValue = getLoginHint();
-    this.deviceOtpLoginAvailable = hasStoredEncryptionKeyMaterial();
-    this.loginPasswordValue = '';
-    this.loginTotpCodeValue = '';
-    this.signupEmailValue = '';
-    this.signupConfirmPasswordValue = '';
-    this.loginError = '';
-    this.closeAccountMenu();
+    accountActions.openLoginSettings(this);
   };
 
   closeLoginModal = () => {
-    if (this.isLoggingIn) return;
-    this.loginOpen = false;
-    this.loginPasswordValue = '';
-    this.loginTotpCodeValue = '';
-    this.signupConfirmPasswordValue = '';
-    this.loginError = '';
+    accountActions.closeLoginModal(this);
   };
 
   setAuthMode = (mode: AuthMode) => {
-    if (this.isLoggingIn || this.authMode === mode) return;
-    if (mode === 'signup' && !this.signupEnabled) {
-      this.loginError = 'Signup is disabled';
-      return;
-    }
-    this.authMode = mode;
-    this.loginError = '';
-    this.deviceOtpLoginAvailable = hasStoredEncryptionKeyMaterial();
-    this.loginPasswordValue = '';
-    this.loginTotpCodeValue = '';
-    this.signupConfirmPasswordValue = '';
-    if (mode === 'signin') {
-      this.signupEmailValue = '';
-      this.loginUsernameValue = getLoginHint();
-    }
+    accountActions.setAuthMode(this, mode);
   };
 
   startAccountProfileEdit = () => {
-    this.accountProfileEditing = true;
-    this.accountPasswordEditing = false;
-    this.accountTotpEditing = false;
-    this.accountDeleteEditing = false;
-    this.accountError = '';
-    this.accountMessage = '';
+    accountActions.startAccountProfileEdit(this);
   };
 
   cancelAccountProfileEdit = () => {
-    this.accountProfileEditing = false;
-    this.accountEmail = getStoredSession()?.user.email ?? '';
-    this.accountError = '';
+    accountActions.cancelAccountProfileEdit(this);
   };
 
   startDeviceNameEdit = () => {
-    this.deviceNameEditing = true;
-    this.deviceNameValue = this.currentDeviceName;
-    this.deviceNameError = '';
-    this.accountMessage = '';
+    accountActions.startDeviceNameEdit(this);
   };
 
   cancelDeviceNameEdit = () => {
-    this.deviceNameEditing = false;
-    this.deviceNameValue = this.currentDeviceName;
-    this.deviceNameError = '';
+    accountActions.cancelDeviceNameEdit(this);
   };
 
   saveDeviceName = async () => {
-    const name = this.deviceNameValue.trim();
-    if (!name) {
-      this.deviceNameError = 'Device name required';
-      return;
-    }
-    if (this.isAccountBusy) return;
-
-    this.isAccountBusy = true;
-    this.deviceNameError = '';
-    this.accountMessage = '';
-    try {
-      const device = await renameCurrentDevice(name);
-      this.currentDeviceName = device.name;
-      this.deviceNameValue = device.name;
-      this.devices = [
-        device,
-        ...this.devices.filter((candidate) => candidate.id !== device.id)
-      ];
-      this.accountTrustedDevices = this.accountTrustedDevices.map((trusted) =>
-        trusted.deviceId === device.id
-          ? { ...trusted, deviceName: device.name }
-          : trusted
-      );
-      this.deviceNameEditing = false;
-      this.accountMessage = 'Device name saved';
-      this.notify('success', 'Device name saved');
-      if (this.hasToken) await this.syncNow();
-      await this.refreshAccount();
-    } catch (error) {
-      this.deviceNameError =
-        error instanceof Error ? error.message : 'Could not save device name';
-      this.notify('error', 'Device update failed', this.deviceNameError);
-    } finally {
-      this.isAccountBusy = false;
-    }
+    await accountActions.saveDeviceName(this);
   };
 
   startAccountPasswordEdit = () => {
-    this.accountPasswordEditing = true;
-    this.accountProfileEditing = false;
-    this.accountTotpEditing = false;
-    this.accountDeleteEditing = false;
-    this.currentPasswordValue = '';
-    this.newPasswordValue = '';
-    this.confirmPasswordValue = '';
-    this.accountError = '';
-    this.accountMessage = '';
+    accountActions.startAccountPasswordEdit(this);
   };
 
   cancelAccountPasswordEdit = () => {
-    this.accountPasswordEditing = false;
-    this.currentPasswordValue = '';
-    this.newPasswordValue = '';
-    this.confirmPasswordValue = '';
-    this.accountError = '';
+    accountActions.cancelAccountPasswordEdit(this);
   };
 
   startAccountTotpEdit = async () => {
-    const token = getStoredSession()?.token ?? null;
-    if (!token || this.isAccountBusy) return;
-    this.accountTotpEditing = true;
-    this.accountProfileEditing = false;
-    this.accountPasswordEditing = false;
-    this.accountDeleteEditing = false;
-    this.accountTotpCodeValue = '';
-    this.accountTotpPasswordValue = '';
-    this.accountError = '';
-    this.accountMessage = '';
-    if (this.accountTwoFactorEnabled) {
-      this.accountTotpSecret = '';
-      this.accountTotpUrl = '';
-      return;
-    }
-
-    this.isAccountBusy = true;
-    try {
-      const setup = await setupTotp(token);
-      this.accountTotpSecret = setup.secret;
-      this.accountTotpUrl = setup.otpauthUrl;
-    } catch (error) {
-      this.accountError =
-        error instanceof Error ? error.message : 'Could not start 2FA setup';
-      this.accountTotpEditing = false;
-    } finally {
-      this.isAccountBusy = false;
-    }
+    await accountActions.startAccountTotpEdit(this);
   };
 
   cancelAccountTotpEdit = () => {
-    this.accountTotpEditing = false;
-    this.accountTotpSecret = '';
-    this.accountTotpUrl = '';
-    this.accountTotpCodeValue = '';
-    this.accountTotpPasswordValue = '';
-    this.accountError = '';
+    accountActions.cancelAccountTotpEdit(this);
   };
 
   startAccountDeleteEdit = () => {
-    this.accountDeleteEditing = true;
-    this.accountProfileEditing = false;
-    this.accountPasswordEditing = false;
-    this.accountTotpEditing = false;
-    this.deletePasswordValue = '';
-    this.accountError = '';
-    this.accountMessage = '';
+    accountActions.startAccountDeleteEdit(this);
   };
 
   cancelAccountDeleteEdit = () => {
-    this.accountDeleteEditing = false;
-    this.deletePasswordValue = '';
-    this.accountError = '';
+    accountActions.cancelAccountDeleteEdit(this);
   };
 
   submitLoginMenu = async () => {
-    const username = this.loginUsernameValue.trim();
-    const password = this.loginPasswordValue;
-    const hasPassword = Boolean(password.trim());
-    const canUseDeviceOtpLogin =
-      this.authMode === 'signin' &&
-      !hasPassword &&
-      hasStoredEncryptionKeyMaterial();
-    if (this.isLoggingIn) return;
-    if (!username) {
-      this.loginError = 'Username required';
-      return;
-    }
-    if (!hasPassword && this.authMode === 'signup') {
-      this.loginError = 'Password required';
-      return;
-    }
-    if (this.authMode === 'signup' && password.length < MIN_PASSWORD_LENGTH) {
-      this.loginError = `Password must be at least ${MIN_PASSWORD_LENGTH} characters`;
-      return;
-    }
-    if (!hasPassword && !canUseDeviceOtpLogin) {
-      this.loginError = 'Password required on first login for this device';
-      return;
-    }
-    if (canUseDeviceOtpLogin && !this.loginTotpCodeValue.trim()) {
-      this.loginError = '2FA code required';
-      return;
-    }
-    if (
-      this.authMode === 'signup' &&
-      password !== this.signupConfirmPasswordValue
-    ) {
-      this.loginError = 'Passwords do not match';
-      return;
-    }
-    if (this.authMode === 'signup' && !this.signupEnabled) {
-      this.loginError = 'Signup is disabled';
-      return;
-    }
-    if (
-      this.authMode === 'signup' &&
-      this.signupEmailRequired &&
-      !this.signupEmailValue.trim()
-    ) {
-      this.loginError = 'Email required';
-      return;
-    }
-
-    this.isLoggingIn = true;
-    this.loginError = '';
-    let shouldSync = false;
-    try {
-      const storedUsername = getStoredSession()?.user.username ?? '';
-      const previousUsername =
-        storedUsername.trim() || getLoginHint().trim() || null;
-      const session =
-        this.authMode === 'signup'
-          ? await signup(username, this.signupEmailValue, password)
-          : await login(
-              username,
-              hasPassword ? password : null,
-              this.loginTotpCodeValue.trim() || null
-            );
-      let workspaceCleared = false;
-      try {
-        const workspace = await prepareLocalWorkspaceForAccount(
-          session.user.username,
-          previousUsername
-        );
-        workspaceCleared = workspace.cleared;
-      } catch (error) {
-        await logout(session.token).catch(() => undefined);
-        throw error;
-      }
-      const encryption = hasPassword
-        ? await prepareEncryptionPassword(session.user.username, password)
-        : {
-            previousMaterial: getEncryptionKeyMaterial(),
-            nextMaterial: getEncryptionKeyMaterial()
-          };
-      await adoptLocalWorkspaceForAccount({
-        username: session.user.username,
-        fallbackOwnerUsername: workspaceCleared ? null : previousUsername,
-        previousMaterial: encryption.previousMaterial,
-        nextMaterial: encryption.nextMaterial
-      });
-      commitEncryptionKeyMaterial(encryption.nextMaterial);
-      setStoredSession({
-        token: session.token,
-        user: session.user,
-        expiresAt: session.expiresAt
-      });
-      this.hasToken = true;
-      this.accountUsername = session.user.username;
-      this.accountEmail = session.user.email ?? '';
-      this.accountDisplayName = session.user.displayName ?? '';
-      this.accountTwoFactorEnabled = session.user.twoFactorEnabled;
-      this.accountTrustedDevices = [
-        {
-          deviceId: session.device.id,
-          deviceName: session.device.name,
-          createdAt: '',
-          lastUsedAt: '',
-          current: true
-        }
-      ];
-      this.deviceOtpLoginAvailable = hasStoredEncryptionKeyMaterial();
-      this.accountError = '';
-      this.accountMessage =
-        this.authMode === 'signup' ? 'Account created' : 'Signed in';
-      this.loginOpen = false;
-      this.authMode = 'signin';
-      this.loginUsernameValue = session.user.username;
-      this.loginPasswordValue = '';
-      this.loginTotpCodeValue = '';
-      this.signupEmailValue = '';
-      this.signupConfirmPasswordValue = '';
-      this.syncMessage = 'Signed in';
-      this.notify(
-        'success',
-        this.accountMessage,
-        'Syncing local and remote notes.'
-      );
-      shouldSync = true;
-      void this.refreshAccount(session.token);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Login failed';
-      this.loginError = message;
-      this.syncMessage = message;
-      this.notify('error', 'Sign-in failed', message);
-    } finally {
-      this.isLoggingIn = false;
-    }
-
-    if (shouldSync) void this.syncNow();
+    await accountActions.submitLoginMenu(this);
   };
 
   toggleTheme = () => {
-    this.theme = this.theme.startsWith('dark') ? 'light' : 'dark';
-    setTheme(this.theme);
+    uiActions.toggleTheme(this);
   };
 
   setThemeChoice = (theme: Theme) => {
-    this.theme = theme;
-    setTheme(theme);
+    uiActions.setThemeChoice(this, theme);
   };
 
   saveAccountProfile = async () => {
-    const storedSession = getStoredSession();
-    const token = storedSession?.token ?? null;
-    if (!token || this.isAccountBusy) return;
-    this.isAccountBusy = true;
-    this.accountError = '';
-    this.accountMessage = '';
-    try {
-      const response = await updateAccount(token, {
-        email: this.accountEmail || null
-      });
-      this.accountUsername = response.user.username;
-      this.accountEmail = response.user.email ?? '';
-      this.accountDisplayName = response.user.displayName ?? '';
-      this.accountTwoFactorEnabled = response.user.twoFactorEnabled;
-      this.accountTrustedDevices = response.trustedDevices ?? [];
-      setStoredSession({
-        token,
-        user: response.user,
-        expiresAt: storedSession?.expiresAt ?? null
-      });
-      this.accountMessage = 'Email saved';
-      this.accountProfileEditing = false;
-      this.notify('success', 'Email saved');
-    } catch (error) {
-      this.accountError =
-        error instanceof Error ? error.message : 'Could not save email';
-      this.notify('error', 'Email update failed', this.accountError);
-    } finally {
-      this.isAccountBusy = false;
-    }
+    await accountActions.saveAccountProfile(this);
   };
 
   changeAccountPassword = async () => {
-    const token = getStoredSession()?.token ?? null;
-    if (!token || this.isAccountBusy) return;
-    if (!this.currentPasswordValue.trim()) {
-      this.accountError = 'Current password required';
-      return;
-    }
-    if (!this.newPasswordValue.trim()) {
-      this.accountError = 'New password required';
-      return;
-    }
-    if (this.newPasswordValue.length < MIN_PASSWORD_LENGTH) {
-      this.accountError = `New password must be at least ${MIN_PASSWORD_LENGTH} characters`;
-      return;
-    }
-    if (this.newPasswordValue !== this.confirmPasswordValue) {
-      this.accountError = 'Passwords do not match';
-      return;
-    }
-
-    this.isAccountBusy = true;
-    this.accountError = '';
-    this.accountMessage = '';
-    let passwordChanged = false;
-    try {
-      const encryption = await prepareEncryptionPassword(
-        this.accountUsername,
-        this.newPasswordValue
-      );
-      await preflightReencryptLocalNotes(
-        encryption.previousMaterial,
-        encryption.nextMaterial
-      );
-      const response = await changePassword(token, {
-        currentPassword: this.currentPasswordValue,
-        newPassword: this.newPasswordValue
-      });
-      passwordChanged = true;
-      if (!response.session) {
-        throw new Error(
-          'Password changed, but Author could not create a session to sync the re-encrypted notes.'
-        );
-      }
-      await reencryptLocalNotes(
-        encryption.previousMaterial,
-        encryption.nextMaterial
-      );
-      commitEncryptionKeyMaterial(encryption.nextMaterial);
-      setStoredSession({
-        token: response.session.token,
-        user: response.user,
-        expiresAt: response.session.expiresAt
-      });
-      this.hasToken = true;
-      this.accountUsername = response.user.username;
-      this.accountEmail = response.user.email ?? '';
-      this.accountDisplayName = response.user.displayName ?? '';
-      this.accountTwoFactorEnabled = response.user.twoFactorEnabled;
-      this.accountTrustedDevices = response.trustedDevices ?? [];
-      this.currentPasswordValue = '';
-      this.newPasswordValue = '';
-      this.confirmPasswordValue = '';
-      this.accountPasswordEditing = false;
-      this.isSyncing = true;
-      this.syncMessage = 'Syncing password change';
-      this.updateSyncProgress({ phase: 'preparing' });
-      const syncResult = await runSync(
-        response.session.token,
-        this.updateSyncProgress
-      );
-      this.lastSyncPass = {
-        completedAt: new Date().toISOString(),
-        pushed: syncResult.pushed,
-        pulled: syncResult.pulled,
-        conflicts: syncResult.conflicts
-      };
-      await clearSyncError();
-      await recordLastSyncPass(this.lastSyncPass);
-      await this.refresh();
-      await this.refreshRemoteSyncStatus(response.session.token);
-      await logout(response.session.token).catch(() => undefined);
-      this.clearSensitiveWorkspace();
-      this.clearLocalSession({
-        accountMessage: 'Password changed. Sign in again to unlock notes.',
-        clearEncryptionKeyMaterial: true,
-        openLogin: true,
-        syncMessage: 'Sign in to unlock and sync'
-      });
-      this.loginUsernameValue = response.user.username;
-      this.notify(
-        'success',
-        'Password changed',
-        'Sign in again to unlock notes.'
-      );
-    } catch (error) {
-      const detail =
-        error instanceof Error ? error.message : 'Could not change password';
-      this.accountError = passwordChanged
-        ? `Password changed, but Author could not finish syncing re-encrypted notes. ${detail}`
-        : detail;
-      this.notify(
-        'error',
-        passwordChanged ? 'Password sync incomplete' : 'Password change failed',
-        this.accountError
-      );
-    } finally {
-      this.isSyncing = false;
-      this.syncActivityLabel = '';
-      this.syncActivityDetail = '';
-      this.isAccountBusy = false;
-    }
+    await accountActions.changeAccountPassword(this);
   };
 
   saveAccountTotp = async () => {
-    const storedSession = getStoredSession();
-    const token = storedSession?.token ?? null;
-    if (!token || this.isAccountBusy) return;
-    if (!this.accountTotpPasswordValue.trim()) {
-      this.accountError = 'Current password required';
-      return;
-    }
-    if (!this.accountTotpCodeValue.trim()) {
-      this.accountError = '2FA code required';
-      return;
-    }
-
-    this.isAccountBusy = true;
-    this.accountError = '';
-    this.accountMessage = '';
-    try {
-      const response = this.accountTwoFactorEnabled
-        ? await disableTotp(token, {
-            currentPassword: this.accountTotpPasswordValue,
-            totpCode: this.accountTotpCodeValue
-          })
-        : await enableTotp(token, {
-            currentPassword: this.accountTotpPasswordValue,
-            secret: this.accountTotpSecret,
-            totpCode: this.accountTotpCodeValue
-          });
-      this.accountUsername = response.user.username;
-      this.accountEmail = response.user.email ?? '';
-      this.accountDisplayName = response.user.displayName ?? '';
-      this.accountTwoFactorEnabled = response.user.twoFactorEnabled;
-      this.accountTrustedDevices = response.trustedDevices ?? [];
-      this.accountTotpEditing = false;
-      this.accountTotpSecret = '';
-      this.accountTotpUrl = '';
-      this.accountTotpCodeValue = '';
-      this.accountTotpPasswordValue = '';
-      this.clearLocalSession({
-        accountMessage: '2FA changed. Sign in again to keep syncing.',
-        openLogin: true,
-        syncMessage: 'Sign in to sync'
-      });
-      this.loginUsernameValue = response.user.username;
-      this.notify('success', '2FA changed', 'Sign in again to keep syncing.');
-    } catch (error) {
-      this.accountError =
-        error instanceof Error ? error.message : 'Could not update 2FA';
-      this.notify('error', '2FA update failed', this.accountError);
-    } finally {
-      this.isAccountBusy = false;
-    }
+    await accountActions.saveAccountTotp(this);
   };
 
   revokeTrustedDevice = async (deviceId: string) => {
-    const storedSession = getStoredSession();
-    const token = storedSession?.token ?? null;
-    if (!token || this.isAccountBusy) return;
-    this.isAccountBusy = true;
-    this.accountError = '';
-    this.accountMessage = '';
-    try {
-      const response = await revokeTrustedDeviceRequest(token, deviceId);
-      this.accountUsername = response.user.username;
-      this.accountEmail = response.user.email ?? '';
-      this.accountDisplayName = response.user.displayName ?? '';
-      this.accountTwoFactorEnabled = response.user.twoFactorEnabled;
-      this.accountTrustedDevices = response.trustedDevices ?? [];
-      setStoredSession({
-        token,
-        user: response.user,
-        expiresAt: storedSession?.expiresAt ?? null
-      });
-      this.deviceOtpLoginAvailable = this.accountTrustedDevices.some(
-        (device) => device.current
-      );
-      this.accountMessage = 'Trusted device removed';
-      this.notify('success', 'Trusted device removed');
-    } catch (error) {
-      this.accountError =
-        error instanceof Error
-          ? error.message
-          : 'Could not remove trusted device';
-      this.notify('error', 'Trusted device update failed', this.accountError);
-    } finally {
-      this.isAccountBusy = false;
-    }
+    await accountActions.revokeTrustedDevice(this, deviceId);
   };
 
   logoutAccount = async () => {
-    const token = getStoredSession()?.token ?? null;
-    if (this.isAccountBusy) return;
-    this.isAccountBusy = true;
-    this.accountError = '';
-    try {
-      if (token) await logout(token).catch(() => undefined);
-      this.clearSensitiveWorkspace();
-      this.clearLocalSession({
-        accountMessage: 'Signed out and locked',
-        clearEncryptionKeyMaterial: true,
-        openLogin: true,
-        syncMessage: 'Sign in to unlock and sync'
-      });
-      this.notify(
-        'info',
-        'Signed out and locked',
-        'Sign in to unlock notes on this browser.'
-      );
-    } finally {
-      this.isAccountBusy = false;
-    }
+    await accountActions.logoutAccount(this);
   };
 
   deleteAccount = async () => {
-    const token = getStoredSession()?.token ?? null;
-    if (!token || this.isAccountBusy) return;
-    if (!this.deletePasswordValue.trim()) {
-      this.accountError = 'Password required to delete account';
-      return;
-    }
-    this.isAccountBusy = true;
-    this.accountError = '';
-    this.accountMessage = '';
-    try {
-      await this.flushPendingSave();
-      await deleteAccount(token, { password: this.deletePasswordValue });
-      await clearLocalWorkspace();
-      await this.refresh();
-      this.openDraftNote();
-      this.deletePasswordValue = '';
-      this.accountDeleteEditing = false;
-      this.clearLocalSession({
-        accountMessage: 'Account deleted',
-        clearEncryptionKeyMaterial: true,
-        syncMessage: 'Sign in to sync'
-      });
-      this.notify('info', 'Account deleted');
-    } catch (error) {
-      this.accountError =
-        error instanceof Error ? error.message : 'Could not delete account';
-      this.notify('error', 'Delete account failed', this.accountError);
-    } finally {
-      this.isAccountBusy = false;
-    }
+    await accountActions.deleteAccount(this);
   };
 
   resolveActiveConflict = async (choice: ConflictChoice) => {
-    if (!this.activeConflict) return;
-    await resolveConflict(this.activeConflict.id, choice);
-    await this.refresh();
-    await this.syncNow();
+    await syncActions.resolveActiveConflict(this, choice);
   };
 
   conflictMessage = (conflict: LocalConflict): string => {
@@ -2007,7 +930,7 @@ export class NotesPageController
     }
   };
 
-  private refreshPublicConfig = async () => {
+  refreshPublicConfig = async () => {
     try {
       const config = await loadConfig();
       this.signupEnabled = config.signup.enabled;
@@ -2024,68 +947,17 @@ export class NotesPageController
     }
   };
 
-  private refreshAccount = async (
-    token = getStoredSession()?.token ?? null
-  ) => {
-    if (!token || !this.hasToken) return;
-    try {
-      const account = await loadAccount(token);
-      const storedSession = getStoredSession();
-      this.accountUsername = account.user.username;
-      this.accountEmail = account.user.email ?? '';
-      this.accountDisplayName = account.user.displayName ?? '';
-      this.accountTwoFactorEnabled = account.user.twoFactorEnabled;
-      this.accountTrustedDevices = account.trustedDevices ?? [];
-      setStoredSession({
-        token,
-        user: account.user,
-        expiresAt: storedSession?.expiresAt ?? null
-      });
-    } catch (error) {
-      if (error instanceof AuthError) {
-        this.expireSession('Sign in again to sync encrypted notes');
-      }
-    }
+  refreshAccount = async (token = getStoredSession()?.token ?? null) => {
+    await syncActions.refreshAccount(this, token);
   };
 
   private resumeOnlineSession = async (
     token = getStoredSession()?.token ?? null
   ) => {
-    if (!token) {
-      this.hasToken = false;
-      return;
-    }
-
-    if (!hasStoredEncryptionKeyMaterial()) {
-      this.expireSession('Sign in again to sync encrypted notes');
-      return;
-    }
-
-    try {
-      const session = await validateSession(token);
-      this.hasToken = true;
-      this.accountUsername = session.user.username;
-      this.accountEmail = session.user.email ?? '';
-      this.accountDisplayName = session.user.displayName ?? '';
-      this.accountTwoFactorEnabled = session.user.twoFactorEnabled;
-      setStoredSession({
-        token,
-        user: session.user,
-        expiresAt: session.expiresAt
-      });
-      await rememberLocalWorkspaceAccount(session.user.username);
-      void this.refreshAccount(token);
-      if (!this.isBrowserOnline) {
-        this.syncMessage = 'Offline';
-        return;
-      }
-      await this.syncNow();
-    } catch (error) {
-      await this.handleSyncError(error);
-    }
+    await syncActions.resumeOnlineSession(this, token);
   };
 
-  private refresh = async () => {
+  refresh = async () => {
     const [
       notes,
       notebooks,
@@ -2124,20 +996,16 @@ export class NotesPageController
     this.pruneSelectedNotes(notes, trash);
   };
 
-  private clearPendingSave = () => {
-    if (this.saveTimer) {
-      clearTimeout(this.saveTimer);
-      this.saveTimer = null;
-    }
-    this.pendingSaveNoteId = null;
+  clearPendingSave = () => {
+    editorActions.clearPendingSave(this);
   };
 
-  private closeNotebookMenus = () => {
+  closeNotebookMenus = () => {
     this.linkingNoteId = null;
     this.selectedNotebookMenuOpen = false;
   };
 
-  private closeMenus = () => {
+  closeMenus = () => {
     if (this.menuCloseTimer) {
       clearTimeout(this.menuCloseTimer);
       this.menuCloseTimer = null;
@@ -2169,72 +1037,26 @@ export class NotesPageController
     }
   };
 
-  private flushPendingSave = async () => {
-    if (!this.saveTimer) return;
-    const noteId = this.pendingSaveNoteId;
-    this.clearPendingSave();
-    await this.saveEditorNow(noteId);
+  flushPendingSave = async () => {
+    await editorActions.flushPendingSave(this);
   };
 
-  private openDraftNote = () => {
-    this.clearPendingSave();
-    this.editorSessionId += 1;
-    this.selectedNote = null;
-    this.closeNotebookMenus();
-    this.titleValue = '';
-    this.bodyValue = '';
-    this.resetEditorHistory();
-    void this.focusEditor('title');
+  openDraftNote = () => {
+    editorActions.openDraftNote(this);
   };
 
-  private clearSensitiveWorkspace = () => {
-    this.clearPendingSave();
-    this.editorSessionId += 1;
-    this.notes = [];
-    this.notebooks = [];
-    this.trash = [];
-    this.conflicts = [];
-    this.selectedNote = null;
-    this.selectedNoteIds = new Set();
-    this.titleValue = '';
-    this.bodyValue = '';
-    this.filterId = 'all';
-    this.pendingSyncCount = 0;
-    this.closeNotebookMenus();
-    this.resetEditorHistory();
+  clearSensitiveWorkspace = () => {
+    editorActions.clearSensitiveWorkspace(this);
   };
 
   private focusEditor = async (target: 'title' | 'body') => {
-    await tick();
-    const element = target === 'body' ? this.bodyTextarea : this.titleInput;
-    if (!element || element.readOnly) return;
-
-    element.focus({ preventScroll: true });
-    element.setSelectionRange(element.value.length, element.value.length);
-  };
-
-  private currentEditorSnapshot = (): EditorSnapshot => ({
-    title: this.titleValue,
-    body: this.bodyValue
-  });
-
-  private resetEditorHistory = () => {
-    this.undoStack = [];
-    this.redoStack = [];
-    this.lastHistorySnapshot = this.currentEditorSnapshot();
-  };
-
-  private applyEditorHistorySnapshot = (snapshot: EditorSnapshot) => {
-    this.titleValue = snapshot.title;
-    this.bodyValue = snapshot.body;
-    this.lastHistorySnapshot = snapshot;
-    this.scheduleNoteSave();
+    await editorActions.focusEditor(this, target);
   };
 
   private isEditorEventTarget = (target: EventTarget | null): boolean =>
-    target === this.titleInput || target === this.bodyTextarea;
+    editorActions.isEditorEventTarget(this, target);
 
-  private closeContextMenu = () => {
+  closeContextMenu = () => {
     this.contextMenu = null;
   };
 
@@ -2248,7 +1070,7 @@ export class NotesPageController
     this.loginModal?.focus({ preventScroll: true });
   };
 
-  private downloadBlob = (blob: Blob, fileName: string) => {
+  downloadBlob = (blob: Blob, fileName: string) => {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
@@ -2260,11 +1082,7 @@ export class NotesPageController
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
-  private beginArchiveOperation = (
-    label: string,
-    detail: string,
-    progress: number
-  ) => {
+  beginArchiveOperation = (label: string, detail: string, progress: number) => {
     this.settingsSection = 'data';
     this.isImporting = true;
     this.archiveOperation = { label, detail, progress };
@@ -2276,7 +1094,7 @@ export class NotesPageController
     }
   };
 
-  private updateArchiveOperation = (detail: string, progress: number) => {
+  updateArchiveOperation = (detail: string, progress: number) => {
     if (!this.archiveOperation) return;
     this.archiveOperation = {
       ...this.archiveOperation,
@@ -2285,7 +1103,7 @@ export class NotesPageController
     };
   };
 
-  private endArchiveOperation = (syncAfter = false) => {
+  endArchiveOperation = (syncAfter = false) => {
     this.archiveOperation = null;
     this.isImporting = false;
     if (syncAfter || this.syncQueued) {
@@ -2294,91 +1112,14 @@ export class NotesPageController
     }
   };
 
-  private yieldToUi = async () => {
+  yieldToUi = async () => {
     await tick();
     await new Promise<void>((resolve) =>
       requestAnimationFrame(() => resolve())
     );
   };
 
-  private saveEditorNow = async (noteId: string | null) => {
-    const currentNoteId = noteId ?? this.selectedNote?.id ?? null;
-
-    if (currentNoteId) {
-      const updated = await updateNoteContent(
-        currentNoteId,
-        this.titleValue,
-        this.bodyValue
-      );
-      if (updated && this.selectedNote?.id === currentNoteId) {
-        this.selectedNote = updated;
-      }
-    } else if (this.titleValue.trim() || this.bodyValue.trim()) {
-      const draftSessionId = this.editorSessionId;
-      if (!this.draftCreatePromise) {
-        this.draftCreatePromise = createBlankNote({
-          title: this.titleValue,
-          body: this.bodyValue,
-          notebookId: this.draftNotebookId()
-        });
-      }
-
-      const draftCreatePromise = this.draftCreatePromise;
-      try {
-        const note = await draftCreatePromise;
-        const stillEditingDraft =
-          this.editorSessionId === draftSessionId &&
-          (this.selectedNote === null || this.selectedNote.id === note.id);
-        if (stillEditingDraft) {
-          this.selectedNote = note;
-
-          if (
-            note.title !== this.titleValue.trim() ||
-            note.body !== this.bodyValue
-          ) {
-            const updated = await updateNoteContent(
-              note.id,
-              this.titleValue,
-              this.bodyValue
-            );
-            if (updated) this.selectedNote = updated;
-          }
-        }
-      } finally {
-        if (this.draftCreatePromise === draftCreatePromise) {
-          this.draftCreatePromise = null;
-        }
-      }
-    }
-
-    await this.refresh();
-  };
-
-  private scheduleNoteSave = () => {
-    if (this.selectedNote?.trashedAt) return;
-    this.clearPendingSave();
-    const noteId = this.selectedNote?.id ?? null;
-    this.pendingSaveNoteId = noteId;
-    if (this.selectedNote) {
-      this.selectedNote = {
-        ...this.selectedNote,
-        title: this.titleValue.trim(),
-        body: this.bodyValue,
-        updatedAt: new Date().toISOString(),
-        syncStatus: 'pending'
-      };
-    }
-
-    this.saveTimer = setTimeout(async () => {
-      this.saveTimer = null;
-      await this.saveEditorNow(noteId);
-    }, 120);
-  };
-
-  private draftNotebookId = (): string | null =>
-    EMPTY_NOTEBOOK_FILTERS.has(this.filterId) ? null : this.filterId;
-
-  private clearLocalSession = ({
+  clearLocalSession = ({
     accountMessage = '',
     clearEncryptionKeyMaterial = false,
     openLogin = false,
@@ -2450,11 +1191,7 @@ export class NotesPageController
     );
   };
 
-  private notify = (
-    kind: AppNotification['kind'],
-    title: string,
-    message = ''
-  ) => {
+  notify = (kind: AppNotification['kind'], title: string, message = '') => {
     const id = crypto.randomUUID();
     this.notifications = [
       ...this.notifications.slice(-2),
@@ -2517,10 +1254,7 @@ export class NotesPageController
     );
   }
 
-  private localNotebookNameExists = (
-    name: string,
-    excludeId?: string
-  ): boolean => {
+  localNotebookNameExists = (name: string, excludeId?: string): boolean => {
     const normalized = normalizeNotebookName(name);
     if (!normalized) return false;
     return this.notebooks.some(
@@ -2530,115 +1264,30 @@ export class NotesPageController
     );
   };
 
-  private scheduleSync = (delayMs = AUTO_SYNC_DELAY_MS) => {
-    if (!this.hasToken || !this.isBrowserOnline) return;
-    if (this.isArchiveBusy) {
-      this.syncQueued = true;
-      return;
-    }
-    if (this.isSyncing) {
-      this.syncQueued = true;
-      return;
-    }
-    if (this.autoSyncTimer) return;
-
-    this.autoSyncTimer = setTimeout(() => {
-      this.autoSyncTimer = null;
-      void this.syncNow();
-    }, delayMs);
+  scheduleSync = (delayMs = AUTO_SYNC_DELAY_MS) => {
+    syncActions.scheduleSync(this, delayMs);
   };
 
-  private scheduleSyncRetry = () => {
-    if (!this.hasToken || !this.isBrowserOnline || this.retrySyncTimer) return;
-    this.retrySyncTimer = setTimeout(() => {
-      this.retrySyncTimer = null;
-      this.scheduleSync(0);
-    }, SYNC_RETRY_DELAY_MS);
+  scheduleSyncRetry = () => {
+    syncActions.scheduleSyncRetry(this, SYNC_RETRY_DELAY_MS);
   };
 
-  private updateSyncProgress = (progress: SyncProgress) => {
-    const copy = syncProgressCopy(progress);
-    this.syncActivityLabel = copy.label;
-    this.syncActivityDetail = copy.detail;
-    this.syncMessage = copy.label;
+  updateSyncProgress = (progress: SyncProgress) => {
+    syncActions.updateSyncProgress(this, progress);
   };
 
-  private refreshRemoteSyncStatus = async (
+  refreshRemoteSyncStatus = async (
     token = getStoredSession()?.token ?? null
   ) => {
-    if (!token || !this.isBrowserOnline) return;
-    try {
-      const status = await loadSyncStatus(token);
-      this.remoteSyncEnabled = status.remote.enabled;
-      this.remoteSyncState = status.remote.state;
-      this.remoteSyncError = status.remote.lastError ?? '';
-      if (status.remote.lastError) {
-        await recordSyncError(status.remote.lastError, 'Remote sync');
-        await this.refresh();
-      }
-    } catch (error) {
-      await recordSyncError(error, 'Remote sync status');
-      await this.refresh();
-      if (error instanceof AuthError) {
-        this.expireSession(error.message);
-        return;
-      }
-      this.remoteSyncEnabled = true;
-      this.remoteSyncState = 'error';
-      this.remoteSyncError =
-        error instanceof Error ? error.message : 'Could not check remote sync';
-    }
+    await syncActions.refreshRemoteSyncStatus(this, token);
   };
 
-  private pollRemoteSyncStatusIfBusy = () => {
-    if (this.remoteStatusTimer) {
-      clearTimeout(this.remoteStatusTimer);
-      this.remoteStatusTimer = null;
-    }
-    if (
-      !this.hasToken ||
-      !this.remoteSyncEnabled ||
-      (this.remoteSyncState !== 'queued' && this.remoteSyncState !== 'syncing')
-    ) {
-      return;
-    }
-
-    this.remoteStatusTimer = setTimeout(async () => {
-      this.remoteStatusTimer = null;
-      await this.refreshRemoteSyncStatus();
-      this.pollRemoteSyncStatusIfBusy();
-    }, 1500);
+  expireSession = (message = 'Login expired') => {
+    syncActions.expireSession(this, message);
   };
 
-  private expireSession = (message = 'Login expired') => {
-    const displayMessage =
-      message.toLowerCase() === 'unauthorized' ? 'Login expired' : message;
-    this.clearLocalSession({
-      accountMessage: displayMessage,
-      openLogin: true,
-      syncMessage: displayMessage
-    });
-    this.notify('error', 'Session ended', displayMessage);
-  };
-
-  private handleSyncError = async (error: unknown) => {
-    await recordSyncError(error, 'Sync');
-    await this.refresh();
-
-    if (error instanceof AuthError) {
-      this.expireSession(error.message);
-      return;
-    }
-
-    if (!navigator.onLine) {
-      this.isBrowserOnline = false;
-      this.syncMessage = 'Offline';
-      return;
-    }
-
-    this.syncMessage = error instanceof Error ? error.message : 'Sync failed';
-    this.notify('error', 'Sync failed', this.syncMessage);
-    this.scheduleSyncRetry();
+  handleSyncError = async (error: unknown) => {
+    await syncActions.handleSyncError(this, error);
   };
 }
 

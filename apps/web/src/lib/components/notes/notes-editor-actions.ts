@@ -1,0 +1,310 @@
+import { tick } from 'svelte';
+import type { LocalConflict, LocalNote, LocalNotebook } from '$lib/client/db';
+import { createBlankNote, updateNoteContent } from '$lib/client/store';
+import { pushEditorHistory, sameEditorSnapshot } from './editor-history';
+import type { NotesFilterId } from './notes-controller-models';
+import type { ContextMenuState, EditorSnapshot } from './ui-types';
+
+const EMPTY_NOTEBOOK_FILTERS = new Set<NotesFilterId>([
+  'all',
+  'unfiled',
+  'trash'
+]);
+const MAX_EDITOR_HISTORY = 120;
+
+export interface NotesEditorActionController {
+  bodyTextarea: HTMLTextAreaElement | null;
+  bodyValue: string;
+  canRedoEditor: boolean;
+  canUndoEditor: boolean;
+  conflicts: LocalConflict[];
+  contextMenu: ContextMenuState;
+  draftCreatePromise: Promise<LocalNote> | null;
+  editorSessionId: number;
+  filterId: NotesFilterId;
+  lastHistorySnapshot: EditorSnapshot;
+  notes: LocalNote[];
+  notebooks: LocalNotebook[];
+  pendingSaveNoteId: string | null;
+  pendingSyncCount: number;
+  redoStack: EditorSnapshot[];
+  saveTimer: ReturnType<typeof setTimeout> | null;
+  selectedNote: LocalNote | null;
+  selectedNoteIds: Set<string>;
+  selectedNotebookMenuOpen: boolean;
+  titleInput: HTMLInputElement | null;
+  titleValue: string;
+  trash: LocalNote[];
+  undoStack: EditorSnapshot[];
+
+  closeMenus: () => void;
+  closeNotebookMenus: () => void;
+  refresh: () => Promise<void>;
+}
+
+export async function selectNote(
+  controller: NotesEditorActionController,
+  note: LocalNote
+): Promise<void> {
+  controller.closeMenus();
+  await flushPendingSave(controller);
+  controller.editorSessionId += 1;
+  controller.selectedNote = note;
+  controller.closeNotebookMenus();
+  controller.titleValue = note.title;
+  controller.bodyValue = note.body;
+  resetEditorHistory(controller);
+  void focusEditor(controller, note.title || note.body ? 'body' : 'title');
+}
+
+export async function newNote(
+  controller: NotesEditorActionController
+): Promise<void> {
+  controller.closeMenus();
+  await flushPendingSave(controller);
+  controller.filterId = 'all';
+  openDraftNote(controller);
+}
+
+export function handleEditorInput(
+  controller: NotesEditorActionController,
+  event: Event,
+  field: 'title' | 'body'
+): void {
+  const value = (event.currentTarget as HTMLInputElement | HTMLTextAreaElement)
+    .value;
+  const nextSnapshot = {
+    title: field === 'title' ? value : controller.titleValue,
+    body: field === 'body' ? value : controller.bodyValue
+  };
+
+  if (field === 'title') {
+    controller.titleValue = value;
+  } else {
+    controller.bodyValue = value;
+  }
+
+  if (!sameEditorSnapshot(controller.lastHistorySnapshot, nextSnapshot)) {
+    controller.undoStack = pushEditorHistory(
+      controller.undoStack,
+      controller.lastHistorySnapshot,
+      MAX_EDITOR_HISTORY
+    );
+    controller.redoStack = [];
+    controller.lastHistorySnapshot = nextSnapshot;
+  }
+
+  scheduleNoteSave(controller);
+}
+
+export function undoEditorHistory(
+  controller: NotesEditorActionController
+): void {
+  if (!controller.canUndoEditor) return;
+  const current = currentEditorSnapshot(controller);
+  const snapshot = controller.undoStack[controller.undoStack.length - 1];
+  if (!snapshot) return;
+  controller.undoStack = controller.undoStack.slice(0, -1);
+  controller.redoStack = pushEditorHistory(
+    controller.redoStack,
+    current,
+    MAX_EDITOR_HISTORY
+  );
+  applyEditorHistorySnapshot(controller, snapshot);
+}
+
+export function redoEditorHistory(
+  controller: NotesEditorActionController
+): void {
+  if (!controller.canRedoEditor) return;
+  const current = currentEditorSnapshot(controller);
+  const snapshot = controller.redoStack[controller.redoStack.length - 1];
+  if (!snapshot) return;
+  controller.redoStack = controller.redoStack.slice(0, -1);
+  controller.undoStack = pushEditorHistory(
+    controller.undoStack,
+    current,
+    MAX_EDITOR_HISTORY
+  );
+  applyEditorHistorySnapshot(controller, snapshot);
+}
+
+export function clearPendingSave(
+  controller: NotesEditorActionController
+): void {
+  if (controller.saveTimer) {
+    clearTimeout(controller.saveTimer);
+    controller.saveTimer = null;
+  }
+  controller.pendingSaveNoteId = null;
+}
+
+export async function flushPendingSave(
+  controller: NotesEditorActionController
+): Promise<void> {
+  if (!controller.saveTimer) return;
+  const noteId = controller.pendingSaveNoteId;
+  clearPendingSave(controller);
+  await saveEditorNow(controller, noteId);
+}
+
+export function openDraftNote(controller: NotesEditorActionController): void {
+  clearPendingSave(controller);
+  controller.editorSessionId += 1;
+  controller.selectedNote = null;
+  controller.closeNotebookMenus();
+  controller.titleValue = '';
+  controller.bodyValue = '';
+  resetEditorHistory(controller);
+  void focusEditor(controller, 'title');
+}
+
+export function clearSensitiveWorkspace(
+  controller: NotesEditorActionController
+): void {
+  clearPendingSave(controller);
+  controller.editorSessionId += 1;
+  controller.notes = [];
+  controller.notebooks = [];
+  controller.trash = [];
+  controller.conflicts = [];
+  controller.selectedNote = null;
+  controller.selectedNoteIds = new Set();
+  controller.titleValue = '';
+  controller.bodyValue = '';
+  controller.filterId = 'all';
+  controller.pendingSyncCount = 0;
+  controller.closeNotebookMenus();
+  resetEditorHistory(controller);
+}
+
+export async function focusEditor(
+  controller: NotesEditorActionController,
+  target: 'title' | 'body'
+): Promise<void> {
+  await tick();
+  const element =
+    target === 'body' ? controller.bodyTextarea : controller.titleInput;
+  if (!element || element.readOnly) return;
+
+  element.focus({ preventScroll: true });
+  element.setSelectionRange(element.value.length, element.value.length);
+}
+
+export function isEditorEventTarget(
+  controller: NotesEditorActionController,
+  target: EventTarget | null
+): boolean {
+  return target === controller.titleInput || target === controller.bodyTextarea;
+}
+
+async function saveEditorNow(
+  controller: NotesEditorActionController,
+  noteId: string | null
+): Promise<void> {
+  const currentNoteId = noteId ?? controller.selectedNote?.id ?? null;
+
+  if (currentNoteId) {
+    const updated = await updateNoteContent(
+      currentNoteId,
+      controller.titleValue,
+      controller.bodyValue
+    );
+    if (updated && controller.selectedNote?.id === currentNoteId) {
+      controller.selectedNote = updated;
+    }
+  } else if (controller.titleValue.trim() || controller.bodyValue.trim()) {
+    const draftSessionId = controller.editorSessionId;
+    if (!controller.draftCreatePromise) {
+      controller.draftCreatePromise = createBlankNote({
+        title: controller.titleValue,
+        body: controller.bodyValue,
+        notebookId: draftNotebookId(controller)
+      });
+    }
+
+    const draftCreatePromise = controller.draftCreatePromise;
+    try {
+      const note = await draftCreatePromise;
+      const stillEditingDraft =
+        controller.editorSessionId === draftSessionId &&
+        (controller.selectedNote === null ||
+          controller.selectedNote.id === note.id);
+      if (stillEditingDraft) {
+        controller.selectedNote = note;
+
+        if (
+          note.title !== controller.titleValue.trim() ||
+          note.body !== controller.bodyValue
+        ) {
+          const updated = await updateNoteContent(
+            note.id,
+            controller.titleValue,
+            controller.bodyValue
+          );
+          if (updated) controller.selectedNote = updated;
+        }
+      }
+    } finally {
+      if (controller.draftCreatePromise === draftCreatePromise) {
+        controller.draftCreatePromise = null;
+      }
+    }
+  }
+
+  await controller.refresh();
+}
+
+function scheduleNoteSave(controller: NotesEditorActionController): void {
+  if (controller.selectedNote?.trashedAt) return;
+  clearPendingSave(controller);
+  const noteId = controller.selectedNote?.id ?? null;
+  controller.pendingSaveNoteId = noteId;
+  if (controller.selectedNote) {
+    controller.selectedNote = {
+      ...controller.selectedNote,
+      title: controller.titleValue.trim(),
+      body: controller.bodyValue,
+      updatedAt: new Date().toISOString(),
+      syncStatus: 'pending'
+    };
+  }
+
+  controller.saveTimer = setTimeout(async () => {
+    controller.saveTimer = null;
+    await saveEditorNow(controller, noteId);
+  }, 120);
+}
+
+function currentEditorSnapshot(
+  controller: NotesEditorActionController
+): EditorSnapshot {
+  return {
+    title: controller.titleValue,
+    body: controller.bodyValue
+  };
+}
+
+function resetEditorHistory(controller: NotesEditorActionController): void {
+  controller.undoStack = [];
+  controller.redoStack = [];
+  controller.lastHistorySnapshot = currentEditorSnapshot(controller);
+}
+
+function applyEditorHistorySnapshot(
+  controller: NotesEditorActionController,
+  snapshot: EditorSnapshot
+): void {
+  controller.titleValue = snapshot.title;
+  controller.bodyValue = snapshot.body;
+  controller.lastHistorySnapshot = snapshot;
+  scheduleNoteSave(controller);
+}
+
+function draftNotebookId(
+  controller: NotesEditorActionController
+): string | null {
+  return EMPTY_NOTEBOOK_FILTERS.has(controller.filterId)
+    ? null
+    : controller.filterId;
+}

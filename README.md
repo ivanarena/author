@@ -8,9 +8,9 @@
 ![Lint: ESLint](https://img.shields.io/badge/lint-eslint-4B32C3)
 ![Coverage: Vitest](https://img.shields.io/badge/coverage-vitest-6E9F18)
 
-A super minimal local-first notes app for personal use.
+A super minimal offline-first notes app for personal use.
 
-The web app opens directly into a blank note, writes instantly to IndexedDB, and syncs to a small Hono API running inside SvelteKit. The self-hosted default is local SQLite/libSQL on disk; when Turso/libSQL is configured the server keeps SQLite active and mirrors local/remote records in both directions. Cloudflare Workers deployments use Turso directly as their primary database. The data contracts live in shared packages so the Kotlin Android app can implement the same model and sync protocol.
+The web app opens directly into a blank note, writes instantly to browser storage, and syncs to a small Hono API running inside SvelteKit whenever the network is available. The self-hosted default is local SQLite/libSQL on disk; when Turso/libSQL is configured the server keeps SQLite active and mirrors local/remote records in both directions. Cloudflare Workers deployments use Turso directly as their primary database. The data contracts live in shared packages so the Kotlin Android app can implement the same model and sync protocol.
 
 ## Quick Start
 

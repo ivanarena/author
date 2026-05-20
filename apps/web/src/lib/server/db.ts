@@ -31,6 +31,7 @@ const schemaSql = `
 
   CREATE TABLE IF NOT EXISTS devices (
     id TEXT PRIMARY KEY,
+    owner_username TEXT NOT NULL DEFAULT 'legacy-token',
     name TEXT NOT NULL,
     last_seen_at TEXT NOT NULL
   );
@@ -434,6 +435,7 @@ async function migrateNotebookIds(db: NotesDb): Promise<void> {
 async function migrateSyncOwnershipAndHashes(db: NotesDb): Promise<void> {
   const owner = defaultDataOwner();
   const ownerTables = [
+    'devices',
     'notes',
     'notebooks',
     'note_versions',
@@ -472,6 +474,8 @@ async function migrateSyncOwnershipAndHashes(db: NotesDb): Promise<void> {
        ON entity_changes(owner_username, entity_type, entity_id, revision);
      CREATE INDEX IF NOT EXISTS notebooks_active_name_idx
        ON notebooks(owner_username, deleted_at, name);
+     CREATE INDEX IF NOT EXISTS devices_owner_id_idx
+       ON devices(owner_username, id);
      CREATE TABLE IF NOT EXISTS entity_tombstones (
        owner_username TEXT NOT NULL,
        entity_type TEXT NOT NULL,
@@ -494,7 +498,7 @@ async function seedEntityChanges(db: NotesDb): Promise<void> {
   await exec(
     db,
     `INSERT INTO entity_changes (owner_username, entity_type, entity_id, operation, updated_at)
-       SELECT ${sqlString(defaultDataOwner())}, 'device', id, 'upsert', last_seen_at FROM devices;
+       SELECT owner_username, 'device', id, 'upsert', last_seen_at FROM devices;
      INSERT INTO entity_changes (owner_username, entity_type, entity_id, operation, updated_at)
        SELECT owner_username, 'notebook', id, 'upsert', updated_at FROM notebooks;
      INSERT INTO entity_changes (owner_username, entity_type, entity_id, operation, updated_at)
@@ -687,6 +691,31 @@ export const SERVER_MIGRATIONS: ServerMigration[] = [
         );
       }
       await run(db, 'DELETE FROM trusted_auth_devices');
+    }
+  },
+  {
+    version: 12,
+    name: 'owned-devices',
+    rollback:
+      'Restore from the pre-upgrade backup. Device ownership is a forward-only metadata hardening change.',
+    up: async (db) => {
+      const owner = defaultDataOwner();
+      if (!(await hasColumn(db, 'devices', 'owner_username'))) {
+        await run(
+          db,
+          `ALTER TABLE devices ADD COLUMN owner_username TEXT NOT NULL DEFAULT ${sqlString(owner)}`
+        );
+      }
+      await run(
+        db,
+        `UPDATE devices SET owner_username = ? WHERE owner_username IS NULL OR owner_username = ''`,
+        [owner]
+      );
+      await run(
+        db,
+        `CREATE INDEX IF NOT EXISTS devices_owner_id_idx
+           ON devices(owner_username, id)`
+      );
     }
   }
 ];

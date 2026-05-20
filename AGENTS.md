@@ -1,6 +1,6 @@
 # Agent Guidelines
 
-Author is a minimal local-first notes app. Keep changes small, boring, and aligned with the existing architecture.
+Author is a minimal offline-first notes app. Keep changes small, boring, and aligned with the existing architecture.
 
 ## Core Intent
 
@@ -11,7 +11,7 @@ Author is a minimal local-first notes app. Keep changes small, boring, and align
 
 ## Useful Agent Skills
 
-### Local-First Sync
+### Offline-First Sync
 
 Use this skill when editing `apps/web/src/lib/client/sync.ts`, `apps/web/src/lib/server/hono.ts`, `apps/web/src/lib/server/repository.ts`, `packages/sync-spec`, or Android sync code.
 

@@ -11,6 +11,16 @@ const EMPTY_NOTEBOOK_FILTERS = new Set<NotesFilterId>([
   'trash'
 ]);
 const MAX_EDITOR_HISTORY = 120;
+const EDITOR_RECOVERY_KEY = 'author-editor-recovery-v1';
+
+interface EditorRecoverySnapshot {
+  version: 1;
+  noteId: string | null;
+  notebookId: string | null;
+  title: string;
+  body: string;
+  savedAt: string;
+}
 
 export interface NotesEditorActionController {
   bodyTextarea: HTMLTextAreaElement | null;
@@ -40,6 +50,7 @@ export interface NotesEditorActionController {
   closeMenus: () => void;
   closeNotebookMenus: () => void;
   refresh: () => Promise<void>;
+  scheduleSync?: (delayMs?: number) => void;
 }
 
 export async function selectNote(
@@ -95,6 +106,7 @@ export function handleEditorInput(
   }
 
   scheduleNoteSave(controller);
+  rememberEditorRecovery(controller);
 }
 
 export function undoEditorHistory(
@@ -139,6 +151,86 @@ export function clearPendingSave(
   controller.pendingSaveNoteId = null;
 }
 
+export async function restoreEditorRecovery(
+  controller: NotesEditorActionController
+): Promise<boolean> {
+  const recovery = readEditorRecovery();
+  if (!recovery) return false;
+
+  if (!recovery.noteId && !recovery.title.trim() && !recovery.body.trim()) {
+    clearEditorRecovery();
+    return false;
+  }
+
+  if (recovery.noteId) {
+    const existing = [...controller.notes, ...controller.trash].find(
+      (note) => note.id === recovery.noteId
+    );
+    if (!existing || existing.deletedAt || existing.trashedAt) {
+      clearEditorRecovery();
+      return false;
+    }
+
+    let note = existing;
+    if (
+      existing.title !== recovery.title.trim() ||
+      existing.body !== recovery.body
+    ) {
+      note =
+        (await updateNoteContent(
+          recovery.noteId,
+          recovery.title,
+          recovery.body
+        )) ?? existing;
+      await controller.refresh();
+      note =
+        [...controller.notes, ...controller.trash].find(
+          (candidate) => candidate.id === recovery.noteId
+        ) ?? note;
+    }
+
+    controller.editorSessionId += 1;
+    controller.selectedNote = note;
+    controller.closeNotebookMenus();
+    controller.titleValue = recovery.title;
+    controller.bodyValue = recovery.body;
+    resetEditorHistory(controller);
+    clearEditorRecoveryIfMatches(
+      recovery.noteId,
+      recovery.title,
+      recovery.body
+    );
+    void focusEditor(
+      controller,
+      recovery.title || recovery.body ? 'body' : 'title'
+    );
+    controller.scheduleSync?.(0);
+    return true;
+  }
+
+  const note = await createBlankNote({
+    title: recovery.title,
+    body: recovery.body,
+    notebookId: recovery.notebookId
+  });
+  await controller.refresh();
+  const current =
+    controller.notes.find((candidate) => candidate.id === note.id) ?? note;
+  controller.editorSessionId += 1;
+  controller.selectedNote = current;
+  controller.closeNotebookMenus();
+  controller.titleValue = recovery.title;
+  controller.bodyValue = recovery.body;
+  resetEditorHistory(controller);
+  clearEditorRecovery();
+  void focusEditor(
+    controller,
+    recovery.title || recovery.body ? 'body' : 'title'
+  );
+  controller.scheduleSync?.(0);
+  return true;
+}
+
 export async function flushPendingSave(
   controller: NotesEditorActionController
 ): Promise<void> {
@@ -150,6 +242,7 @@ export async function flushPendingSave(
 
 export function openDraftNote(controller: NotesEditorActionController): void {
   clearPendingSave(controller);
+  clearEditorRecovery();
   controller.editorSessionId += 1;
   controller.selectedNote = null;
   controller.closeNotebookMenus();
@@ -163,6 +256,7 @@ export function clearSensitiveWorkspace(
   controller: NotesEditorActionController
 ): void {
   clearPendingSave(controller);
+  clearEditorRecovery();
   controller.editorSessionId += 1;
   controller.notes = [];
   controller.notebooks = [];
@@ -203,12 +297,15 @@ async function saveEditorNow(
   noteId: string | null
 ): Promise<void> {
   const currentNoteId = noteId ?? controller.selectedNote?.id ?? null;
+  const titleToSave = controller.titleValue;
+  const bodyToSave = controller.bodyValue;
+  let savedNoteId: string | null = currentNoteId;
 
   if (currentNoteId) {
     const updated = await updateNoteContent(
       currentNoteId,
-      controller.titleValue,
-      controller.bodyValue
+      titleToSave,
+      bodyToSave
     );
     if (updated && controller.selectedNote?.id === currentNoteId) {
       controller.selectedNote = updated;
@@ -217,8 +314,8 @@ async function saveEditorNow(
     const draftSessionId = controller.editorSessionId;
     if (!controller.draftCreatePromise) {
       controller.draftCreatePromise = createBlankNote({
-        title: controller.titleValue,
-        body: controller.bodyValue,
+        title: titleToSave,
+        body: bodyToSave,
         notebookId: draftNotebookId(controller)
       });
     }
@@ -226,6 +323,8 @@ async function saveEditorNow(
     const draftCreatePromise = controller.draftCreatePromise;
     try {
       const note = await draftCreatePromise;
+      savedNoteId = note.id;
+      rememberEditorRecoveryNoteId(null, note.id, titleToSave, bodyToSave);
       const stillEditingDraft =
         controller.editorSessionId === draftSessionId &&
         (controller.selectedNote === null ||
@@ -233,14 +332,11 @@ async function saveEditorNow(
       if (stillEditingDraft) {
         controller.selectedNote = note;
 
-        if (
-          note.title !== controller.titleValue.trim() ||
-          note.body !== controller.bodyValue
-        ) {
+        if (note.title !== titleToSave.trim() || note.body !== bodyToSave) {
           const updated = await updateNoteContent(
             note.id,
-            controller.titleValue,
-            controller.bodyValue
+            titleToSave,
+            bodyToSave
           );
           if (updated) controller.selectedNote = updated;
         }
@@ -253,6 +349,10 @@ async function saveEditorNow(
   }
 
   await controller.refresh();
+  if (savedNoteId) {
+    clearEditorRecoveryIfMatches(savedNoteId, titleToSave, bodyToSave);
+  }
+  controller.scheduleSync?.(0);
 }
 
 function scheduleNoteSave(controller: NotesEditorActionController): void {
@@ -274,6 +374,102 @@ function scheduleNoteSave(controller: NotesEditorActionController): void {
     controller.saveTimer = null;
     await saveEditorNow(controller, noteId);
   }, 120);
+}
+
+function safeLocalStorage(): Storage | null {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function readEditorRecovery(): EditorRecoverySnapshot | null {
+  const raw = safeLocalStorage()?.getItem(EDITOR_RECOVERY_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<EditorRecoverySnapshot>;
+    if (parsed.version !== 1) return null;
+    return {
+      version: 1,
+      noteId: typeof parsed.noteId === 'string' ? parsed.noteId : null,
+      notebookId:
+        typeof parsed.notebookId === 'string' ? parsed.notebookId : null,
+      title: typeof parsed.title === 'string' ? parsed.title : '',
+      body: typeof parsed.body === 'string' ? parsed.body : '',
+      savedAt: typeof parsed.savedAt === 'string' ? parsed.savedAt : ''
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeEditorRecovery(snapshot: EditorRecoverySnapshot): void {
+  safeLocalStorage()?.setItem(EDITOR_RECOVERY_KEY, JSON.stringify(snapshot));
+}
+
+function clearEditorRecovery(): void {
+  safeLocalStorage()?.removeItem(EDITOR_RECOVERY_KEY);
+}
+
+function rememberEditorRecovery(controller: NotesEditorActionController): void {
+  if (controller.selectedNote?.trashedAt) return;
+  const noteId = controller.selectedNote?.id ?? null;
+  if (
+    !noteId &&
+    !controller.titleValue.trim() &&
+    !controller.bodyValue.trim()
+  ) {
+    clearEditorRecovery();
+    return;
+  }
+
+  writeEditorRecovery({
+    version: 1,
+    noteId,
+    notebookId: draftNotebookId(controller),
+    title: controller.titleValue,
+    body: controller.bodyValue,
+    savedAt: new Date().toISOString()
+  });
+}
+
+function rememberEditorRecoveryNoteId(
+  previousNoteId: string | null,
+  nextNoteId: string,
+  title: string,
+  body: string
+): void {
+  const recovery = readEditorRecovery();
+  if (
+    !recovery ||
+    recovery.noteId !== previousNoteId ||
+    recovery.title !== title ||
+    recovery.body !== body
+  ) {
+    return;
+  }
+
+  writeEditorRecovery({
+    ...recovery,
+    noteId: nextNoteId,
+    savedAt: new Date().toISOString()
+  });
+}
+
+function clearEditorRecoveryIfMatches(
+  noteId: string,
+  title: string,
+  body: string
+): void {
+  const recovery = readEditorRecovery();
+  if (
+    recovery?.noteId === noteId &&
+    recovery.title === title &&
+    recovery.body === body
+  ) {
+    clearEditorRecovery();
+  }
 }
 
 function currentEditorSnapshot(
@@ -299,6 +495,7 @@ function applyEditorHistorySnapshot(
   controller.bodyValue = snapshot.body;
   controller.lastHistorySnapshot = snapshot;
   scheduleNoteSave(controller);
+  rememberEditorRecovery(controller);
 }
 
 function draftNotebookId(

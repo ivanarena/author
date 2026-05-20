@@ -1,8 +1,8 @@
 # Sync Protocol
 
-The sync protocol is deliberately small.
+The offline-first sync protocol is deliberately small.
 
-1. Client saves all edits locally first.
+1. Client saves all edits locally first so typing, notebook changes, import/export, and trash actions keep working offline.
 2. On app open, the client pushes local pending changes in bounded batches. If only the local device name changed, the client may send an otherwise empty push so the server can update device metadata.
 3. The server accepts a change only when `baseVersion` matches the current remote version, or when the remote content is identical.
 4. If the remote version changed, the remote row was hard-deleted after the client's base version, or a pushed notebook would duplicate an active notebook name, the server returns a conflict instead of overwriting.
@@ -36,13 +36,15 @@ without reusing nonces or exposing plaintext names. Sync metadata and notebook a
 plain so versioning and relationship repair stay small.
 Password-derived note key material uses Argon2id for primary encryption with compatibility
 PBKDF2-SHA-256 and legacy SHA-256 fallback material embedded in the local key-material string so
-upgraded clients can decrypt and republish older encrypted rows. Sync-capable password key material
-is kept in browser `sessionStorage` for the active session; unsigned local-only browsers generate
-random local key material in `localStorage` so offline drafts still work without an account. New key
-material can still decrypt older PBKDF2-derived `enc:v2` envelopes and `enc:v1` SHA-256-derived
-envelopes so browsers and Android can re-encrypt and republish notes during normal sync. This
-avoids storing note plaintext remotely, but it is not a hardened zero-knowledge design for weak
-passwords or compromised browsers.
+upgraded clients can decrypt and republish older encrypted rows. Sync-capable browser key material
+is persisted on the signed-in device so users can keep working offline and survive normal browser
+restarts without a password prompt; unsigned local-only browsers generate random local key material
+in `localStorage` so offline drafts still work without an account. New key material can still
+decrypt older PBKDF2-derived `enc:v2` envelopes and `enc:v1` SHA-256-derived envelopes so browsers
+and Android can re-encrypt and republish notes during normal sync. This avoids storing note
+plaintext remotely by default, but Author is intentionally not a hardened zero-knowledge system:
+account recovery and offline usability are allowed to take priority over making every server or
+browser compromise unrecoverable.
 Older local fallback envelopes remain decryptable so existing local data can be migrated.
 Browsers with an old session token but no stored encryption key material must sign in again before
 syncing encrypted notes.

@@ -49,9 +49,9 @@ preserving it; spoofed prefix text is treated as plaintext and encrypted. Legacy
 `enc:v1` rows are migrated by the browser or Android app before normal reads and sync.
 Markdown is not parsed or rendered.
 
-Notes, notebooks, entity changes, tombstones, and version snapshots include `owner_username` so
-sync results are scoped to the authenticated account. Legacy token data is stored under
-`legacy-token`.
+Devices, notes, notebooks, entity changes, tombstones, and version snapshots include
+`owner_username` so sync results and device labels are scoped to the authenticated
+account. Legacy token data is stored under `legacy-token`.
 
 Password-derived client encryption keys use Argon2id for new ciphertext. Existing PBKDF2-derived
 and legacy SHA-256-derived password envelopes remain decryptable so clients can republish them

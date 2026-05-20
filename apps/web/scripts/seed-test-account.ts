@@ -66,7 +66,7 @@ const notesByNotebook: Record<string, Array<[string, string]>> = {
   Work: [
     [
       'Monday standup',
-      'Ship the profile menu cleanup, verify local-first loading, and test sync.'
+      'Ship the profile menu cleanup, verify offline-first loading, and test sync.'
     ],
     [
       'Review notes',
@@ -113,7 +113,7 @@ const notesByNotebook: Record<string, Array<[string, string]>> = {
     ],
     [
       'Article queue',
-      'Local-first design, SQLite replication notes, and Compose text fields.'
+      'Offline-first design, SQLite replication notes, and Compose text fields.'
     ],
     ['Quotes', 'The useful thing is usually smaller than the dramatic thing.']
   ],

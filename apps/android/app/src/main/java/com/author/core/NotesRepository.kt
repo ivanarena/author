@@ -9,6 +9,8 @@ import com.author.UpdateCheckWorker
 import java.security.SecureRandom
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
@@ -40,6 +42,7 @@ private const val LAST_SYNC_ERROR_STACK_KEY = "lastSyncErrorStack"
 private const val LAST_PUSHED_DEVICE_SIGNATURE_KEY = "lastPushedDeviceSignature"
 private const val PUSH_BATCH_SIZE = 20
 private const val PULL_BATCH_SIZE = 1000
+private val syncMutex = Mutex()
 private val THEMES =
   setOf(
     "light",
@@ -689,6 +692,11 @@ class NotesRepository(context: Context) {
   suspend fun runSync(
     token: String,
     onProgress: suspend (SyncProgress) -> Unit = {},
+  ): SyncRunResult = syncMutex.withLock { runSyncLocked(token, onProgress) }
+
+  private suspend fun runSyncLocked(
+    token: String,
+    onProgress: suspend (SyncProgress) -> Unit,
   ): SyncRunResult =
     withContext(Dispatchers.IO) {
       try {

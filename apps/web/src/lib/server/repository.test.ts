@@ -1032,6 +1032,37 @@ describe('server repository', () => {
     }
   });
 
+  it('does not let another owner overwrite an existing device label', async () => {
+    const db = await openMemoryDatabase();
+    try {
+      await upsertDevice(
+        db,
+        { id: fixtureDevice.id, name: 'Alice laptop' },
+        undefined,
+        'alice'
+      );
+      await upsertDevice(
+        db,
+        { id: fixtureDevice.id, name: 'Bob phone' },
+        undefined,
+        'bob'
+      );
+
+      expect(
+        (await getDevicesByIds(db, [fixtureDevice.id], 'alice')).get(
+          fixtureDevice.id
+        )?.name
+      ).toBe('Alice laptop');
+      expect(
+        (await getDevicesByIds(db, [fixtureDevice.id], 'bob')).has(
+          fixtureDevice.id
+        )
+      ).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+
   it('treats remote DB-backed users as authoritative', async () => {
     const local = await openMemoryDatabase();
     const remote = await openMemoryDatabase();

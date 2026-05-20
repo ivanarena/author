@@ -314,7 +314,7 @@ describe('client note encryption', () => {
 
     commitEncryptionKeyMaterial(material);
 
-    expect(storage.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY)).toBeNull();
+    expect(storage.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY)).toBe(material);
     expect(session.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY)).toBe(material);
     expect(getEncryptionKeyMaterial()).toBe(material);
     expect(hasStoredEncryptionKeyMaterial()).toBe(true);

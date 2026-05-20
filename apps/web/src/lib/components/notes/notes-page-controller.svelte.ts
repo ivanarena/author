@@ -417,7 +417,7 @@ export class NotesPageController
       return;
     }
 
-    void this.flushPendingSave();
+    void this.flushPendingSave().then(() => this.scheduleSync(0));
   };
 
   handlePageHide = () => {
@@ -922,7 +922,9 @@ export class NotesPageController
     }
     await ensureLocalNotesEncrypted();
     await this.refresh();
-    this.openDraftNote();
+    if (!(await editorActions.restoreEditorRecovery(this))) {
+      this.openDraftNote();
+    }
 
     this.hasToken = Boolean(storedSession?.token);
     if (storedSession?.token) {

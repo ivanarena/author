@@ -1,6 +1,6 @@
 # Author Android
 
-Native Android client for the Author local-first notes app.
+Native Android client for the Author offline-first notes app.
 
 ## Build
 

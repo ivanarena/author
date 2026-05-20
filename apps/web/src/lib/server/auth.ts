@@ -907,7 +907,9 @@ export async function listTrustedAuthDevices(
     `SELECT trusted_auth_devices.device_id, trusted_auth_devices.created_at,
             trusted_auth_devices.last_used_at, devices.name AS device_name
      FROM trusted_auth_devices
-     LEFT JOIN devices ON devices.id = trusted_auth_devices.device_id
+     LEFT JOIN devices
+       ON devices.id = trusted_auth_devices.device_id
+      AND devices.owner_username = trusted_auth_devices.username
      WHERE trusted_auth_devices.username = ?
        AND trusted_auth_devices.secret_hash IS NOT NULL
      ORDER BY trusted_auth_devices.last_used_at DESC,

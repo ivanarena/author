@@ -314,6 +314,24 @@ test('shows local IndexedDB notes after a browser reload', async ({ page }) => {
   await expect(page.getByLabel('Note body')).toHaveValue(bodyText);
 });
 
+test('recovers editor text when reload interrupts the debounced save', async ({
+  page
+}) => {
+  await page.goto('/');
+  await waitForDraftEditorReady(page);
+
+  const titleText = `Interrupted reload note ${Date.now()}`;
+  const bodyText = 'Recovered from the synchronous editor recovery snapshot';
+
+  await page.getByLabel('Note title').fill(titleText);
+  await page.getByLabel('Note body').fill(bodyText);
+  await page.reload();
+
+  await expect(page.getByLabel('Note title')).toHaveValue(titleText);
+  await expect(page.getByLabel('Note body')).toHaveValue(bodyText);
+  await expectBrowserStoredEncryptedNote(page, titleText, bodyText);
+});
+
 test('logs in from the profile menu when no session is stored', async ({
   page
 }) => {

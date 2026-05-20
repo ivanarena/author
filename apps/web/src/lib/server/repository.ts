@@ -351,7 +351,7 @@ export async function upsertDevice(
 ): Promise<void> {
   const existing = (await queryOne(
     db,
-    'SELECT name FROM devices WHERE id = ?',
+    'SELECT owner_username, name FROM devices WHERE id = ?',
     [device.id]
   )) as Row | null;
   const latestOperation = await latestEntityOperation(
@@ -360,13 +360,30 @@ export async function upsertDevice(
     'device',
     device.id
   );
+  const existingOwner = asNullableString(existing?.owner_username);
+  if (existing && existingOwner && existingOwner !== ownerUsername) {
+    if (latestOperation !== 'upsert') {
+      await recordEntityChange(
+        db,
+        'device',
+        device.id,
+        'upsert',
+        seenAt,
+        ownerUsername
+      );
+    }
+    return;
+  }
 
   await runSql(
     db,
-    `INSERT INTO devices (id, name, last_seen_at)
-     VALUES (?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET name = excluded.name, last_seen_at = excluded.last_seen_at`,
-    [device.id, device.name, seenAt]
+    `INSERT INTO devices (id, owner_username, name, last_seen_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       owner_username = excluded.owner_username,
+       name = excluded.name,
+       last_seen_at = excluded.last_seen_at`,
+    [device.id, ownerUsername, device.name, seenAt]
   );
 
   if (
@@ -387,11 +404,14 @@ export async function upsertDevice(
 
 async function getDeviceName(
   db: NotesExecutor,
-  deviceId: string
+  deviceId: string,
+  ownerUsername = LEGACY_OWNER_USERNAME
 ): Promise<string> {
-  const row = (await queryOne(db, 'SELECT name FROM devices WHERE id = ?', [
-    deviceId
-  ])) as Row | null;
+  const row = (await queryOne(
+    db,
+    'SELECT name FROM devices WHERE owner_username = ? AND id = ?',
+    [ownerUsername, deviceId]
+  )) as Row | null;
   return row ? asString(row.name) : deviceId;
 }
 
@@ -510,15 +530,17 @@ export async function getNotebooksByIds(
 
 export async function getDevicesByIds(
   db: NotesExecutor,
-  ids: string[]
+  ids: string[],
+  ownerUsername?: string
 ): Promise<Map<string, Device>> {
   const uniqueIds = uniqueEntityIds(ids);
   const devices = new Map<string, Device>();
   for (const chunk of chunks(uniqueIds, 200)) {
+    const ownerFilter = ownerUsername ? 'owner_username = ? AND ' : '';
     const rows = (await queryAll(
       db,
-      `SELECT id, name FROM devices WHERE id IN (${placeholders(chunk.length)})`,
-      chunk
+      `SELECT id, name FROM devices WHERE ${ownerFilter}id IN (${placeholders(chunk.length)})`,
+      ownerUsername ? [ownerUsername, ...chunk] : chunk
     )) as Row[];
     for (const row of rows) {
       const device = toDevice(row);
@@ -631,7 +653,7 @@ async function deviceIsReferenced(
   const row = await queryOne(
     db,
     `SELECT
-       (SELECT count(*) FROM notes WHERE device_id = ?) +
+      (SELECT count(*) FROM notes WHERE device_id = ?) +
        (SELECT count(*) FROM notebooks WHERE device_id = ?) +
        (SELECT count(*) FROM auth_sessions WHERE device_id = ?) AS references_count`,
     [deviceId, deviceId, deviceId]
@@ -647,7 +669,11 @@ export async function deleteDevicesByIds(
   const uniqueIds = [...new Set(ids)].filter(Boolean);
   for (const id of uniqueIds) {
     if (!(await deviceIsReferenced(db, id))) {
-      await runSql(db, 'DELETE FROM devices WHERE id = ?', [id]);
+      await runSql(
+        db,
+        'DELETE FROM devices WHERE owner_username = ? AND id = ?',
+        [ownerUsername, id]
+      );
     }
     if (
       (await latestEntityOperation(db, ownerUsername, 'device', id)) !==
@@ -895,7 +921,7 @@ export async function pullMirrorChangesSinceRevision(
   }
 
   const [devices, notes, notebooks] = await Promise.all([
-    getDevicesByIds(db, deviceIds),
+    getDevicesByIds(db, deviceIds, ownerUsername),
     getNotesByIds(db, noteIds, ownerUsername),
     getNotebooksByIds(db, notebookIds, ownerUsername)
   ]);
@@ -1257,12 +1283,14 @@ async function conflictVersion<T extends Note | Notebook>(
   db: NotesExecutor,
   source: 'local' | 'remote',
   record: T,
+  ownerUsername: string,
   deviceName?: string
 ): Promise<ConflictVersion<T>> {
   return {
     source,
     deviceId: record.deviceId,
-    deviceName: deviceName ?? (await getDeviceName(db, record.deviceId)),
+    deviceName:
+      deviceName ?? (await getDeviceName(db, record.deviceId, ownerUsername)),
     updatedAt: record.updatedAt,
     version: record.version,
     previewText: previewText(record),
@@ -1276,6 +1304,7 @@ async function makeConflict<T extends Note | Notebook>(
   local: T,
   remote: T,
   localDeviceName: string,
+  ownerUsername: string,
   reason?: SyncConflict<T>['reason']
 ): Promise<SyncConflict<T>> {
   return {
@@ -1284,8 +1313,14 @@ async function makeConflict<T extends Note | Notebook>(
     entityId: local.id,
     reason:
       reason ?? (remote.deletedAt ? 'deleted_remotely' : 'remote_changed'),
-    local: await conflictVersion(db, 'local', local, localDeviceName),
-    remote: await conflictVersion(db, 'remote', remote)
+    local: await conflictVersion(
+      db,
+      'local',
+      local,
+      ownerUsername,
+      localDeviceName
+    ),
+    remote: await conflictVersion(db, 'remote', remote, ownerUsername)
   };
 }
 
@@ -1420,6 +1455,7 @@ export async function pushChanges(
             change.record,
             deletedRemote,
             request.device.name,
+            ownerUsername,
             'deleted_remotely'
           )
         );
@@ -1436,7 +1472,8 @@ export async function pushChanges(
             'notebook',
             change.record,
             remote,
-            request.device.name
+            request.device.name,
+            ownerUsername
           )
         );
         continue;
@@ -1467,6 +1504,7 @@ export async function pushChanges(
             change.record,
             duplicate,
             request.device.name,
+            ownerUsername,
             'duplicate_name'
           )
         );
@@ -1556,6 +1594,7 @@ export async function pushChanges(
             change.record,
             deletedRemote,
             request.device.name,
+            ownerUsername,
             'deleted_remotely'
           )
         );
@@ -1575,7 +1614,8 @@ export async function pushChanges(
             'note',
             syncableNote.note,
             remote,
-            request.device.name
+            request.device.name,
+            ownerUsername
           )
         );
         continue;

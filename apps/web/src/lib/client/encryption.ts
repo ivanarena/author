@@ -135,13 +135,6 @@ export function getEncryptionKeyMaterial(): string {
 
   const stored = currentStorage?.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY);
   if (stored) {
-    if (isSyncKeyMaterial(stored)) {
-      currentStorage?.removeItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY);
-      currentSessionStorage?.setItem(
-        ENCRYPTION_KEY_MATERIAL_STORAGE_KEY,
-        stored
-      );
-    }
     return stored;
   }
   if (currentStorage) {
@@ -256,7 +249,7 @@ export async function prepareEncryptionPassword(
 
 export function commitEncryptionKeyMaterial(keyMaterial: string): void {
   if (isSyncKeyMaterial(keyMaterial)) {
-    storage()?.removeItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY);
+    storage()?.setItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY, keyMaterial);
     sessionStorageSafe()?.setItem(
       ENCRYPTION_KEY_MATERIAL_STORAGE_KEY,
       keyMaterial

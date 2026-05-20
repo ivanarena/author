@@ -21,6 +21,29 @@ function envValue(name: string, env?: RuntimeEnv | null): string | undefined {
   return env?.[name] ?? runtimeEnv?.[name] ?? process.env[name];
 }
 
+function isProductionEnv(env?: RuntimeEnv | null): boolean {
+  return envValue('NODE_ENV', env) === 'production';
+}
+
+function isPlaceholderSecret(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return (
+    normalized.includes('change-this') ||
+    normalized.includes('local-dev') ||
+    normalized.includes('use-a-long-random')
+  );
+}
+
+function requireNonPlaceholderProductionSecret(
+  name: string,
+  value: string | null | undefined
+): void {
+  if (!isProductionEnv() || !value) return;
+  if (isPlaceholderSecret(value)) {
+    throw new Error(`${name} must be changed before production use`);
+  }
+}
+
 function dataRootIsWritable(): boolean {
   return process.env.NODE_ENV === 'production';
 }
@@ -133,14 +156,22 @@ export function getLoginUsername(): string {
 
 export function getLoginPassword(): string | null {
   const password = envValue('NOTES_LOGIN_PASSWORD');
-  if (password !== undefined) return password.trim() ? password : null;
+  if (password !== undefined) {
+    const trimmed = password.trim();
+    requireNonPlaceholderProductionSecret('NOTES_LOGIN_PASSWORD', trimmed);
+    return trimmed ? password : null;
+  }
   return envValue('NODE_ENV') === 'production' ? null : 'local-dev-password';
 }
 
 export function getServerSecret(): string {
   const configured =
     envValue('NOTES_SERVER_SECRET') ?? envValue('NOTES_TOTP_SECRET_KEY');
-  if (configured?.trim()) return configured.trim();
+  if (configured?.trim()) {
+    const trimmed = configured.trim();
+    requireNonPlaceholderProductionSecret('NOTES_SERVER_SECRET', trimmed);
+    return trimmed;
+  }
 
   if (envValue('NODE_ENV') === 'production') {
     throw new Error('NOTES_SERVER_SECRET is required in production');

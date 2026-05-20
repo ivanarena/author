@@ -14,6 +14,7 @@ import { api } from './hono';
 import { getNote, pushChanges, setSyncMeta } from './repository';
 
 let tempDir: string;
+const fixtureDeviceTrustSecret = 'test-device-trust-secret-0123456789';
 
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'author-api-'));
@@ -61,7 +62,12 @@ async function loginToken(
     new Request('http://localhost/api/auth/login', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ username, password, device: fixtureDevice })
+      body: JSON.stringify({
+        username,
+        password,
+        device: fixtureDevice,
+        deviceTrustSecret: fixtureDeviceTrustSecret
+      })
     })
   );
   expect(login.status).toBe(200);
@@ -398,7 +404,8 @@ describe('Hono API', () => {
           username: 'new-user',
           email: 'new@example.com',
           password: 'new-user-password',
-          device: fixtureDevice
+          device: fixtureDevice,
+          deviceTrustSecret: fixtureDeviceTrustSecret
         })
       })
     );
@@ -446,7 +453,8 @@ describe('Hono API', () => {
           username: 'new-user',
           email: 'new@example.com',
           password: 'new-user-password',
-          device: fixtureDevice
+          device: fixtureDevice,
+          deviceTrustSecret: fixtureDeviceTrustSecret
         })
       })
     );
@@ -970,6 +978,7 @@ describe('Hono API', () => {
         body: JSON.stringify({
           username: 'owner',
           totpCode: totpCode(setupBody.secret),
+          deviceTrustSecret: fixtureDeviceTrustSecret,
           device: fixtureDevice
         })
       })
@@ -993,6 +1002,7 @@ describe('Hono API', () => {
         body: JSON.stringify({
           username: 'owner',
           totpCode: totpCode(setupBody.secret),
+          deviceTrustSecret: fixtureDeviceTrustSecret,
           device: fixtureDevice
         })
       })
@@ -1342,11 +1352,25 @@ describe('Hono API', () => {
         body: JSON.stringify({
           username: 'owner',
           totpCode: totpCode(setupBody.secret),
+          deviceTrustSecret: fixtureDeviceTrustSecret,
           device: fixtureDevice
         })
       })
     );
     expect(trustedDeviceCode.status).toBe(200);
+
+    const trustedDeviceWithoutSecret = await api.fetch(
+      new Request('http://localhost/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'owner',
+          totpCode: totpCode(setupBody.secret),
+          device: fixtureDevice
+        })
+      })
+    );
+    expect(trustedDeviceWithoutSecret.status).toBe(401);
 
     const unknownDeviceCode = await api.fetch(
       new Request('http://localhost/api/auth/login', {

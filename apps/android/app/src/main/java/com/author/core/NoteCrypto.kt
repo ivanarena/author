@@ -20,6 +20,7 @@ private const val LOCAL_KEY_PREFIX = "local:v2:"
 private const val FALLBACK_KEY_MATERIAL = "author:local:v1"
 private const val PASSWORD_KDF_ITERATIONS = 210_000
 private const val PASSWORD_KDF_SALT_PREFIX = "author:password-key:v2"
+private const val LEGACY_NOTEBOOK_NAME_CONTEXT = "notebook:name"
 
 class NoteCrypto(
   private val prefs: SharedPreferences,
@@ -32,6 +33,8 @@ class NoteCrypto(
   fun isCurrentEncryptedText(value: String): Boolean = encryptedEnvelope(value)?.version == "v2"
 
   fun isCurrentFieldHash(value: String?): Boolean = value?.startsWith(HASH_V2_PREFIX) == true
+
+  fun notebookNameContext(notebook: LocalNotebook): String = "notebook:${notebook.id}:name"
 
   fun canDecryptEncryptedText(
     value: String,
@@ -216,23 +219,40 @@ class NoteCrypto(
     notebook: LocalNotebook,
     keyMaterial: String = getEncryptionKeyMaterial(),
   ): LocalNotebook {
-    val nameContext = "notebook:name"
+    val nameContext = notebookNameContext(notebook)
     val nameAlreadyEncrypted = canDecryptEncryptedText(notebook.name, keyMaterial, nameContext)
+    val plainName = if (nameAlreadyEncrypted) null else decryptNotebookName(notebook, keyMaterial)
     val nameHash =
       if (nameAlreadyEncrypted) notebook.nameHash
-      else fieldHash(normalizedNotebookName(notebook.name), keyMaterial, nameContext)
+      else
+        fieldHash(
+          normalizedNotebookName(plainName ?: notebook.name),
+          keyMaterial,
+          LEGACY_NOTEBOOK_NAME_CONTEXT,
+        )
     return notebook.copy(
       nameHash = nameHash,
       name =
         if (nameAlreadyEncrypted) notebook.name
-        else encryptText(notebook.name, keyMaterial, nameContext),
+        else encryptText(plainName ?: notebook.name, keyMaterial, nameContext),
     )
+  }
+
+  private fun decryptNotebookName(notebook: LocalNotebook, keyMaterial: String): String {
+    val currentContext = notebookNameContext(notebook)
+    if (canDecryptEncryptedText(notebook.name, keyMaterial, currentContext)) {
+      return decryptText(notebook.name, keyMaterial, currentContext)
+    }
+    if (canDecryptEncryptedText(notebook.name, keyMaterial, LEGACY_NOTEBOOK_NAME_CONTEXT)) {
+      return decryptText(notebook.name, keyMaterial, LEGACY_NOTEBOOK_NAME_CONTEXT)
+    }
+    return notebook.name
   }
 
   fun decryptNotebookFields(
     notebook: LocalNotebook,
     keyMaterial: String = getEncryptionKeyMaterial(),
-  ): LocalNotebook = notebook.copy(name = decryptText(notebook.name, keyMaterial, "notebook:name"))
+  ): LocalNotebook = notebook.copy(name = decryptNotebookName(notebook, keyMaterial))
 
   fun reencryptNotebookFields(
     notebook: LocalNotebook,

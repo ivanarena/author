@@ -33,23 +33,37 @@ class SyncClient(private val baseUrlProvider: () -> String) {
     return parseAuthUser(user) to json.optNullableString("expiresAt")
   }
 
-  fun login(username: String, password: String, totpCode: String?, device: Device): LoginResponse {
+  fun login(
+    username: String,
+    password: String,
+    totpCode: String?,
+    device: Device,
+    deviceTrustSecret: String,
+  ): LoginResponse {
     val body =
       JSONObject()
         .put("username", username)
         .put("password", password)
         .putNullable("totpCode", totpCode)
         .put("device", deviceToJson(device))
+        .put("deviceTrustSecret", deviceTrustSecret)
     return parseLoginResponse(requestJson("/api/auth/login", "POST", body = body))
   }
 
-  fun signup(username: String, email: String, password: String, device: Device): LoginResponse {
+  fun signup(
+    username: String,
+    email: String,
+    password: String,
+    device: Device,
+    deviceTrustSecret: String,
+  ): LoginResponse {
     val body =
       JSONObject()
         .put("username", username)
         .put("email", email)
         .put("password", password)
         .put("device", deviceToJson(device))
+        .put("deviceTrustSecret", deviceTrustSecret)
     return parseLoginResponse(requestJson("/api/auth/signup", "POST", body = body))
   }
 

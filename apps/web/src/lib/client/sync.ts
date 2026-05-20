@@ -18,6 +18,7 @@ import {
   absorbSameDevicePushConflict,
   ensureLocalNotesEncrypted,
   getOrCreateDevice,
+  getOrCreateDeviceTrustSecret,
   markAcceptedChanges,
   mergeRemoteChanges,
   applyRemoteDeletes,
@@ -420,7 +421,13 @@ export async function login(
   totpCode: string | null = null
 ): Promise<AuthLoginResponse> {
   const device = await getOrCreateDevice();
-  return await loginWithDevice({ username, password, totpCode, device });
+  return await loginWithDevice({
+    username,
+    password,
+    totpCode,
+    device,
+    deviceTrustSecret: getOrCreateDeviceTrustSecret()
+  });
 }
 
 export async function signup(
@@ -433,7 +440,8 @@ export async function signup(
     username,
     email,
     password,
-    device
+    device,
+    deviceTrustSecret: getOrCreateDeviceTrustSecret()
   };
   return await signupWithDevice(body);
 }

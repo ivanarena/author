@@ -6,12 +6,14 @@ import android.os.Build
 import androidx.core.content.edit
 import com.author.BuildConfig
 import com.author.UpdateCheckWorker
+import java.security.SecureRandom
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 private const val DEVICE_KEY = "author-device-id"
+private const val DEVICE_TRUST_SECRET_KEY = "author-device-trust-secret-v1"
 private const val TOKEN_KEY = "author-token"
 private const val USERNAME_KEY = "author-username"
 private const val LAST_USERNAME_KEY = "author-last-username"
@@ -30,7 +32,7 @@ private const val EDITOR_LINE_HEIGHT_KEY = "author-editor-line-height"
 private const val API_BASE_URL_KEY = "author-api-base-url"
 private const val LOCAL_WORKSPACE_OWNER_KEY = "localWorkspaceOwner"
 private const val ENCRYPTION_AUDIT_VERSION_KEY = "localEncryptionAuditVersion"
-private const val ENCRYPTION_AUDIT_VERSION = "content-conflicts:v4"
+private const val ENCRYPTION_AUDIT_VERSION = "notebook-context:v5"
 private const val LAST_SYNC_ERROR_AT_KEY = "lastSyncErrorAt"
 private const val LAST_SYNC_ERROR_SOURCE_KEY = "lastSyncErrorSource"
 private const val LAST_SYNC_ERROR_MESSAGE_KEY = "lastSyncErrorMessage"
@@ -60,6 +62,7 @@ class NotesRepository(context: Context) {
   private val db = NotesDatabase(appContext)
   private val crypto = NoteCrypto(prefs, securePrefs)
   private val syncClient = SyncClient { getApiBaseUrl() }
+  private val random = SecureRandom()
 
   fun getTheme(): String {
     val stored = prefs.getString(THEME_KEY, null)
@@ -185,6 +188,21 @@ class NotesRepository(context: Context) {
       }
       db.getDevice(id) ?: Device(id, deviceName()).also { db.putDevice(it) }
     }
+
+  private fun getOrCreateDeviceTrustSecret(): String {
+    securePrefs
+      .getString(DEVICE_TRUST_SECRET_KEY)
+      ?.trim()
+      ?.takeIf { it.length >= 32 }
+      ?.let {
+        return it
+      }
+    val bytes = ByteArray(32)
+    random.nextBytes(bytes)
+    val secret = base64UrlEncode(bytes)
+    securePrefs.putString(DEVICE_TRUST_SECRET_KEY, secret)
+    return secret
+  }
 
   suspend fun renameCurrentDevice(name: String): Device =
     withContext(Dispatchers.IO) {
@@ -495,7 +513,7 @@ class NotesRepository(context: Context) {
       val changedNotebooks =
         notebooks.filter {
           !crypto.isCurrentEncryptedText(it.name) ||
-            !crypto.canDecryptEncryptedText(it.name, context = "notebook:name") ||
+            !crypto.canDecryptEncryptedText(it.name, context = crypto.notebookNameContext(it)) ||
             !crypto.isCurrentFieldHash(it.nameHash)
         }
       if (changedNotebooks.isNotEmpty()) {
@@ -521,12 +539,24 @@ class NotesRepository(context: Context) {
 
   suspend fun login(username: String, password: String, totpCode: String?): LoginResponse =
     withContext(Dispatchers.IO) {
-      syncClient.login(username, password, totpCode, getOrCreateDevice())
+      syncClient.login(
+        username,
+        password,
+        totpCode,
+        getOrCreateDevice(),
+        getOrCreateDeviceTrustSecret(),
+      )
     }
 
   suspend fun signup(username: String, email: String, password: String): LoginResponse =
     withContext(Dispatchers.IO) {
-      syncClient.signup(username, email, password, getOrCreateDevice())
+      syncClient.signup(
+        username,
+        email,
+        password,
+        getOrCreateDevice(),
+        getOrCreateDeviceTrustSecret(),
+      )
     }
 
   suspend fun assertLocalWorkspaceCanUseAccount(username: String, previousUsername: String?) =

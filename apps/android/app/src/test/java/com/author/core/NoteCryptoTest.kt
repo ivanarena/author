@@ -38,6 +38,34 @@ class NoteCryptoTest {
     assertEquals(prefixed.body, crypto.decryptNoteFields(encrypted, "sync-key").body)
   }
 
+  @Test
+  fun bindsNotebookNameEnvelopesToNotebookId() {
+    val notebook = notebook("notebook-1", "Ideas")
+    val encrypted = crypto.encryptNotebookFields(notebook, "sync-key")
+    val moved = notebook("notebook-2", encrypted.name)
+
+    assertEquals(notebook.name, crypto.decryptNotebookFields(encrypted, "sync-key").name)
+    assertEquals(encrypted.name, crypto.decryptNotebookFields(moved, "sync-key").name)
+  }
+
+  @Test
+  fun readsLegacyNotebookNamesAndMigratesThemToIdBoundContext() {
+    val notebook = notebook("notebook-1", "Ideas")
+    val legacyEncrypted =
+      notebook.copy(
+        name = crypto.encryptText(notebook.name, "sync-key", "notebook:name"),
+        nameHash = null,
+      )
+
+    assertEquals(notebook.name, crypto.decryptNotebookFields(legacyEncrypted, "sync-key").name)
+
+    val migrated = crypto.encryptNotebookFields(legacyEncrypted, "sync-key")
+
+    assertNotEquals(legacyEncrypted.name, migrated.name)
+    assertTrue(crypto.isCurrentFieldHash(migrated.nameHash))
+    assertEquals(notebook.name, crypto.decryptNotebookFields(migrated, "sync-key").name)
+  }
+
   private fun note(id: String, title: String, body: String) =
     LocalNote(
       id = id,
@@ -51,6 +79,21 @@ class NoteCryptoTest {
       updatedAt = "2026-05-01T12:00:00Z",
       deletedAt = null,
       trashedAt = null,
+      deviceId = "test-device",
+      version = 1,
+      syncStatus = "pending",
+      lastSyncedVersion = 0,
+      lastSyncedAt = null,
+    )
+
+  private fun notebook(id: String, name: String) =
+    LocalNotebook(
+      id = id,
+      name = name,
+      nameHash = null,
+      createdAt = "2026-05-01T12:00:00Z",
+      updatedAt = "2026-05-01T12:00:00Z",
+      deletedAt = null,
       deviceId = "test-device",
       version = 1,
       syncStatus = "pending",

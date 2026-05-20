@@ -183,6 +183,49 @@ describe('client note encryption', () => {
     });
   });
 
+  it('binds notebook name envelopes to their notebook id', async () => {
+    const encrypted = await encryptNotebookFields(notebook, 'sync-key');
+    const moved = {
+      ...notebook,
+      id: 'notebook-2',
+      name: encrypted.name
+    };
+
+    await expect(
+      decryptNotebookFields(encrypted, 'sync-key')
+    ).resolves.toMatchObject({
+      name: notebook.name
+    });
+    await expect(
+      decryptNotebookFields(moved, 'sync-key')
+    ).resolves.toMatchObject({
+      name: encrypted.name
+    });
+  });
+
+  it('reads legacy notebook name envelopes and migrates them to id-bound context', async () => {
+    const legacyEncrypted = {
+      ...notebook,
+      name: await encryptText(notebook.name, 'sync-key', 'notebook:name'),
+      nameHash: null
+    };
+
+    await expect(
+      decryptNotebookFields(legacyEncrypted, 'sync-key')
+    ).resolves.toMatchObject({
+      name: notebook.name
+    });
+
+    const migrated = await encryptNotebookFields(legacyEncrypted, 'sync-key');
+    expect(migrated.name).not.toBe(legacyEncrypted.name);
+    expect(isCurrentFieldHash(migrated.nameHash)).toBe(true);
+    await expect(
+      decryptNotebookFields(migrated, 'sync-key')
+    ).resolves.toMatchObject({
+      name: notebook.name
+    });
+  });
+
   it('reencrypts existing notes when the active key changes', async () => {
     const oldEncrypted = await encryptNoteFields(note, 'old-key');
     const nextEncrypted = await reencryptNoteFields(

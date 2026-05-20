@@ -56,6 +56,9 @@ vi.mock('./encryption', () => ({
   isCurrentEncryptedText: vi.fn(() => true),
   isCurrentFieldHash: vi.fn(() => true),
   isEncryptedText: vi.fn(() => true),
+  notebookNameContext: vi.fn(
+    (notebook: { id: string }) => `notebook:${notebook.id}:name`
+  ),
   reencryptNoteFields: vi.fn(async (note) => ({
     ...note,
     title: 'reencrypted-title'
@@ -216,7 +219,7 @@ describe('local note encryption sync state', () => {
   it('skips the local encryption scan after a clean audit', async () => {
     vi.mocked(localDb.syncMeta.get).mockResolvedValue({
       key: 'localEncryptionAuditVersion',
-      value: 'content-conflicts:v4'
+      value: 'notebook-context:v5'
     });
 
     await ensureLocalNotesEncrypted();

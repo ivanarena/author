@@ -54,9 +54,10 @@ sync results are scoped to the authenticated account. Legacy token data is store
 `legacy-token`.
 
 `trusted_auth_devices` records browsers or Android installs that completed a
-password login for an account. Accounts with 2FA enabled can later issue a new
-session from that device with username plus TOTP code while local encryption key
-material remains on the device.
+password login for an account and presented a local device trust secret. The
+server stores only a hash of that trust secret. Accounts with 2FA enabled can
+later issue a new session from that device with username plus TOTP code while
+the same local trust secret and encryption key material remain on the device.
 TOTP seeds are stored in the users table as server-secret-encrypted `srvenc:v1`
 envelopes. Keep `NOTES_SERVER_SECRET` stable across deployments and restores;
 production deployments must set it explicitly.

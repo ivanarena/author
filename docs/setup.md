@@ -29,7 +29,7 @@ aube --version
 
 There are three checked-in env templates:
 
-- `.env.example` at the repo root is the canonical production/self-host template. It is also read by Android builds for values like `AUTHOR_API_URL`.
+- `.env.example` at the repo root is the canonical production/self-host template. Android builds read only Android-relevant values from the ignored root `.env`, such as `AUTHOR_API_URL`, update URLs, and release signing settings; server and deploy tokens are ignored.
 - `apps/web/.env.example` is the small local web-dev template used by Vite/SvelteKit.
 - `apps/web/.dev.vars.example` is only for local Cloudflare Worker runs with Wrangler.
 
@@ -55,7 +55,7 @@ NOTES_BACKUP_RETENTION_COUNT=14
 
 `NOTES_LOGIN_USERNAME` and `NOTES_LOGIN_PASSWORD` bootstrap the first local user if it does not already exist. After login, the server returns a random session token in an HttpOnly cookie and in the JSON response for the current app session; browsers keep only account metadata in local storage.
 `NOTES_SERVER_SECRET` encrypts server-side auth secrets such as TOTP seeds at rest. Set it to a long random value and keep it stable across deploys, backups, and restores. Production runtime fails closed for TOTP seed encryption when this value is missing.
-When 2FA is enabled, a browser or Android install that has already completed a password login can request a new session with username plus TOTP code. The device must still have its local encryption key material for encrypted note sync.
+When 2FA is enabled, a browser or Android install that has already completed a password login can request a new session with username plus TOTP code. The device must still have its local trusted-login secret and local encryption key material for encrypted note sync.
 New account and bootstrap passwords must be at least 12 characters. In production, there is no fallback password; set `NOTES_LOGIN_PASSWORD` or create a user before expecting browser login to work.
 
 Signup is email allow-list only when a remote database is configured. Allowed addresses are stored in the remote database table `signup_allowed_emails`; `NOTES_SIGNUP_ALLOWED_EMAILS` can seed that table on startup with a comma-separated list of lowercase email addresses.

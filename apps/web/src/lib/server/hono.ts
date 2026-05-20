@@ -723,6 +723,15 @@ function hasDevicePayload(
   );
 }
 
+function deviceTrustSecretFromBody(
+  body: Pick<AuthLoginRequest, 'deviceTrustSecret'>
+): string | null {
+  const secret = body.deviceTrustSecret;
+  if (typeof secret !== 'string') return null;
+  const trimmed = secret.trim();
+  return trimmed.length >= 32 ? trimmed : null;
+}
+
 function requestBodyTooLarge(request: Request, maxBytes: number): boolean {
   const contentLength = request.headers.get('content-length');
   if (!contentLength) return false;
@@ -964,7 +973,10 @@ api.post(API_PATHS.authLogin, async (c) => {
     !hasDevicePayload(body?.device) ||
     (body?.password !== undefined &&
       body.password !== null &&
-      typeof body.password !== 'string')
+      typeof body.password !== 'string') ||
+    (body?.deviceTrustSecret !== undefined &&
+      body.deviceTrustSecret !== null &&
+      typeof body.deviceTrustSecret !== 'string')
   ) {
     return c.json({ error: 'Invalid login payload' }, 400);
   }
@@ -975,6 +987,7 @@ api.post(API_PATHS.authLogin, async (c) => {
   if (!password && typeof body?.username !== 'string') {
     return c.json({ error: 'Invalid login payload' }, 400);
   }
+  const deviceTrustSecret = deviceTrustSecretFromBody(body);
 
   const attemptKey = loginAttemptKey(c.req.raw, body.username);
   const db = await openPrimaryDatabase(c);
@@ -1003,6 +1016,7 @@ api.post(API_PATHS.authLogin, async (c) => {
               remote,
               body.username,
               body.device.id,
+              deviceTrustSecret,
               body.totpCode
             );
         if (remoteUser) {
@@ -1012,7 +1026,14 @@ api.post(API_PATHS.authLogin, async (c) => {
             undefined,
             remoteUser.username
           );
-          await trustAuthDevice(remote, remoteUser.username, body.device.id);
+          if (deviceTrustSecret) {
+            await trustAuthDevice(
+              remote,
+              remoteUser.username,
+              body.device.id,
+              deviceTrustSecret
+            );
+          }
         }
       } catch (error) {
         console.warn(
@@ -1057,6 +1078,7 @@ api.post(API_PATHS.authLogin, async (c) => {
               db,
               body.username,
               body.device.id,
+              deviceTrustSecret,
               body.totpCode
             );
     } catch (error) {
@@ -1079,7 +1101,14 @@ api.post(API_PATHS.authLogin, async (c) => {
     await clearFailedAuthAttempts(db, attemptKey);
 
     await upsertDevice(db, body.device, undefined, user.username);
-    await trustAuthDevice(db, user.username, body.device.id);
+    if (deviceTrustSecret) {
+      await trustAuthDevice(
+        db,
+        user.username,
+        body.device.id,
+        deviceTrustSecret
+      );
+    }
     const session = await createAuthSession(db, user, body.device.id);
     await queueRemoteSyncAfter(undefined, c.env);
     setAuthSessionCookie(c, session);
@@ -1107,10 +1136,14 @@ api.post(API_PATHS.authSignup, async (c) => {
     !hasDevicePayload(body?.device) ||
     typeof body?.username !== 'string' ||
     typeof body?.email !== 'string' ||
-    typeof body?.password !== 'string'
+    typeof body?.password !== 'string' ||
+    (body?.deviceTrustSecret !== undefined &&
+      body.deviceTrustSecret !== null &&
+      typeof body.deviceTrustSecret !== 'string')
   ) {
     return c.json({ error: 'Invalid signup payload' }, 400);
   }
+  const deviceTrustSecret = deviceTrustSecretFromBody(body);
 
   const attemptKey = signupAttemptKey(c.req.raw, body.username);
   if (isLoginRateLimited(attemptKey, Date.now(), MAX_SIGNUP_ATTEMPTS)) {
@@ -1168,7 +1201,14 @@ api.post(API_PATHS.authSignup, async (c) => {
 
       await clearFailedAuthAttempts(db, attemptKey);
       await upsertDevice(db, body.device, undefined, user.username);
-      await trustAuthDevice(db, user.username, body.device.id);
+      if (deviceTrustSecret) {
+        await trustAuthDevice(
+          db,
+          user.username,
+          body.device.id,
+          deviceTrustSecret
+        );
+      }
       const session = await createAuthSession(db, user, body.device.id);
       setAuthSessionCookie(c, session);
       return c.json({
@@ -1230,7 +1270,14 @@ api.post(API_PATHS.authSignup, async (c) => {
     }
     await clearFailedAuthAttempts(remote, attemptKey);
     await upsertDevice(remote, body.device, undefined, createdUser.username);
-    await trustAuthDevice(remote, createdUser.username, body.device.id);
+    if (deviceTrustSecret) {
+      await trustAuthDevice(
+        remote,
+        createdUser.username,
+        body.device.id,
+        deviceTrustSecret
+      );
+    }
     user = createdUser;
   } catch (error) {
     return c.json(
@@ -1253,7 +1300,14 @@ api.post(API_PATHS.authSignup, async (c) => {
     }
 
     await upsertDevice(db, body.device, undefined, user.username);
-    await trustAuthDevice(db, user.username, body.device.id);
+    if (deviceTrustSecret) {
+      await trustAuthDevice(
+        db,
+        user.username,
+        body.device.id,
+        deviceTrustSecret
+      );
+    }
     const session = await createAuthSession(db, user, body.device.id);
     await queueRemoteSyncAfter(undefined, c.env);
     setAuthSessionCookie(c, session);

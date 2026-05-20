@@ -160,6 +160,16 @@ async function clickSignInSubmit(page: Page) {
     .click();
 }
 
+async function openProfileMenu(page: Page) {
+  const trigger = page.getByRole('button', { name: 'Profile and settings' });
+  await expect(trigger).toBeVisible();
+  await trigger.hover();
+  await trigger.click();
+  await expect(
+    page.getByRole('menu', { name: 'Profile and settings menu' })
+  ).toBeVisible();
+}
+
 async function expectFieldsInVerticalOrder(
   fields: Array<{ name: string; locator: ReturnType<Page['getByLabel']> }>
 ) {
@@ -317,7 +327,8 @@ test('logs in from the profile menu when no session is stored', async ({
   });
 
   await page.goto('/');
-  await page.getByRole('button', { name: 'Profile and settings' }).click();
+  await waitForDraftEditorReady(page);
+  await openProfileMenu(page);
   await page.getByRole('menuitem', { name: 'Sign in to sync' }).click();
   const loginDialog = page.getByRole('dialog', { name: 'Sign in' });
   await loginDialog.getByLabel('Username').fill(loginUsername);
@@ -332,7 +343,7 @@ test('logs in from the profile menu when no session is stored', async ({
     .toEqual(expect.any(String));
   await expect(loginDialog).toBeHidden();
 
-  await page.getByRole('button', { name: 'Profile and settings' }).click();
+  await openProfileMenu(page);
   await expect(
     page.getByRole('menuitem', { name: 'Log out and lock' })
   ).toBeVisible();
@@ -485,9 +496,8 @@ test('signs up and manages trusted-device login without ending the active sessio
 
   await signupPage.goto('/');
 
-  await signupPage
-    .getByRole('button', { name: 'Profile and settings' })
-    .click();
+  await waitForDraftEditorReady(signupPage);
+  await openProfileMenu(signupPage);
   await signupPage.getByRole('menuitem', { name: 'Sign in to sync' }).click();
   const authDialog = signupPage.getByRole('dialog');
   await authDialog.getByRole('tab', { name: 'Sign up' }).click();
@@ -725,6 +735,7 @@ test('persists in browser IndexedDB, syncs, and shows stale-edit conflicts', asy
   const body = page.getByLabel('Note body');
 
   await expect(title).toBeVisible();
+  await waitForVisibleSyncedStatus(page);
 
   await title.fill('Browser sync note');
   await body.fill('Stored in IndexedDB first');

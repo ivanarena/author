@@ -20,6 +20,7 @@ import {
   encryptNotebookFields,
   isCurrentEncryptedText,
   isCurrentFieldHash,
+  notebookNameContext,
   reencryptNoteFields,
   reencryptNotebookFields
 } from './encryption';
@@ -31,7 +32,7 @@ import {
 import { getOrCreateDevice, newId, nowIso } from './local-state';
 
 const ENCRYPTION_AUDIT_META_KEY = 'localEncryptionAuditVersion';
-const ENCRYPTION_AUDIT_VERSION = 'content-conflicts:v4';
+const ENCRYPTION_AUDIT_VERSION = 'notebook-context:v5';
 
 const LOCAL_WORKSPACE_OWNER_KEY = 'localWorkspaceOwner';
 
@@ -613,7 +614,7 @@ export async function ensureLocalNotesEncrypted(): Promise<void> {
       nameDecrypts: await canDecryptEncryptedText(
         notebook.name,
         undefined,
-        'notebook:name'
+        notebookNameContext(notebook)
       )
     }))
   );

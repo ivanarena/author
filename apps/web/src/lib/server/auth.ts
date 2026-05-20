@@ -26,6 +26,7 @@ const TOTP_SECRET_BYTES = 20;
 const TOTP_PERIOD_SECONDS = 30;
 const TOTP_DIGITS = 6;
 const SESSION_TOUCH_INTERVAL_MS = 60_000;
+const DEVICE_TRUST_SECRET_MIN_LENGTH = 32;
 const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,62}[a-z0-9]$|^[a-z0-9]$/;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -153,6 +154,30 @@ function digest(value: string): Buffer {
 
 function tokenHash(token: string): string {
   return digest(token).toString('hex');
+}
+
+function deviceTrustSecretHash(
+  username: string,
+  deviceId: string,
+  secret: string
+): string {
+  return tokenHash(`trusted-device:v1\0${username}\0${deviceId}\0${secret}`);
+}
+
+function normalizeDeviceTrustSecret(
+  secret: string | null | undefined
+): string | null {
+  const normalized = secret?.trim();
+  if (!normalized || normalized.length < DEVICE_TRUST_SECRET_MIN_LENGTH) {
+    return null;
+  }
+  return normalized;
+}
+
+function requireDeviceTrustSecret(secret: string | null | undefined): string {
+  const normalized = normalizeDeviceTrustSecret(secret);
+  if (!normalized) throw new Error('Device trust secret is required');
+  return normalized;
 }
 
 export function tokensMatch(actual: string | null, expected: string): boolean {
@@ -846,19 +871,28 @@ export async function authenticateUser(
 export async function trustAuthDevice(
   db: NotesExecutor,
   username: string,
-  deviceId: string
+  deviceId: string,
+  deviceTrustSecret: string | null | undefined
 ): Promise<void> {
   const normalized = requireUsername(username);
-  if (!deviceId.trim()) throw new Error('Device is required');
+  const safeDeviceId = deviceId.trim();
+  if (!safeDeviceId) throw new Error('Device is required');
+  const safeSecret = requireDeviceTrustSecret(deviceTrustSecret);
+  const secretHash = deviceTrustSecretHash(
+    normalized,
+    safeDeviceId,
+    safeSecret
+  );
   const now = new Date().toISOString();
   await run(
     db,
     `INSERT INTO trusted_auth_devices (
-       username, device_id, created_at, last_used_at
-     ) VALUES (?, ?, ?, ?)
+       username, device_id, secret_hash, created_at, last_used_at
+     ) VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(username, device_id) DO UPDATE SET
+       secret_hash = excluded.secret_hash,
        last_used_at = excluded.last_used_at`,
-    [normalized, deviceId, now, now]
+    [normalized, safeDeviceId, secretHash, now, now]
   );
 }
 
@@ -875,6 +909,7 @@ export async function listTrustedAuthDevices(
      FROM trusted_auth_devices
      LEFT JOIN devices ON devices.id = trusted_auth_devices.device_id
      WHERE trusted_auth_devices.username = ?
+       AND trusted_auth_devices.secret_hash IS NOT NULL
      ORDER BY trusted_auth_devices.last_used_at DESC,
               trusted_auth_devices.created_at DESC`,
     [normalized]
@@ -910,30 +945,49 @@ export async function revokeTrustedAuthDevice(
 async function isTrustedAuthDevice(
   db: NotesExecutor,
   username: string,
-  deviceId: string
+  deviceId: string,
+  deviceTrustSecret: string | null | undefined
 ): Promise<boolean> {
+  const safeDeviceId = deviceId.trim();
+  if (!safeDeviceId) return false;
+  const safeSecret = normalizeDeviceTrustSecret(deviceTrustSecret);
+  if (!safeSecret) return false;
   const row = await get(
     db,
-    `SELECT 1 AS trusted
+    `SELECT secret_hash
      FROM trusted_auth_devices
-     WHERE username = ? AND device_id = ?`,
-    [username, deviceId]
+     WHERE username = ? AND device_id = ? AND secret_hash IS NOT NULL`,
+    [username, safeDeviceId]
   );
-  return Boolean(row);
+  const expected = String(row?.secret_hash ?? '');
+  return tokensMatch(
+    deviceTrustSecretHash(username, safeDeviceId, safeSecret),
+    expected
+  );
 }
 
 export async function authenticateTrustedDevice(
   db: NotesExecutor,
   username: string | null | undefined,
   deviceId: string | null | undefined,
+  deviceTrustSecret: string | null | undefined,
   totpCode?: string | null
 ): Promise<AuthUser | null> {
   if (typeof deviceId !== 'string' || !deviceId.trim()) return null;
+  const safeDeviceId = deviceId.trim();
   const row = await getUserRowByLogin(db, username);
   if (!row || !row.totp_secret || !row.totp_enabled_at) return null;
-  if (!(await isTrustedAuthDevice(db, row.username, deviceId))) return null;
+  if (
+    !(await isTrustedAuthDevice(
+      db,
+      row.username,
+      safeDeviceId,
+      deviceTrustSecret
+    ))
+  )
+    return null;
   if (!(await verifyTotpCode(row.totp_secret, totpCode))) return null;
-  await trustAuthDevice(db, row.username, deviceId);
+  await trustAuthDevice(db, row.username, safeDeviceId, deviceTrustSecret);
   return rowToAuthUser(row);
 }
 

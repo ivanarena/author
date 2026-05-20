@@ -29,7 +29,8 @@ storage and push. A value is preserved as encrypted only when its envelope is st
 and decrypts with the active key material for that exact field context; literal text that merely
 starts with `enc:v1:` or `enc:v2:` is encrypted again as normal plaintext. Encryption uses random
 AES-GCM IVs with field-specific additional authenticated data, so a title envelope cannot be
-silently moved into a body or another note field. Stable HMAC field hashes (`titleHash`,
+silently moved into a body or another note field, and a notebook name envelope cannot be
+silently moved to another notebook. Stable HMAC field hashes (`titleHash`,
 `bodyHash`, and `nameHash`) let sync compare encrypted fields and check duplicate notebook names
 without reusing nonces or exposing plaintext names. Sync metadata and notebook assignment remain
 plain so versioning and relationship repair stay small.

@@ -12,7 +12,30 @@ fun repoRootFrom(start: java.io.File): java.io.File {
   return start
 }
 
-fun loadEnvFile(file: java.io.File): Map<String, String> {
+val androidEnvKeys =
+  setOf(
+    "AUTHOR_API_URL",
+    "AUTHOR_SYNC_API_URL",
+    "ANDROID_SYNC_API_URL",
+    "ANDROID_SYNC_SERVER_URL",
+    "NOTES_SYNC_SERVER_URL",
+    "authorApiUrl",
+    "authorSyncApiUrl",
+    "androidSyncApiUrl",
+    "androidSyncServerUrl",
+    "notesSyncServerUrl",
+    "PORT",
+    "ANDROID_RELEASE_KEYSTORE_PATH",
+    "ANDROID_RELEASE_KEYSTORE_PASSWORD",
+    "ANDROID_RELEASE_KEY_ALIAS",
+    "ANDROID_RELEASE_KEY_PASSWORD",
+    "ANDROID_UPDATE_CHECK_URL",
+    "ANDROID_UPDATE_DOWNLOAD_URL",
+    "ANDROID_UPDATE_CHECK_INTERVAL_HOURS",
+    "ANDROID_UPDATE_STARTUP_DELAY_MINUTES",
+  )
+
+fun loadEnvFile(file: java.io.File, allowedKeys: Set<String>): Map<String, String> {
   if (!file.isFile) return emptyMap()
   return file
     .readLines()
@@ -23,6 +46,7 @@ fun loadEnvFile(file: java.io.File): Map<String, String> {
       val separator = normalized.indexOf('=')
       if (separator <= 0) return@mapNotNull null
       val key = normalized.substring(0, separator).trim()
+      if (key !in allowedKeys) return@mapNotNull null
       val rawValue = normalized.substring(separator + 1).trim()
       val value = rawValue.removeSurrounding("\"").removeSurrounding("'")
       key to value
@@ -31,7 +55,7 @@ fun loadEnvFile(file: java.io.File): Map<String, String> {
 }
 
 val repoRoot = repoRootFrom(rootProject.projectDir)
-val rootEnv = loadEnvFile(repoRoot.resolve(".env"))
+val rootEnv = loadEnvFile(repoRoot.resolve(".env"), androidEnvKeys)
 
 fun configValue(name: String): String? =
   (findProperty(name) as String?)?.trim()?.takeIf { it.isNotEmpty() }
@@ -59,8 +83,6 @@ val configuredApiBaseUrl =
 val defaultApiBaseUrl = configuredApiBaseUrl ?: "http://10.0.2.2:${configValue("PORT") ?: "5173"}"
 val defaultApiBaseUrlSource =
   if (configuredApiBaseUrl != null) "build-time" else "local-emulator-default"
-val remoteDatabaseConfigured =
-  configValue("TURSO_DATABASE_URL") != null && configValue("TURSO_AUTH_TOKEN") != null
 val releaseKeystorePath = configValue("ANDROID_RELEASE_KEYSTORE_PATH")
 val releaseKeystorePassword = configValue("ANDROID_RELEASE_KEYSTORE_PASSWORD")
 val releaseKeyAlias = configValue("ANDROID_RELEASE_KEY_ALIAS")
@@ -79,12 +101,6 @@ val releaseSigningConfigured =
   listOf(releaseKeystorePath, releaseKeystorePassword, releaseKeyAlias, releaseKeyPassword).all {
     it != null
   }
-
-if (configuredApiBaseUrl == null && remoteDatabaseConfigured) {
-  logger.warn(
-    "Turso is configured, but Android sync API URL is not. Using the local emulator URL; set AUTHOR_API_URL or ANDROID_SYNC_API_URL for device/release builds."
-  )
-}
 
 require(!defaultApiBaseUrl.startsWith("libsql://")) {
   "The Android sync API URL must be the Author HTTP API URL, not TURSO_DATABASE_URL. Use AUTHOR_API_URL or ANDROID_SYNC_API_URL. Keep Turso credentials server-side."

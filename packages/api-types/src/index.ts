@@ -28,6 +28,7 @@ export interface AuthLoginRequest {
   password?: string | null;
   totpCode?: string | null;
   device: Device;
+  deviceTrustSecret?: string | null;
 }
 
 export interface AuthSignupRequest {
@@ -37,6 +38,7 @@ export interface AuthSignupRequest {
   /** @deprecated Display names are accepted only for older clients. */
   displayName?: string | null;
   device: Device;
+  deviceTrustSecret?: string | null;
 }
 
 export interface AuthUser {

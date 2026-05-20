@@ -11,6 +11,7 @@ const FALLBACK_KEY_MATERIAL = 'author:local:v1';
 const LOCAL_KEY_MATERIAL_PREFIX = 'local:v2:';
 const PASSWORD_KDF_ITERATIONS = 210_000;
 const PASSWORD_KDF_SALT_PREFIX = 'author:password-key:v2';
+const LEGACY_NOTEBOOK_NAME_CONTEXT = 'notebook:name';
 
 const keyCache = new Map<string, Promise<CryptoKey>>();
 const hashKeyCache = new Map<string, Promise<CryptoKey>>();
@@ -47,6 +48,10 @@ export function isCurrentEncryptedText(value: string): boolean {
 
 export function isCurrentFieldHash(value: string | null | undefined): boolean {
   return Boolean(value?.startsWith(HASH_V2_PREFIX));
+}
+
+export function notebookNameContext(notebook: Pick<Notebook, 'id'>): string {
+  return `notebook:${notebook.id}:name`;
 }
 
 export async function canDecryptEncryptedText(
@@ -297,18 +302,21 @@ export async function encryptNotebookFields<T extends Notebook>(
   notebook: T,
   keyMaterial = getEncryptionKeyMaterial()
 ): Promise<T> {
-  const nameContext = 'notebook:name';
+  const nameContext = notebookNameContext(notebook);
   const nameAlreadyEncrypted = await canDecryptEncryptedText(
     notebook.name,
     keyMaterial,
     nameContext
   );
+  const plainName = nameAlreadyEncrypted
+    ? null
+    : await decryptNotebookName(notebook, keyMaterial);
   const nameHash = nameAlreadyEncrypted
     ? (notebook.nameHash ?? null)
     : await fieldHash(
-        normalizeNotebookName(notebook.name),
+        normalizeNotebookName(plainName ?? notebook.name),
         keyMaterial,
-        nameContext
+        LEGACY_NOTEBOOK_NAME_CONTEXT
       );
 
   return {
@@ -316,8 +324,34 @@ export async function encryptNotebookFields<T extends Notebook>(
     nameHash,
     name: nameAlreadyEncrypted
       ? notebook.name
-      : await encryptText(notebook.name, keyMaterial, nameContext)
+      : await encryptText(plainName ?? notebook.name, keyMaterial, nameContext)
   };
+}
+
+async function decryptNotebookName<T extends Notebook>(
+  notebook: T,
+  keyMaterial: string
+): Promise<string> {
+  const currentContext = notebookNameContext(notebook);
+  if (
+    await canDecryptEncryptedText(notebook.name, keyMaterial, currentContext)
+  ) {
+    return decryptText(notebook.name, keyMaterial, currentContext);
+  }
+  if (
+    await canDecryptEncryptedText(
+      notebook.name,
+      keyMaterial,
+      LEGACY_NOTEBOOK_NAME_CONTEXT
+    )
+  ) {
+    return decryptText(
+      notebook.name,
+      keyMaterial,
+      LEGACY_NOTEBOOK_NAME_CONTEXT
+    );
+  }
+  return notebook.name;
 }
 
 export async function decryptNotebookFields<T extends Notebook>(
@@ -326,7 +360,7 @@ export async function decryptNotebookFields<T extends Notebook>(
 ): Promise<T> {
   return {
     ...notebook,
-    name: await decryptText(notebook.name, keyMaterial, 'notebook:name')
+    name: await decryptNotebookName(notebook, keyMaterial)
   };
 }
 

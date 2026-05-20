@@ -74,6 +74,7 @@ const schemaSql = `
   CREATE TABLE IF NOT EXISTS trusted_auth_devices (
     username TEXT NOT NULL,
     device_id TEXT NOT NULL,
+    secret_hash TEXT,
     created_at TEXT NOT NULL,
     last_used_at TEXT NOT NULL,
     PRIMARY KEY (username, device_id),
@@ -627,6 +628,7 @@ export const SERVER_MIGRATIONS: ServerMigration[] = [
         `CREATE TABLE IF NOT EXISTS trusted_auth_devices (
            username TEXT NOT NULL,
            device_id TEXT NOT NULL,
+           secret_hash TEXT,
            created_at TEXT NOT NULL,
            last_used_at TEXT NOT NULL,
            PRIMARY KEY (username, device_id),
@@ -670,6 +672,21 @@ export const SERVER_MIGRATIONS: ServerMigration[] = [
          CREATE INDEX IF NOT EXISTS auth_rate_limits_reset_at_idx
            ON auth_rate_limits(reset_at);`
       );
+    }
+  },
+  {
+    version: 11,
+    name: 'trusted-auth-device-secrets',
+    rollback:
+      'Restore from the pre-upgrade backup. Trusted auth devices are recreated after password login on each browser or Android install.',
+    up: async (db) => {
+      if (!(await hasColumn(db, 'trusted_auth_devices', 'secret_hash'))) {
+        await run(
+          db,
+          'ALTER TABLE trusted_auth_devices ADD COLUMN secret_hash TEXT'
+        );
+      }
+      await run(db, 'DELETE FROM trusted_auth_devices');
     }
   }
 ];

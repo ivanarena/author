@@ -32,6 +32,9 @@ vi.mock('./store', () => ({
   applyRemoteDeletes: vi.fn(),
   ensureLocalNotesEncrypted: vi.fn(),
   getOrCreateDevice: vi.fn(),
+  getOrCreateDeviceTrustSecret: vi.fn(
+    () => 'test-device-trust-secret-0123456789'
+  ),
   markAcceptedChanges: vi.fn(),
   mergeRemoteChanges: vi.fn(),
   repairSameDevicePendingConflicts: vi.fn(),

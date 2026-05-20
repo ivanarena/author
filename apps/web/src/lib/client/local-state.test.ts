@@ -6,6 +6,7 @@ import {
   clearStoredSession,
   getLoginHint,
   getOrCreateDevice,
+  getOrCreateDeviceTrustSecret,
   getStoredSession,
   getTheme,
   renameCurrentDevice,
@@ -65,7 +66,13 @@ beforeEach(() => {
   vi.stubGlobal('localStorage', storage);
   vi.stubGlobal('sessionStorage', sessionStorageMock);
   vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0' });
-  vi.stubGlobal('crypto', { randomUUID: vi.fn(() => 'device-id') });
+  vi.stubGlobal('crypto', {
+    randomUUID: vi.fn(() => 'device-id'),
+    getRandomValues: vi.fn((values: Uint8Array) => {
+      values.fill(7);
+      return values;
+    })
+  });
   vi.stubGlobal('document', { documentElement: { dataset: {} } });
   clearStoredSession();
   vi.stubGlobal(
@@ -112,6 +119,14 @@ describe('local browser state', () => {
       id: 'device-id',
       name: 'Writing laptop'
     });
+  });
+
+  it('creates and preserves a separate trusted-login secret', () => {
+    const secret = getOrCreateDeviceTrustSecret();
+
+    expect(secret).toBe('07'.repeat(32));
+    expect(getOrCreateDeviceTrustSecret()).toBe(secret);
+    expect(crypto.getRandomValues).toHaveBeenCalledTimes(1);
   });
 
   it('stores, hints, and clears auth session fields without losing the login hint or device key', () => {

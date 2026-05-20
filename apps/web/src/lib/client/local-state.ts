@@ -3,6 +3,7 @@ import { localDb } from './db';
 import { clearStoredEncryptionKeyMaterial } from './encryption';
 
 const DEVICE_KEY = 'author-device-id';
+const DEVICE_TRUST_SECRET_KEY = 'author-device-trust-secret-v1';
 const TOKEN_KEY = 'author-token';
 const SESSION_TOKEN_KEY = 'author-session-token';
 const USERNAME_KEY = 'author-username';
@@ -45,6 +46,23 @@ export function nowIso(): string {
 
 export function newId(): string {
   return crypto.randomUUID();
+}
+
+function randomHex(bytes: number): string {
+  const values = new Uint8Array(bytes);
+  crypto.getRandomValues(values);
+  return [...values]
+    .map((value) => value.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+export function getOrCreateDeviceTrustSecret(): string {
+  const existing = localStorage.getItem(DEVICE_TRUST_SECRET_KEY)?.trim();
+  if (existing && existing.length >= 32) return existing;
+
+  const secret = randomHex(32);
+  localStorage.setItem(DEVICE_TRUST_SECRET_KEY, secret);
+  return secret;
 }
 
 export async function getOrCreateDevice(): Promise<Device> {

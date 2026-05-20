@@ -40,6 +40,8 @@ Production web deployments must set real `NOTES_LOGIN_PASSWORD` and
 `NOTES_SERVER_SECRET` values, keep Turso tokens server-side only, run behind
 HTTPS, and keep `NOTES_TRUST_PROXY_HEADERS` disabled unless a trusted reverse
 proxy overwrites forwarding headers.
+Treat a missing `NOTES_SERVER_SECRET` as a release blocker; production TOTP
+seed encryption fails closed without it.
 
 ## Android
 
@@ -88,3 +90,8 @@ releases, set the `ANDROID_RELEASE_*` variables documented in
 - Treat very large modules as refactor candidates when changing nearby behavior.
   Current hotspots are the web notes page controller, server repository, Hono
   API module, and Android notes repository/controller.
+- Crypto and Android storage hardening remain versioned migration work, not
+  formatting work. If the threat model expands beyond encrypted note fields and
+  disabled Android backups, plan an explicit content-key/KDF migration and
+  evaluate SQLCipher or equivalent full-database encryption for Android
+  metadata defense in depth.

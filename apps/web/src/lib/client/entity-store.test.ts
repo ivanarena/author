@@ -10,6 +10,7 @@ import {
 } from './entity-store';
 import { clearLocalWorkspace, localDb } from './db';
 import {
+  canDecryptEncryptedText,
   encryptNoteFields,
   isCurrentEncryptedText,
   isCurrentFieldHash,
@@ -47,6 +48,7 @@ vi.mock('./db', () => ({
 }));
 
 vi.mock('./encryption', () => ({
+  canDecryptEncryptedText: vi.fn(async () => true),
   decryptNoteFields: vi.fn(async (note) => note),
   decryptNotebookFields: vi.fn(async (notebook) => notebook),
   encryptNoteFields: vi.fn(async (note) => note),
@@ -95,6 +97,7 @@ beforeEach(() => {
   vi.mocked(isCurrentEncryptedText).mockReturnValue(true);
   vi.mocked(isCurrentFieldHash).mockReturnValue(true);
   vi.mocked(isEncryptedText).mockReturnValue(true);
+  vi.mocked(canDecryptEncryptedText).mockResolvedValue(true);
   vi.mocked(reencryptNoteFields).mockImplementation(async (storedNote) => ({
     ...storedNote,
     title: 'reencrypted-title'
@@ -213,7 +216,7 @@ describe('local note encryption sync state', () => {
   it('skips the local encryption scan after a clean audit', async () => {
     vi.mocked(localDb.syncMeta.get).mockResolvedValue({
       key: 'localEncryptionAuditVersion',
-      value: 'content-conflicts:v3'
+      value: 'content-conflicts:v4'
     });
 
     await ensureLocalNotesEncrypted();

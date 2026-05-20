@@ -30,7 +30,7 @@ private const val EDITOR_LINE_HEIGHT_KEY = "author-editor-line-height"
 private const val API_BASE_URL_KEY = "author-api-base-url"
 private const val LOCAL_WORKSPACE_OWNER_KEY = "localWorkspaceOwner"
 private const val ENCRYPTION_AUDIT_VERSION_KEY = "localEncryptionAuditVersion"
-private const val ENCRYPTION_AUDIT_VERSION = "content-conflicts:v3"
+private const val ENCRYPTION_AUDIT_VERSION = "content-conflicts:v4"
 private const val LAST_SYNC_ERROR_AT_KEY = "lastSyncErrorAt"
 private const val LAST_SYNC_ERROR_SOURCE_KEY = "lastSyncErrorSource"
 private const val LAST_SYNC_ERROR_MESSAGE_KEY = "lastSyncErrorMessage"
@@ -307,15 +307,19 @@ class NotesRepository(context: Context) {
       if (notebook.deletedAt != null) return@withContext
       val device = getOrCreateDevice()
       val now = nowIso()
-      db.putNotebook(
-        notebook.copy(
-          deletedAt = now,
-          updatedAt = now,
-          deviceId = device.id,
-          version = notebook.version + 1,
-          syncStatus = "pending",
+      if (safeBaseVersion(notebook.lastSyncedVersion) == 0) {
+        db.deleteNotebookRow(notebookId)
+      } else {
+        db.putNotebook(
+          notebook.copy(
+            deletedAt = now,
+            updatedAt = now,
+            deviceId = device.id,
+            version = notebook.version + 1,
+            syncStatus = "pending",
+          )
         )
-      )
+      }
       db
         .allNotes()
         .filter {
@@ -408,6 +412,10 @@ class NotesRepository(context: Context) {
     withContext(Dispatchers.IO) {
       val note = db.getNote(noteId) ?: return@withContext
       if (note.deletedAt != null) return@withContext
+      if (safeBaseVersion(note.lastSyncedVersion) == 0) {
+        db.deleteNote(noteId)
+        return@withContext
+      }
       val device = getOrCreateDevice()
       val now = nowIso()
       db.putNote(
@@ -460,7 +468,9 @@ class NotesRepository(context: Context) {
       val changed =
         notes.filter {
           !crypto.isCurrentEncryptedText(it.title) ||
+            !crypto.canDecryptEncryptedText(it.title, context = "note:${it.id}:title") ||
             !crypto.isCurrentEncryptedText(it.body) ||
+            !crypto.canDecryptEncryptedText(it.body, context = "note:${it.id}:body") ||
             !crypto.isCurrentFieldHash(it.titleHash) ||
             !crypto.isCurrentFieldHash(it.bodyHash)
         }
@@ -484,7 +494,9 @@ class NotesRepository(context: Context) {
       val notebooks = db.allNotebooks()
       val changedNotebooks =
         notebooks.filter {
-          !crypto.isCurrentEncryptedText(it.name) || !crypto.isCurrentFieldHash(it.nameHash)
+          !crypto.isCurrentEncryptedText(it.name) ||
+            !crypto.canDecryptEncryptedText(it.name, context = "notebook:name") ||
+            !crypto.isCurrentFieldHash(it.nameHash)
         }
       if (changedNotebooks.isNotEmpty()) {
         val device = getOrCreateDevice()
@@ -584,8 +596,24 @@ class NotesRepository(context: Context) {
         crypto.prepareEncryptionPassword(getStoredSession()?.user?.username ?: "", newPassword)
       preflightReencryptLocalNotesInternal(previous, next)
       val response = syncClient.changePassword(token, currentPassword, newPassword)
+      val replacementSession =
+        response.session
+          ?: throw IllegalStateException(
+            "Password changed, but Author could not create a session to sync encrypted notes"
+          )
       reencryptLocalNotesInternal(previous, next)
       crypto.commitEncryptionKeyMaterial(next)
+      setStoredSession(
+        StoredSession(replacementSession.token, response.user, replacementSession.expiresAt)
+      )
+      try {
+        runSync(replacementSession.token)
+      } catch (error: Throwable) {
+        throw IllegalStateException(
+          "Password changed, but Author could not finish syncing re-encrypted notes: ${error.message ?: "Sync failed"}",
+          error,
+        )
+      }
       response
     }
 
@@ -632,9 +660,26 @@ class NotesRepository(context: Context) {
         val device = getOrCreateDevice()
         ensureLocalNotesEncrypted()
         repairSameDevicePendingConflicts()
-        val preparedNotes = db.pendingNotes().map { preparePendingNoteForPush(it, device) }
+        val pendingNoteRecords = db.pendingNotes()
+        val localOnlyDeletedNoteIds =
+          pendingNoteRecords
+            .filter { it.deletedAt != null && safeBaseVersion(it.lastSyncedVersion) == 0 }
+            .map { it.id }
+        localOnlyDeletedNoteIds.forEach { db.deleteNote(it) }
+        val preparedNotes =
+          pendingNoteRecords
+            .filter { it.id !in localOnlyDeletedNoteIds }
+            .map { preparePendingNoteForPush(it, device) }
+        val pendingNotebookRecords = db.pendingNotebooks()
+        val localOnlyDeletedNotebookIds =
+          pendingNotebookRecords
+            .filter { it.deletedAt != null && safeBaseVersion(it.lastSyncedVersion) == 0 }
+            .map { it.id }
+        localOnlyDeletedNotebookIds.forEach { db.deleteNotebookRow(it) }
         val preparedNotebooks =
-          db.pendingNotebooks().map { preparePendingNotebookForPush(it, device) }
+          pendingNotebookRecords
+            .filter { it.id !in localOnlyDeletedNotebookIds }
+            .map { preparePendingNotebookForPush(it, device) }
         if (preparedNotes.isNotEmpty()) db.putNotes(preparedNotes)
         if (preparedNotebooks.isNotEmpty()) db.putNotebooks(preparedNotebooks)
         val pendingNotes = preparedNotes.map { it to it.lastSyncedVersion }.toMutableList()

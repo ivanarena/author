@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Note, Notebook } from '@author/schema';
 import {
   ENCRYPTION_KEY_MATERIAL_STORAGE_KEY,
+  canDecryptEncryptedText,
   clearStoredEncryptionKeyMaterial,
   commitEncryptionKeyMaterial,
   decryptNotebookFields,
@@ -104,6 +105,20 @@ describe('client note encryption', () => {
     ).resolves.toBe(encrypted);
   });
 
+  it('encrypts literal text that only imitates an encryption prefix', async () => {
+    const prefixedPlaintext = 'enc:v2:ZmFrZS1pdg:bm90LWFlcy1nY20';
+    const encrypted = await encryptText(prefixedPlaintext, 'test-key');
+
+    expect(encrypted).not.toBe(prefixedPlaintext);
+    expect(isEncryptedText(encrypted)).toBe(true);
+    await expect(decryptText(encrypted, 'test-key')).resolves.toBe(
+      prefixedPlaintext
+    );
+    await expect(
+      canDecryptEncryptedText(prefixedPlaintext, 'test-key')
+    ).resolves.toBe(false);
+  });
+
   it('keeps note field hashes deterministic for sync comparisons', async () => {
     const first = await encryptNoteFields(note, 'sync-key');
     const second = await encryptNoteFields(note, 'sync-key');
@@ -119,6 +134,29 @@ describe('client note encryption', () => {
     await expect(decryptNoteFields(first, 'sync-key')).resolves.toMatchObject({
       title: note.title,
       body: note.body
+    });
+  });
+
+  it('encrypts prefixed note fields instead of preserving spoofed envelopes', async () => {
+    const prefixedNote = {
+      ...note,
+      title: 'enc:v2:dGl0bGU:ZmFrZQ',
+      body: 'enc:v2:Ym9keQ:ZmFrZQ',
+      titleHash: 'hash:v2:stale-title',
+      bodyHash: 'hash:v2:stale-body'
+    };
+
+    const encrypted = await encryptNoteFields(prefixedNote, 'sync-key');
+
+    expect(encrypted.title).not.toBe(prefixedNote.title);
+    expect(encrypted.body).not.toBe(prefixedNote.body);
+    expect(encrypted.titleHash).not.toBe(prefixedNote.titleHash);
+    expect(encrypted.bodyHash).not.toBe(prefixedNote.bodyHash);
+    await expect(
+      decryptNoteFields(encrypted, 'sync-key')
+    ).resolves.toMatchObject({
+      title: prefixedNote.title,
+      body: prefixedNote.body
     });
   });
 

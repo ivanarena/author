@@ -1117,6 +1117,7 @@ class NotesController(private val repository: NotesRepository, private val scope
       try {
         val response = repository.changePassword(token, currentPasswordValue, newPasswordValue)
         applyAccount(response.user, response.trustedDevices)
+        response.session?.let { runCatching { repository.logout(it.token) } }
         clearSensitiveWorkspace()
         clearLocalSession(
           "Password changed. Sign in again to unlock notes.",

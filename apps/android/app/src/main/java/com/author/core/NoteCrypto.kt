@@ -1,10 +1,10 @@
 package com.author.core
 
 import android.content.SharedPreferences
-import android.util.Base64
 import java.nio.charset.StandardCharsets.UTF_8
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.Mac
 import javax.crypto.SecretKeyFactory
@@ -13,8 +13,6 @@ import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
 private const val ENCRYPTION_PREFIX = "enc:v2:"
-private const val ENCRYPTION_V1_PREFIX = "enc:v1:"
-private const val ENCRYPTION_V2_PREFIX = "enc:v2:"
 private const val HASH_V2_PREFIX = "hash:v2:"
 private const val KEY_MATERIAL_KEY = "author-encryption-key-material-v1"
 private const val USERNAME_KEY = "author-username"
@@ -29,12 +27,35 @@ class NoteCrypto(
 ) {
   private val random = SecureRandom()
 
-  fun isEncryptedText(value: String): Boolean =
-    value.startsWith(ENCRYPTION_V1_PREFIX) || value.startsWith(ENCRYPTION_V2_PREFIX)
+  fun isEncryptedText(value: String): Boolean = encryptedEnvelope(value) != null
 
-  fun isCurrentEncryptedText(value: String): Boolean = value.startsWith(ENCRYPTION_V2_PREFIX)
+  fun isCurrentEncryptedText(value: String): Boolean = encryptedEnvelope(value)?.version == "v2"
 
   fun isCurrentFieldHash(value: String?): Boolean = value?.startsWith(HASH_V2_PREFIX) == true
+
+  fun canDecryptEncryptedText(
+    value: String,
+    keyMaterial: String = getEncryptionKeyMaterial(),
+    context: String = "text",
+  ): Boolean {
+    val envelope = encryptedEnvelope(value) ?: return false
+    for (material in decryptionKeyMaterials(keyMaterial)) {
+      val decrypted =
+        runCatching {
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(
+              Cipher.DECRYPT_MODE,
+              encryptionKey(material, envelope.version),
+              GCMParameterSpec(128, envelope.iv),
+            )
+            if (envelope.version == "v2") cipher.updateAAD(aad(context))
+            cipher.doFinal(envelope.ciphertext)
+          }
+          .getOrNull()
+      if (decrypted != null) return true
+    }
+    return false
+  }
 
   fun getEncryptionKeyMaterial(): String {
     securePrefs.getString(KEY_MATERIAL_KEY)?.let {
@@ -89,12 +110,35 @@ class NoteCrypto(
   private fun isSyncKeyMaterial(material: String): Boolean =
     material.startsWith("password:") || material.startsWith("account:")
 
+  private data class EncryptionEnvelope(
+    val version: String,
+    val iv: ByteArray,
+    val ciphertext: ByteArray,
+  )
+
+  private fun encryptedEnvelope(value: String): EncryptionEnvelope? {
+    val parts = value.split(":")
+    if (
+      parts.size != 4 ||
+        parts[0] != "enc" ||
+        parts[1] !in setOf("v1", "v2") ||
+        parts[2].isBlank() ||
+        parts[3].isBlank()
+    ) {
+      return null
+    }
+    val iv = runCatching { base64UrlDecode(parts[2]) }.getOrNull() ?: return null
+    val ciphertext = runCatching { base64UrlDecode(parts[3]) }.getOrNull() ?: return null
+    if (iv.size != 12 || ciphertext.size < 16) return null
+    return EncryptionEnvelope(parts[1], iv, ciphertext)
+  }
+
   fun encryptText(
     value: String,
     keyMaterial: String = getEncryptionKeyMaterial(),
     context: String = "text",
   ): String {
-    if (isEncryptedText(value)) return value
+    if (canDecryptEncryptedText(value, keyMaterial, context)) return value
     val iv = ByteArray(12)
     random.nextBytes(iv)
     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -109,11 +153,7 @@ class NoteCrypto(
     keyMaterial: String = getEncryptionKeyMaterial(),
     context: String = "text",
   ): String {
-    if (!isEncryptedText(value)) return value
-    val parts = value.split(":")
-    if (parts.size != 4 || parts[0] != "enc" || parts[1] !in setOf("v1", "v2")) return value
-    val iv = runCatching { base64UrlDecode(parts[2]) }.getOrNull() ?: return value
-    val encrypted = runCatching { base64UrlDecode(parts[3]) }.getOrNull() ?: return value
+    val envelope = encryptedEnvelope(value) ?: return value
 
     for (material in decryptionKeyMaterials(keyMaterial)) {
       val decrypted =
@@ -121,11 +161,11 @@ class NoteCrypto(
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(
               Cipher.DECRYPT_MODE,
-              encryptionKey(material, parts[1]),
-              GCMParameterSpec(128, iv),
+              encryptionKey(material, envelope.version),
+              GCMParameterSpec(128, envelope.iv),
             )
-            if (parts[1] == "v2") cipher.updateAAD(aad(context))
-            String(cipher.doFinal(encrypted), UTF_8)
+            if (envelope.version == "v2") cipher.updateAAD(aad(context))
+            String(cipher.doFinal(envelope.ciphertext), UTF_8)
           }
           .getOrNull()
       if (decrypted != null) return decrypted
@@ -137,17 +177,23 @@ class NoteCrypto(
     note: LocalNote,
     keyMaterial: String = getEncryptionKeyMaterial(),
   ): LocalNote {
+    val titleContext = "note:${note.id}:title"
+    val bodyContext = "note:${note.id}:body"
+    val titleAlreadyEncrypted = canDecryptEncryptedText(note.title, keyMaterial, titleContext)
+    val bodyAlreadyEncrypted = canDecryptEncryptedText(note.body, keyMaterial, bodyContext)
     val titleHash =
-      if (isEncryptedText(note.title)) note.titleHash
-      else fieldHash(note.title, keyMaterial, "note:${note.id}:title")
+      if (titleAlreadyEncrypted) note.titleHash
+      else fieldHash(note.title, keyMaterial, titleContext)
     val bodyHash =
-      if (isEncryptedText(note.body)) note.bodyHash
-      else fieldHash(note.body, keyMaterial, "note:${note.id}:body")
+      if (bodyAlreadyEncrypted) note.bodyHash else fieldHash(note.body, keyMaterial, bodyContext)
     return note.copy(
       titleHash = titleHash,
       bodyHash = bodyHash,
-      title = encryptText(note.title, keyMaterial, "note:${note.id}:title"),
-      body = encryptText(note.body, keyMaterial, "note:${note.id}:body"),
+      title =
+        if (titleAlreadyEncrypted) note.title
+        else encryptText(note.title, keyMaterial, titleContext),
+      body =
+        if (bodyAlreadyEncrypted) note.body else encryptText(note.body, keyMaterial, bodyContext),
     )
   }
 
@@ -170,12 +216,16 @@ class NoteCrypto(
     notebook: LocalNotebook,
     keyMaterial: String = getEncryptionKeyMaterial(),
   ): LocalNotebook {
+    val nameContext = "notebook:name"
+    val nameAlreadyEncrypted = canDecryptEncryptedText(notebook.name, keyMaterial, nameContext)
     val nameHash =
-      if (isEncryptedText(notebook.name)) notebook.nameHash
-      else fieldHash(normalizedNotebookName(notebook.name), keyMaterial, "notebook:name")
+      if (nameAlreadyEncrypted) notebook.nameHash
+      else fieldHash(normalizedNotebookName(notebook.name), keyMaterial, nameContext)
     return notebook.copy(
       nameHash = nameHash,
-      name = encryptText(notebook.name, keyMaterial, "notebook:name"),
+      name =
+        if (nameAlreadyEncrypted) notebook.name
+        else encryptText(notebook.name, keyMaterial, nameContext),
     )
   }
 
@@ -230,7 +280,6 @@ class NoteCrypto(
 }
 
 fun base64UrlEncode(bytes: ByteArray): String =
-  Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+  Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
 
-fun base64UrlDecode(value: String): ByteArray =
-  Base64.decode(value, Base64.URL_SAFE or Base64.NO_WRAP)
+fun base64UrlDecode(value: String): ByteArray = Base64.getUrlDecoder().decode(value)

@@ -13,6 +13,7 @@ import {
   reencryptConflictForStorage
 } from './conflict-crypto';
 import {
+  canDecryptEncryptedText,
   decryptNoteFields,
   decryptNotebookFields,
   encryptNoteFields,
@@ -30,7 +31,7 @@ import {
 import { getOrCreateDevice, newId, nowIso } from './local-state';
 
 const ENCRYPTION_AUDIT_META_KEY = 'localEncryptionAuditVersion';
-const ENCRYPTION_AUDIT_VERSION = 'content-conflicts:v3';
+const ENCRYPTION_AUDIT_VERSION = 'content-conflicts:v4';
 
 const LOCAL_WORKSPACE_OWNER_KEY = 'localWorkspaceOwner';
 
@@ -568,13 +569,32 @@ export async function ensureLocalNotesEncrypted(): Promise<void> {
   if (currentAudit?.value === ENCRYPTION_AUDIT_VERSION) return;
 
   const notes = await localDb.notes.toArray();
-  const notesNeedingEncryption = notes.filter(
-    (note) =>
-      !isCurrentEncryptedText(note.title) ||
-      !isCurrentEncryptedText(note.body) ||
-      !isCurrentFieldHash(note.titleHash) ||
-      !isCurrentFieldHash(note.bodyHash)
+  const noteEncryptionChecks = await Promise.all(
+    notes.map(async (note) => ({
+      note,
+      titleDecrypts: await canDecryptEncryptedText(
+        note.title,
+        undefined,
+        `note:${note.id}:title`
+      ),
+      bodyDecrypts: await canDecryptEncryptedText(
+        note.body,
+        undefined,
+        `note:${note.id}:body`
+      )
+    }))
   );
+  const notesNeedingEncryption = noteEncryptionChecks
+    .filter(
+      ({ note, titleDecrypts, bodyDecrypts }) =>
+        !isCurrentEncryptedText(note.title) ||
+        !titleDecrypts ||
+        !isCurrentEncryptedText(note.body) ||
+        !bodyDecrypts ||
+        !isCurrentFieldHash(note.titleHash) ||
+        !isCurrentFieldHash(note.bodyHash)
+    )
+    .map(({ note }) => note);
   if (notesNeedingEncryption.length) {
     await saveNoteEncryptionChanges(
       await Promise.all(
@@ -587,11 +607,24 @@ export async function ensureLocalNotesEncrypted(): Promise<void> {
   }
 
   const notebooks = await localDb.notebooks.toArray();
-  const notebooksNeedingEncryption = notebooks.filter(
-    (notebook) =>
-      !isCurrentEncryptedText(notebook.name) ||
-      !isCurrentFieldHash(notebook.nameHash)
+  const notebookEncryptionChecks = await Promise.all(
+    notebooks.map(async (notebook) => ({
+      notebook,
+      nameDecrypts: await canDecryptEncryptedText(
+        notebook.name,
+        undefined,
+        'notebook:name'
+      )
+    }))
   );
+  const notebooksNeedingEncryption = notebookEncryptionChecks
+    .filter(
+      ({ notebook, nameDecrypts }) =>
+        !isCurrentEncryptedText(notebook.name) ||
+        !nameDecrypts ||
+        !isCurrentFieldHash(notebook.nameHash)
+    )
+    .map(({ notebook }) => notebook);
   if (notebooksNeedingEncryption.length) {
     await saveNotebookEncryptionChanges(
       await Promise.all(

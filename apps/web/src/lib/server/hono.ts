@@ -86,6 +86,8 @@ export const api = new Hono<{ Bindings: ApiBindings }>();
 
 api.use('*', async (c, next) => {
   setRuntimeEnv(c.env);
+  const originError = rejectCrossOriginMutation(c);
+  if (originError) return originError;
   await next();
 });
 
@@ -112,6 +114,7 @@ let remoteSyncFailureCount = 0;
 let remoteSyncQueueRunning = false;
 let remoteSyncQueued = false;
 const serverStartedAt = Date.now();
+const SAFE_HTTP_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 class RequestBodyTooLargeError extends Error {
   constructor() {
@@ -212,6 +215,21 @@ function publicApiBaseUrl(request: Request, c?: ApiContext): string {
   return getPublicApiBaseUrl(c?.env) ?? requestOrigin(request);
 }
 
+function rejectCrossOriginMutation(c: ApiContext): Response | null {
+  if (SAFE_HTTP_METHODS.has(c.req.raw.method.toUpperCase())) return null;
+  const origin = c.req.raw.headers.get('origin')?.trim();
+  if (!origin) return null;
+
+  try {
+    const expectedOrigin = new URL(publicApiBaseUrl(c.req.raw, c)).origin;
+    if (new URL(origin).origin === expectedOrigin) return null;
+  } catch {
+    return c.json({ error: 'Invalid request origin' }, 403);
+  }
+
+  return c.json({ error: 'Invalid request origin' }, 403);
+}
+
 function authCookieSecure(c: ApiContext): boolean {
   return isSecureRequest(
     c.req.raw,
@@ -237,13 +255,22 @@ function clearAuthCookie(c: ApiContext): void {
 async function accountResponse(
   db: NotesDb,
   session: AuthSession,
-  user: AuthSession['user'] = session.user
+  user: AuthSession['user'] = session.user,
+  replacementSession?: { token: string; expiresAt: string } | null
 ): Promise<AccountResponse> {
   return {
     user,
     trustedDevices: session.legacy
       ? []
-      : await listTrustedAuthDevices(db, user.username, session.deviceId)
+      : await listTrustedAuthDevices(db, user.username, session.deviceId),
+    ...(replacementSession
+      ? {
+          session: {
+            token: replacementSession.token,
+            expiresAt: replacementSession.expiresAt
+          }
+        }
+      : {})
   };
 }
 
@@ -305,7 +332,7 @@ async function revivePersistentRemoteSyncIfPending(
     return;
   }
 
-  void queueRemoteSyncAfter(undefined, env);
+  queueRemoteSyncSoon(env);
 }
 
 async function syncRemoteBestEffort(
@@ -432,10 +459,14 @@ async function queueRemoteSyncAfter(
     } finally {
       remoteSyncQueueRunning = false;
       if (remoteSyncQueued) {
-        void queueRemoteSyncAfter(undefined, env);
+        queueRemoteSyncSoon(env);
       }
     }
   })();
+}
+
+function queueRemoteSyncSoon(env?: RuntimeEnv | null): void {
+  void queueRemoteSyncAfter(undefined, env).catch(reportRemoteSyncError);
 }
 
 function scheduleRemoteSyncRetry(env?: RuntimeEnv | null): void {
@@ -447,7 +478,7 @@ function scheduleRemoteSyncRetry(env?: RuntimeEnv | null): void {
   );
   remoteSyncRetryTimer = setTimeout(() => {
     remoteSyncRetryTimer = null;
-    void queueRemoteSyncAfter(undefined, env);
+    queueRemoteSyncSoon(env);
   }, delayMs);
 }
 
@@ -1412,8 +1443,20 @@ api.post(API_PATHS.accountPassword, async (c) => {
         if (!user) {
           return c.json({ error: 'Current password is incorrect' }, 401);
         }
-        clearAuthCookie(c);
-        return c.json(await accountResponse(db, session, user));
+        const replacementSession = await createAuthSession(
+          db,
+          user,
+          session.deviceId
+        );
+        setAuthSessionCookie(c, replacementSession);
+        return c.json(
+          await accountResponse(
+            db,
+            replacementSession,
+            user,
+            replacementSession
+          )
+        );
       }
       return c.json({ error: 'Password changes require remote access' }, 503);
     }
@@ -1455,9 +1498,16 @@ api.post(API_PATHS.accountPassword, async (c) => {
       );
     }
 
+    const replacementSession = await createAuthSession(
+      db,
+      user,
+      session.deviceId
+    );
+    setAuthSessionCookie(c, replacementSession);
     await queueRemoteSyncAfter(undefined, c.env);
-    clearAuthCookie(c);
-    return c.json(await accountResponse(db, session, user));
+    return c.json(
+      await accountResponse(db, replacementSession, user, replacementSession)
+    );
   } finally {
     db.close();
   }
@@ -1760,15 +1810,10 @@ api.delete(API_PATHS.account, async (c) => {
 api.get(API_PATHS.notes, async (c) => {
   const db = await openPrimaryDatabase(c);
   try {
-    let session = await sessionFromRequest(db, c.req.raw);
+    const session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
 
-    if (!(await syncRemoteBestEffort(db, c.env))) {
-      await queueRemoteSyncAfter(undefined, c.env);
-    } else {
-      session = await sessionFromRequest(db, c.req.raw);
-      if (!session) return unauthorized();
-    }
+    queueRemoteSyncSoon(c.env);
     return c.json({ notes: await listNotes(db, syncOwner(session)) });
   } finally {
     db.close();
@@ -1778,15 +1823,10 @@ api.get(API_PATHS.notes, async (c) => {
 api.get(API_PATHS.notebooks, async (c) => {
   const db = await openPrimaryDatabase(c);
   try {
-    let session = await sessionFromRequest(db, c.req.raw);
+    const session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
 
-    if (!(await syncRemoteBestEffort(db, c.env))) {
-      await queueRemoteSyncAfter(undefined, c.env);
-    } else {
-      session = await sessionFromRequest(db, c.req.raw);
-      if (!session) return unauthorized();
-    }
+    queueRemoteSyncSoon(c.env);
     return c.json({ notebooks: await listNotebooks(db, syncOwner(session)) });
   } finally {
     db.close();
@@ -1811,7 +1851,7 @@ api.get(API_PATHS.syncStatus, async (c) => {
 api.post(API_PATHS.syncPull, async (c) => {
   const db = await openPrimaryDatabase(c);
   try {
-    let session = await sessionFromRequest(db, c.req.raw);
+    const session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
 
     const parsed = await jsonOrSizeError<PullRequest>(
@@ -1822,12 +1862,7 @@ api.post(API_PATHS.syncPull, async (c) => {
     if (!parsed.ok) return parsed.response;
     const body = parsed.body ?? {};
 
-    if (!(await syncRemoteBestEffort(db, c.env))) {
-      await queueRemoteSyncAfter(undefined, c.env);
-    } else {
-      session = await sessionFromRequest(db, c.req.raw);
-      if (!session) return unauthorized();
-    }
+    queueRemoteSyncSoon(c.env);
     return c.json(
       await pullChangesSince(
         db,
@@ -1844,7 +1879,7 @@ api.post(API_PATHS.syncPull, async (c) => {
 api.post(API_PATHS.syncPush, async (c) => {
   const db = await openPrimaryDatabase(c);
   try {
-    let session = await sessionFromRequest(db, c.req.raw);
+    const session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
 
     const parsed = await jsonOrSizeError<PushRequest>(
@@ -1873,14 +1908,8 @@ api.post(API_PATHS.syncPush, async (c) => {
       );
     }
 
-    if (!(await syncRemoteBestEffort(db, c.env))) {
-      await queueRemoteSyncAfter(undefined, c.env);
-    } else {
-      session = await sessionFromRequest(db, c.req.raw);
-      if (!session) return unauthorized();
-    }
     const response = await pushChanges(db, body, syncOwner(session));
-    await queueRemoteSyncAfter(undefined, c.env);
+    queueRemoteSyncSoon(c.env);
     return c.json(response);
   } finally {
     db.close();
@@ -1890,19 +1919,11 @@ api.post(API_PATHS.syncPush, async (c) => {
 api.post(API_PATHS.cleanupTrash, async (c) => {
   const db = await openPrimaryDatabase(c);
   try {
-    let session = await sessionFromRequest(db, c.req.raw);
+    const session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
 
-    if (!(await syncRemoteBestEffort(db, c.env))) {
-      await queueRemoteSyncAfter(undefined, c.env);
-    } else {
-      session = await sessionFromRequest(db, c.req.raw);
-      if (!session) return unauthorized();
-    }
     const response = await cleanupTrash(db, new Date(), syncOwner(session));
-    if (!(await syncRemoteBestEffort(db, c.env))) {
-      await queueRemoteSyncAfter(undefined, c.env);
-    }
+    queueRemoteSyncSoon(c.env);
     return c.json(response);
   } finally {
     db.close();

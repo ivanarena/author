@@ -142,10 +142,14 @@ export function getServerSecret(): string {
     envValue('NOTES_SERVER_SECRET') ?? envValue('NOTES_TOTP_SECRET_KEY');
   if (configured?.trim()) return configured.trim();
 
+  if (envValue('NODE_ENV') === 'production') {
+    throw new Error('NOTES_SERVER_SECRET is required in production');
+  }
+
   const loginPassword = getLoginPassword();
   if (loginPassword) return loginPassword;
 
-  return envValue('NODE_ENV') === 'production' ? '' : 'local-dev-server-secret';
+  return 'local-dev-server-secret';
 }
 
 export function getAuthSessionDays(): number {

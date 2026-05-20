@@ -106,7 +106,13 @@ data class TrustedAuthDevice(
   val current: Boolean,
 )
 
-data class AccountResponse(val user: AuthUser, val trustedDevices: List<TrustedAuthDevice>)
+data class AccountSession(val token: String, val expiresAt: String?)
+
+data class AccountResponse(
+  val user: AuthUser,
+  val trustedDevices: List<TrustedAuthDevice>,
+  val session: AccountSession? = null,
+)
 
 data class StoredSession(val token: String, val user: AuthUser, val expiresAt: String?)
 

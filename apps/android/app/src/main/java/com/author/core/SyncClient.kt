@@ -262,4 +262,11 @@ private fun parseAccountResponse(json: JSONObject): AccountResponse =
           )
         }
       } ?: emptyList(),
+    session =
+      json.optJSONObject("session")?.let { session ->
+        AccountSession(
+          token = session.getString("token"),
+          expiresAt = session.optNullableString("expiresAt"),
+        )
+      },
   )

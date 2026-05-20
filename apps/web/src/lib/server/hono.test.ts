@@ -270,6 +270,28 @@ describe('Hono API', () => {
     expect(invalid.status).toBe(401);
   });
 
+  it('rejects mutating requests with a mismatched origin header', async () => {
+    const response = await api.fetch(
+      new Request('http://localhost/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          origin: 'https://evil.example'
+        },
+        body: JSON.stringify({
+          username: 'owner',
+          password: 'test-password',
+          device: fixtureDevice
+        })
+      })
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Invalid request origin'
+    });
+  });
+
   it('persists and clears login throttle attempts', async () => {
     const badLogin = await api.fetch(
       new Request('http://localhost/api/auth/login', {
@@ -1136,6 +1158,22 @@ describe('Hono API', () => {
       token
     );
     expect(password.status).toBe(200);
+    const passwordBody = (await password.json()) as {
+      session?: { token: string; expiresAt: string };
+    };
+    expect(passwordBody.session?.token).toEqual(expect.any(String));
+    const oldTokenValidate = await api.fetch(
+      new Request('http://localhost/api/auth/validate', {
+        headers: { authorization: `Bearer ${token}` }
+      })
+    );
+    expect(oldTokenValidate.status).toBe(401);
+    const replacementValidate = await api.fetch(
+      new Request('http://localhost/api/auth/validate', {
+        headers: { authorization: `Bearer ${passwordBody.session?.token}` }
+      })
+    );
+    expect(replacementValidate.status).toBe(200);
     await expect(loginToken('owner', 'new-test-password')).resolves.toEqual(
       expect.any(String)
     );
@@ -1464,7 +1502,7 @@ describe('Hono API', () => {
     }
   });
 
-  it('pulls configured remote database changes before responding to client pulls', async () => {
+  it('queues configured remote database changes without blocking client pulls', async () => {
     const remotePath = join(tempDir, 'pull-before-response-remote.sqlite');
     process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
     process.env.TURSO_AUTH_TOKEN = 'test-token';
@@ -1521,7 +1559,29 @@ describe('Hono API', () => {
     const body = (await pull.json()) as {
       notes: Array<{ id: string; body: string }>;
     };
-    expect(body.notes).toEqual(
+    expect(body.notes).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'remote-after-login-note' })
+      ])
+    );
+
+    let mirroredNotes: Array<{ id: string; body: string }> = [];
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await sleep(25);
+      const retry = await post(
+        '/api/sync/pull',
+        { since: null, sinceRevision: 0 },
+        token
+      );
+      const retryBody = (await retry.json()) as {
+        notes: Array<{ id: string; body: string }>;
+      };
+      mirroredNotes = retryBody.notes;
+      if (mirroredNotes.some((note) => note.id === 'remote-after-login-note')) {
+        break;
+      }
+    }
+    expect(mirroredNotes).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: 'remote-after-login-note',

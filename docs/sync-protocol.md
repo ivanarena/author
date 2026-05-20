@@ -23,13 +23,16 @@ Each changed entity is sent as:
 Clients send at most 20 note/notebook changes in a single push request so
 remote database round trips stay below Worker subrequest limits.
 `baseVersion` is the last remote version the client successfully synced. New local entities use `0`.
-For notes, the browser encrypts `title` and `body` into `enc:v2` string envelopes before storage
-and push, then decrypts them after pull. Notebook names use the same envelope format before
-storage and push. Encryption uses random AES-GCM IVs with field-specific additional authenticated
-data, so a title envelope cannot be silently moved into a body or another note field. Stable
-HMAC field hashes (`titleHash`, `bodyHash`, and `nameHash`) let sync compare encrypted fields and
-check duplicate notebook names without reusing nonces or exposing plaintext names. Sync metadata
-and notebook assignment remain plain so versioning and relationship repair stay small.
+For notes, clients encrypt `title` and `body` into `enc:v2` string envelopes before storage
+and push, then decrypt them after pull. Notebook names use the same envelope format before
+storage and push. A value is preserved as encrypted only when its envelope is structurally valid
+and decrypts with the active key material for that exact field context; literal text that merely
+starts with `enc:v1:` or `enc:v2:` is encrypted again as normal plaintext. Encryption uses random
+AES-GCM IVs with field-specific additional authenticated data, so a title envelope cannot be
+silently moved into a body or another note field. Stable HMAC field hashes (`titleHash`,
+`bodyHash`, and `nameHash`) let sync compare encrypted fields and check duplicate notebook names
+without reusing nonces or exposing plaintext names. Sync metadata and notebook assignment remain
+plain so versioning and relationship repair stay small.
 Password-derived note key material uses PBKDF2-SHA-256. Sync-capable password key material is kept
 in browser `sessionStorage` for the active session; unsigned local-only browsers generate random
 local key material in `localStorage` so offline drafts still work without an account. New key
@@ -39,6 +42,17 @@ hardened zero-knowledge design for weak passwords or compromised browsers.
 Older local fallback envelopes remain decryptable so existing local data can be migrated.
 Browsers with an old session token but no stored encryption key material must sign in again before
 syncing encrypted notes.
+
+When an account password changes, the server returns a replacement session for the same device.
+The client re-encrypts local notes and notebooks with the new password-derived material, syncs
+those rotated ciphertexts with the replacement session, and only then clears the local session and
+key material. If that final sync fails, the replacement session and new key material remain on the
+device so the user can retry instead of stranding remote notes under the old key.
+
+For self-hosted local SQLite with an optional Turso mirror, note reads, pulls, pushes, and trash
+cleanup use the local primary immediately and queue mirror convergence in the background. Account
+mutations still synchronize remote state first because they affect authentication and account
+recovery rather than the typing path.
 
 ## Pull Payload
 

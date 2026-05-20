@@ -54,6 +54,11 @@ export interface TrustedAuthDevice {
   current: boolean;
 }
 
+export interface AccountSession {
+  token: string;
+  expiresAt: string;
+}
+
 export interface AuthLoginResponse {
   token: string;
   user: AuthUser;
@@ -86,6 +91,7 @@ export interface DeleteAccountRequest {
 export interface AccountResponse {
   user: AuthUser;
   trustedDevices: TrustedAuthDevice[];
+  session?: AccountSession;
 }
 
 export interface TotpSetupResponse {

@@ -286,6 +286,7 @@ export class NotesPageController
   readonly editorFontOptions = EDITOR_FONT_OPTIONS;
 
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingSaveNoteId: string | null = null;
   private autoSyncTimer: ReturnType<typeof setTimeout> | null = null;
   private retrySyncTimer: ReturnType<typeof setTimeout> | null = null;
   private onlineSessionTimer: ReturnType<typeof setInterval> | null = null;
@@ -420,12 +421,13 @@ export class NotesPageController
         'visibilitychange',
         this.handleVisibilityChange
       );
+      window.addEventListener('pagehide', this.handlePageHide);
 
       void this.initialize();
 
       return () => {
         clearInterval(clock);
-        this.clearPendingSave();
+        void this.flushPendingSave();
         if (this.menuCloseTimer) clearTimeout(this.menuCloseTimer);
         if (this.accountMenuCloseTimer)
           clearTimeout(this.accountMenuCloseTimer);
@@ -441,6 +443,7 @@ export class NotesPageController
           'visibilitychange',
           this.handleVisibilityChange
         );
+        window.removeEventListener('pagehide', this.handlePageHide);
       };
     });
   }
@@ -466,7 +469,14 @@ export class NotesPageController
         this.isBrowserOnline = false;
       }
       this.scheduleSync(0);
+      return;
     }
+
+    void this.flushPendingSave();
+  };
+
+  handlePageHide = () => {
+    void this.flushPendingSave();
   };
 
   handleTitleKeydown = (event: KeyboardEvent) => {
@@ -1708,6 +1718,7 @@ export class NotesPageController
     this.isAccountBusy = true;
     this.accountError = '';
     this.accountMessage = '';
+    let passwordChanged = false;
     try {
       const encryption = await prepareEncryptionPassword(
         this.accountUsername,
@@ -1721,11 +1732,23 @@ export class NotesPageController
         currentPassword: this.currentPasswordValue,
         newPassword: this.newPasswordValue
       });
+      passwordChanged = true;
+      if (!response.session) {
+        throw new Error(
+          'Password changed, but Author could not create a session to sync the re-encrypted notes.'
+        );
+      }
       await reencryptLocalNotes(
         encryption.previousMaterial,
         encryption.nextMaterial
       );
       commitEncryptionKeyMaterial(encryption.nextMaterial);
+      setStoredSession({
+        token: response.session.token,
+        user: response.user,
+        expiresAt: response.session.expiresAt
+      });
+      this.hasToken = true;
       this.accountUsername = response.user.username;
       this.accountEmail = response.user.email ?? '';
       this.accountDisplayName = response.user.displayName ?? '';
@@ -1735,6 +1758,24 @@ export class NotesPageController
       this.newPasswordValue = '';
       this.confirmPasswordValue = '';
       this.accountPasswordEditing = false;
+      this.isSyncing = true;
+      this.syncMessage = 'Syncing password change';
+      this.updateSyncProgress({ phase: 'preparing' });
+      const syncResult = await runSync(
+        response.session.token,
+        this.updateSyncProgress
+      );
+      this.lastSyncPass = {
+        completedAt: new Date().toISOString(),
+        pushed: syncResult.pushed,
+        pulled: syncResult.pulled,
+        conflicts: syncResult.conflicts
+      };
+      await clearSyncError();
+      await recordLastSyncPass(this.lastSyncPass);
+      await this.refresh();
+      await this.refreshRemoteSyncStatus(response.session.token);
+      await logout(response.session.token).catch(() => undefined);
       this.clearSensitiveWorkspace();
       this.clearLocalSession({
         accountMessage: 'Password changed. Sign in again to unlock notes.',
@@ -1749,10 +1790,20 @@ export class NotesPageController
         'Sign in again to unlock notes.'
       );
     } catch (error) {
-      this.accountError =
+      const detail =
         error instanceof Error ? error.message : 'Could not change password';
-      this.notify('error', 'Password change failed', this.accountError);
+      this.accountError = passwordChanged
+        ? `Password changed, but Author could not finish syncing re-encrypted notes. ${detail}`
+        : detail;
+      this.notify(
+        'error',
+        passwordChanged ? 'Password sync incomplete' : 'Password change failed',
+        this.accountError
+      );
     } finally {
+      this.isSyncing = false;
+      this.syncActivityLabel = '';
+      this.syncActivityDetail = '';
       this.isAccountBusy = false;
     }
   };
@@ -2078,6 +2129,7 @@ export class NotesPageController
       clearTimeout(this.saveTimer);
       this.saveTimer = null;
     }
+    this.pendingSaveNoteId = null;
   };
 
   private closeNotebookMenus = () => {
@@ -2119,8 +2171,9 @@ export class NotesPageController
 
   private flushPendingSave = async () => {
     if (!this.saveTimer) return;
+    const noteId = this.pendingSaveNoteId;
     this.clearPendingSave();
-    await this.saveEditorNow(this.selectedNote?.id ?? null);
+    await this.saveEditorNow(noteId);
   };
 
   private openDraftNote = () => {
@@ -2305,6 +2358,7 @@ export class NotesPageController
     if (this.selectedNote?.trashedAt) return;
     this.clearPendingSave();
     const noteId = this.selectedNote?.id ?? null;
+    this.pendingSaveNoteId = noteId;
     if (this.selectedNote) {
       this.selectedNote = {
         ...this.selectedNote,

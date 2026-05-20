@@ -5,8 +5,6 @@ export const ENCRYPTION_PREFIX = 'enc:v2:';
 export const ENCRYPTION_KEY_MATERIAL_STORAGE_KEY =
   'author-encryption-key-material-v1';
 
-const ENCRYPTION_V1_PREFIX = 'enc:v1:';
-const ENCRYPTION_V2_PREFIX = 'enc:v2:';
 const HASH_V2_PREFIX = 'hash:v2:';
 const USERNAME_KEY = 'author-username';
 const FALLBACK_KEY_MATERIAL = 'author:local:v1';
@@ -40,18 +38,46 @@ function normalizedUsername(username: string): string {
 }
 
 export function isEncryptedText(value: string): boolean {
-  return (
-    value.startsWith(ENCRYPTION_V1_PREFIX) ||
-    value.startsWith(ENCRYPTION_V2_PREFIX)
-  );
+  return encryptedEnvelope(value) !== null;
 }
 
 export function isCurrentEncryptedText(value: string): boolean {
-  return value.startsWith(ENCRYPTION_V2_PREFIX);
+  return encryptedEnvelope(value)?.version === 'v2';
 }
 
 export function isCurrentFieldHash(value: string | null | undefined): boolean {
   return Boolean(value?.startsWith(HASH_V2_PREFIX));
+}
+
+export async function canDecryptEncryptedText(
+  value: string,
+  keyMaterial = getEncryptionKeyMaterial(),
+  context = 'text'
+): Promise<boolean> {
+  const envelope = encryptedEnvelope(value);
+  if (!envelope) return false;
+
+  for (const material of decryptionKeyMaterials(keyMaterial)) {
+    try {
+      const key = await encryptionKey(material, envelope.version);
+      await cryptoImpl().subtle.decrypt(
+        envelope.version === 'v2'
+          ? {
+              name: 'AES-GCM',
+              iv: bufferSource(envelope.iv),
+              additionalData: aad(context)
+            }
+          : { name: 'AES-GCM', iv: bufferSource(envelope.iv) },
+        key,
+        bufferSource(envelope.ciphertext)
+      );
+      return true;
+    } catch {
+      continue;
+    }
+  }
+
+  return false;
 }
 
 export function getEncryptionKeyMaterial(): string {
@@ -160,7 +186,7 @@ export async function encryptText(
   keyMaterial = getEncryptionKeyMaterial(),
   context = 'text'
 ): Promise<string> {
-  if (isEncryptedText(value)) return value;
+  if (await canDecryptEncryptedText(value, keyMaterial, context)) return value;
 
   const iv = encryptionIv();
   const key = await encryptionKey(keyMaterial, 'v2');
@@ -182,33 +208,25 @@ export async function decryptText(
   keyMaterial = getEncryptionKeyMaterial(),
   context = 'text'
 ): Promise<string> {
-  if (!isEncryptedText(value)) return value;
-
-  const parts = value.split(':');
-  if (
-    parts.length !== 4 ||
-    parts[0] !== 'enc' ||
-    (parts[1] !== 'v1' && parts[1] !== 'v2')
-  ) {
-    return value;
-  }
+  const envelope = encryptedEnvelope(value);
+  if (!envelope) return value;
 
   for (const material of decryptionKeyMaterials(keyMaterial)) {
     try {
       const key = await encryptionKey(
         material,
-        parts[1] === 'v2' ? 'v2' : 'v1'
+        envelope.version === 'v2' ? 'v2' : 'v1'
       );
       const decrypted = await cryptoImpl().subtle.decrypt(
-        parts[1] === 'v2'
+        envelope.version === 'v2'
           ? {
               name: 'AES-GCM',
-              iv: bufferSource(base64UrlDecode(parts[2])),
+              iv: bufferSource(envelope.iv),
               additionalData: aad(context)
             }
-          : { name: 'AES-GCM', iv: bufferSource(base64UrlDecode(parts[2])) },
+          : { name: 'AES-GCM', iv: bufferSource(envelope.iv) },
         key,
-        bufferSource(base64UrlDecode(parts[3]))
+        bufferSource(envelope.ciphertext)
       );
       return decoder.decode(decrypted);
     } catch {
@@ -223,19 +241,35 @@ export async function encryptNoteFields<T extends Note>(
   note: T,
   keyMaterial = getEncryptionKeyMaterial()
 ): Promise<T> {
-  const titleHash = isEncryptedText(note.title)
+  const titleContext = `note:${note.id}:title`;
+  const bodyContext = `note:${note.id}:body`;
+  const titleAlreadyEncrypted = await canDecryptEncryptedText(
+    note.title,
+    keyMaterial,
+    titleContext
+  );
+  const bodyAlreadyEncrypted = await canDecryptEncryptedText(
+    note.body,
+    keyMaterial,
+    bodyContext
+  );
+  const titleHash = titleAlreadyEncrypted
     ? (note.titleHash ?? null)
-    : await fieldHash(note.title, keyMaterial, `note:${note.id}:title`);
-  const bodyHash = isEncryptedText(note.body)
+    : await fieldHash(note.title, keyMaterial, titleContext);
+  const bodyHash = bodyAlreadyEncrypted
     ? (note.bodyHash ?? null)
-    : await fieldHash(note.body, keyMaterial, `note:${note.id}:body`);
+    : await fieldHash(note.body, keyMaterial, bodyContext);
 
   return {
     ...note,
     titleHash,
     bodyHash,
-    title: await encryptText(note.title, keyMaterial, `note:${note.id}:title`),
-    body: await encryptText(note.body, keyMaterial, `note:${note.id}:body`)
+    title: titleAlreadyEncrypted
+      ? note.title
+      : await encryptText(note.title, keyMaterial, titleContext),
+    body: bodyAlreadyEncrypted
+      ? note.body
+      : await encryptText(note.body, keyMaterial, bodyContext)
   };
 }
 
@@ -263,18 +297,26 @@ export async function encryptNotebookFields<T extends Notebook>(
   notebook: T,
   keyMaterial = getEncryptionKeyMaterial()
 ): Promise<T> {
-  const nameHash = isEncryptedText(notebook.name)
+  const nameContext = 'notebook:name';
+  const nameAlreadyEncrypted = await canDecryptEncryptedText(
+    notebook.name,
+    keyMaterial,
+    nameContext
+  );
+  const nameHash = nameAlreadyEncrypted
     ? (notebook.nameHash ?? null)
     : await fieldHash(
         normalizeNotebookName(notebook.name),
         keyMaterial,
-        'notebook:name'
+        nameContext
       );
 
   return {
     ...notebook,
     nameHash,
-    name: await encryptText(notebook.name, keyMaterial, 'notebook:name')
+    name: nameAlreadyEncrypted
+      ? notebook.name
+      : await encryptText(notebook.name, keyMaterial, nameContext)
   };
 }
 
@@ -382,6 +424,33 @@ function generateLocalKeyMaterial(): string {
 
 function isSyncKeyMaterial(material: string): boolean {
   return material.startsWith('password:') || material.startsWith('account:');
+}
+
+function encryptedEnvelope(value: string): {
+  version: 'v1' | 'v2';
+  iv: Uint8Array;
+  ciphertext: Uint8Array;
+} | null {
+  const parts = value.split(':');
+  const version = parts[1];
+  if (
+    parts.length !== 4 ||
+    parts[0] !== 'enc' ||
+    (version !== 'v1' && version !== 'v2') ||
+    !parts[2] ||
+    !parts[3]
+  ) {
+    return null;
+  }
+
+  try {
+    const iv = base64UrlDecode(parts[2]);
+    const ciphertext = base64UrlDecode(parts[3]);
+    if (iv.byteLength !== 12 || ciphertext.byteLength < 16) return null;
+    return { version, iv, ciphertext };
+  } catch {
+    return null;
+  }
 }
 
 async function fieldHash(

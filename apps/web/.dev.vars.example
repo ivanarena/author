@@ -6,4 +6,5 @@ NOTES_LOGIN_USERNAME=owner
 TURSO_DATABASE_URL=libsql://your-database.turso.io
 TURSO_AUTH_TOKEN=your-turso-token
 NOTES_LOGIN_PASSWORD=change-this-local-password
+NOTES_SERVER_SECRET=change-this-server-secret
 NOTES_AUTH_SESSION_DAYS=90

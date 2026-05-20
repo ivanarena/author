@@ -11,6 +11,8 @@ import {
 import { clearLocalWorkspace, localDb } from './db';
 import {
   encryptNoteFields,
+  isCurrentEncryptedText,
+  isCurrentFieldHash,
   isEncryptedText,
   reencryptNoteFields
 } from './encryption';
@@ -49,6 +51,8 @@ vi.mock('./encryption', () => ({
   decryptNotebookFields: vi.fn(async (notebook) => notebook),
   encryptNoteFields: vi.fn(async (note) => note),
   encryptNotebookFields: vi.fn(async (notebook) => notebook),
+  isCurrentEncryptedText: vi.fn(() => true),
+  isCurrentFieldHash: vi.fn(() => true),
   isEncryptedText: vi.fn(() => true),
   reencryptNoteFields: vi.fn(async (note) => ({
     ...note,
@@ -88,6 +92,8 @@ beforeEach(() => {
   vi.mocked(encryptNoteFields).mockImplementation(
     async (storedNote) => storedNote
   );
+  vi.mocked(isCurrentEncryptedText).mockReturnValue(true);
+  vi.mocked(isCurrentFieldHash).mockReturnValue(true);
   vi.mocked(isEncryptedText).mockReturnValue(true);
   vi.mocked(reencryptNoteFields).mockImplementation(async (storedNote) => ({
     ...storedNote,
@@ -176,6 +182,8 @@ describe('local note encryption sync state', () => {
       lastSyncedVersion: 1
     };
     vi.mocked(localDb.notes.toArray).mockResolvedValue([syncedNote]);
+    vi.mocked(isCurrentEncryptedText).mockReturnValue(false);
+    vi.mocked(isCurrentFieldHash).mockReturnValue(false);
     vi.mocked(isEncryptedText).mockReturnValue(false);
     vi.mocked(encryptNoteFields).mockImplementation(async (storedNote) => ({
       ...storedNote,
@@ -205,7 +213,7 @@ describe('local note encryption sync state', () => {
   it('skips the local encryption scan after a clean audit', async () => {
     vi.mocked(localDb.syncMeta.get).mockResolvedValue({
       key: 'localEncryptionAuditVersion',
-      value: 'content-conflicts:v2'
+      value: 'content-conflicts:v3'
     });
 
     await ensureLocalNotesEncrypted();

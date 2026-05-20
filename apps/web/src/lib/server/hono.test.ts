@@ -48,6 +48,9 @@ afterEach(() => {
   delete process.env.NOTES_LOGIN_PASSWORD;
   delete process.env.NOTES_AUTH_TOKEN;
   delete process.env.NOTES_LEGACY_AUTH_TOKEN_ENABLED;
+  delete process.env.NOTES_METRICS_PUBLIC;
+  delete process.env.NOTES_METRICS_TOKEN;
+  delete process.env.NOTES_SERVER_SECRET;
 });
 
 async function loginToken(
@@ -129,10 +132,17 @@ describe('Hono API', () => {
     const metrics = await api.fetch(
       new Request('http://localhost/api/metrics')
     );
-    expect(metrics.status).toBe(200);
-    await expect(metrics.text()).resolves.toContain('author_up 1');
+    expect(metrics.status).toBe(401);
 
     const token = await loginToken();
+    const authorizedMetrics = await api.fetch(
+      new Request('http://localhost/api/metrics', {
+        headers: { authorization: `Bearer ${token}` }
+      })
+    );
+    expect(authorizedMetrics.status).toBe(200);
+    await expect(authorizedMetrics.text()).resolves.toContain('author_up 1');
+
     const pull = await post('/api/sync/pull', { since: null }, 'bad-token');
     expect(pull.status).toBe(401);
 
@@ -184,6 +194,59 @@ describe('Hono API', () => {
     expect(JSON.stringify(body)).not.toContain('super-secret-token');
     expect(JSON.stringify(body)).not.toContain('libsql://');
     expect(JSON.stringify(body)).not.toContain('author.example.turso.io');
+  });
+
+  it('allows metrics only with an explicit metrics token when configured', async () => {
+    process.env.NOTES_METRICS_TOKEN = 'metrics-secret';
+
+    const unauthorized = await api.fetch(
+      new Request('http://localhost/api/metrics')
+    );
+    expect(unauthorized.status).toBe(401);
+
+    const authorized = await api.fetch(
+      new Request('http://localhost/api/metrics', {
+        headers: { 'x-author-metrics-token': 'metrics-secret' }
+      })
+    );
+    expect(authorized.status).toBe(200);
+    await expect(authorized.text()).resolves.toContain('author_up 1');
+  });
+
+  it('sets an HttpOnly auth cookie and accepts cookie-backed sessions', async () => {
+    const login = await api.fetch(
+      new Request('http://localhost/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'owner',
+          password: 'test-password',
+          device: fixtureDevice
+        })
+      })
+    );
+    expect(login.status).toBe(200);
+    const cookie = login.headers.get('set-cookie') ?? '';
+    expect(cookie).toContain('author_session=');
+    expect(cookie).toContain('HttpOnly');
+    expect(cookie).toContain('SameSite=Strict');
+    const cookiePair = cookie.split(';')[0];
+
+    const validate = await api.fetch(
+      new Request('http://localhost/api/auth/validate', {
+        headers: { cookie: cookiePair }
+      })
+    );
+    expect(validate.status).toBe(200);
+
+    const logout = await api.fetch(
+      new Request('http://localhost/api/auth/logout', {
+        method: 'POST',
+        headers: { cookie: cookiePair }
+      })
+    );
+    expect(logout.status).toBe(200);
+    expect(logout.headers.get('set-cookie')).toContain('Max-Age=0');
   });
 
   it('validates active auth tokens without accepting invalid ones', async () => {
@@ -265,6 +328,7 @@ describe('Hono API', () => {
     process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
     process.env.TURSO_AUTH_TOKEN = 'test-token';
     process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
+    process.env.NOTES_SERVER_SECRET = 'test-server-secret';
     process.env.NOTES_SIGNUP_ALLOWED_EMAILS = 'new@example.com';
 
     const signup = await api.fetch(
@@ -479,7 +543,7 @@ describe('Hono API', () => {
       expect(user.rows[0]).toMatchObject({
         username: 'worker-user',
         display_name: 'Worker User',
-        password_iterations: 100_000
+        password_iterations: 600_000
       });
     } finally {
       primary.close();
@@ -1203,6 +1267,22 @@ describe('Hono API', () => {
     await expect(enable.json()).resolves.toMatchObject({
       user: { username: 'owner', twoFactorEnabled: true }
     });
+    const storedRemote = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${remotePath}`, authToken: 'test-token' }
+    });
+    try {
+      const row = (await get(
+        storedRemote,
+        'SELECT totp_secret FROM users WHERE username = ?',
+        ['owner']
+      )) as { totp_secret: unknown } | null;
+      const storedSecret = String(row?.totp_secret ?? '');
+      expect(storedSecret).toMatch(/^srvenc:v1:/);
+      expect(storedSecret).not.toBe(setupBody.secret);
+    } finally {
+      storedRemote.close();
+    }
 
     const withoutCode = await api.fetch(
       new Request('http://localhost/api/auth/login', {

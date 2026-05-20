@@ -217,6 +217,15 @@ type ChangeStamp = {
   deviceId: string;
 };
 
+class MirrorDivergenceError extends Error {
+  constructor(entityType: 'note' | 'notebook', entityId: string) {
+    super(
+      `Remote mirror divergent ${entityType} ${entityId}; refusing to choose a winner`
+    );
+    this.name = 'MirrorDivergenceError';
+  }
+}
+
 function newerOrTieBreakingStamp(
   source: ChangeStamp,
   target: ChangeStamp
@@ -275,6 +284,25 @@ function tombstoneWinsOverRecord(
   return newerOrTieBreakingStamp(
     tombstoneStamp(tombstone),
     recordStamp(record)
+  );
+}
+
+function canSourceOverwriteTarget<T extends Note | Notebook>(
+  source: T,
+  target: T
+): boolean {
+  return (
+    newerOrTieBreakingSource(source, target) && source.version > target.version
+  );
+}
+
+function canTombstoneOverwriteRecord(
+  tombstone: EntityTombstone,
+  record: Note | Notebook
+): boolean {
+  return (
+    tombstoneWinsOverRecord(tombstone, record) &&
+    tombstone.version > record.version
   );
 }
 
@@ -515,18 +543,14 @@ async function notebookChanges(
     const targetNotebook = targetNotebooks.get(notebook.id) ?? null;
     if (targetNotebook) {
       if (!recordsDiffer(notebook, targetNotebook)) continue;
-      if (newerOrTieBreakingSource(notebook, targetNotebook)) {
+      if (canSourceOverwriteTarget(notebook, targetNotebook)) {
         copySourceToTarget.push({
           record: notebook,
           baseVersion: targetNotebook.version
         });
-      } else {
-        copyTargetToSource.push({
-          record: targetNotebook,
-          baseVersion: notebook.version
-        });
+        continue;
       }
-      continue;
+      throw new MirrorDivergenceError('notebook', notebook.id);
     }
 
     const targetTombstone = targetTombstones.get(notebook.id) ?? null;
@@ -539,7 +563,7 @@ async function notebookChanges(
         baseVersion: targetTombstone?.version ?? 0
       });
     } else {
-      deleteSourceIds.push(notebook.id);
+      throw new MirrorDivergenceError('notebook', notebook.id);
     }
   }
 
@@ -567,18 +591,14 @@ async function noteChanges(
     const targetNote = targetNotes.get(note.id) ?? null;
     if (targetNote) {
       if (!recordsDiffer(note, targetNote)) continue;
-      if (newerOrTieBreakingSource(note, targetNote)) {
+      if (canSourceOverwriteTarget(note, targetNote)) {
         copySourceToTarget.push({
           record: note,
           baseVersion: targetNote.version
         });
-      } else {
-        copyTargetToSource.push({
-          record: targetNote,
-          baseVersion: note.version
-        });
+        continue;
       }
-      continue;
+      throw new MirrorDivergenceError('note', note.id);
     }
 
     const targetTombstone = targetTombstones.get(note.id) ?? null;
@@ -588,7 +608,7 @@ async function noteChanges(
         baseVersion: targetTombstone?.version ?? 0
       });
     } else {
-      deleteSourceIds.push(note.id);
+      throw new MirrorDivergenceError('note', note.id);
     }
   }
 
@@ -622,15 +642,12 @@ async function notebookDeleteChanges(
 
     if (
       sourceTombstone &&
-      tombstoneWinsOverRecord(sourceTombstone, targetNotebook)
+      canTombstoneOverwriteRecord(sourceTombstone, targetNotebook)
     ) {
       deleteTargetIds.push(notebookId);
-    } else {
-      copyTargetToSource.push({
-        record: targetNotebook,
-        baseVersion: sourceTombstone?.version ?? 0
-      });
+      continue;
     }
+    throw new MirrorDivergenceError('notebook', notebookId);
   }
 
   return { deleteTargetIds, copyTargetToSource };
@@ -663,15 +680,12 @@ async function noteDeleteChanges(
 
     if (
       sourceTombstone &&
-      tombstoneWinsOverRecord(sourceTombstone, targetNote)
+      canTombstoneOverwriteRecord(sourceTombstone, targetNote)
     ) {
       deleteTargetIds.push(noteId);
-    } else {
-      copyTargetToSource.push({
-        record: targetNote,
-        baseVersion: sourceTombstone?.version ?? 0
-      });
+      continue;
     }
+    throw new MirrorDivergenceError('note', noteId);
   }
 
   return { deleteTargetIds, copyTargetToSource };

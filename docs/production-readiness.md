@@ -36,9 +36,10 @@ aube run cf:dev
 aube run cf:deploy
 ```
 
-Production web deployments must set a real `NOTES_LOGIN_PASSWORD`, keep Turso
-tokens server-side only, run behind HTTPS, and keep `NOTES_TRUST_PROXY_HEADERS`
-disabled unless a trusted reverse proxy overwrites forwarding headers.
+Production web deployments must set real `NOTES_LOGIN_PASSWORD` and
+`NOTES_SERVER_SECRET` values, keep Turso tokens server-side only, run behind
+HTTPS, and keep `NOTES_TRUST_PROXY_HEADERS` disabled unless a trusted reverse
+proxy overwrites forwarding headers.
 
 ## Android
 
@@ -64,10 +65,9 @@ releases, set the `ANDROID_RELEASE_*` variables documented in
   restored file with `aube -F @author/web run db:check`.
 - Confirm scheduled SQLite backups are enabled for self-hosted Node
   deployments, and that `NOTES_BACKUP_DIR` is on storage you retain.
-- If 2FA is enabled, treat database files, mirrors, and backups as auth-secret
-  material because TOTP seeds and trusted auth device records are stored
-  server-side for verification.
-- Review `/api/health` and `/api/metrics` after deploy.
+- If 2FA is enabled, keep `NOTES_SERVER_SECRET` with restore credentials and
+  still treat database files, mirrors, and backups as sensitive auth material.
+- Review `/api/health` and authenticated `/api/metrics` after deploy.
 - Keep exactly one app process pointed at each local SQLite database.
 - Treat Docker image scan failures as release blockers. The CI workflow scans
   before publishing, then uploads a SARIF artifact for review.

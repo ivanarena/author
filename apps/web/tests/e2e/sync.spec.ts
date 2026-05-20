@@ -82,7 +82,7 @@ async function expectBrowserStoredEncryptedNote(
 
 async function browserEncryptionKeyMaterial(page: Page): Promise<string> {
   return await page.evaluate(
-    (key) => localStorage.getItem(key) ?? '',
+    (key) => sessionStorage.getItem(key) ?? localStorage.getItem(key) ?? '',
     ENCRYPTION_KEY_MATERIAL_STORAGE_KEY
   );
 }
@@ -185,9 +185,22 @@ async function waitForDraftEditorReady(page: Page) {
   ).toBeVisible();
 }
 
-test.beforeEach(async ({ page, request }) => {
+test.beforeEach(async ({ page, request }, testInfo) => {
   token = await loginForToken(request);
   e2eKeyMaterial = await keyMaterialFromPassword(loginUsername, loginPassword);
+
+  if (
+    testInfo.title ===
+      'logs in from the profile menu when no session is stored' ||
+    testInfo.title ===
+      'keeps local drafts when signing in and then syncs them remote'
+  ) {
+    await page.addInitScript((deviceId) => {
+      localStorage.setItem('author-device-id', deviceId);
+    }, localDeviceId);
+    return;
+  }
+
   await page.addInitScript(
     ({ deviceId, authToken, username, keyMaterial, keyMaterialStorageKey }) => {
       localStorage.setItem('author-device-id', deviceId);
@@ -205,7 +218,7 @@ test.beforeEach(async ({ page, request }) => {
   );
 });
 
-test('renames notebooks and trashes their notes before delete', async ({
+test('renames notebooks and keeps their notes before delete', async ({
   page
 }) => {
   await page.goto('/');
@@ -242,7 +255,6 @@ test('renames notebooks and trashes their notes before delete', async ({
   await page.getByRole('button', { name: 'Confirm delete notebook' }).click();
 
   await expect(page.getByRole('button', { name: 'Work' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Trash' }).click();
   await expect(
     page.getByText(notebookNoteTitle, { exact: true })
   ).toBeVisible();
@@ -301,6 +313,7 @@ test('logs in from the profile menu when no session is stored', async ({
     localStorage.removeItem('author-display-name');
     localStorage.removeItem('author-session-expires-at');
     localStorage.removeItem('author-encryption-key-material-v1');
+    sessionStorage.removeItem('author-encryption-key-material-v1');
   });
 
   await page.goto('/');
@@ -312,7 +325,10 @@ test('logs in from the profile menu when no session is stored', async ({
   await clickSignInSubmit(page);
 
   await expect
-    .poll(() => page.evaluate(() => localStorage.getItem('author-token')))
+    .poll(() => page.evaluate(() => localStorage.getItem('author-username')))
+    .toBe(loginUsername);
+  await expect
+    .poll(() => browserEncryptionKeyMaterial(page))
     .toEqual(expect.any(String));
   await expect(loginDialog).toBeHidden();
 
@@ -323,8 +339,9 @@ test('logs in from the profile menu when no session is stored', async ({
   await page.getByRole('menuitem', { name: 'Log out and lock' }).click();
 
   await expect
-    .poll(() => page.evaluate(() => localStorage.getItem('author-token')))
+    .poll(() => page.evaluate(() => localStorage.getItem('author-username')))
     .toBeNull();
+  await expect.poll(() => browserEncryptionKeyMaterial(page)).toBe('');
   await expect(page.getByRole('dialog', { name: 'Sign in' })).toBeVisible();
 });
 
@@ -494,7 +511,12 @@ test('signs up and manages trusted-device login without ending the active sessio
 
   await expect(authDialog).toBeHidden();
   await expect
-    .poll(() => signupPage.evaluate(() => localStorage.getItem('author-token')))
+    .poll(() =>
+      signupPage.evaluate(() => localStorage.getItem('author-username'))
+    )
+    .toBe(signupUsername);
+  await expect
+    .poll(() => browserEncryptionKeyMaterial(signupPage))
     .toEqual(expect.any(String));
 
   await signupPage
@@ -518,8 +540,10 @@ test('signs up and manages trusted-device login without ending the active sessio
 
   await expect(trustedDevices.getByText('No trusted devices')).toBeVisible();
   await expect
-    .poll(() => signupPage.evaluate(() => localStorage.getItem('author-token')))
-    .toEqual(expect.any(String));
+    .poll(() =>
+      signupPage.evaluate(() => localStorage.getItem('author-username'))
+    )
+    .toBe(signupUsername);
 });
 
 test('keeps local drafts when signing in and then syncs them remote', async ({
@@ -532,6 +556,7 @@ test('keeps local drafts when signing in and then syncs them remote', async ({
     localStorage.removeItem('author-display-name');
     localStorage.removeItem('author-session-expires-at');
     localStorage.removeItem('author-encryption-key-material-v1');
+    sessionStorage.removeItem('author-encryption-key-material-v1');
   });
 
   await page.goto('/');

@@ -12,6 +12,7 @@ import { localDb, type LocalConflict } from './db';
 import {
   encryptNoteFields,
   encryptNotebookFields,
+  isCurrentEncryptedText,
   isEncryptedText
 } from './encryption';
 
@@ -48,6 +49,7 @@ vi.mock('./encryption', () => ({
   decryptNotebookFields: vi.fn(async (notebook) => notebook),
   encryptNoteFields: vi.fn(async (note) => note),
   encryptNotebookFields: vi.fn(async (notebook) => notebook),
+  isCurrentEncryptedText: vi.fn(() => true),
   isEncryptedText: vi.fn(() => true)
 }));
 
@@ -135,6 +137,7 @@ beforeEach(() => {
   vi.mocked(encryptNotebookFields).mockImplementation(
     async (notebook) => notebook
   );
+  vi.mocked(isCurrentEncryptedText).mockReturnValue(true);
   vi.mocked(isEncryptedText).mockReturnValue(true);
 });
 
@@ -326,6 +329,7 @@ describe('client sync store', () => {
   });
 
   it('queues pulled plaintext notes for encrypted republish', async () => {
+    vi.mocked(isCurrentEncryptedText).mockReturnValue(false);
     vi.mocked(isEncryptedText).mockReturnValue(false);
     vi.mocked(encryptNoteFields).mockImplementation(async (note) => ({
       ...note,

@@ -193,7 +193,7 @@ private fun DeleteNotebookDialog(controller: NotesController, notebook: LocalNot
     onDismissRequest = { controller.deletingNotebookId = null },
     containerColor = MaterialTheme.colorScheme.background,
     title = { Text("Delete notebook?") },
-    text = { Text("Notes in ${notebook.name} will move to Trash.") },
+    text = { Text("Notes in ${notebook.name} will stay in your notes.") },
     confirmButton = {
       TextButton(onClick = { controller.confirmDeleteNotebook(notebook) }) { Text("Delete") }
     },

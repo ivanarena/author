@@ -24,7 +24,9 @@ import {
   type AuthSession,
   authenticateTrustedDevice,
   authenticateUser,
+  authSessionCookie,
   changeUserPassword,
+  clearAuthSessionCookie,
   createAuthSession,
   createUserAccount,
   disableUserTotp,
@@ -41,11 +43,14 @@ import {
   revokeTrustedAuthDevice,
   sessionFromRequest,
   trustAuthDevice,
+  tokensMatch,
   totpOtpauthUrl,
   updateUserProfile,
   unauthorized
 } from './auth';
 import {
+  areMetricsPublic,
+  getMetricsToken,
   getPublicApiBaseUrl,
   getRemoteDatabaseConfig,
   setRuntimeEnv,
@@ -71,6 +76,7 @@ import {
   upsertDevice
 } from './repository';
 import { syncRemoteDatabase } from './remote-sync';
+import { isSecureRequest } from './security-headers';
 
 type ApiBindings = RuntimeEnv;
 
@@ -204,6 +210,28 @@ function requestOrigin(request: Request): string {
 
 function publicApiBaseUrl(request: Request, c?: ApiContext): string {
   return getPublicApiBaseUrl(c?.env) ?? requestOrigin(request);
+}
+
+function authCookieSecure(c: ApiContext): boolean {
+  return isSecureRequest(
+    c.req.raw,
+    new URL(c.req.raw.url),
+    shouldTrustProxyHeaders()
+  );
+}
+
+function setAuthSessionCookie(
+  c: ApiContext,
+  session: { token: string; expiresAt: string }
+): void {
+  c.header(
+    'set-cookie',
+    authSessionCookie(session.token, session.expiresAt, authCookieSecure(c))
+  );
+}
+
+function clearAuthCookie(c: ApiContext): void {
+  c.header('set-cookie', clearAuthSessionCookie(authCookieSecure(c)));
 }
 
 async function accountResponse(
@@ -625,6 +653,32 @@ function metricsBody(c?: ApiContext): string {
   ].join('\n');
 }
 
+function bearerToken(request: Request): string | null {
+  const auth = request.headers.get('authorization');
+  if (!auth?.toLowerCase().startsWith('bearer ')) return null;
+  const token = auth.slice('bearer '.length).trim();
+  return token || null;
+}
+
+async function metricsAuthError(c: ApiContext): Promise<Response | null> {
+  if (areMetricsPublic(c.env)) return null;
+
+  const metricsToken = getMetricsToken(c.env);
+  if (metricsToken) {
+    const presented =
+      c.req.raw.headers.get('x-author-metrics-token')?.trim() ??
+      bearerToken(c.req.raw);
+    return tokensMatch(presented, metricsToken) ? null : unauthorized();
+  }
+
+  const db = await openPrimaryDatabase(c);
+  try {
+    return await requireAuth(db, c.req.raw);
+  } finally {
+    db.close();
+  }
+}
+
 function hasDevicePayload(
   device: unknown
 ): device is AuthLoginRequest['device'] {
@@ -840,11 +894,13 @@ api.get(API_PATHS.health, (c) =>
   } satisfies HealthResponse)
 );
 
-api.get(API_PATHS.metrics, (c) =>
-  c.text(`${metricsBody(c)}\n`, 200, {
+api.get(API_PATHS.metrics, async (c) => {
+  const authError = await metricsAuthError(c);
+  if (authError) return authError;
+  return c.text(`${metricsBody(c)}\n`, 200, {
     'content-type': 'text/plain; version=0.0.4; charset=utf-8'
-  })
-);
+  });
+});
 
 api.get(API_PATHS.config, async (c) => {
   const remoteConfig = remoteMirrorConfig(c);
@@ -995,6 +1051,7 @@ api.post(API_PATHS.authLogin, async (c) => {
     await trustAuthDevice(db, user.username, body.device.id);
     const session = await createAuthSession(db, user, body.device.id);
     await queueRemoteSyncAfter(undefined, c.env);
+    setAuthSessionCookie(c, session);
     return c.json({
       token: session.token,
       user,
@@ -1082,6 +1139,7 @@ api.post(API_PATHS.authSignup, async (c) => {
       await upsertDevice(db, body.device, undefined, user.username);
       await trustAuthDevice(db, user.username, body.device.id);
       const session = await createAuthSession(db, user, body.device.id);
+      setAuthSessionCookie(c, session);
       return c.json({
         token: session.token,
         user,
@@ -1167,6 +1225,7 @@ api.post(API_PATHS.authSignup, async (c) => {
     await trustAuthDevice(db, user.username, body.device.id);
     const session = await createAuthSession(db, user, body.device.id);
     await queueRemoteSyncAfter(undefined, c.env);
+    setAuthSessionCookie(c, session);
     return c.json({
       token: session.token,
       user,
@@ -1206,6 +1265,7 @@ api.post(API_PATHS.authLogout, async (c) => {
     const authError = await requireAuth(db, c.req.raw);
     if (authError) return authError;
     await deleteSessionFromRequest(db, c.req.raw);
+    clearAuthCookie(c);
     return c.json({ ok: true });
   } finally {
     db.close();
@@ -1352,6 +1412,7 @@ api.post(API_PATHS.accountPassword, async (c) => {
         if (!user) {
           return c.json({ error: 'Current password is incorrect' }, 401);
         }
+        clearAuthCookie(c);
         return c.json(await accountResponse(db, session, user));
       }
       return c.json({ error: 'Password changes require remote access' }, 503);
@@ -1395,6 +1456,7 @@ api.post(API_PATHS.accountPassword, async (c) => {
     }
 
     await queueRemoteSyncAfter(undefined, c.env);
+    clearAuthCookie(c);
     return c.json(await accountResponse(db, session, user));
   } finally {
     db.close();
@@ -1454,6 +1516,7 @@ api.post(API_PATHS.accountTotp, async (c) => {
           body.totpCode
         );
         if (!user) return c.json({ error: 'Could not verify 2FA setup' }, 401);
+        clearAuthCookie(c);
         return c.json(await accountResponse(db, session, user));
       }
       return c.json({ error: '2FA changes require remote access' }, 503);
@@ -1490,6 +1553,7 @@ api.post(API_PATHS.accountTotp, async (c) => {
     }
 
     await queueRemoteSyncAfter(undefined, c.env);
+    clearAuthCookie(c);
     return c.json(await accountResponse(db, session, user));
   } finally {
     db.close();
@@ -1525,6 +1589,7 @@ api.delete(API_PATHS.accountTotp, async (c) => {
           body.totpCode
         );
         if (!user) return c.json({ error: 'Could not verify 2FA code' }, 401);
+        clearAuthCookie(c);
         return c.json(await accountResponse(db, session, user));
       }
       return c.json({ error: '2FA changes require remote access' }, 503);
@@ -1560,6 +1625,7 @@ api.delete(API_PATHS.accountTotp, async (c) => {
     }
 
     await queueRemoteSyncAfter(undefined, c.env);
+    clearAuthCookie(c);
     return c.json(await accountResponse(db, session, user));
   } finally {
     db.close();
@@ -1650,6 +1716,7 @@ api.delete(API_PATHS.account, async (c) => {
           body.password
         );
         if (!deleted) return c.json({ error: 'Password is incorrect' }, 401);
+        clearAuthCookie(c);
         return c.json({ ok: true });
       }
       return c.json({ error: 'Account deletion requires remote access' }, 503);
@@ -1683,6 +1750,7 @@ api.delete(API_PATHS.account, async (c) => {
       );
     }
 
+    clearAuthCookie(c);
     return c.json({ ok: true });
   } finally {
     db.close();

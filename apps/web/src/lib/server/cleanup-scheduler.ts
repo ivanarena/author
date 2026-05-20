@@ -1,10 +1,12 @@
 import {
   getCleanupIntervalMs,
   isCleanupSchedulerEnabled,
+  shouldSyncRemoteDatabase,
   shouldRunCleanupOnStart
 } from './config';
 import { openDatabase } from './db';
 import { cleanupTrash } from './repository';
+import { syncRemoteDatabase } from './remote-sync';
 
 declare global {
   var __authorCleanupScheduler: NodeJS.Timeout | undefined;
@@ -22,6 +24,9 @@ export async function runScheduledTrashCleanup(): Promise<void> {
       console.info(
         `Trash cleanup deleted ${result.deletedNotes} notes and ${result.deletedNotebooks} notebooks older than ${result.cutoff}`
       );
+      if (shouldSyncRemoteDatabase()) {
+        await syncRemoteDatabase(db);
+      }
     }
   } catch (error) {
     console.error('Trash cleanup failed', error);

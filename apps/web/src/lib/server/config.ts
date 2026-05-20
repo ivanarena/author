@@ -137,9 +137,29 @@ export function getLoginPassword(): string | null {
   return envValue('NODE_ENV') === 'production' ? null : 'local-dev-password';
 }
 
+export function getServerSecret(): string {
+  const configured =
+    envValue('NOTES_SERVER_SECRET') ?? envValue('NOTES_TOTP_SECRET_KEY');
+  if (configured?.trim()) return configured.trim();
+
+  const loginPassword = getLoginPassword();
+  if (loginPassword) return loginPassword;
+
+  return envValue('NODE_ENV') === 'production' ? '' : 'local-dev-server-secret';
+}
+
 export function getAuthSessionDays(): number {
   const days = Number(envValue('NOTES_AUTH_SESSION_DAYS') ?? '90');
   return Number.isFinite(days) && days > 0 ? Math.min(days, 3650) : 90;
+}
+
+export function areMetricsPublic(env?: RuntimeEnv | null): boolean {
+  return envValue('NOTES_METRICS_PUBLIC', env) === 'true';
+}
+
+export function getMetricsToken(env?: RuntimeEnv | null): string | null {
+  const token = envValue('NOTES_METRICS_TOKEN', env)?.trim();
+  return token || null;
 }
 
 export function shouldTrustProxyHeaders(): boolean {

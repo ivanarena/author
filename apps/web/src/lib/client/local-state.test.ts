@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { localDb } from './db';
 import { clearStoredEncryptionKeyMaterial } from './encryption';
 import {
+  COOKIE_SESSION_TOKEN,
   clearStoredSession,
   getLoginHint,
   getOrCreateDevice,
@@ -55,14 +56,18 @@ class MemoryStorage {
 }
 
 const storage = new MemoryStorage();
+const sessionStorageMock = new MemoryStorage();
 
 beforeEach(() => {
   storage.clear();
+  sessionStorageMock.clear();
   vi.clearAllMocks();
   vi.stubGlobal('localStorage', storage);
+  vi.stubGlobal('sessionStorage', sessionStorageMock);
   vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0' });
   vi.stubGlobal('crypto', { randomUUID: vi.fn(() => 'device-id') });
   vi.stubGlobal('document', { documentElement: { dataset: {} } });
+  clearStoredSession();
   vi.stubGlobal(
     'matchMedia',
     vi.fn(() => ({ matches: false }))
@@ -120,6 +125,8 @@ describe('local browser state', () => {
       },
       expiresAt: '2026-05-10T12:00:00.000Z'
     });
+    expect(localStorage.getItem('author-token')).toBeNull();
+    expect(sessionStorage.getItem('author-session-token')).toBeNull();
 
     expect(getStoredSession()).toEqual({
       token: 'session-token',
@@ -138,6 +145,16 @@ describe('local browser state', () => {
     expect(getStoredSession()).toBeNull();
     expect(getLoginHint()).toBe('owner');
     expect(clearStoredEncryptionKeyMaterial).not.toHaveBeenCalled();
+  });
+
+  it('keeps cookie-backed session metadata without a readable token after reload', () => {
+    clearStoredSession();
+    localStorage.setItem('author-username', 'owner');
+
+    expect(getStoredSession()).toMatchObject({
+      token: COOKIE_SESSION_TOKEN,
+      user: { username: 'owner' }
+    });
   });
 
   it('can explicitly clear stored encryption key material', () => {

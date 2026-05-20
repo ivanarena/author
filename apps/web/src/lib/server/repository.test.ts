@@ -603,7 +603,7 @@ describe('server repository', () => {
     }
   });
 
-  it('lets newer local edits win over older remote mirror edits for the same records', async () => {
+  it('refuses to choose between divergent local and remote mirror edits for the same records', async () => {
     const local = await openMemoryDatabase();
     const remote = await openMemoryDatabase();
     try {
@@ -649,7 +649,9 @@ describe('server repository', () => {
         notes: [{ record: remoteNote, baseVersion: 0 }]
       });
 
-      await syncDatabases(local, remote);
+      await expect(syncDatabases(local, remote)).rejects.toThrow(
+        /Remote mirror divergent/
+      );
 
       await expect(
         getNotebook(local, fixtureNotebook.id)
@@ -659,13 +661,13 @@ describe('server repository', () => {
       await expect(
         getNotebook(remote, fixtureNotebook.id)
       ).resolves.toMatchObject({
-        name: localNotebook.name
+        name: remoteNotebook.name
       });
       await expect(getNote(local, fixtureNote.id)).resolves.toMatchObject({
         body: localNote.body
       });
       await expect(getNote(remote, fixtureNote.id)).resolves.toMatchObject({
-        body: localNote.body
+        body: remoteNote.body
       });
     } finally {
       local.close();
@@ -864,7 +866,7 @@ describe('server repository', () => {
     }
   });
 
-  it('keeps a newer local note when the remote mirror has an older hard delete', async () => {
+  it('refuses to choose when the remote mirror has an older hard delete for a newer local note', async () => {
     const local = await openMemoryDatabase();
     const remote = await openMemoryDatabase();
     try {
@@ -914,14 +916,14 @@ describe('server repository', () => {
         ]
       );
 
-      await syncDatabases(local, remote);
+      await expect(syncDatabases(local, remote)).rejects.toThrow(
+        /Remote mirror divergent note/
+      );
 
       await expect(getNote(local, fixtureNote.id)).resolves.toMatchObject({
         body: localNewerNote.body
       });
-      await expect(getNote(remote, fixtureNote.id)).resolves.toMatchObject({
-        body: localNewerNote.body
-      });
+      await expect(getNote(remote, fixtureNote.id)).resolves.toBeNull();
     } finally {
       local.close();
       remote.close();

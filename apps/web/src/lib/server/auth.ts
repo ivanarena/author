@@ -3,7 +3,8 @@ import {
   getAuthSessionDays,
   getLegacyAuthToken,
   getLoginPassword,
-  getLoginUsername
+  getLoginUsername,
+  getServerSecret
 } from './config';
 import {
   all,
@@ -14,10 +15,13 @@ import {
   type NotesExecutor
 } from './db';
 
-const PASSWORD_ITERATIONS = 100_000;
 const PASSWORD_KEY_LENGTH = 32;
+const PASSWORD_ITERATIONS = 600_000;
+const PASSWORD_ITERATION_PLATFORM_FALLBACK = 100_000;
 const MIN_PASSWORD_LENGTH = 12;
 const SESSION_TOKEN_BYTES = 32;
+const AUTH_SESSION_COOKIE_NAME = 'author_session';
+const SERVER_SECRET_PREFIX = 'srvenc:v1:';
 const TOTP_SECRET_BYTES = 20;
 const TOTP_PERIOD_SECONDS = 30;
 const TOTP_DIGITS = 6;
@@ -26,6 +30,7 @@ const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,62}[a-z0-9]$|^[a-z0-9]$/;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 const textEncoder = new TextEncoder();
+let passwordIterationTarget: Promise<number> | null = null;
 
 type UserRow = {
   username: string;
@@ -37,6 +42,8 @@ type UserRow = {
   totp_secret: string | null;
   totp_enabled_at: string | null;
 };
+
+type PasswordVerification = 'match' | 'mismatch' | 'unsupported';
 
 type SessionRow = {
   username: string;
@@ -91,7 +98,53 @@ export function tokenFromRequest(request: Request): string | null {
   }
 
   const legacyToken = request.headers.get('x-notes-token')?.trim();
-  return legacyToken || null;
+  if (legacyToken) return legacyToken;
+
+  return cookieValue(request.headers.get('cookie'), AUTH_SESSION_COOKIE_NAME);
+}
+
+export function authSessionCookie(
+  token: string,
+  expiresAt: string,
+  secure: boolean
+): string {
+  const attributes = [
+    `${AUTH_SESSION_COOKIE_NAME}=${encodeURIComponent(token)}`,
+    'Path=/api',
+    'HttpOnly',
+    'SameSite=Strict',
+    `Expires=${new Date(expiresAt).toUTCString()}`
+  ];
+  if (secure) attributes.push('Secure');
+  return attributes.join('; ');
+}
+
+export function clearAuthSessionCookie(secure: boolean): string {
+  const attributes = [
+    `${AUTH_SESSION_COOKIE_NAME}=`,
+    'Path=/api',
+    'HttpOnly',
+    'SameSite=Strict',
+    'Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+    'Max-Age=0'
+  ];
+  if (secure) attributes.push('Secure');
+  return attributes.join('; ');
+}
+
+function cookieValue(header: string | null, name: string): string | null {
+  if (!header) return null;
+  for (const part of header.split(';')) {
+    const [rawKey, ...rawValue] = part.trim().split('=');
+    if (rawKey !== name) continue;
+    const value = rawValue.join('=');
+    try {
+      return decodeURIComponent(value) || null;
+    } catch {
+      return value || null;
+    }
+  }
+  return null;
 }
 
 function digest(value: string): Buffer {
@@ -185,12 +238,50 @@ async function hashPassword(
   salt = randomBytes(16).toString('base64url'),
   iterations = PASSWORD_ITERATIONS
 ): Promise<{ hash: string; salt: string; iterations: number }> {
-  const derived = await derivePasswordBytes(password, salt, iterations);
+  const { derived, iterations: effectiveIterations } =
+    await supportedPasswordHash(password, salt, iterations);
   return {
     hash: Buffer.from(derived).toString('base64url'),
     salt,
-    iterations
+    iterations: effectiveIterations
   };
+}
+
+async function supportedPasswordHash(
+  password: string,
+  salt: string,
+  iterations: number
+): Promise<{ derived: Uint8Array; iterations: number }> {
+  try {
+    return {
+      derived: await derivePasswordBytes(password, salt, iterations),
+      iterations
+    };
+  } catch (error) {
+    if (
+      iterations > PASSWORD_ITERATION_PLATFORM_FALLBACK &&
+      isPbkdf2IterationLimitError(error)
+    ) {
+      return {
+        derived: await derivePasswordBytes(
+          password,
+          salt,
+          PASSWORD_ITERATION_PLATFORM_FALLBACK
+        ),
+        iterations: PASSWORD_ITERATION_PLATFORM_FALLBACK
+      };
+    }
+    throw error;
+  }
+}
+
+function effectivePasswordIterations(): Promise<number> {
+  passwordIterationTarget ??= supportedPasswordHash(
+    'author-password-iteration-probe',
+    'author-password-iteration-probe-salt',
+    PASSWORD_ITERATIONS
+  ).then(({ iterations }) => iterations);
+  return passwordIterationTarget;
 }
 
 async function derivePasswordBytes(
@@ -320,7 +411,7 @@ export async function verifyTotpCode(
   value: unknown,
   now = Date.now()
 ): Promise<boolean> {
-  const cleanSecret = cleanTotpSecret(secret);
+  const cleanSecret = await readableTotpSecret(secret);
   const code = cleanTotpCode(value);
   if (!cleanSecret || !code) return false;
 
@@ -337,10 +428,92 @@ export async function verifyTotpCode(
   return false;
 }
 
+async function readableTotpSecret(
+  secret: string | null
+): Promise<string | null> {
+  if (!secret) return null;
+  return cleanTotpSecret(await decryptServerSecret(secret));
+}
+
+async function encryptServerSecret(value: string): Promise<string> {
+  const keyMaterial = getServerSecret();
+  if (!keyMaterial) {
+    throw new Error('NOTES_SERVER_SECRET is required to store 2FA secrets');
+  }
+
+  const iv = randomBytes(12);
+  const encrypted = await crypto.subtle.encrypt(
+    {
+      name: 'AES-GCM',
+      iv: bufferSource(iv),
+      additionalData: bufferSource(textEncoder.encode('author:totp-secret:v1'))
+    },
+    await serverSecretKey(keyMaterial),
+    textEncoder.encode(value)
+  );
+
+  return `${SERVER_SECRET_PREFIX}${iv.toString('base64url')}:${Buffer.from(
+    encrypted
+  ).toString('base64url')}`;
+}
+
+async function decryptServerSecret(value: string): Promise<string> {
+  if (!value.startsWith(SERVER_SECRET_PREFIX)) return value;
+
+  const payload = value.slice(SERVER_SECRET_PREFIX.length);
+  const [iv, encrypted] = payload.split(':');
+  const keyMaterial = getServerSecret();
+  if (!iv || !encrypted || !keyMaterial) return value;
+
+  try {
+    const decrypted = await crypto.subtle.decrypt(
+      {
+        name: 'AES-GCM',
+        iv: bufferSource(Buffer.from(iv, 'base64url')),
+        additionalData: bufferSource(
+          textEncoder.encode('author:totp-secret:v1')
+        )
+      },
+      await serverSecretKey(keyMaterial),
+      bufferSource(Buffer.from(encrypted, 'base64url'))
+    );
+    return new TextDecoder().decode(decrypted);
+  } catch {
+    return value;
+  }
+}
+
+async function serverSecretKey(keyMaterial: string): Promise<CryptoKey> {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    textEncoder.encode(`author:server-secret:v1:${keyMaterial}`)
+  );
+  return await crypto.subtle.importKey(
+    'raw',
+    digest,
+    { name: 'AES-GCM' },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+function bufferSource(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+}
+
 async function verifyPassword(
   password: string,
   row: UserRow
 ): Promise<boolean> {
+  return (await verifyPasswordStatus(password, row)) === 'match';
+}
+
+async function verifyPasswordStatus(
+  password: string,
+  row: UserRow
+): Promise<PasswordVerification> {
   let derived: Uint8Array;
   try {
     derived = await derivePasswordBytes(
@@ -349,11 +522,11 @@ async function verifyPassword(
       Number(row.password_iterations)
     );
   } catch (error) {
-    if (isPbkdf2IterationLimitError(error)) return false;
+    if (isPbkdf2IterationLimitError(error)) return 'unsupported';
     throw error;
   }
   const stored = Buffer.from(row.password_hash, 'base64url');
-  return constantTimeEqual(stored, derived);
+  return constantTimeEqual(stored, derived) ? 'match' : 'mismatch';
 }
 
 function isPbkdf2IterationLimitError(error: unknown): boolean {
@@ -462,7 +635,8 @@ async function maybeRecoverBootstrapEnvUser(
   row: UserRow,
   password: string
 ): Promise<UserRow | null> {
-  if (row.password_iterations <= PASSWORD_ITERATIONS) return null;
+  if (row.password_iterations <= PASSWORD_ITERATION_PLATFORM_FALLBACK)
+    return null;
 
   const bootstrapUsername = normalizeUsername(getLoginUsername());
   const bootstrapPassword = getLoginPassword();
@@ -648,16 +822,19 @@ export async function authenticateUser(
       : null);
   if (!row) return null;
 
-  if (await verifyPassword(password, row)) {
+  const verification = await verifyPasswordStatus(password, row);
+  if (verification === 'match') {
     if (row.totp_secret && !(await verifyTotpCode(row.totp_secret, totpCode))) {
       return null;
     }
     const activeRow =
-      row.password_iterations > PASSWORD_ITERATIONS
+      row.password_iterations < (await effectivePasswordIterations())
         ? ((await rehashUserPassword(db, row, password)) ?? row)
         : row;
     return rowToAuthUser(activeRow);
   }
+
+  if (verification !== 'unsupported') return null;
 
   const recoveredRow = await maybeRecoverBootstrapEnvUser(db, row, password);
   if (!recoveredRow || !(await verifyPassword(password, recoveredRow))) {
@@ -934,7 +1111,7 @@ export async function enableUserTotp(
      SET totp_secret = ?, totp_enabled_at = ?, updated_at = ?
      WHERE username = ?`,
     [
-      cleanSecret,
+      await encryptServerSecret(cleanSecret),
       new Date().toISOString(),
       new Date().toISOString(),
       normalized

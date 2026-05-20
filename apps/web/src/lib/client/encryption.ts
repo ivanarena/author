@@ -1,10 +1,13 @@
 import type { Note, Notebook } from '@author/schema';
 import { normalizeNotebookName } from './note-utils';
 
-export const ENCRYPTION_PREFIX = 'enc:v1:';
+export const ENCRYPTION_PREFIX = 'enc:v2:';
 export const ENCRYPTION_KEY_MATERIAL_STORAGE_KEY =
   'author-encryption-key-material-v1';
 
+const ENCRYPTION_V1_PREFIX = 'enc:v1:';
+const ENCRYPTION_V2_PREFIX = 'enc:v2:';
+const HASH_V2_PREFIX = 'hash:v2:';
 const USERNAME_KEY = 'author-username';
 const FALLBACK_KEY_MATERIAL = 'author:local:v1';
 const LOCAL_KEY_MATERIAL_PREFIX = 'local:v2:';
@@ -12,6 +15,7 @@ const PASSWORD_KDF_ITERATIONS = 210_000;
 const PASSWORD_KDF_SALT_PREFIX = 'author:password-key:v2';
 
 const keyCache = new Map<string, Promise<CryptoKey>>();
+const hashKeyCache = new Map<string, Promise<CryptoKey>>();
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -23,18 +27,52 @@ function storage(): Storage | null {
   }
 }
 
+function sessionStorageSafe(): Storage | null {
+  try {
+    return typeof sessionStorage === 'undefined' ? null : sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
 function normalizedUsername(username: string): string {
   return username.trim().toLowerCase();
 }
 
 export function isEncryptedText(value: string): boolean {
-  return value.startsWith(ENCRYPTION_PREFIX);
+  return (
+    value.startsWith(ENCRYPTION_V1_PREFIX) ||
+    value.startsWith(ENCRYPTION_V2_PREFIX)
+  );
+}
+
+export function isCurrentEncryptedText(value: string): boolean {
+  return value.startsWith(ENCRYPTION_V2_PREFIX);
+}
+
+export function isCurrentFieldHash(value: string | null | undefined): boolean {
+  return Boolean(value?.startsWith(HASH_V2_PREFIX));
 }
 
 export function getEncryptionKeyMaterial(): string {
   const currentStorage = storage();
+  const currentSessionStorage = sessionStorageSafe();
+  const sessionMaterial = currentSessionStorage?.getItem(
+    ENCRYPTION_KEY_MATERIAL_STORAGE_KEY
+  );
+  if (sessionMaterial) return sessionMaterial;
+
   const stored = currentStorage?.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY);
-  if (stored) return stored;
+  if (stored) {
+    if (isSyncKeyMaterial(stored)) {
+      currentStorage?.removeItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY);
+      currentSessionStorage?.setItem(
+        ENCRYPTION_KEY_MATERIAL_STORAGE_KEY,
+        stored
+      );
+    }
+    return stored;
+  }
   if (currentStorage) {
     const generated = generateLocalKeyMaterial();
     currentStorage.setItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY, generated);
@@ -45,12 +83,15 @@ export function getEncryptionKeyMaterial(): string {
 }
 
 export function hasStoredEncryptionKeyMaterial(): boolean {
-  const stored = storage()?.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY);
+  const stored =
+    sessionStorageSafe()?.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY) ??
+    storage()?.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY);
   return Boolean(stored && isSyncKeyMaterial(stored));
 }
 
 export function clearStoredEncryptionKeyMaterial(): void {
   storage()?.removeItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY);
+  sessionStorageSafe()?.removeItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY);
 }
 
 export async function keyMaterialFromPassword(
@@ -87,24 +128,48 @@ export async function rememberEncryptionPassword(
   username: string,
   password: string
 ): Promise<{ previousMaterial: string; nextMaterial: string }> {
+  const rotation = await prepareEncryptionPassword(username, password);
+  commitEncryptionKeyMaterial(rotation.nextMaterial);
+  return rotation;
+}
+
+export async function prepareEncryptionPassword(
+  username: string,
+  password: string
+): Promise<{ previousMaterial: string; nextMaterial: string }> {
   const previousMaterial = getEncryptionKeyMaterial();
   const nextMaterial = await keyMaterialFromPassword(username, password);
-  storage()?.setItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY, nextMaterial);
   return { previousMaterial, nextMaterial };
+}
+
+export function commitEncryptionKeyMaterial(keyMaterial: string): void {
+  if (isSyncKeyMaterial(keyMaterial)) {
+    storage()?.removeItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY);
+    sessionStorageSafe()?.setItem(
+      ENCRYPTION_KEY_MATERIAL_STORAGE_KEY,
+      keyMaterial
+    );
+    return;
+  }
+  sessionStorageSafe()?.removeItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY);
+  storage()?.setItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY, keyMaterial);
 }
 
 export async function encryptText(
   value: string,
   keyMaterial = getEncryptionKeyMaterial(),
-  _context = 'text'
+  context = 'text'
 ): Promise<string> {
-  void _context;
   if (isEncryptedText(value)) return value;
 
   const iv = encryptionIv();
-  const key = await encryptionKey(keyMaterial);
+  const key = await encryptionKey(keyMaterial, 'v2');
   const encrypted = await cryptoImpl().subtle.encrypt(
-    { name: 'AES-GCM', iv: bufferSource(iv) },
+    {
+      name: 'AES-GCM',
+      iv: bufferSource(iv),
+      additionalData: aad(context)
+    },
     key,
     encoder.encode(value)
   );
@@ -114,19 +179,34 @@ export async function encryptText(
 
 export async function decryptText(
   value: string,
-  keyMaterial = getEncryptionKeyMaterial()
+  keyMaterial = getEncryptionKeyMaterial(),
+  context = 'text'
 ): Promise<string> {
   if (!isEncryptedText(value)) return value;
 
   const parts = value.split(':');
-  if (parts.length !== 4 || parts[0] !== 'enc' || parts[1] !== 'v1')
+  if (
+    parts.length !== 4 ||
+    parts[0] !== 'enc' ||
+    (parts[1] !== 'v1' && parts[1] !== 'v2')
+  ) {
     return value;
+  }
 
   for (const material of decryptionKeyMaterials(keyMaterial)) {
     try {
-      const key = await encryptionKey(material);
+      const key = await encryptionKey(
+        material,
+        parts[1] === 'v2' ? 'v2' : 'v1'
+      );
       const decrypted = await cryptoImpl().subtle.decrypt(
-        { name: 'AES-GCM', iv: bufferSource(base64UrlDecode(parts[2])) },
+        parts[1] === 'v2'
+          ? {
+              name: 'AES-GCM',
+              iv: bufferSource(base64UrlDecode(parts[2])),
+              additionalData: aad(context)
+            }
+          : { name: 'AES-GCM', iv: bufferSource(base64UrlDecode(parts[2])) },
         key,
         bufferSource(base64UrlDecode(parts[3]))
       );
@@ -165,8 +245,8 @@ export async function decryptNoteFields<T extends Note>(
 ): Promise<T> {
   return {
     ...note,
-    title: await decryptText(note.title, keyMaterial),
-    body: await decryptText(note.body, keyMaterial)
+    title: await decryptText(note.title, keyMaterial, `note:${note.id}:title`),
+    body: await decryptText(note.body, keyMaterial, `note:${note.id}:body`)
   };
 }
 
@@ -204,7 +284,7 @@ export async function decryptNotebookFields<T extends Notebook>(
 ): Promise<T> {
   return {
     ...notebook,
-    name: await decryptText(notebook.name, keyMaterial)
+    name: await decryptText(notebook.name, keyMaterial, 'notebook:name')
   };
 }
 
@@ -224,20 +304,47 @@ function cryptoImpl(): Crypto {
   return globalThis.crypto;
 }
 
-function encryptionKey(keyMaterial: string): Promise<CryptoKey> {
-  const cached = keyCache.get(keyMaterial);
+function encryptionKey(
+  keyMaterial: string,
+  version: 'v1' | 'v2'
+): Promise<CryptoKey> {
+  const cacheKey = `${version}:${keyMaterial}`;
+  const cached = keyCache.get(cacheKey);
   if (cached) return cached;
 
+  const domain =
+    version === 'v2'
+      ? `author:encryption:v2:${keyMaterial}`
+      : `author:${keyMaterial}`;
   const key = cryptoImpl()
-    .subtle.digest('SHA-256', encoder.encode(`author:${keyMaterial}`))
+    .subtle.digest('SHA-256', encoder.encode(domain))
     .then((digest) =>
       cryptoImpl().subtle.importKey('raw', digest, { name: 'AES-GCM' }, false, [
         'encrypt',
         'decrypt'
       ])
     );
-  keyCache.set(keyMaterial, key);
+  keyCache.set(cacheKey, key);
   return key;
+}
+
+function fieldHashKey(keyMaterial: string): Promise<CryptoKey> {
+  const cached = hashKeyCache.get(keyMaterial);
+  if (cached) return cached;
+
+  const key = cryptoImpl().subtle.importKey(
+    'raw',
+    encoder.encode(`author:field-hash-key:v2:${keyMaterial}`),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  hashKeyCache.set(keyMaterial, key);
+  return key;
+}
+
+function aad(context: string): ArrayBuffer {
+  return bufferSource(encoder.encode(`author:encrypted-field:v2:${context}`));
 }
 
 function decryptionKeyMaterials(primary: string): string[] {
@@ -282,11 +389,12 @@ async function fieldHash(
   keyMaterial: string,
   context: string
 ): Promise<string> {
-  const digest = await cryptoImpl().subtle.digest(
-    'SHA-256',
-    encoder.encode(`author-field-hash:${keyMaterial}:${context}\0${value}`)
+  const signature = await cryptoImpl().subtle.sign(
+    'HMAC',
+    await fieldHashKey(keyMaterial),
+    encoder.encode(`${context}\0${value}`)
   );
-  return `hash:v1:${base64UrlEncode(new Uint8Array(digest))}`;
+  return `${HASH_V2_PREFIX}${base64UrlEncode(new Uint8Array(signature))}`;
 }
 
 function base64UrlEncode(bytes: Uint8Array): string {

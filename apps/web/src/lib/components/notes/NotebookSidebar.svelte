@@ -152,7 +152,7 @@
             aria-label={`Delete ${notebook.name}?`}
             role="group"
           >
-            <span>Delete?</span>
+            <span>Delete notebook?</span>
             <button
               class="icon-button mini danger"
               title="Delete notebook"

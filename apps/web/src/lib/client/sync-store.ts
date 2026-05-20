@@ -16,7 +16,7 @@ import {
   decryptNotebookFields,
   encryptNoteFields,
   encryptNotebookFields,
-  isEncryptedText
+  isCurrentEncryptedText
 } from './encryption';
 import { getOrCreateDevice, newId, nowIso } from './local-state';
 
@@ -419,8 +419,8 @@ async function mergeRemoteNote(remote: Note, syncedAt: string): Promise<void> {
 
 function noteNeedsEncryptionRepublish(remote: Note, stored: Note): boolean {
   return (
-    !isEncryptedText(remote.title) ||
-    !isEncryptedText(remote.body) ||
+    !isCurrentEncryptedText(remote.title) ||
+    !isCurrentEncryptedText(remote.body) ||
     (remote.titleHash ?? null) !== (stored.titleHash ?? null) ||
     (remote.bodyHash ?? null) !== (stored.bodyHash ?? null)
   );
@@ -510,7 +510,7 @@ function notebookNeedsEncryptionRepublish(
   stored: Notebook
 ): boolean {
   return (
-    !isEncryptedText(remote.name) ||
+    !isCurrentEncryptedText(remote.name) ||
     (remote.nameHash ?? null) !== (stored.nameHash ?? null)
   );
 }

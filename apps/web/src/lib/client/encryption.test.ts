@@ -3,6 +3,7 @@ import type { Note, Notebook } from '@author/schema';
 import {
   ENCRYPTION_KEY_MATERIAL_STORAGE_KEY,
   clearStoredEncryptionKeyMaterial,
+  commitEncryptionKeyMaterial,
   decryptNotebookFields,
   decryptNoteFields,
   decryptText,
@@ -11,6 +12,8 @@ import {
   encryptText,
   getEncryptionKeyMaterial,
   hasStoredEncryptionKeyMaterial,
+  isCurrentEncryptedText,
+  isCurrentFieldHash,
   isEncryptedText,
   keyMaterialFromPassword,
   reencryptNoteFields
@@ -80,9 +83,25 @@ describe('client note encryption', () => {
 
     expect(encrypted).not.toContain('private text');
     expect(isEncryptedText(encrypted)).toBe(true);
+    expect(isCurrentEncryptedText(encrypted)).toBe(true);
     await expect(decryptText(encrypted, 'test-key')).resolves.toBe(
       'private text'
     );
+  });
+
+  it('binds encrypted fields to their entity context', async () => {
+    const encrypted = await encryptText(
+      'private text',
+      'test-key',
+      'note:note-1:title'
+    );
+
+    await expect(
+      decryptText(encrypted, 'test-key', 'note:note-1:title')
+    ).resolves.toBe('private text');
+    await expect(
+      decryptText(encrypted, 'test-key', 'note:note-2:title')
+    ).resolves.toBe(encrypted);
   });
 
   it('keeps note field hashes deterministic for sync comparisons', async () => {
@@ -91,6 +110,8 @@ describe('client note encryption', () => {
 
     expect(first.titleHash).toBe(second.titleHash);
     expect(first.bodyHash).toBe(second.bodyHash);
+    expect(isCurrentFieldHash(first.titleHash)).toBe(true);
+    expect(isCurrentFieldHash(first.bodyHash)).toBe(true);
     expect(first.title).not.toBe(second.title);
     expect(first.body).not.toBe(second.body);
     expect(first.title).not.toContain(note.title);
@@ -114,6 +135,7 @@ describe('client note encryption', () => {
 
     expect(first.nameHash).toBe(second.nameHash);
     expect(first.nameHash).toBe(normalizedDuplicate.nameHash);
+    expect(isCurrentFieldHash(first.nameHash)).toBe(true);
     expect(first.name).not.toBe(second.name);
     expect(first.name).not.toContain(notebook.name);
     await expect(
@@ -156,14 +178,20 @@ describe('client note encryption', () => {
 
   it('recognizes password key material as sync-capable', async () => {
     const storage = new MemoryStorage();
+    const session = new MemoryStorage();
     vi.stubGlobal('localStorage', storage);
+    vi.stubGlobal('sessionStorage', session);
     const material = await keyMaterialFromPassword('Owner', 'test-password');
 
-    storage.setItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY, material);
+    commitEncryptionKeyMaterial(material);
 
+    expect(storage.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY)).toBeNull();
+    expect(session.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY)).toBe(material);
+    expect(getEncryptionKeyMaterial()).toBe(material);
     expect(hasStoredEncryptionKeyMaterial()).toBe(true);
     clearStoredEncryptionKeyMaterial();
     expect(hasStoredEncryptionKeyMaterial()).toBe(false);
+    expect(session.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY)).toBeNull();
   });
 
   it('derives password key material that can still read legacy password notes', async () => {

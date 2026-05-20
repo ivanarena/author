@@ -17,7 +17,8 @@ import {
   decryptNotebookFields,
   encryptNoteFields,
   encryptNotebookFields,
-  isEncryptedText,
+  isCurrentEncryptedText,
+  isCurrentFieldHash,
   reencryptNoteFields,
   reencryptNotebookFields
 } from './encryption';
@@ -29,7 +30,7 @@ import {
 import { getOrCreateDevice, newId, nowIso } from './local-state';
 
 const ENCRYPTION_AUDIT_META_KEY = 'localEncryptionAuditVersion';
-const ENCRYPTION_AUDIT_VERSION = 'content-conflicts:v2';
+const ENCRYPTION_AUDIT_VERSION = 'content-conflicts:v3';
 
 const LOCAL_WORKSPACE_OWNER_KEY = 'localWorkspaceOwner';
 
@@ -161,7 +162,6 @@ export async function deleteNotebook(notebookId: string): Promise<void> {
             ...note,
             notebookIds,
             notebookId: primaryNotebookId(notebookIds),
-            trashedAt: now,
             updatedAt: now,
             deviceId: device.id,
             version: note.version + 1,
@@ -570,10 +570,10 @@ export async function ensureLocalNotesEncrypted(): Promise<void> {
   const notes = await localDb.notes.toArray();
   const notesNeedingEncryption = notes.filter(
     (note) =>
-      !isEncryptedText(note.title) ||
-      !isEncryptedText(note.body) ||
-      !note.titleHash ||
-      !note.bodyHash
+      !isCurrentEncryptedText(note.title) ||
+      !isCurrentEncryptedText(note.body) ||
+      !isCurrentFieldHash(note.titleHash) ||
+      !isCurrentFieldHash(note.bodyHash)
   );
   if (notesNeedingEncryption.length) {
     await saveNoteEncryptionChanges(
@@ -588,7 +588,9 @@ export async function ensureLocalNotesEncrypted(): Promise<void> {
 
   const notebooks = await localDb.notebooks.toArray();
   const notebooksNeedingEncryption = notebooks.filter(
-    (notebook) => !isEncryptedText(notebook.name) || !notebook.nameHash
+    (notebook) =>
+      !isCurrentEncryptedText(notebook.name) ||
+      !isCurrentFieldHash(notebook.nameHash)
   );
   if (notebooksNeedingEncryption.length) {
     await saveNotebookEncryptionChanges(
@@ -643,6 +645,42 @@ export async function reencryptLocalNotes(
 
   await reencryptLocalConflicts(previousMaterial, nextMaterial);
   await markEncryptionAuditCurrent();
+}
+
+export async function preflightReencryptLocalNotes(
+  previousMaterial: string,
+  nextMaterial: string
+): Promise<void> {
+  if (previousMaterial === nextMaterial) return;
+
+  const [notes, notebooks, conflicts] = await Promise.all([
+    localDb.notes.toArray(),
+    localDb.notebooks.toArray(),
+    localDb.conflicts.toArray()
+  ]);
+  await Promise.all(
+    notes.map((note) =>
+      reencryptNoteFields(note, previousMaterial, nextMaterial)
+    )
+  );
+  await Promise.all(
+    notebooks.map((notebook) =>
+      reencryptNotebookFields(notebook, previousMaterial, nextMaterial)
+    )
+  );
+  await Promise.all(
+    conflicts
+      .filter(
+        (conflict) => isNoteConflict(conflict) || isNotebookConflict(conflict)
+      )
+      .map((conflict) =>
+        reencryptConflictForStorage(
+          conflict.conflict,
+          previousMaterial,
+          nextMaterial
+        )
+      )
+  );
 }
 
 async function markEncryptionAuditCurrent(): Promise<void> {
@@ -741,14 +779,14 @@ function noteConflictNeedsEncryption(conflict: SyncConflict<Note>): boolean {
   return (
     conflict.local.previewText !== '' ||
     conflict.remote.previewText !== '' ||
-    !isEncryptedText(local.title) ||
-    !isEncryptedText(local.body) ||
-    !local.titleHash ||
-    !local.bodyHash ||
-    !isEncryptedText(remote.title) ||
-    !isEncryptedText(remote.body) ||
-    !remote.titleHash ||
-    !remote.bodyHash
+    !isCurrentEncryptedText(local.title) ||
+    !isCurrentEncryptedText(local.body) ||
+    !isCurrentFieldHash(local.titleHash) ||
+    !isCurrentFieldHash(local.bodyHash) ||
+    !isCurrentEncryptedText(remote.title) ||
+    !isCurrentEncryptedText(remote.body) ||
+    !isCurrentFieldHash(remote.titleHash) ||
+    !isCurrentFieldHash(remote.bodyHash)
   );
 }
 
@@ -760,10 +798,10 @@ function notebookConflictNeedsEncryption(
   return (
     conflict.local.previewText !== '' ||
     conflict.remote.previewText !== '' ||
-    !isEncryptedText(local.name) ||
-    !local.nameHash ||
-    !isEncryptedText(remote.name) ||
-    !remote.nameHash
+    !isCurrentEncryptedText(local.name) ||
+    !isCurrentFieldHash(local.nameHash) ||
+    !isCurrentEncryptedText(remote.name) ||
+    !isCurrentFieldHash(remote.nameHash)
   );
 }
 

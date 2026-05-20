@@ -3,9 +3,10 @@ import type { Device } from '@author/schema';
 import type { RemoteSyncState, TrustedAuthDevice } from '@author/api-types';
 import type { LocalConflict, LocalNote, LocalNotebook } from '$lib/client/db';
 import {
+  commitEncryptionKeyMaterial,
   getEncryptionKeyMaterial,
   hasStoredEncryptionKeyMaterial,
-  rememberEncryptionPassword
+  prepareEncryptionPassword
 } from '$lib/client/encryption';
 import { noteNotebookIds, normalizeNotebookName } from '$lib/client/note-utils';
 import {
@@ -34,6 +35,7 @@ import {
   loadTrash,
   moveNoteToTrash,
   notebookNameExists,
+  preflightReencryptLocalNotes,
   prepareLocalWorkspaceForAccount,
   rememberLocalWorkspaceAccount,
   renameNotebook,
@@ -1578,7 +1580,7 @@ export class NotesPageController
         throw error;
       }
       const encryption = hasPassword
-        ? await rememberEncryptionPassword(session.user.username, password)
+        ? await prepareEncryptionPassword(session.user.username, password)
         : {
             previousMaterial: getEncryptionKeyMaterial(),
             nextMaterial: getEncryptionKeyMaterial()
@@ -1589,6 +1591,7 @@ export class NotesPageController
         previousMaterial: encryption.previousMaterial,
         nextMaterial: encryption.nextMaterial
       });
+      commitEncryptionKeyMaterial(encryption.nextMaterial);
       setStoredSession({
         token: session.token,
         user: session.user,
@@ -1706,18 +1709,23 @@ export class NotesPageController
     this.accountError = '';
     this.accountMessage = '';
     try {
+      const encryption = await prepareEncryptionPassword(
+        this.accountUsername,
+        this.newPasswordValue
+      );
+      await preflightReencryptLocalNotes(
+        encryption.previousMaterial,
+        encryption.nextMaterial
+      );
       const response = await changePassword(token, {
         currentPassword: this.currentPasswordValue,
         newPassword: this.newPasswordValue
       });
-      const encryption = await rememberEncryptionPassword(
-        this.accountUsername,
-        this.newPasswordValue
-      );
       await reencryptLocalNotes(
         encryption.previousMaterial,
         encryption.nextMaterial
       );
+      commitEncryptionKeyMaterial(encryption.nextMaterial);
       this.accountUsername = response.user.username;
       this.accountEmail = response.user.email ?? '';
       this.accountDisplayName = response.user.displayName ?? '';
@@ -1930,6 +1938,14 @@ export class NotesPageController
     this.loginUsernameValue = getLoginHint();
     this.deviceOtpLoginAvailable = hasStoredEncryptionKeyMaterial();
     await this.refreshPublicConfig();
+    if (storedSession?.token && !hasStoredEncryptionKeyMaterial()) {
+      this.clearLocalSession({
+        accountMessage: 'Sign in again to unlock notes.',
+        openLogin: true,
+        syncMessage: 'Sign in to unlock and sync'
+      });
+      return;
+    }
     await ensureLocalNotesEncrypted();
     await this.refresh();
     this.openDraftNote();

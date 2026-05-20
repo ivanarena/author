@@ -30,7 +30,7 @@ private const val EDITOR_LINE_HEIGHT_KEY = "author-editor-line-height"
 private const val API_BASE_URL_KEY = "author-api-base-url"
 private const val LOCAL_WORKSPACE_OWNER_KEY = "localWorkspaceOwner"
 private const val ENCRYPTION_AUDIT_VERSION_KEY = "localEncryptionAuditVersion"
-private const val ENCRYPTION_AUDIT_VERSION = "content-conflicts:v2"
+private const val ENCRYPTION_AUDIT_VERSION = "content-conflicts:v3"
 private const val LAST_SYNC_ERROR_AT_KEY = "lastSyncErrorAt"
 private const val LAST_SYNC_ERROR_SOURCE_KEY = "lastSyncErrorSource"
 private const val LAST_SYNC_ERROR_MESSAGE_KEY = "lastSyncErrorMessage"
@@ -327,7 +327,6 @@ class NotesRepository(context: Context) {
             note.copy(
               notebookIds = ids,
               notebookId = primaryNotebookId(ids),
-              trashedAt = now,
               updatedAt = now,
               deviceId = device.id,
               version = note.version + 1,
@@ -460,10 +459,10 @@ class NotesRepository(context: Context) {
       val notes = db.allNotes()
       val changed =
         notes.filter {
-          !crypto.isEncryptedText(it.title) ||
-            !crypto.isEncryptedText(it.body) ||
-            it.titleHash == null ||
-            it.bodyHash == null
+          !crypto.isCurrentEncryptedText(it.title) ||
+            !crypto.isCurrentEncryptedText(it.body) ||
+            !crypto.isCurrentFieldHash(it.titleHash) ||
+            !crypto.isCurrentFieldHash(it.bodyHash)
         }
       if (changed.isNotEmpty()) {
         val device = getOrCreateDevice()
@@ -484,7 +483,9 @@ class NotesRepository(context: Context) {
       }
       val notebooks = db.allNotebooks()
       val changedNotebooks =
-        notebooks.filter { !crypto.isEncryptedText(it.name) || it.nameHash == null }
+        notebooks.filter {
+          !crypto.isCurrentEncryptedText(it.name) || !crypto.isCurrentFieldHash(it.nameHash)
+        }
       if (changedNotebooks.isNotEmpty()) {
         val device = getOrCreateDevice()
         db.putNotebooks(
@@ -536,8 +537,9 @@ class NotesRepository(context: Context) {
   ) =
     withContext(Dispatchers.IO) {
       assertLocalWorkspaceCanUseAccountInternal(username, previousUsername)
-      val (previous, next) = crypto.rememberEncryptionPassword(username, password)
+      val (previous, next) = crypto.prepareEncryptionPassword(username, password)
       reencryptLocalNotesInternal(previous, next)
+      crypto.commitEncryptionKeyMaterial(next)
       rememberLocalWorkspaceAccount(username)
     }
 
@@ -578,9 +580,12 @@ class NotesRepository(context: Context) {
     newPassword: String,
   ): AccountResponse =
     withContext(Dispatchers.IO) {
+      val (previous, next) =
+        crypto.prepareEncryptionPassword(getStoredSession()?.user?.username ?: "", newPassword)
+      preflightReencryptLocalNotesInternal(previous, next)
       val response = syncClient.changePassword(token, currentPassword, newPassword)
-      val (previous, next) = crypto.rememberEncryptionPassword(response.user.username, newPassword)
       reencryptLocalNotesInternal(previous, next)
+      crypto.commitEncryptionKeyMaterial(next)
       response
     }
 
@@ -1018,8 +1023,8 @@ class NotesRepository(context: Context) {
     val remotePlain = crypto.decryptNoteFields(remote)
     val remoteStored = crypto.encryptNoteFields(remotePlain)
     val shouldRepublish =
-      !crypto.isEncryptedText(remote.title) ||
-        !crypto.isEncryptedText(remote.body) ||
+      !crypto.isCurrentEncryptedText(remote.title) ||
+        !crypto.isCurrentEncryptedText(remote.body) ||
         remote.titleHash != remoteStored.titleHash ||
         remote.bodyHash != remoteStored.bodyHash
     val remoteLocal =
@@ -1084,7 +1089,7 @@ class NotesRepository(context: Context) {
     val remotePlain = crypto.decryptNotebookFields(remote)
     val remoteStored = crypto.encryptNotebookFields(remotePlain)
     val shouldRepublish =
-      !crypto.isEncryptedText(remote.name) || remote.nameHash != remoteStored.nameHash
+      !crypto.isCurrentEncryptedText(remote.name) || remote.nameHash != remoteStored.nameHash
     val remoteLocal =
       remoteStored.copy(
         deviceId = if (shouldRepublish) currentDevice.id else remoteStored.deviceId,
@@ -1463,6 +1468,32 @@ class NotesRepository(context: Context) {
   private fun rememberLocalWorkspaceAccount(username: String) {
     val normalized = username.trim().lowercase()
     if (normalized.isNotEmpty()) db.putMeta(LOCAL_WORKSPACE_OWNER_KEY, normalized)
+  }
+
+  private fun preflightReencryptLocalNotesInternal(previousMaterial: String, nextMaterial: String) {
+    if (previousMaterial == nextMaterial) return
+    db.allNotes().forEach { crypto.reencryptNoteFields(it, previousMaterial, nextMaterial) }
+    db.allNotebooks().forEach { crypto.reencryptNotebookFields(it, previousMaterial, nextMaterial) }
+    db.rawConflicts().forEach { raw ->
+      when (raw.entityType) {
+        "note" ->
+          encryptNoteConflictForStorage(
+            decryptNoteConflictForDisplay(
+              noteConflictFromJson(JSONObject(raw.conflictJson)),
+              previousMaterial,
+            ),
+            nextMaterial,
+          )
+        "notebook" ->
+          encryptNotebookConflictForStorage(
+            decryptNotebookConflictForDisplay(
+              notebookConflictFromJson(JSONObject(raw.conflictJson)),
+              previousMaterial,
+            ),
+            nextMaterial,
+          )
+      }
+    }
   }
 
   private fun reencryptLocalNotesInternal(previousMaterial: String, nextMaterial: String) {

@@ -16,11 +16,12 @@ an additional layer for public deployments.
 ## Instances
 
 Run one app process per SQLite database. The local write queue and remote mirror queue are in-process. Multiple containers against the same SQLite file are not supported.
+If the self-hosted local database and remote mirror contain different edits for the same record, the mirror job stops instead of choosing a winner. Restore one side from backup or export the intended record, then rerun the app so the next mirror pass can converge from a single source of truth.
 
 ## Monitoring
 
 - `/api/health`: liveness JSON.
-- `/api/metrics`: Prometheus text for uptime and remote-sync state.
+- `/api/metrics`: Prometheus text for uptime and remote-sync state. It is authenticated by default; set `NOTES_METRICS_TOKEN` for scrapers, or `NOTES_METRICS_PUBLIC=true` only on a private trusted network.
 - Logs: stdout/stderr. Warnings include remote mirror failures and scheduler failures, without Turso tokens or session tokens.
 
 ## Backups
@@ -40,7 +41,7 @@ Before upgrades:
 4. Run `NOTES_DB_PATH=/restore/notes.sqlite aube -F @author/web run db:check`.
 5. Start the upgraded app only after the restore check passes.
 
-Turso backups should be restored through Turso first, then checked with the app pointed at the restored database.
+Turso backups should be restored through Turso first, then checked with the app pointed at the restored database. Keep `NOTES_SERVER_SECRET` with the restore; encrypted 2FA seeds cannot be verified if that secret is lost or changed.
 
 ## Containers
 

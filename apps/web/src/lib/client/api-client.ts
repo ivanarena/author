@@ -41,7 +41,10 @@ export class SyncHttpError extends Error {
   }
 }
 
+const COOKIE_SESSION_TOKEN = '__author_cookie_session__';
+
 function authHeaders(token: string): HeadersInit {
+  if (token === COOKIE_SESSION_TOKEN) return {};
   return {
     authorization: `Bearer ${token}`
   };
@@ -70,7 +73,10 @@ function createRequestHelpers(options: ApiClientOptions) {
     fallback: string
   ): Promise<TResponse> {
     const fetcher = options.fetcher ?? fetch;
-    const response = await fetcher(apiUrl(path, options.baseUrl), init);
+    const response = await fetcher(apiUrl(path, options.baseUrl), {
+      credentials: options.baseUrl ? 'include' : 'same-origin',
+      ...init
+    });
 
     if (!response.ok) {
       throw await responseError(response, `${fallback}: ${response.status}`);

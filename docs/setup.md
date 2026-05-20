@@ -41,6 +41,8 @@ NOTES_LOGIN_USERNAME=owner
 NOTES_LOGIN_PASSWORD=change-this-local-password
 NOTES_AUTH_SESSION_DAYS=90
 NOTES_TRUST_PROXY_HEADERS=false
+NOTES_SERVER_SECRET=change-this-server-secret
+NOTES_METRICS_PUBLIC=false
 NOTES_REMOTE_SYNC_ENABLED=true
 NOTES_CLEANUP_ENABLED=true
 NOTES_CLEANUP_RUN_ON_START=true
@@ -51,7 +53,8 @@ NOTES_BACKUP_INTERVAL_MINUTES=1440
 NOTES_BACKUP_RETENTION_COUNT=14
 ```
 
-`NOTES_LOGIN_USERNAME` and `NOTES_LOGIN_PASSWORD` bootstrap the first local user if it does not already exist. After login, the server returns a random session token, which the browser stores in local storage for later sync requests.
+`NOTES_LOGIN_USERNAME` and `NOTES_LOGIN_PASSWORD` bootstrap the first local user if it does not already exist. After login, the server returns a random session token in an HttpOnly cookie and in the JSON response for the current app session; browsers keep only account metadata in local storage.
+`NOTES_SERVER_SECRET` encrypts server-side auth secrets such as TOTP seeds at rest. Set it to a long random value and keep it stable across deploys, backups, and restores.
 When 2FA is enabled, a browser or Android install that has already completed a password login can request a new session with username plus TOTP code. The device must still have its local encryption key material for encrypted note sync.
 New account and bootstrap passwords must be at least 12 characters. In production, there is no fallback password; set `NOTES_LOGIN_PASSWORD` or create a user before expecting browser login to work.
 
@@ -92,6 +95,8 @@ NOTES_LOGIN_USERNAME=owner
 NOTES_LOGIN_PASSWORD=use-a-long-random-password
 NOTES_AUTH_SESSION_DAYS=90
 NOTES_TRUST_PROXY_HEADERS=false
+NOTES_SERVER_SECRET=use-a-long-random-server-secret
+NOTES_METRICS_PUBLIC=false
 NOTES_REMOTE_SYNC_ENABLED=true
 NOTES_CLEANUP_ENABLED=true
 NOTES_CLEANUP_RUN_ON_START=true
@@ -126,6 +131,7 @@ cd apps/web
 aube exec wrangler secret put TURSO_DATABASE_URL
 aube exec wrangler secret put TURSO_AUTH_TOKEN
 aube exec wrangler secret put NOTES_LOGIN_PASSWORD
+aube exec wrangler secret put NOTES_SERVER_SECRET
 ```
 
 `apps/web/wrangler.jsonc` sets `NOTES_DB_PROVIDER=turso`, so Cloudflare Workers use Turso directly as the primary database. The app initializes the Turso schema on first API access, using the same idempotent schema/migration code as local SQLite.
@@ -144,11 +150,13 @@ For GitHub Actions deploys, add these repository secrets:
 - `TURSO_DATABASE_URL`: the Turso database URL from `turso db show --url author`.
 - `TURSO_AUTH_TOKEN`: the Turso database token from `turso db tokens create author`.
 - `NOTES_LOGIN_PASSWORD`: the production login password.
+- `NOTES_SERVER_SECRET`: the stable server secret used to encrypt 2FA seeds.
 - `NOTES_AUTH_SESSION_DAYS`: optional session lifetime.
+- `NOTES_METRICS_TOKEN`: optional bearer or `x-author-metrics-token` value for scraping `/api/metrics`.
 - `NOTES_SIGNUP_ALLOWED_EMAILS`: optional comma-separated signup email allow list.
 - `AUTHOR_API_URL`: optional public API URL override.
 
-The workflow deploys the Worker and then syncs the GitHub app secrets into Cloudflare Worker secrets with `wrangler secret bulk`. If you deploy manually, run the `wrangler secret put` commands above once before using the app.
+The workflow syncs the GitHub app secrets into Cloudflare Worker secrets with `wrangler secret bulk` before deploying the Worker. If you deploy manually, run the `wrangler secret put` commands above once before using the app.
 
 The `Cloudflare Deploy` workflow only deploys from `main`. It runs on pushes to `main` that touch the web app, shared packages, or lockfile, and manual runs from other branches are skipped.
 
@@ -212,6 +220,8 @@ NOTES_LOGIN_USERNAME=owner
 NOTES_LOGIN_PASSWORD=change-this-login-password
 NOTES_AUTH_SESSION_DAYS=90
 NOTES_TRUST_PROXY_HEADERS=false
+NOTES_SERVER_SECRET=change-this-server-secret
+NOTES_METRICS_PUBLIC=false
 NOTES_REMOTE_SYNC_ENABLED=true
 NOTES_CLEANUP_ENABLED=true
 NOTES_CLEANUP_RUN_ON_START=true
@@ -316,7 +326,7 @@ Set `NOTES_TRUST_PROXY_HEADERS=true` only when the proxy strips untrusted incomi
 ## Health and Metrics
 
 - `/api/health` returns JSON liveness.
-- `/api/metrics` returns Prometheus text for process uptime and remote-sync state.
+- `/api/metrics` returns Prometheus text for process uptime and remote-sync state. It requires a signed-in session by default. For Prometheus, set `NOTES_METRICS_TOKEN` and send it as `x-author-metrics-token` or a bearer token. Set `NOTES_METRICS_PUBLIC=true` only on a trusted private network.
 
 Ship container stdout/stderr to your host logs. Remote sync failures and cleanup failures are logged without secrets; use the in-app sync debug panel for the last client-side sync error.
 
@@ -344,6 +354,7 @@ Scheduled local backups are written as standalone `.sqlite` files under `NOTES_B
 ## Cleanup Schedule
 
 Trash cleanup runs inside the server process. By default it runs once shortly after startup and then every 1440 minutes.
+When remote mirroring is enabled, successful cleanup runs immediately trigger a remote database sync so hard-delete tombstones are not left only in local SQLite.
 
 Set `NOTES_CLEANUP_ENABLED=false` if you prefer an external cron job:
 

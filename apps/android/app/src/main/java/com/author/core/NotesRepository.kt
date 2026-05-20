@@ -36,7 +36,7 @@ private const val LAST_SYNC_ERROR_SOURCE_KEY = "lastSyncErrorSource"
 private const val LAST_SYNC_ERROR_MESSAGE_KEY = "lastSyncErrorMessage"
 private const val LAST_SYNC_ERROR_STACK_KEY = "lastSyncErrorStack"
 private const val LAST_PUSHED_DEVICE_SIGNATURE_KEY = "lastPushedDeviceSignature"
-private const val PUSH_BATCH_SIZE = 250
+private const val PUSH_BATCH_SIZE = 20
 private const val PULL_BATCH_SIZE = 1000
 private val THEMES =
   setOf(
@@ -247,6 +247,7 @@ class NotesRepository(context: Context) {
     withContext(Dispatchers.IO) {
       val trimmed = name.trim()
       if (trimmed.isEmpty()) return@withContext null
+      if (notebookNameExists(trimmed)) return@withContext null
       val device = getOrCreateDevice()
       val now = nowIso()
       val notebook =
@@ -275,6 +276,7 @@ class NotesRepository(context: Context) {
       if (notebook.deletedAt != null) return@withContext null
       val plainNotebook = crypto.decryptNotebookFields(notebook)
       if (plainNotebook.name == trimmed) return@withContext plainNotebook
+      if (notebookNameExists(trimmed, notebookId)) return@withContext null
       val device = getOrCreateDevice()
       val updated =
         plainNotebook.copy(
@@ -287,6 +289,17 @@ class NotesRepository(context: Context) {
       db.putNotebook(crypto.encryptNotebookFields(updated))
       updated
     }
+
+  private fun notebookNameExists(name: String, excludeId: String? = null): Boolean {
+    val normalized = normalizedNotebookName(name)
+    return db
+      .allNotebooks()
+      .asSequence()
+      .map { crypto.decryptNotebookFields(it) }
+      .any {
+        it.deletedAt == null && it.id != excludeId && normalizedNotebookName(it.name) == normalized
+      }
+  }
 
   suspend fun deleteNotebook(notebookId: String) =
     withContext(Dispatchers.IO) {
@@ -636,15 +649,9 @@ class NotesRepository(context: Context) {
           onProgress(SyncProgress(SyncProgressPhase.PUSHING, batchSize = 0))
         }
 
-        var noteBatchStart = 0
-        var notebookBatchStart = 0
-        while (noteBatchStart < pendingNotes.size || notebookBatchStart < pendingNotebooks.size) {
-          val notesBatchEnd = minOf(noteBatchStart + PUSH_BATCH_SIZE, pendingNotes.size)
-          val notebooksBatchEnd = minOf(notebookBatchStart + PUSH_BATCH_SIZE, pendingNotebooks.size)
-          val notesBatch = pendingNotes.subList(noteBatchStart, notesBatchEnd)
-          val notebooksBatch = pendingNotebooks.subList(notebookBatchStart, notebooksBatchEnd)
-          noteBatchStart = notesBatchEnd
-          notebookBatchStart = notebooksBatchEnd
+        for (batch in syncPushBatches(pendingNotes, pendingNotebooks, PUSH_BATCH_SIZE)) {
+          val notesBatch = batch.notes
+          val notebooksBatch = batch.notebooks
           val batchSize = notesBatch.size + notebooksBatch.size
           onProgress(
             SyncProgress(

@@ -29,6 +29,34 @@ fun primaryNotebookId(ids: List<String>): String? = ids.firstOrNull()
 
 fun nextVersionAfter(remoteVersion: Int): Int = remoteVersion + 1
 
+data class SyncPushBatch<N, B>(val notes: List<N>, val notebooks: List<B>)
+
+fun <N, B> syncPushBatches(
+  notes: List<N>,
+  notebooks: List<B>,
+  maxChanges: Int,
+): List<SyncPushBatch<N, B>> {
+  require(maxChanges > 0) { "maxChanges must be positive" }
+
+  val batches = mutableListOf<SyncPushBatch<N, B>>()
+  var noteIndex = 0
+  var notebookIndex = 0
+  while (noteIndex < notes.size || notebookIndex < notebooks.size) {
+    val notebookEnd = minOf(notebookIndex + maxChanges, notebooks.size)
+    val notebookBatch = notebooks.subList(notebookIndex, notebookEnd)
+    notebookIndex = notebookEnd
+
+    val noteSlots = maxChanges - notebookBatch.size
+    val noteEnd = minOf(noteIndex + noteSlots, notes.size)
+    val noteBatch = notes.subList(noteIndex, noteEnd)
+    noteIndex = noteEnd
+
+    batches.add(SyncPushBatch(noteBatch, notebookBatch))
+  }
+
+  return batches
+}
+
 fun safeBaseVersion(lastSyncedVersion: Int): Int =
   if (lastSyncedVersion >= 0) lastSyncedVersion else 0
 

@@ -7,6 +7,7 @@ export const ENCRYPTION_KEY_MATERIAL_STORAGE_KEY =
 
 const USERNAME_KEY = 'author-username';
 const FALLBACK_KEY_MATERIAL = 'author:local:v1';
+const LOCAL_KEY_MATERIAL_PREFIX = 'local:v2:';
 const PASSWORD_KDF_ITERATIONS = 210_000;
 const PASSWORD_KDF_SALT_PREFIX = 'author:password-key:v2';
 
@@ -34,12 +35,18 @@ export function getEncryptionKeyMaterial(): string {
   const currentStorage = storage();
   const stored = currentStorage?.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY);
   if (stored) return stored;
+  if (currentStorage) {
+    const generated = generateLocalKeyMaterial();
+    currentStorage.setItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY, generated);
+    return generated;
+  }
 
   return FALLBACK_KEY_MATERIAL;
 }
 
 export function hasStoredEncryptionKeyMaterial(): boolean {
-  return Boolean(storage()?.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY));
+  const stored = storage()?.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY);
+  return Boolean(stored && isSyncKeyMaterial(stored));
 }
 
 export function clearStoredEncryptionKeyMaterial(): void {
@@ -258,6 +265,16 @@ function encryptionIv(): Uint8Array {
   const iv = new Uint8Array(12);
   cryptoImpl().getRandomValues(iv);
   return iv;
+}
+
+function generateLocalKeyMaterial(): string {
+  const key = new Uint8Array(32);
+  cryptoImpl().getRandomValues(key);
+  return `${LOCAL_KEY_MATERIAL_PREFIX}${base64UrlEncode(key)}`;
+}
+
+function isSyncKeyMaterial(material: string): boolean {
+  return material.startsWith('password:') || material.startsWith('account:');
 }
 
 async function fieldHash(

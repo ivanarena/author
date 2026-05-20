@@ -1,12 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Note, Notebook } from '@author/schema';
 import {
+  ENCRYPTION_KEY_MATERIAL_STORAGE_KEY,
+  clearStoredEncryptionKeyMaterial,
   decryptNotebookFields,
   decryptNoteFields,
   decryptText,
   encryptNotebookFields,
   encryptNoteFields,
   encryptText,
+  getEncryptionKeyMaterial,
+  hasStoredEncryptionKeyMaterial,
   isEncryptedText,
   keyMaterialFromPassword,
   reencryptNoteFields
@@ -37,6 +41,38 @@ const notebook: Notebook = {
   version: 1,
   syncStatus: 'pending'
 };
+
+class MemoryStorage {
+  private values = new Map<string, string>();
+
+  get length(): number {
+    return this.values.size;
+  }
+
+  clear(): void {
+    this.values.clear();
+  }
+
+  getItem(key: string): string | null {
+    return this.values.get(key) ?? null;
+  }
+
+  key(index: number): string | null {
+    return [...this.values.keys()][index] ?? null;
+  }
+
+  removeItem(key: string): void {
+    this.values.delete(key);
+  }
+
+  setItem(key: string, value: string): void {
+    this.values.set(key, String(value));
+  }
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('client note encryption', () => {
   it('encrypts and decrypts text envelopes', async () => {
@@ -105,6 +141,29 @@ describe('client note encryption', () => {
     expect(await decryptText(nextEncrypted.body, 'old-key')).toBe(
       nextEncrypted.body
     );
+  });
+
+  it('generates local browser key material instead of using the legacy public fallback', async () => {
+    const storage = new MemoryStorage();
+    vi.stubGlobal('localStorage', storage);
+
+    const material = getEncryptionKeyMaterial();
+
+    expect(material).toMatch(/^local:v2:/);
+    expect(storage.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY)).toBe(material);
+    expect(hasStoredEncryptionKeyMaterial()).toBe(false);
+  });
+
+  it('recognizes password key material as sync-capable', async () => {
+    const storage = new MemoryStorage();
+    vi.stubGlobal('localStorage', storage);
+    const material = await keyMaterialFromPassword('Owner', 'test-password');
+
+    storage.setItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY, material);
+
+    expect(hasStoredEncryptionKeyMaterial()).toBe(true);
+    clearStoredEncryptionKeyMaterial();
+    expect(hasStoredEncryptionKeyMaterial()).toBe(false);
   });
 
   it('derives password key material that can still read legacy password notes', async () => {

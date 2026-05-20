@@ -128,6 +128,19 @@ class NoteUtilsTest {
   }
 
   @Test
+  fun syncPushBatchesRespectTotalChangeLimit() {
+    val notes = (1..25).map { "note-$it" }
+    val notebooks = (1..18).map { "notebook-$it" }
+
+    val batches = syncPushBatches(notes, notebooks, maxChanges = 20)
+
+    assertEquals(listOf(20, 20, 3), batches.map { it.notes.size + it.notebooks.size })
+    assertEquals(25, batches.sumOf { it.notes.size })
+    assertEquals(18, batches.sumOf { it.notebooks.size })
+    assertEquals(true, batches.all { it.notes.size + it.notebooks.size <= 20 })
+  }
+
+  @Test
   fun remapNotebookIdsReplacesAndDeduplicatesNotebookReferences() {
     assertEquals(
       listOf("remote", "other"),

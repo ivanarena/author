@@ -53,7 +53,13 @@ import {
   shouldTrustProxyHeaders,
   type RuntimeEnv
 } from './config';
-import { openConfiguredDatabase, openLocalDatabase, type NotesDb } from './db';
+import {
+  get,
+  openConfiguredDatabase,
+  openLocalDatabase,
+  run,
+  type NotesDb
+} from './db';
 import {
   cleanupTrash,
   getSyncMeta,
@@ -93,6 +99,7 @@ const SYNC_STATUSES = new Set<SyncStatus>([
   'conflict',
   'deleted'
 ]);
+const rateLimitEncoder = new TextEncoder();
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 let remoteSyncRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let remoteSyncFailureCount = 0;
@@ -480,6 +487,95 @@ function clearFailedLogins(key: string): void {
   loginAttempts.delete(key);
 }
 
+async function persistentLoginAttemptKey(key: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    rateLimitEncoder.encode(`author-rate-limit:${key}`)
+  );
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+async function isPersistentLoginRateLimited(
+  db: NotesDb,
+  key: string,
+  now = Date.now(),
+  maxAttempts = MAX_FAILED_LOGIN_ATTEMPTS
+): Promise<boolean> {
+  await run(db, 'DELETE FROM auth_rate_limits WHERE reset_at <= ?', [now]);
+  const keyHash = await persistentLoginAttemptKey(key);
+  const attempt = await get(
+    db,
+    'SELECT count, reset_at FROM auth_rate_limits WHERE key_hash = ?',
+    [keyHash]
+  );
+  if (!attempt || Number(attempt.reset_at) <= now) return false;
+  return Number(attempt.count) >= maxAttempts;
+}
+
+async function recordPersistentFailedLogin(
+  db: NotesDb,
+  key: string,
+  now = Date.now()
+): Promise<void> {
+  const keyHash = await persistentLoginAttemptKey(key);
+  const resetAt = now + LOGIN_ATTEMPT_WINDOW_MS;
+  await run(
+    db,
+    `INSERT INTO auth_rate_limits (key_hash, count, reset_at)
+     VALUES (?, 1, ?)
+     ON CONFLICT(key_hash) DO UPDATE SET
+       count = CASE
+         WHEN auth_rate_limits.reset_at <= ? THEN 1
+         ELSE auth_rate_limits.count + 1
+       END,
+       reset_at = CASE
+         WHEN auth_rate_limits.reset_at <= ? THEN ?
+         ELSE auth_rate_limits.reset_at
+       END`,
+    [keyHash, resetAt, now, now, resetAt]
+  );
+}
+
+async function clearPersistentFailedLogins(
+  db: NotesDb,
+  key: string
+): Promise<void> {
+  await run(db, 'DELETE FROM auth_rate_limits WHERE key_hash = ?', [
+    await persistentLoginAttemptKey(key)
+  ]);
+}
+
+async function isRateLimited(
+  db: NotesDb,
+  key: string,
+  now = Date.now(),
+  maxAttempts = MAX_FAILED_LOGIN_ATTEMPTS
+): Promise<boolean> {
+  return (
+    isLoginRateLimited(key, now, maxAttempts) ||
+    (await isPersistentLoginRateLimited(db, key, now, maxAttempts))
+  );
+}
+
+async function recordFailedAuthAttempt(
+  db: NotesDb,
+  key: string,
+  now = Date.now()
+): Promise<void> {
+  recordFailedLogin(key, now);
+  await recordPersistentFailedLogin(db, key, now);
+}
+
+async function clearFailedAuthAttempts(
+  db: NotesDb,
+  key: string
+): Promise<void> {
+  clearFailedLogins(key);
+  await clearPersistentFailedLogins(db, key);
+}
+
 function metricLine(name: string, value: string | number): string {
   return `${name} ${value}`;
 }
@@ -794,48 +890,58 @@ api.post(API_PATHS.authLogin, async (c) => {
   }
 
   const attemptKey = loginAttemptKey(c.req.raw, body.username);
-  if (isLoginRateLimited(attemptKey)) {
-    return c.json(
-      { error: 'Too many login attempts. Try again shortly.' },
-      429
-    );
-  }
-
-  let remoteUser: Awaited<ReturnType<typeof authenticateUser>> = null;
-  const remoteConfig = remoteMirrorConfig(c);
-  if (remoteConfig) {
-    let remote: NotesDb | null = null;
-    try {
-      remote = await openConfiguredDatabase(remoteConfig);
-      remoteUser = password
-        ? await authenticateUser(remote, body.username, password, body.totpCode)
-        : await authenticateTrustedDevice(
-            remote,
-            body.username,
-            body.device.id,
-            body.totpCode
-          );
-      if (remoteUser) {
-        await upsertDevice(remote, body.device, undefined, remoteUser.username);
-        await trustAuthDevice(remote, remoteUser.username, body.device.id);
-      }
-    } catch (error) {
-      console.warn(
-        'Remote login failed:',
-        error instanceof Error ? error.message : error
-      );
-      return c.json({ error: 'Remote login failed' }, 503);
-    } finally {
-      remote?.close();
-    }
-    if (!remoteUser) {
-      recordFailedLogin(attemptKey);
-      return c.json({ error: 'Invalid username or password' }, 401);
-    }
-  }
-
   const db = await openPrimaryDatabase(c);
   try {
+    if (await isRateLimited(db, attemptKey)) {
+      return c.json(
+        { error: 'Too many login attempts. Try again shortly.' },
+        429
+      );
+    }
+
+    let remoteUser: Awaited<ReturnType<typeof authenticateUser>> = null;
+    const remoteConfig = remoteMirrorConfig(c);
+    if (remoteConfig) {
+      let remote: NotesDb | null = null;
+      try {
+        remote = await openConfiguredDatabase(remoteConfig);
+        remoteUser = password
+          ? await authenticateUser(
+              remote,
+              body.username,
+              password,
+              body.totpCode
+            )
+          : await authenticateTrustedDevice(
+              remote,
+              body.username,
+              body.device.id,
+              body.totpCode
+            );
+        if (remoteUser) {
+          await upsertDevice(
+            remote,
+            body.device,
+            undefined,
+            remoteUser.username
+          );
+          await trustAuthDevice(remote, remoteUser.username, body.device.id);
+        }
+      } catch (error) {
+        console.warn(
+          'Remote login failed:',
+          error instanceof Error ? error.message : error
+        );
+        return c.json({ error: 'Remote login failed' }, 503);
+      } finally {
+        remote?.close();
+      }
+      if (!remoteUser) {
+        await recordFailedAuthAttempt(db, attemptKey);
+        return c.json({ error: 'Invalid username or password' }, 401);
+      }
+    }
+
     if (
       remoteUser &&
       remoteConfig &&
@@ -854,18 +960,26 @@ api.post(API_PATHS.authLogin, async (c) => {
       await queueRemoteSyncAfter(undefined, c.env);
     }
 
-    const user = remoteUser
-      ? remoteUser
-      : password
-        ? await authenticateUser(db, body.username, password, body.totpCode)
-        : await authenticateTrustedDevice(
-            db,
-            body.username,
-            body.device.id,
-            body.totpCode
-          );
+    let user: Awaited<ReturnType<typeof authenticateUser>>;
+    try {
+      user = remoteUser
+        ? remoteUser
+        : password
+          ? await authenticateUser(db, body.username, password, body.totpCode)
+          : await authenticateTrustedDevice(
+              db,
+              body.username,
+              body.device.id,
+              body.totpCode
+            );
+    } catch (error) {
+      return c.json(
+        { error: error instanceof Error ? error.message : 'Login failed' },
+        400
+      );
+    }
     if (!user) {
-      recordFailedLogin(attemptKey);
+      await recordFailedAuthAttempt(db, attemptKey);
       return c.json(
         {
           error: remoteUser
@@ -875,7 +989,7 @@ api.post(API_PATHS.authLogin, async (c) => {
         remoteUser ? 503 : 401
       );
     }
-    clearFailedLogins(attemptKey);
+    await clearFailedAuthAttempts(db, attemptKey);
 
     await upsertDevice(db, body.device, undefined, user.username);
     await trustAuthDevice(db, user.username, body.device.id);
@@ -928,8 +1042,17 @@ api.post(API_PATHS.authSignup, async (c) => {
   if (!remoteConfig && primaryTurso) {
     const db = await openPrimaryDatabase(c);
     try {
+      if (
+        await isRateLimited(db, attemptKey, Date.now(), MAX_SIGNUP_ATTEMPTS)
+      ) {
+        return c.json(
+          { error: 'Too many signup attempts. Try again shortly.' },
+          429
+        );
+      }
+
       if (!(await hasSignupAllowedEmails(db))) {
-        recordFailedLogin(attemptKey);
+        await recordFailedAuthAttempt(db, attemptKey);
         return c.json(
           {
             error: 'Signup is disabled. Add an allowed email first.'
@@ -939,7 +1062,7 @@ api.post(API_PATHS.authSignup, async (c) => {
       }
 
       if (!(await isSignupEmailAllowed(db, body.email))) {
-        recordFailedLogin(attemptKey);
+        await recordFailedAuthAttempt(db, attemptKey);
         return c.json({ error: 'Email is not allowed to sign up' }, 403);
       }
 
@@ -951,11 +1074,11 @@ api.post(API_PATHS.authSignup, async (c) => {
         body.displayName
       );
       if (!user) {
-        recordFailedLogin(attemptKey);
+        await recordFailedAuthAttempt(db, attemptKey);
         return c.json({ error: 'Username or email is already taken' }, 409);
       }
 
-      clearFailedLogins(attemptKey);
+      await clearFailedAuthAttempts(db, attemptKey);
       await upsertDevice(db, body.device, undefined, user.username);
       await trustAuthDevice(db, user.username, body.device.id);
       const session = await createAuthSession(db, user, body.device.id);
@@ -983,8 +1106,17 @@ api.post(API_PATHS.authSignup, async (c) => {
   const remote = await openConfiguredDatabase(remoteConfig);
   let user: Awaited<ReturnType<typeof createUserAccount>>;
   try {
+    if (
+      await isRateLimited(remote, attemptKey, Date.now(), MAX_SIGNUP_ATTEMPTS)
+    ) {
+      return c.json(
+        { error: 'Too many signup attempts. Try again shortly.' },
+        429
+      );
+    }
+
     if (!(await hasSignupAllowedEmails(remote))) {
-      recordFailedLogin(attemptKey);
+      await recordFailedAuthAttempt(remote, attemptKey);
       return c.json(
         { error: 'Signup is disabled. Add an allowed email first.' },
         403
@@ -992,7 +1124,7 @@ api.post(API_PATHS.authSignup, async (c) => {
     }
 
     if (!(await isSignupEmailAllowed(remote, body.email))) {
-      recordFailedLogin(attemptKey);
+      await recordFailedAuthAttempt(remote, attemptKey);
       return c.json({ error: 'Email is not allowed to sign up' }, 403);
     }
 
@@ -1004,9 +1136,10 @@ api.post(API_PATHS.authSignup, async (c) => {
       body.displayName
     );
     if (!createdUser) {
-      recordFailedLogin(attemptKey);
+      await recordFailedAuthAttempt(remote, attemptKey);
       return c.json({ error: 'Username or email is already taken' }, 409);
     }
+    await clearFailedAuthAttempts(remote, attemptKey);
     await upsertDevice(remote, body.device, undefined, createdUser.username);
     await trustAuthDevice(remote, createdUser.username, body.device.id);
     user = createdUser;
@@ -1018,8 +1151,6 @@ api.post(API_PATHS.authSignup, async (c) => {
   } finally {
     remote.close();
   }
-
-  clearFailedLogins(attemptKey);
 
   const db = await openPrimaryDatabase(c);
   try {
@@ -1199,12 +1330,25 @@ api.post(API_PATHS.accountPassword, async (c) => {
     const remoteConfig = remoteMirrorConfig(c);
     if (!remoteConfig) {
       if (isTursoPrimary(c)) {
-        const user = await changeUserPassword(
-          db,
-          session.user.username,
-          body.currentPassword,
-          body.newPassword
-        );
+        let user: Awaited<ReturnType<typeof changeUserPassword>>;
+        try {
+          user = await changeUserPassword(
+            db,
+            session.user.username,
+            body.currentPassword,
+            body.newPassword
+          );
+        } catch (error) {
+          return c.json(
+            {
+              error:
+                error instanceof Error
+                  ? error.message
+                  : 'Password change failed'
+            },
+            400
+          );
+        }
         if (!user) {
           return c.json({ error: 'Current password is incorrect' }, 401);
         }
@@ -1229,6 +1373,14 @@ api.post(API_PATHS.accountPassword, async (c) => {
         session.user.username,
         body.currentPassword,
         body.newPassword
+      );
+    } catch (error) {
+      return c.json(
+        {
+          error:
+            error instanceof Error ? error.message : 'Password change failed'
+        },
+        400
       );
     } finally {
       remote.close();

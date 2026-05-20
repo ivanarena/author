@@ -118,7 +118,11 @@
               onclick={model.logoutAccount}
             >
               <LogOut size={14} strokeWidth={1.8} />
-              <span>{model.isAccountBusy ? 'Signing out' : 'Log out'}</span>
+              <span
+                >{model.isAccountBusy
+                  ? 'Signing out'
+                  : 'Log out and lock'}</span
+              >
             </button>
           {:else}
             <button

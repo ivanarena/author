@@ -62,6 +62,15 @@ const schemaSql = `
   CREATE INDEX IF NOT EXISTS auth_sessions_expires_at_idx
     ON auth_sessions(expires_at);
 
+  CREATE TABLE IF NOT EXISTS auth_rate_limits (
+    key_hash TEXT PRIMARY KEY,
+    count INTEGER NOT NULL,
+    reset_at INTEGER NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS auth_rate_limits_reset_at_idx
+    ON auth_rate_limits(reset_at);
+
   CREATE TABLE IF NOT EXISTS trusted_auth_devices (
     username TEXT NOT NULL,
     device_id TEXT NOT NULL,
@@ -643,6 +652,24 @@ export const SERVER_MIGRATIONS: ServerMigration[] = [
          );`
       );
       await seedSignupAllowedEmails(db);
+    }
+  },
+  {
+    version: 10,
+    name: 'auth-rate-limits',
+    rollback:
+      'Restore from the pre-upgrade backup or drop auth_rate_limits; rows are temporary login-throttle state.',
+    up: async (db) => {
+      await exec(
+        db,
+        `CREATE TABLE IF NOT EXISTS auth_rate_limits (
+           key_hash TEXT PRIMARY KEY,
+           count INTEGER NOT NULL,
+           reset_at INTEGER NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS auth_rate_limits_reset_at_idx
+           ON auth_rate_limits(reset_at);`
+      );
     }
   }
 ];

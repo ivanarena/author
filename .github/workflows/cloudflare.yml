@@ -97,7 +97,7 @@ jobs:
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           NOTES_LOGIN_PASSWORD: ${{ secrets.NOTES_LOGIN_PASSWORD }}
           NOTES_AUTH_SESSION_DAYS: ${{ secrets.NOTES_AUTH_SESSION_DAYS }}
-          NOTES_SIGNUP_INVITE_CODES: ${{ secrets.NOTES_SIGNUP_INVITE_CODES }}
+          NOTES_SIGNUP_ALLOWED_EMAILS: ${{ secrets.NOTES_SIGNUP_ALLOWED_EMAILS }}
           AUTHOR_API_URL: ${{ secrets.AUTHOR_API_URL }}
         run: |
           node <<'NODE'
@@ -110,7 +110,7 @@ jobs:
           ];
           const optional = [
             'NOTES_AUTH_SESSION_DAYS',
-            'NOTES_SIGNUP_INVITE_CODES',
+            'NOTES_SIGNUP_ALLOWED_EMAILS',
             'AUTHOR_API_URL'
           ];
 

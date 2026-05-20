@@ -24,15 +24,18 @@ Clients send at most 20 note/notebook changes in a single push request so
 remote database round trips stay below Worker subrequest limits.
 `baseVersion` is the last remote version the client successfully synced. New local entities use `0`.
 For notes, the browser encrypts `title` and `body` into `enc:v1` string envelopes before storage
-and push, then decrypts them after pull. Encryption uses random AES-GCM IVs; stable keyed
-field hashes (`titleHash` and `bodyHash`) let sync compare encrypted fields without reusing
-nonces. Sync metadata, notebook assignment, and notebook names remain plain so versioning
-and notebook conflict checks stay small.
+and push, then decrypts them after pull. Notebook names use the same envelope format before
+storage and push. Encryption uses random AES-GCM IVs; stable keyed field hashes
+(`titleHash`, `bodyHash`, and `nameHash`) let sync compare encrypted fields and check duplicate
+notebook names without reusing nonces or exposing plaintext names. Sync metadata and notebook
+assignment remain plain so versioning and relationship repair stay small.
 Password-derived note key material uses PBKDF2-SHA-256 and is stored in `localStorage`
 for offline use. New key material can still decrypt older SHA-256-derived envelopes so
 browsers can re-encrypt and republish notes during normal sync. This avoids storing note
 plaintext remotely, but it is not a hardened zero-knowledge design for weak passwords or
 compromised browsers.
+Unsigned browsers generate random local key material for local-only encryption; older local
+fallback envelopes remain decryptable so existing local data can be migrated.
 Browsers with an old session token but no stored encryption key material must sign in again before
 syncing encrypted notes.
 

@@ -161,6 +161,7 @@ const MAX_EDITOR_HISTORY = 120;
 const AUTO_SYNC_DELAY_MS = 600;
 const SYNC_RETRY_DELAY_MS = 12_000;
 const ONLINE_SESSION_SYNC_MS = 60_000;
+const MIN_PASSWORD_LENGTH = 12;
 
 export class NotesPageController
   implements
@@ -273,6 +274,7 @@ export class NotesPageController
   bodyTextarea: HTMLTextAreaElement | null = null;
   importMarkdownInput: HTMLInputElement | null = null;
   settingsModal: HTMLElement | null = null;
+  loginModal: HTMLElement | null = null;
   readonly minEditorZoom = MIN_EDITOR_ZOOM;
   readonly maxEditorZoom = MAX_EDITOR_ZOOM;
   readonly minEditorTextSize = MIN_EDITOR_TEXT_SIZE;
@@ -389,6 +391,10 @@ export class NotesPageController
   constructor() {
     $effect(() => {
       if (this.settingsOpen) void this.focusSettingsModal();
+    });
+
+    $effect(() => {
+      if (this.loginOpen) void this.focusLoginModal();
     });
 
     $effect(() => {
@@ -1513,6 +1519,10 @@ export class NotesPageController
       this.loginError = 'Password required';
       return;
     }
+    if (this.authMode === 'signup' && password.length < MIN_PASSWORD_LENGTH) {
+      this.loginError = `Password must be at least ${MIN_PASSWORD_LENGTH} characters`;
+      return;
+    }
     if (!hasPassword && !canUseDeviceOtpLogin) {
       this.loginError = 'Password required on first login for this device';
       return;
@@ -1683,6 +1693,10 @@ export class NotesPageController
       this.accountError = 'New password required';
       return;
     }
+    if (this.newPasswordValue.length < MIN_PASSWORD_LENGTH) {
+      this.accountError = `New password must be at least ${MIN_PASSWORD_LENGTH} characters`;
+      return;
+    }
     if (this.newPasswordValue !== this.confirmPasswordValue) {
       this.accountError = 'Passwords do not match';
       return;
@@ -1713,16 +1727,18 @@ export class NotesPageController
       this.newPasswordValue = '';
       this.confirmPasswordValue = '';
       this.accountPasswordEditing = false;
+      this.clearSensitiveWorkspace();
       this.clearLocalSession({
-        accountMessage: 'Password changed. Sign in again to keep syncing.',
+        accountMessage: 'Password changed. Sign in again to unlock notes.',
+        clearEncryptionKeyMaterial: true,
         openLogin: true,
-        syncMessage: 'Sign in to sync'
+        syncMessage: 'Sign in to unlock and sync'
       });
       this.loginUsernameValue = response.user.username;
       this.notify(
         'success',
         'Password changed',
-        'Sign in again to keep syncing.'
+        'Sign in again to unlock notes.'
       );
     } catch (error) {
       this.accountError =
@@ -1828,11 +1844,18 @@ export class NotesPageController
     this.accountError = '';
     try {
       if (token) await logout(token).catch(() => undefined);
+      this.clearSensitiveWorkspace();
       this.clearLocalSession({
-        accountMessage: 'Signed out',
-        syncMessage: 'Sign in to sync'
+        accountMessage: 'Signed out and locked',
+        clearEncryptionKeyMaterial: true,
+        openLogin: true,
+        syncMessage: 'Sign in to unlock and sync'
       });
-      this.notify('info', 'Signed out', 'This browser is no longer syncing.');
+      this.notify(
+        'info',
+        'Signed out and locked',
+        'Sign in to unlock notes on this browser.'
+      );
     } finally {
       this.isAccountBusy = false;
     }
@@ -2095,6 +2118,23 @@ export class NotesPageController
     void this.focusEditor('title');
   };
 
+  private clearSensitiveWorkspace = () => {
+    this.clearPendingSave();
+    this.editorSessionId += 1;
+    this.notes = [];
+    this.notebooks = [];
+    this.trash = [];
+    this.conflicts = [];
+    this.selectedNote = null;
+    this.selectedNoteIds = new Set();
+    this.titleValue = '';
+    this.bodyValue = '';
+    this.filterId = 'all';
+    this.pendingSyncCount = 0;
+    this.closeNotebookMenus();
+    this.resetEditorHistory();
+  };
+
   private focusEditor = async (target: 'title' | 'body') => {
     await tick();
     const element = target === 'body' ? this.bodyTextarea : this.titleInput;
@@ -2132,6 +2172,11 @@ export class NotesPageController
   private focusSettingsModal = async () => {
     await tick();
     this.settingsModal?.focus({ preventScroll: true });
+  };
+
+  private focusLoginModal = async () => {
+    await tick();
+    this.loginModal?.focus({ preventScroll: true });
   };
 
   private downloadBlob = (blob: Blob, fileName: string) => {

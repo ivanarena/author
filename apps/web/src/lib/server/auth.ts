@@ -16,6 +16,7 @@ import {
 
 const PASSWORD_ITERATIONS = 100_000;
 const PASSWORD_KEY_LENGTH = 32;
+const MIN_PASSWORD_LENGTH = 12;
 const SESSION_TOKEN_BYTES = 32;
 const TOTP_SECRET_BYTES = 20;
 const TOTP_PERIOD_SECONDS = 30;
@@ -162,6 +163,11 @@ export async function isSignupEmailAllowed(
 function requirePassword(password: string): string {
   if (!password.trim()) {
     throw new Error('Password is required');
+  }
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    throw new Error(
+      `Password must be at least ${MIN_PASSWORD_LENGTH} characters`
+    );
   }
   return password;
 }

@@ -217,6 +217,7 @@ export interface EditorPaneModel {
 
 export interface SettingsModalModel {
   settingsModal: HTMLElement | null;
+  loginModal: HTMLElement | null;
   importMarkdownInput: HTMLInputElement | null;
   hasToken: boolean;
   accountUsername: string;

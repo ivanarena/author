@@ -18,6 +18,8 @@
 
     return model.authMode === 'signup' ? 'Create account' : 'Sign in to sync';
   }
+
+  const minPasswordLength = 12;
 </script>
 
 <form
@@ -120,6 +122,9 @@
             : 'Optional'}
           required={model.authMode === 'signup' ||
             !model.deviceOtpLoginAvailable}
+          minlength={model.authMode === 'signup'
+            ? minPasswordLength
+            : undefined}
           disabled={model.isLoggingIn}
           oninput={() => (model.loginError = '')}
         />
@@ -152,6 +157,7 @@
             autocomplete="new-password"
             placeholder="Confirm password"
             required
+            minlength={minPasswordLength}
             disabled={model.isLoggingIn}
             oninput={() => (model.loginError = '')}
           />

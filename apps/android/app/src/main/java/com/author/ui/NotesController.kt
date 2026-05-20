@@ -23,6 +23,7 @@ import com.author.core.SyncProgress
 import com.author.core.SyncProgressPhase
 import com.author.core.TrustedAuthDevice
 import com.author.core.formatDateTime
+import com.author.core.normalizedNotebookName
 import com.author.core.noteNotebookIds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +33,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class NotesController(private val repository: NotesRepository, private val scope: CoroutineScope) {
+  private companion object {
+    const val MIN_PASSWORD_LENGTH = 12
+  }
+
   private val initialWorkspace = runCatching { repository.loadWorkspaceSnapshot() }.getOrNull()
   private val initialSession = repository.getStoredSession()
   private var pageBackStack by mutableStateOf<List<String>>(emptyList())
@@ -413,6 +418,23 @@ class NotesController(private val repository: NotesRepository, private val scope
     resetHistory()
   }
 
+  private fun clearSensitiveWorkspace() {
+    saveJob?.cancel()
+    saveJob = null
+    notes = emptyList()
+    notebooks = emptyList()
+    trash = emptyList()
+    conflicts = emptyList()
+    selectedNote = null
+    selectedNoteIds = emptySet()
+    noteSelectionMode = false
+    titleValue = ""
+    bodyValue = ""
+    filterId = "all"
+    pendingSyncCount = 0
+    resetHistory()
+  }
+
   fun updateEditor(field: String, value: String) {
     val next = if (field == "title") value to bodyValue else titleValue to value
     if (field == "title") titleValue = value else bodyValue = value
@@ -520,11 +542,22 @@ class NotesController(private val repository: NotesRepository, private val scope
   }
 
   fun createNotebook() {
+    val trimmed = notebookNameValue.trim()
+    if (trimmed.isEmpty()) {
+      notebookError = "Name required"
+      notify("error", "Notebook name required", "Enter a name before creating a notebook.")
+      return
+    }
+    if (notebookNameTaken(trimmed)) {
+      notebookError = "Name already exists"
+      notify("error", "Notebook already exists", "Use a different notebook name.")
+      return
+    }
     scope.launch {
-      val notebook = repository.createNotebook(notebookNameValue)
+      val notebook = repository.createNotebook(trimmed)
       if (notebook == null) {
-        notebookError = "Name required"
-        notify("error", "Notebook name required", "Enter a name before creating a notebook.")
+        notebookError = "Name already exists"
+        notify("error", "Notebook already exists", "Use a different notebook name.")
         return@launch
       }
       filterId = notebook.id
@@ -547,12 +580,25 @@ class NotesController(private val repository: NotesRepository, private val scope
   }
 
   fun submitRename(notebook: LocalNotebook) {
+    val trimmed = renameNotebookValue.trim()
+    if (trimmed.isEmpty()) return
+    if (notebookNameTaken(trimmed, notebook.id)) {
+      notify("error", "Notebook already exists", "Use a different notebook name.")
+      return
+    }
     scope.launch {
-      val renamed = repository.renameNotebook(notebook.id, renameNotebookValue)
+      val renamed = repository.renameNotebook(notebook.id, trimmed)
       if (renamed == null) return@launch
       renamingNotebookId = null
       refresh()
       scheduleSyncAfterLocalChange()
+    }
+  }
+
+  private fun notebookNameTaken(name: String, excludeId: String? = null): Boolean {
+    val normalized = normalizedNotebookName(name)
+    return notebooks.any {
+      it.deletedAt == null && it.id != excludeId && normalizedNotebookName(it.name) == normalized
     }
   }
 
@@ -682,6 +728,10 @@ class NotesController(private val repository: NotesRepository, private val scope
     }
     if (!hasPassword && authMode == "signup") {
       showLoginError("Password required")
+      return
+    }
+    if (authMode == "signup" && password.length < MIN_PASSWORD_LENGTH) {
+      showLoginError("Password must be at least $MIN_PASSWORD_LENGTH characters")
       return
     }
     if (!hasPassword && !canUseDeviceOtpLogin) {
@@ -1053,6 +1103,11 @@ class NotesController(private val repository: NotesRepository, private val scope
       notify("error", "New password required")
       return
     }
+    if (newPasswordValue.length < MIN_PASSWORD_LENGTH) {
+      accountError = "New password must be at least $MIN_PASSWORD_LENGTH characters"
+      notify("error", accountError)
+      return
+    }
     if (newPasswordValue != confirmPasswordValue) {
       accountError = "Passwords do not match"
       notify("error", "Passwords do not match")
@@ -1062,9 +1117,14 @@ class NotesController(private val repository: NotesRepository, private val scope
       try {
         val response = repository.changePassword(token, currentPasswordValue, newPasswordValue)
         applyAccount(response.user, response.trustedDevices)
-        clearLocalSession("Password changed. Sign in again to keep syncing.", openLogin = true)
+        clearSensitiveWorkspace()
+        clearLocalSession(
+          "Password changed. Sign in again to unlock notes.",
+          openLogin = true,
+          clearEncryptionKeyMaterial = true,
+        )
         loginUsernameValue = response.user.username
-        notify("success", "Password changed", "Sign in again to keep syncing.")
+        notify("success", "Password changed", "Sign in again to unlock notes.")
       } catch (error: Throwable) {
         accountError = error.message ?: "Could not change password"
         notify("error", "Password not changed", accountError)
@@ -1076,8 +1136,13 @@ class NotesController(private val repository: NotesRepository, private val scope
     val token = repository.getStoredSession()?.token
     scope.launch {
       if (token != null) repository.logout(token)
-      clearLocalSession("Signed out")
-      notify("info", "Signed out", "This device is no longer syncing.")
+      clearSensitiveWorkspace()
+      clearLocalSession(
+        "Signed out and locked",
+        openLogin = true,
+        clearEncryptionKeyMaterial = true,
+      )
+      notify("info", "Signed out and locked", "Sign in to unlock notes on this device.")
     }
   }
 

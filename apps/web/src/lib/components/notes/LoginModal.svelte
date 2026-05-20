@@ -18,6 +18,8 @@
     role="dialog"
     aria-modal="true"
     aria-labelledby="login-title"
+    bind:this={model.loginModal}
+    tabindex="-1"
   >
     <header class="settings-header">
       <div class="settings-title">

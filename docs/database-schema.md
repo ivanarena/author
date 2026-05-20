@@ -26,6 +26,7 @@ Tables:
 - `devices`
 - `users`
 - `auth_sessions`
+- `auth_rate_limits`
 - `trusted_auth_devices`
 - `invitation_codes` (legacy, unused by current signup)
 - `signup_allowed_emails`
@@ -40,8 +41,10 @@ Tables:
 `note_versions` and `notebook_versions` keep snapshots for accepted pushes, conflicts, and cleanup. This gives v1 a recovery path without building a full audit UI.
 
 Notes store `title` and `body` as `enc:v1` encrypted text envelopes after the client has
-opened them once. `title_hash` and `body_hash` store stable keyed hashes for sync comparison while
-the encrypted text uses random IVs. Legacy plaintext rows are migrated by the browser before normal reads and sync.
+opened them once. Notebooks store `name` as the same envelope format. `title_hash`,
+`body_hash`, and `name_hash` store stable keyed hashes for sync comparison and duplicate
+notebook checks while the encrypted text uses random IVs. Legacy plaintext rows are migrated by
+the browser before normal reads and sync.
 Markdown is not parsed or rendered.
 
 Notes, notebooks, entity changes, tombstones, and version snapshots include `owner_username` so
@@ -52,6 +55,10 @@ sync results are scoped to the authenticated account. Legacy token data is store
 password login for an account. Accounts with 2FA enabled can later issue a new
 session from that device with username plus TOTP code while local encryption key
 material remains on the device.
+
+`auth_rate_limits` stores temporary hashed login/signup throttle keys so rate
+limits survive process restarts and multi-instance Worker execution without
+persisting raw IP addresses or usernames.
 
 `signup_allowed_emails` is the server-side allow-list for remote account creation.
 Signup only creates an account when the submitted email matches a row in this

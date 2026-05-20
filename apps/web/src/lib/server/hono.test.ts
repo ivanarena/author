@@ -9,7 +9,7 @@ import {
   fixtureNotebook
 } from '@author/test-fixtures';
 import { setUserPassword, updateUserProfile } from './auth';
-import { openConfiguredDatabase, openDatabase } from './db';
+import { get, openConfiguredDatabase, openDatabase } from './db';
 import { api } from './hono';
 import { getNote, pushChanges, setSyncMeta } from './repository';
 
@@ -207,6 +207,40 @@ describe('Hono API', () => {
     expect(invalid.status).toBe(401);
   });
 
+  it('persists and clears login throttle attempts', async () => {
+    const badLogin = await api.fetch(
+      new Request('http://localhost/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'owner',
+          password: 'wrong-password',
+          device: fixtureDevice
+        })
+      })
+    );
+    expect(badLogin.status).toBe(401);
+
+    let db = await openDatabase();
+    try {
+      await expect(
+        get(db, 'SELECT count FROM auth_rate_limits')
+      ).resolves.toMatchObject({ count: 1 });
+    } finally {
+      db.close();
+    }
+
+    await loginToken();
+    db = await openDatabase();
+    try {
+      await expect(
+        get(db, 'SELECT count FROM auth_rate_limits')
+      ).resolves.toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+
   it('rejects oversized JSON bodies even without content-length', async () => {
     const response = await api.fetch(
       new Request('http://localhost/api/auth/login', {
@@ -283,6 +317,32 @@ describe('Hono API', () => {
       })
     );
     expect(duplicate.status).toBe(409);
+  });
+
+  it('rejects new account passwords that are too short', async () => {
+    const remotePath = join(tempDir, 'short-password-remote.sqlite');
+    process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
+    process.env.TURSO_AUTH_TOKEN = 'test-token';
+    process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
+    process.env.NOTES_SIGNUP_ALLOWED_EMAILS = 'short@example.com';
+
+    const signup = await api.fetch(
+      new Request('http://localhost/api/auth/signup', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'short-user',
+          email: 'short@example.com',
+          password: 'short',
+          device: fixtureDevice
+        })
+      })
+    );
+
+    expect(signup.status).toBe(400);
+    await expect(signup.json()).resolves.toEqual({
+      error: 'Password must be at least 12 characters'
+    });
   });
 
   it('trusts a remote-backed signup device for later OTP login', async () => {
@@ -990,6 +1050,19 @@ describe('Hono API', () => {
     expect(loggedOut.status).toBe(401);
 
     token = await loginToken();
+    const shortPassword = await post(
+      '/api/account/password',
+      {
+        currentPassword: 'test-password',
+        newPassword: 'short'
+      },
+      token
+    );
+    expect(shortPassword.status).toBe(400);
+    await expect(shortPassword.json()).resolves.toEqual({
+      error: 'Password must be at least 12 characters'
+    });
+
     const password = await post(
       '/api/account/password',
       {

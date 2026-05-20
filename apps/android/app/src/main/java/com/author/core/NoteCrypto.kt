@@ -36,7 +36,8 @@ class NoteCrypto(
     return generated
   }
 
-  fun hasStoredEncryptionKeyMaterial(): Boolean = securePrefs.contains(KEY_MATERIAL_KEY)
+  fun hasStoredEncryptionKeyMaterial(): Boolean =
+    securePrefs.getString(KEY_MATERIAL_KEY)?.let(::isSyncKeyMaterial) == true
 
   fun clearStoredEncryptionKeyMaterial() {
     securePrefs.remove(KEY_MATERIAL_KEY)
@@ -69,6 +70,9 @@ class NoteCrypto(
     random.nextBytes(key)
     return "$LOCAL_KEY_PREFIX${base64UrlEncode(key)}"
   }
+
+  private fun isSyncKeyMaterial(material: String): Boolean =
+    material.startsWith("password:") || material.startsWith("account:")
 
   fun encryptText(value: String, keyMaterial: String = getEncryptionKeyMaterial()): String {
     if (isEncryptedText(value)) return value

@@ -9,6 +9,9 @@ Signup is email allow-list only when a remote database is configured. Add addres
 Run the app behind HTTPS. The SvelteKit hook sets CSP, HSTS on secure requests, Referrer-Policy, Permissions-Policy, X-Frame-Options, and X-Content-Type-Options.
 
 Set `NOTES_TRUST_PROXY_HEADERS=true` only behind a proxy that overwrites incoming forwarding headers. Otherwise keep it false.
+Login and signup throttles are stored as hashed keys in the database so they
+survive restarts and Worker isolate changes. Use platform-level protection as
+an additional layer for public deployments.
 
 ## Instances
 

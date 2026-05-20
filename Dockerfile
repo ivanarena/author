@@ -28,16 +28,23 @@ FROM node:24-alpine
 
 WORKDIR /app
 
-ARG LIBSQL_CLIENT_VERSION=0.17.3
-ARG HONO_VERSION=4.12.18
-# Adapter-node bundles the app, but these packages remain runtime imports.
-RUN npm --no-update-notifier install --omit=dev --ignore-scripts --no-audit --no-fund "@libsql/client@${LIBSQL_CLIENT_VERSION}" "hono@${HONO_VERSION}" \
-    && npm pkg set type=module \
+RUN npm install -g @endevco/aube@1.8.0
+RUN aube config set enableGlobalVirtualStore false --location project
+
+COPY package.json aube-workspace.yaml aube-lock.yaml ./
+COPY apps/web/package.json ./apps/web/package.json
+COPY packages ./packages
+
+# Adapter-node keeps a small set of runtime imports external; install them from
+# the checked-in Aube lockfile instead of resolving ad hoc npm versions here.
+RUN aube --filter-prod @author/web... install --prod --frozen-lockfile \
     && rm -rf \
       /root/.npm \
+      /usr/local/bin/aube \
       /usr/local/bin/corepack \
       /usr/local/bin/npm \
       /usr/local/bin/npx \
+      /usr/local/lib/node_modules/@endevco \
       /usr/local/lib/node_modules/corepack \
       /usr/local/lib/node_modules/npm \
       /opt/yarn*

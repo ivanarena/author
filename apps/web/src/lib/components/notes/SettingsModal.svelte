@@ -41,6 +41,7 @@
   let totpPasswordVisible = $state(false);
   let deletePasswordVisible = $state(false);
   let fontMenuOpen = $state(false);
+  const minPasswordLength = 12;
 
   const themeOptions: Array<{ value: Theme; label: string }> = [
     { value: 'light', label: 'Light' },
@@ -197,7 +198,7 @@
             }}
           >
             <LogOut size={15} strokeWidth={1.8} />
-            <span>Log out</span>
+            <span>Log out and lock</span>
           </button>
         {/if}
       </nav>
@@ -441,6 +442,7 @@
                         type={newPasswordVisible ? 'text' : 'password'}
                         bind:value={model.newPasswordValue}
                         autocomplete="new-password"
+                        minlength={minPasswordLength}
                         oninput={() => (model.accountError = '')}
                       />
                       <button
@@ -472,6 +474,7 @@
                         type={confirmPasswordVisible ? 'text' : 'password'}
                         bind:value={model.confirmPasswordValue}
                         autocomplete="new-password"
+                        minlength={minPasswordLength}
                         oninput={() => (model.accountError = '')}
                       />
                       <button

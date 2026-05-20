@@ -190,7 +190,7 @@ internal fun AccountPage(controller: NotesController) {
           GlassIcon(Icons.Outlined.Refresh, "Sync now", enabled = !controller.isSyncing) {
             controller.syncNow()
           }
-          GlassIcon(Icons.AutoMirrored.Outlined.Logout, "Log out") { controller.logout() }
+          GlassIcon(Icons.AutoMirrored.Outlined.Logout, "Log out and lock") { controller.logout() }
         } else {
           GlassIcon(Icons.AutoMirrored.Outlined.Login, "Sign in") { controller.openLogin() }
         }

@@ -3,7 +3,7 @@ import type { Device, Note, Notebook } from '@author/schema';
 import { openMemoryDatabase, type NotesDb } from '../src/lib/server/db';
 import { pullChangesSince, pushChanges } from '../src/lib/server/repository';
 
-const DEFAULT_PUSH_BATCH_SIZE = 250;
+const DEFAULT_PUSH_BATCH_SIZE = 20;
 const DEFAULT_PULL_BATCH_SIZE = 1000;
 const DEFAULT_SCENARIOS = [100, 1000, 5000];
 const DEFAULT_NOTEBOOKS = 25;

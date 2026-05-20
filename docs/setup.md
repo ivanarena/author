@@ -53,7 +53,7 @@ NOTES_BACKUP_RETENTION_COUNT=14
 
 `NOTES_LOGIN_USERNAME` and `NOTES_LOGIN_PASSWORD` bootstrap the first local user if it does not already exist. After login, the server returns a random session token, which the browser stores in local storage for later sync requests.
 When 2FA is enabled, a browser or Android install that has already completed a password login can request a new session with username plus TOTP code. The device must still have its local encryption key material for encrypted note sync.
-In production, there is no fallback password; set `NOTES_LOGIN_PASSWORD` or create a user before expecting browser login to work.
+New account and bootstrap passwords must be at least 12 characters. In production, there is no fallback password; set `NOTES_LOGIN_PASSWORD` or create a user before expecting browser login to work.
 
 Signup is email allow-list only when a remote database is configured. Allowed addresses are stored in the remote database table `signup_allowed_emails`; `NOTES_SIGNUP_ALLOWED_EMAILS` can seed that table on startup with a comma-separated list of lowercase email addresses.
 

@@ -4,7 +4,6 @@ import {
   decryptNoteFields,
   ENCRYPTION_KEY_MATERIAL_STORAGE_KEY,
   encryptNoteFields,
-  getEncryptionKeyMaterial,
   isEncryptedText,
   keyMaterialFromPassword
 } from '../../src/lib/client/encryption';
@@ -54,13 +53,16 @@ async function expectBrowserStoredEncryptedNote(
   page: Page,
   title: string,
   body: string,
-  keyMaterial = e2eKeyMaterial
+  keyMaterial?: string
 ) {
   await expect
     .poll(async () => {
+      const material =
+        keyMaterial ?? (await browserEncryptionKeyMaterial(page));
+      if (!material) return false;
       const rawNotes = await browserStoredNotes(page);
       const decryptedNotes = await Promise.all(
-        rawNotes.map((note) => decryptNoteFields(note, keyMaterial))
+        rawNotes.map((note) => decryptNoteFields(note, material))
       );
       const noteIndex = decryptedNotes.findIndex(
         (note) => note.title === title && note.body === body
@@ -76,6 +78,13 @@ async function expectBrowserStoredEncryptedNote(
       );
     })
     .toBe(true);
+}
+
+async function browserEncryptionKeyMaterial(page: Page): Promise<string> {
+  return await page.evaluate(
+    (key) => localStorage.getItem(key) ?? '',
+    ENCRYPTION_KEY_MATERIAL_STORAGE_KEY
+  );
 }
 
 async function pullRemoteNotes(
@@ -308,16 +317,15 @@ test('logs in from the profile menu when no session is stored', async ({
   await expect(loginDialog).toBeHidden();
 
   await page.getByRole('button', { name: 'Profile and settings' }).click();
-  await expect(page.getByRole('menuitem', { name: 'Log out' })).toBeVisible();
-  await page.getByRole('menuitem', { name: 'Log out' }).click();
+  await expect(
+    page.getByRole('menuitem', { name: 'Log out and lock' })
+  ).toBeVisible();
+  await page.getByRole('menuitem', { name: 'Log out and lock' }).click();
 
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('author-token')))
     .toBeNull();
-  await page.getByRole('button', { name: 'Profile and settings' }).click();
-  await expect(
-    page.getByRole('menuitem', { name: 'Sign in to sync' })
-  ).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Sign in' })).toBeVisible();
 });
 
 test('signs up and manages trusted-device login without ending the active session', async ({
@@ -533,12 +541,7 @@ test('keeps local drafts when signing in and then syncs them remote', async ({
   const bodyText = 'This local draft must survive account sign-in';
   await page.getByLabel('Note title').fill(titleText);
   await page.getByLabel('Note body').fill(bodyText);
-  await expectBrowserStoredEncryptedNote(
-    page,
-    titleText,
-    bodyText,
-    getEncryptionKeyMaterial()
-  );
+  await expectBrowserStoredEncryptedNote(page, titleText, bodyText);
 
   await page.getByRole('button', { name: 'Profile and settings' }).click();
   await page.getByRole('menuitem', { name: 'Sign in to sync' }).click();

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
 
-  const updated = 'May 8, 2026';
+  const updated = 'May 21, 2026';
 </script>
 
 <svelte:head>
@@ -20,7 +20,8 @@
       You keep ownership of the notes and notebooks you create. You are
       responsible for the content you store and for remembering the account
       password that unlocks encrypted data. There is no recovery key in this
-      simple-login encryption model.
+      simple-login encryption model, and Author is not offered as a hardened
+      zero-knowledge or zero-trust service.
     </p>
   </section>
 

@@ -111,6 +111,14 @@ describe('Markdown archive import and export', () => {
         }),
         note({
           id: 'note-3',
+          title: 'Aurora',
+          body: 'third copy',
+          notebookIds: ['poems'],
+          notebookId: 'poems',
+          updatedAt: '2026-04-28T10:00:00.000Z'
+        }),
+        note({
+          id: 'note-4',
           title: 'Root / note',
           body: 'unfiled body',
           notebookIds: [],
@@ -126,6 +134,7 @@ describe('Markdown archive import and export', () => {
     expect(archive.files.map((file) => file.path)).toEqual([
       'poems/Aurora.md',
       'poems/Aurora-2.md',
+      'poems/Aurora-3.md',
       'Root---note.md'
     ]);
     expect(archive.files[0].content).toContain('title: "Aurora"');

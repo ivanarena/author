@@ -13,6 +13,7 @@ import {
   cleanupTrash,
   currentRevision,
   deleteDevicesByIds,
+  deleteNotebooksByIds,
   deleteNotesByIds,
   getDevicesByIds,
   getNote,
@@ -463,6 +464,163 @@ describe('server repository', () => {
       expect(result.conflicts).toHaveLength(1);
       expect(result.conflicts[0].reason).toBe('deleted_remotely');
       expect(await getNote(db, fixtureNote.id, ownerUsername)).toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+
+  it('accepts a local note winner once it is explicitly based on the remote tombstone', async () => {
+    const db = await openMemoryDatabase();
+    try {
+      const ownerUsername = 'alice';
+      const oldTrashedNote = {
+        ...fixtureNote,
+        trashedAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z'
+      };
+      await pushChanges(
+        db,
+        {
+          device: fixtureDevice,
+          notebooks: [{ record: fixtureNotebook, baseVersion: 0 }],
+          notes: [{ record: oldTrashedNote, baseVersion: 0 }]
+        },
+        ownerUsername
+      );
+      await cleanupTrash(
+        db,
+        new Date('2026-04-29T00:00:00.000Z'),
+        ownerUsername
+      );
+
+      const staleOfflineEdit = {
+        ...fixtureNote,
+        body: 'Offline edit after cleanup',
+        updatedAt: '2026-04-30T00:00:00.000Z',
+        version: 2,
+        syncStatus: 'pending' as const
+      };
+      const conflictResult = await pushChanges(
+        db,
+        {
+          device: fixtureDevice,
+          notebooks: [],
+          notes: [{ record: staleOfflineEdit, baseVersion: 1 }]
+        },
+        ownerUsername
+      );
+      const conflict = conflictResult.conflicts[0];
+      expect(conflict.reason).toBe('deleted_remotely');
+      expect(conflict.remote.version).toBe(2);
+      const localRecord = conflict.local.record as typeof fixtureNote;
+
+      const resolvedLocal = {
+        ...localRecord,
+        deviceId: fixtureDevice.id,
+        version: conflict.remote.version + 1,
+        syncStatus: 'pending' as const
+      };
+      const acceptedResult = await pushChanges(
+        db,
+        {
+          device: fixtureDevice,
+          notebooks: [],
+          notes: [
+            { record: resolvedLocal, baseVersion: conflict.remote.version }
+          ]
+        },
+        ownerUsername
+      );
+
+      expect(acceptedResult.conflicts).toHaveLength(0);
+      expect(acceptedResult.accepted).toEqual([
+        expect.objectContaining({
+          entityType: 'note',
+          id: fixtureNote.id,
+          version: conflict.remote.version + 1
+        })
+      ]);
+      await expect(
+        getNote(db, fixtureNote.id, ownerUsername)
+      ).resolves.toMatchObject({
+        body: 'Offline edit after cleanup',
+        deletedAt: null,
+        version: conflict.remote.version + 1
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('accepts a local notebook winner once it is explicitly based on the remote tombstone', async () => {
+    const db = await openMemoryDatabase();
+    try {
+      const ownerUsername = 'alice';
+      await pushChanges(
+        db,
+        {
+          device: fixtureDevice,
+          notebooks: [{ record: fixtureNotebook, baseVersion: 0 }],
+          notes: []
+        },
+        ownerUsername
+      );
+      await deleteNotebooksByIds(db, [fixtureNotebook.id], ownerUsername);
+
+      const staleOfflineEdit = {
+        ...fixtureNotebook,
+        name: 'Offline notebook after delete',
+        updatedAt: '2026-04-30T00:00:00.000Z',
+        version: 2,
+        syncStatus: 'pending' as const
+      };
+      const conflictResult = await pushChanges(
+        db,
+        {
+          device: fixtureDevice,
+          notebooks: [{ record: staleOfflineEdit, baseVersion: 1 }],
+          notes: []
+        },
+        ownerUsername
+      );
+      const conflict = conflictResult.conflicts[0];
+      expect(conflict.reason).toBe('deleted_remotely');
+      expect(conflict.remote.version).toBe(2);
+      const localRecord = conflict.local.record as typeof fixtureNotebook;
+
+      const resolvedLocal = {
+        ...localRecord,
+        deviceId: fixtureDevice.id,
+        version: conflict.remote.version + 1,
+        syncStatus: 'pending' as const
+      };
+      const acceptedResult = await pushChanges(
+        db,
+        {
+          device: fixtureDevice,
+          notebooks: [
+            { record: resolvedLocal, baseVersion: conflict.remote.version }
+          ],
+          notes: []
+        },
+        ownerUsername
+      );
+
+      expect(acceptedResult.conflicts).toHaveLength(0);
+      expect(acceptedResult.accepted).toEqual([
+        expect.objectContaining({
+          entityType: 'notebook',
+          id: fixtureNotebook.id,
+          version: conflict.remote.version + 1
+        })
+      ]);
+      await expect(
+        getNotebook(db, fixtureNotebook.id, ownerUsername)
+      ).resolves.toMatchObject({
+        name: 'Offline notebook after delete',
+        deletedAt: null,
+        version: conflict.remote.version + 1
+      });
     } finally {
       db.close();
     }

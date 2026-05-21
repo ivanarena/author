@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applySecurityHeaders,
   contentSecurityPolicy,
+  createSecurityNonce,
   isSecureRequest
 } from './security-headers';
 
@@ -25,8 +26,25 @@ describe('security headers', () => {
       headers: { 'x-forwarded-proto': 'https' }
     });
 
+    expect(isSecureRequest(request, new URL('https://author.test/'))).toBe(
+      true
+    );
     expect(isSecureRequest(request, new URL(request.url), false)).toBe(false);
     expect(isSecureRequest(request, new URL(request.url), true)).toBe(true);
+  });
+
+  it('creates nonces and permits local dev connections only in dev CSP', () => {
+    expect(createSecurityNonce()).toMatch(/^[A-Za-z0-9+/]{22}==$/);
+
+    const csp = contentSecurityPolicy({
+      nonce: 'dev-nonce',
+      dev: true,
+      secure: false
+    });
+
+    expect(csp).toContain('ws://localhost:*');
+    expect(csp).toContain("'unsafe-eval'");
+    expect(csp).not.toContain('upgrade-insecure-requests');
   });
 
   it('applies browser hardening headers and limits HSTS to secure requests', () => {

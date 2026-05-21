@@ -15,6 +15,7 @@ import {
   type Notebook
 } from '@author/schema';
 import {
+  nextVersionAfter,
   previewText,
   recordsDiffer,
   retentionCutoff,
@@ -577,7 +578,7 @@ export async function deleteNotesByIds(
           ? new Date().toISOString()
           : (tombstone?.deletedAt ?? new Date().toISOString()),
         note?.deviceId ?? tombstone?.deviceId ?? 'server',
-        note?.version ?? tombstone?.version ?? 1
+        note ? nextVersionAfter(note.version) : (tombstone?.version ?? 1)
       );
     }
     if (
@@ -627,7 +628,9 @@ export async function deleteNotebooksByIds(
           ? new Date().toISOString()
           : (tombstone?.deletedAt ?? new Date().toISOString()),
         notebook?.deviceId ?? tombstone?.deviceId ?? 'server',
-        notebook?.version ?? tombstone?.version ?? 1
+        notebook
+          ? nextVersionAfter(notebook.version)
+          : (tombstone?.version ?? 1)
       );
     }
     if (
@@ -1355,8 +1358,10 @@ function deletedRemoteNotebook(
 function tombstoneOverwriteAllowed(
   record: Note | Notebook,
   tombstone: EntityTombstone,
+  baseVersion: number,
   options: PushChangesOptions
 ): boolean {
+  if (baseVersion === tombstone.version) return true;
   if (!options.allowTombstoneOverwrite) return false;
 
   const recordTime = Date.parse(record.updatedAt);
@@ -1441,7 +1446,12 @@ export async function pushChanges(
         : (notebookTombstones.get(change.record.id) ?? null);
       if (
         tombstone &&
-        !tombstoneOverwriteAllowed(change.record, tombstone, options)
+        !tombstoneOverwriteAllowed(
+          change.record,
+          tombstone,
+          change.baseVersion,
+          options
+        )
       ) {
         const deletedRemote = deletedRemoteNotebook(change.record, tombstone);
         notebookSnapshots.push(
@@ -1518,7 +1528,9 @@ export async function pushChanges(
               ...change.record,
               version: remote
                 ? remote.version + 1
-                : Math.max(change.record.version, 1),
+                : tombstone
+                  ? nextVersionAfter(tombstone.version)
+                  : Math.max(change.record.version, 1),
               syncStatus: 'synced' as const
             };
       acceptedChanges.push(accepted('notebook', acceptedNotebook));
@@ -1580,7 +1592,12 @@ export async function pushChanges(
         : (noteTombstones.get(change.record.id) ?? null);
       if (
         tombstone &&
-        !tombstoneOverwriteAllowed(syncableNote.note, tombstone, options)
+        !tombstoneOverwriteAllowed(
+          syncableNote.note,
+          tombstone,
+          change.baseVersion,
+          options
+        )
       ) {
         const deletedRemote = deletedRemoteNote(change.record, tombstone);
         noteSnapshots.push(
@@ -1630,7 +1647,9 @@ export async function pushChanges(
               ...syncableNote.note,
               version: remote
                 ? remote.version + 1
-                : Math.max(syncableNote.note.version, 1),
+                : tombstone
+                  ? nextVersionAfter(tombstone.version)
+                  : Math.max(syncableNote.note.version, 1),
               syncStatus: 'synced' as const
             };
       acceptedChanges.push(accepted('note', acceptedNote));
@@ -1699,7 +1718,7 @@ export async function cleanupTrash(
         note.id,
         new Date().toISOString(),
         note.deviceId,
-        note.version
+        nextVersionAfter(note.version)
       );
       await recordEntityChange(tx, 'note', note.id, 'delete', undefined, owner);
     }
@@ -1716,7 +1735,7 @@ export async function cleanupTrash(
         notebook.id,
         new Date().toISOString(),
         notebook.deviceId,
-        notebook.version
+        nextVersionAfter(notebook.version)
       );
       await recordEntityChange(
         tx,

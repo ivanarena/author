@@ -561,7 +561,83 @@ describe('client sync store', () => {
     ]);
     expect(localDb.notebooks.delete).toHaveBeenCalledWith('local-book');
   });
+
+  it('resolves remote-delete note conflicts by keeping the local note as pending over the tombstone', async () => {
+    const conflict = deletedRemoteNoteConflict();
+    vi.mocked(localDb.conflicts.get).mockResolvedValue(
+      noteConflictRecord(conflict)
+    );
+
+    await resolveConflict('deleted-note-conflict', 'keep-local');
+
+    expect(localDb.notes.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: baseNote.id,
+        body: 'Local body',
+        deletedAt: null,
+        deviceId: 'browser-device',
+        version: 3,
+        syncStatus: 'pending',
+        lastSyncedVersion: 2,
+        lastSyncedAt: null
+      })
+    );
+    expect(localDb.conflicts.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'deleted-note-conflict',
+        status: 'resolved'
+      })
+    );
+  });
 });
+
+function deletedRemoteNoteConflict() {
+  return {
+    id: 'deleted-note-conflict',
+    entityType: 'note' as const,
+    entityId: baseNote.id,
+    reason: 'deleted_remotely' as const,
+    local: {
+      source: 'local' as const,
+      deviceId: 'browser-device',
+      deviceName: 'Browser',
+      updatedAt: '2026-05-01T10:00:00.000Z',
+      version: 2,
+      previewText: 'Local body',
+      record: baseNote
+    },
+    remote: {
+      source: 'remote' as const,
+      deviceId: 'phone-device',
+      deviceName: 'Phone',
+      updatedAt: '2026-05-02T10:00:00.000Z',
+      version: 2,
+      previewText: 'Local body',
+      record: {
+        ...baseNote,
+        deletedAt: '2026-05-02T10:00:00.000Z',
+        updatedAt: '2026-05-02T10:00:00.000Z',
+        deviceId: 'phone-device',
+        version: 2,
+        syncStatus: 'synced' as const,
+        lastSyncedVersion: 2
+      }
+    }
+  };
+}
+
+function noteConflictRecord(
+  conflict: ReturnType<typeof deletedRemoteNoteConflict>
+): LocalConflict {
+  return {
+    id: conflict.id,
+    entityType: 'note',
+    entityId: conflict.entityId,
+    status: 'pending',
+    createdAt: '2026-05-02T10:06:00.000Z',
+    conflict
+  };
+}
 
 function duplicateNotebookConflict() {
   return {

@@ -81,12 +81,13 @@ export function setStoredCompactView(compactView: boolean): void {
 }
 
 export function getStoredEditorZoom(): number {
-  const stored = Number(localStorage.getItem(EDITOR_ZOOM_KEY));
-  return Number.isFinite(stored) ? clampEditorZoom(stored) : 1;
+  const stored = localStorage.getItem(EDITOR_ZOOM_KEY);
+  const zoom = stored === null ? Number.NaN : Number(stored);
+  return Number.isFinite(zoom) ? clampEditorZoom(zoom) : 1;
 }
 
 export function setStoredEditorZoom(zoom: number): void {
-  localStorage.setItem(EDITOR_ZOOM_KEY, String(zoom));
+  localStorage.setItem(EDITOR_ZOOM_KEY, String(clampEditorZoom(zoom)));
 }
 
 export function getStoredEditorFont(): EditorFont {
@@ -116,8 +117,9 @@ export function applyAppFont(font: EditorFont): void {
 }
 
 export function getStoredEditorTextSize(): number {
-  const stored = Number(localStorage.getItem(EDITOR_TEXT_SIZE_KEY));
-  return Number.isFinite(stored) ? clampEditorTextSize(stored) : 16;
+  const stored = localStorage.getItem(EDITOR_TEXT_SIZE_KEY);
+  const size = stored === null ? Number.NaN : Number(stored);
+  return Number.isFinite(size) ? clampEditorTextSize(size) : 16;
 }
 
 export function setStoredEditorTextSize(size: number): void {
@@ -125,8 +127,9 @@ export function setStoredEditorTextSize(size: number): void {
 }
 
 export function getStoredEditorLineHeight(): number {
-  const stored = Number(localStorage.getItem(EDITOR_LINE_HEIGHT_KEY));
-  return Number.isFinite(stored) ? clampEditorLineHeight(stored) : 1.75;
+  const stored = localStorage.getItem(EDITOR_LINE_HEIGHT_KEY);
+  const lineHeight = stored === null ? Number.NaN : Number(stored);
+  return Number.isFinite(lineHeight) ? clampEditorLineHeight(lineHeight) : 1.75;
 }
 
 export function setStoredEditorLineHeight(lineHeight: number): void {

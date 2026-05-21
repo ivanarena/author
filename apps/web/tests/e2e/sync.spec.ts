@@ -203,6 +203,8 @@ test.beforeEach(async ({ page, request }, testInfo) => {
     testInfo.title ===
       'logs in from the profile menu when no session is stored' ||
     testInfo.title ===
+      'recovers editor text when reload interrupts the debounced save' ||
+    testInfo.title ===
       'keeps local drafts when signing in and then syncs them remote'
   ) {
     await page.addInitScript((deviceId) => {
@@ -325,6 +327,11 @@ test('recovers editor text when reload interrupts the debounced save', async ({
 
   await page.getByLabel('Note title').fill(titleText);
   await page.getByLabel('Note body').fill(bodyText);
+  await expect
+    .poll(() =>
+      page.evaluate(() => localStorage.getItem('author-editor-recovery-v1'))
+    )
+    .toContain(titleText);
   await page.reload();
 
   await expect(page.getByLabel('Note title')).toHaveValue(titleText);
@@ -804,4 +811,16 @@ test('persists in browser IndexedDB, syncs, and shows stale-edit conflicts', asy
   await expect(dialog).toBeVisible({ timeout: 15_000 });
   await expect(dialog).toContainText('Remote phone version');
   await expect(dialog).toContainText('Local browser version');
+
+  await dialog.getByRole('button', { name: 'Keep This browser' }).click();
+  await expect(dialog).toBeHidden();
+  await expect
+    .poll(
+      async () =>
+        (await pullRemoteNotes(request)).find(
+          (note) => note.title === 'Browser sync note'
+        )?.body ?? null,
+      { timeout: 15_000 }
+    )
+    .toBe('Local browser version');
 });

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
 
-  const updated = 'May 20, 2026';
+  const updated = 'May 21, 2026';
 </script>
 
 <svelte:head>
@@ -24,6 +24,8 @@
       before sync using Argon2id key material derived from your login password.
       Author does not add a recovery key or a separate encryption passphrase, so
       the same simple login flow unlocks synced content on your own devices.
+      This is an encrypted-sync design for routine storage, not a hardened
+      zero-knowledge or zero-trust service.
     </p>
   </section>
 
@@ -50,9 +52,10 @@
     <h2>Operator access</h2>
     <p>
       Server operators and administrators may be able to see account records,
-      sessions, device labels, sync metadata, logs, and encrypted blobs. They
-      should not be able to read encrypted note titles, note bodies, or notebook
-      names without the account password.
+      sessions, device labels, sync metadata, logs, and encrypted blobs. They do
+      not receive plaintext note content during normal sync, but users should
+      still trust the app build, browser or Android device, server runtime, and
+      backup handling they choose to use.
     </p>
   </section>
 
@@ -61,8 +64,9 @@
     <p>
       You can export Markdown, change your password, sign out, or delete your
       account from Settings. If you forget the account password, encrypted note
-      content cannot be recovered by the service. Deleted synced content is
-      retained only as needed for trash cleanup and conflict-safe sync.
+      content is not recoverable through the current app flow. Deleted synced
+      content is retained only as needed for trash cleanup and conflict-safe
+      sync.
     </p>
   </section>
 </main>

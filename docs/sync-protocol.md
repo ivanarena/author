@@ -83,6 +83,9 @@ Server-side notes, notebooks, tombstones, and revision changes are scoped to the
 ## Version Rule
 
 The server owns accepted remote versions. When a pushed edit is accepted against an existing record, the server writes `remote.version + 1`.
+Hard deletes create tombstones with their own next remote version, so a client
+that only synced the deleted row's old version still conflicts until the user
+explicitly resolves against the tombstone version.
 
 ## Notebook Names
 

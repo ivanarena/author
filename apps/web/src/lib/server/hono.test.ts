@@ -388,6 +388,43 @@ describe('Hono API', () => {
     }
   });
 
+  it('does not reveal account existence through login challenge salt stability', async () => {
+    await loginToken();
+
+    const existingOne = await authChallenge('owner', 'login');
+    const existingTwo = await authChallenge('owner', 'login');
+    const missingOne = await authChallenge('missing-user', 'login');
+    const missingTwo = await authChallenge('missing-user', 'login');
+
+    expect(existingOne).toMatchObject({ mode: 'proof', username: 'owner' });
+    expect(missingOne).toMatchObject({
+      mode: 'proof',
+      username: 'missing-user'
+    });
+    expect(existingOne.salt).toBe(existingTwo.salt);
+    expect(missingOne.salt).toBe(missingTwo.salt);
+    expect(missingOne.salt).not.toBe(existingOne.salt);
+  });
+
+  it('rejects malformed login challenge nonces', async () => {
+    const response = await api.fetch(
+      new Request('http://localhost/api/auth/challenge', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'owner',
+          purpose: 'login',
+          clientNonce: 'AA!!'
+        })
+      })
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Invalid auth challenge payload'
+    });
+  });
+
   it('rejects oversized JSON bodies even without content-length', async () => {
     const response = await api.fetch(
       new Request('http://localhost/api/auth/login', {

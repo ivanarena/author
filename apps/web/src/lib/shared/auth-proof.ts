@@ -24,6 +24,7 @@ export const AUTH_PROOF_KDF_PARAMS: AuthKdfParams = {
 const AUTH_MESSAGE_VERSION = 'author-auth-proof-v1';
 const CLIENT_KEY_LABEL = 'Client Key';
 const SERVER_KEY_LABEL = 'Server Key';
+const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
 const encoder = new TextEncoder();
 
 export interface AuthProofMaterial {
@@ -137,6 +138,7 @@ export function verifyAuthServerProof(
 }
 
 export function decodeBase64UrlStrict(value: string): Uint8Array | null {
+  if (!BASE64URL_PATTERN.test(value) || value.length % 4 === 1) return null;
   try {
     const bytes = base64UrlDecode(value);
     return bytes.length > 0 ? bytes : null;

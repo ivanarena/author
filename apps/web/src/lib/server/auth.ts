@@ -612,6 +612,13 @@ function cleanLoginIdentifier(login: string | null | undefined): string | null {
   return normalizeUsername(login) ?? normalizeEmail(login);
 }
 
+function fakeAuthSalt(identifier: string): string {
+  const secret = getServerSecret() ?? getLoginPassword() ?? 'local-dev';
+  return digest(`author:auth-proof-fake-salt:v1\0${secret}\0${identifier}`)
+    .subarray(0, 16)
+    .toString('base64url');
+}
+
 function rowToAuthUser(row: UserRow): AuthUser {
   return {
     username: row.username,
@@ -684,7 +691,7 @@ export async function createAuthChallenge(
     username === bootstrapUsername
       ? 'bootstrap'
       : 'proof';
-  const salt = verifier?.salt ?? randomBytes(16).toString('base64url');
+  const salt = verifier?.salt ?? fakeAuthSalt(username);
 
   await run(db, 'DELETE FROM auth_challenges WHERE expires_at <= ?', [
     nowIso

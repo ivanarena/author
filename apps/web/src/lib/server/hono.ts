@@ -42,6 +42,7 @@ import {
   hasSignupAllowedEmails,
   isSignupEmailAllowed,
   listTrustedAuthDevices,
+  normalizeEmail,
   mirrorUserForLocalSession,
   normalizeUsername,
   requireAuth,
@@ -524,7 +525,7 @@ function loginAttemptKey(
     ? request.headers.get('x-real-ip')?.trim()
     : null;
   const ip = forwardedFor || realIp || 'local';
-  return `${ip}:${normalizeUsername(username) ?? 'unknown'}`;
+  return `${ip}:${normalizeUsername(username) ?? normalizeEmail(username) ?? 'unknown'}`;
 }
 
 function signupAttemptKey(

@@ -3,6 +3,7 @@ import {
   AUTH_PROOF_ALGORITHM,
   AUTH_PROOF_KDF_PARAMS,
   authProofFromPassword,
+  decodeBase64UrlStrict,
   passwordVerifierFromPassword,
   randomAuthNonce,
   verifyAuthServerProof
@@ -84,5 +85,12 @@ describe('auth proof protocol', () => {
     expect(login.expectedServerProof).not.toBe(
       changedPurpose.expectedServerProof
     );
+  });
+
+  it('rejects non-canonical base64url input', () => {
+    expect(decodeBase64UrlStrict('AA')).not.toBeNull();
+    expect(decodeBase64UrlStrict('AA!!')).toBeNull();
+    expect(decodeBase64UrlStrict('A')).toBeNull();
+    expect(decodeBase64UrlStrict('AA==')).toBeNull();
   });
 });

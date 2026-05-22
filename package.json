@@ -25,6 +25,8 @@
     "test:e2e": "aube -F @author/web run test:e2e",
     "deps:check": "aube check",
     "seed": "aube -F @author/web run seed",
+    "remote:test:seed": "aube -F @author/web run remote:test:seed",
+    "remote:test": "aube -F @author/web run remote:test",
     "mock:browser": "aube -F @author/web run mock:browser",
     "emulator:window": "scripts/android-emulator-window.sh"
   },

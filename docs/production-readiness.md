@@ -36,6 +36,14 @@ aube run cf:dev
 aube run cf:deploy
 ```
 
+For the separate staging Worker/Turso pair, run the `Remote Staging Smoke`
+workflow or run locally with staging credentials:
+
+```sh
+aube run remote:test:seed
+aube run remote:test
+```
+
 Production web deployments must set real `NOTES_LOGIN_PASSWORD` and
 `NOTES_SERVER_SECRET` values, keep Turso tokens server-side only, run behind
 HTTPS, and keep `NOTES_TRUST_PROXY_HEADERS` disabled unless a trusted reverse
@@ -70,6 +78,9 @@ releases, set the `ANDROID_RELEASE_*` variables documented in
 - If 2FA is enabled, keep `NOTES_SERVER_SECRET` with restore credentials and
   still treat database files, mirrors, and backups as sensitive auth material.
 - Review `/api/health` and authenticated `/api/metrics` after deploy.
+- Keep the staging Turso database and `author-remote-test` seeded account
+  separate from production, and run remote staging smoke after deploy-relevant
+  sync, auth, encryption, or Cloudflare workflow changes.
 - Keep exactly one app process pointed at each local SQLite database.
 - Treat Docker image scan failures as release blockers. The CI workflow scans
   before publishing, then uploads a SARIF artifact for review.

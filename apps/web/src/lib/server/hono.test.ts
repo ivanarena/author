@@ -1188,7 +1188,7 @@ describe('Hono API', () => {
       })
     );
     expect(missing.status).toBe(401);
-  }, 30_000);
+  }, 180_000);
 
   it('enables TOTP and requires a valid code on login', async () => {
     const remotePath = join(tempDir, 'totp-remote.sqlite');

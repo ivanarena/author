@@ -17,6 +17,8 @@
     "test:watch": "vitest",
     "seed": "tsx scripts/seed.ts",
     "seed:test-account": "tsx scripts/seed-test-account.ts",
+    "remote:test:seed": "tsx scripts/seed-remote-test-account.ts",
+    "remote:test": "tsx scripts/smoke-remote-test-db.ts",
     "user:create": "tsx scripts/create-user.ts",
     "db:check": "tsx scripts/check-db-integration.ts",
     "sync:bench": "tsx scripts/benchmark-sync.ts",

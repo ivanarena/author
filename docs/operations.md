@@ -34,6 +34,16 @@ typing and local maintenance are not blocked by Turso/network latency.
 - `/api/metrics`: Prometheus text for uptime and remote-sync state. It is authenticated by default; set `NOTES_METRICS_TOKEN` for scrapers, or `NOTES_METRICS_PUBLIC=true` only on a private trusted network.
 - Logs: stdout/stderr. Warnings include remote mirror failures and scheduler failures, without Turso tokens or session tokens.
 
+## Staging Remote Checks
+
+Keep the staging Turso database isolated from production data. The remote smoke
+workflow seeds only the dedicated `author-remote-test` account, verifies that
+the database has no pre-Argon2 or pre-`enc:v3` blockers, and removes each
+run-specific smoke note after the check. Do not point
+`AUTHOR_REMOTE_TEST_DATABASE_URL` or `AUTHOR_REMOTE_TEST_API_URL` at production;
+the scripts fail closed unless the target name looks like test, staging,
+preview, smoke, or CI.
+
 ## Backups
 
 Self-hosted Node deployments can write automatic local SQLite snapshots when

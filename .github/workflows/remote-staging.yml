@@ -1,0 +1,158 @@
+name: Remote Staging Smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: remote-staging-smoke
+  cancel-in-progress: false
+
+env:
+  AUBE_VERSION: 1.8.0
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  smoke:
+    name: Staging Worker and Turso
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Validate staging secrets
+        id: staging
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          STAGING_AUTHOR_API_URL: ${{ secrets.STAGING_AUTHOR_API_URL }}
+          STAGING_TURSO_DATABASE_URL: ${{ secrets.STAGING_TURSO_DATABASE_URL }}
+          STAGING_TURSO_AUTH_TOKEN: ${{ secrets.STAGING_TURSO_AUTH_TOKEN }}
+          STAGING_NOTES_LOGIN_PASSWORD: ${{ secrets.STAGING_NOTES_LOGIN_PASSWORD }}
+          STAGING_NOTES_SERVER_SECRET: ${{ secrets.STAGING_NOTES_SERVER_SECRET }}
+          AUTHOR_REMOTE_TEST_PASSWORD: ${{ secrets.AUTHOR_REMOTE_TEST_PASSWORD }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const required = [
+            'CLOUDFLARE_ACCOUNT_ID',
+            'CLOUDFLARE_API_TOKEN',
+            'STAGING_AUTHOR_API_URL',
+            'STAGING_TURSO_DATABASE_URL',
+            'STAGING_TURSO_AUTH_TOKEN',
+            'STAGING_NOTES_LOGIN_PASSWORD',
+            'STAGING_NOTES_SERVER_SECRET',
+            'AUTHOR_REMOTE_TEST_PASSWORD'
+          ];
+          const missing = required.filter((name) => !process.env[name]);
+          const output = fs.createWriteStream(process.env.GITHUB_OUTPUT, {
+            flags: 'a'
+          });
+          if (missing.length > 0) {
+            output.write('configured=false\n');
+            const message = `Missing staging secrets: ${missing.join(', ')}`;
+            if (process.env.GITHUB_EVENT_NAME === 'workflow_dispatch') {
+              console.error(message);
+              process.exit(1);
+            }
+            console.log(`${message}. Skipping scheduled remote staging smoke.`);
+            process.exit(0);
+          }
+          output.write('configured=true\n');
+          NODE
+
+      - uses: actions/setup-node@v5
+        if: steps.staging.outputs.configured == 'true'
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        if: steps.staging.outputs.configured == 'true'
+        run: |
+          for attempt in 1 2 3; do
+            npx -y "@endevco/aube@${AUBE_VERSION}" install --frozen-lockfile && exit 0
+            sleep_seconds=$((attempt * 20))
+            echo "Dependency install failed on attempt ${attempt}; retrying in ${sleep_seconds}s..."
+            sleep "${sleep_seconds}"
+          done
+
+          npx -y "@endevco/aube@${AUBE_VERSION}" install --frozen-lockfile
+
+      - name: Cloudflare Worker build
+        if: steps.staging.outputs.configured == 'true'
+        run: npx -y "@endevco/aube@${AUBE_VERSION}" -F @author/web run cf:build
+
+      - name: Deploy staging Worker
+        if: steps.staging.outputs.configured == 'true'
+        working-directory: apps/web
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          STAGING_CLOUDFLARE_WORKER_NAME: ${{ secrets.STAGING_CLOUDFLARE_WORKER_NAME }}
+          STAGING_AUTHOR_API_URL: ${{ secrets.STAGING_AUTHOR_API_URL }}
+          STAGING_TURSO_DATABASE_URL: ${{ secrets.STAGING_TURSO_DATABASE_URL }}
+          STAGING_TURSO_AUTH_TOKEN: ${{ secrets.STAGING_TURSO_AUTH_TOKEN }}
+          STAGING_NOTES_LOGIN_PASSWORD: ${{ secrets.STAGING_NOTES_LOGIN_PASSWORD }}
+          STAGING_NOTES_SERVER_SECRET: ${{ secrets.STAGING_NOTES_SERVER_SECRET }}
+          STAGING_NOTES_AUTH_SESSION_DAYS: ${{ secrets.STAGING_NOTES_AUTH_SESSION_DAYS }}
+          STAGING_NOTES_METRICS_TOKEN: ${{ secrets.STAGING_NOTES_METRICS_TOKEN }}
+          AUTHOR_REMOTE_TEST_USERNAME: ${{ secrets.AUTHOR_REMOTE_TEST_USERNAME }}
+          AUTHOR_REMOTE_TEST_EMAIL: ${{ secrets.AUTHOR_REMOTE_TEST_EMAIL }}
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const remoteTestUsername =
+            process.env.AUTHOR_REMOTE_TEST_USERNAME || 'author-remote-test';
+          const remoteTestEmail =
+            process.env.AUTHOR_REMOTE_TEST_EMAIL ||
+            `${remoteTestUsername}@example.invalid`;
+
+          const secrets = {
+            TURSO_DATABASE_URL: process.env.STAGING_TURSO_DATABASE_URL,
+            TURSO_AUTH_TOKEN: process.env.STAGING_TURSO_AUTH_TOKEN,
+            NOTES_LOGIN_PASSWORD: process.env.STAGING_NOTES_LOGIN_PASSWORD,
+            NOTES_SERVER_SECRET: process.env.STAGING_NOTES_SERVER_SECRET,
+            AUTHOR_API_URL: process.env.STAGING_AUTHOR_API_URL,
+            NOTES_SIGNUP_ALLOWED_EMAILS: remoteTestEmail
+          };
+          const optional = {
+            NOTES_AUTH_SESSION_DAYS: process.env.STAGING_NOTES_AUTH_SESSION_DAYS,
+            NOTES_METRICS_TOKEN: process.env.STAGING_NOTES_METRICS_TOKEN
+          };
+          for (const [key, value] of Object.entries(optional)) {
+            if (value) secrets[key] = value;
+          }
+          fs.writeFileSync('.worker-secrets.json', JSON.stringify(secrets));
+          NODE
+
+          trap 'rm -f .worker-secrets.json' EXIT
+          worker_name="${STAGING_CLOUDFLARE_WORKER_NAME:-author-staging}"
+          ./node_modules/.bin/wrangler deploy --name "${worker_name}" --secrets-file .worker-secrets.json
+
+      - name: Seed remote test account
+        if: steps.staging.outputs.configured == 'true'
+        env:
+          AUTHOR_REMOTE_TEST_DATABASE_URL: ${{ secrets.STAGING_TURSO_DATABASE_URL }}
+          AUTHOR_REMOTE_TEST_AUTH_TOKEN: ${{ secrets.STAGING_TURSO_AUTH_TOKEN }}
+          AUTHOR_REMOTE_TEST_USERNAME: ${{ secrets.AUTHOR_REMOTE_TEST_USERNAME }}
+          AUTHOR_REMOTE_TEST_PASSWORD: ${{ secrets.AUTHOR_REMOTE_TEST_PASSWORD }}
+          AUTHOR_REMOTE_TEST_EMAIL: ${{ secrets.AUTHOR_REMOTE_TEST_EMAIL }}
+          STAGING_AUTHOR_API_URL: ${{ secrets.STAGING_AUTHOR_API_URL }}
+        run: npx -y "@endevco/aube@${AUBE_VERSION}" -F @author/web run remote:test:seed
+
+      - name: Remote staging smoke tests
+        if: steps.staging.outputs.configured == 'true'
+        env:
+          AUTHOR_REMOTE_TEST_API_URL: ${{ secrets.STAGING_AUTHOR_API_URL }}
+          AUTHOR_REMOTE_TEST_DATABASE_URL: ${{ secrets.STAGING_TURSO_DATABASE_URL }}
+          AUTHOR_REMOTE_TEST_AUTH_TOKEN: ${{ secrets.STAGING_TURSO_AUTH_TOKEN }}
+          AUTHOR_REMOTE_TEST_USERNAME: ${{ secrets.AUTHOR_REMOTE_TEST_USERNAME }}
+          AUTHOR_REMOTE_TEST_PASSWORD: ${{ secrets.AUTHOR_REMOTE_TEST_PASSWORD }}
+          AUTHOR_REMOTE_TEST_EMAIL: ${{ secrets.AUTHOR_REMOTE_TEST_EMAIL }}
+          AUTHOR_REMOTE_TEST_SKIP_SEED: 'true'
+          AUTHOR_REMOTE_TEST_RUN_ID: ${{ github.run_id }}
+        run: npx -y "@endevco/aube@${AUBE_VERSION}" -F @author/web run remote:test

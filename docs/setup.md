@@ -160,6 +160,56 @@ The workflow writes a temporary secret file and passes it to `wrangler deploy --
 
 The `Cloudflare Deploy` workflow only deploys from `main`. It runs on pushes to `main` that touch the web app, shared packages, or lockfile, and manual runs from other branches are skipped.
 
+### Staging Remote Smoke Tests
+
+Keep a separate Turso database and Worker for remote integration checks. The
+staging smoke path intentionally mutates only a dedicated
+`author-remote-test` account, and the scripts refuse production-looking targets
+unless `AUTHOR_REMOTE_TEST_ALLOW_NON_TEST_TARGET=true` is set.
+
+Create the staging database and token:
+
+```sh
+turso db create author-staging
+turso db show --url author-staging
+turso db tokens create author-staging
+```
+
+Add these GitHub secrets for the `Remote Staging Smoke` workflow:
+
+- `STAGING_AUTHOR_API_URL`: public URL for the staging Worker.
+- `STAGING_TURSO_DATABASE_URL`: Turso URL for the staging database.
+- `STAGING_TURSO_AUTH_TOKEN`: Turso token for the staging database.
+- `STAGING_NOTES_LOGIN_PASSWORD`: staging Worker bootstrap password.
+- `STAGING_NOTES_SERVER_SECRET`: staging Worker server secret.
+- `AUTHOR_REMOTE_TEST_PASSWORD`: password for the seeded remote test account.
+- `AUTHOR_REMOTE_TEST_USERNAME`: optional, defaults to `author-remote-test`.
+- `AUTHOR_REMOTE_TEST_EMAIL`: optional, defaults to `author-remote-test@example.invalid`.
+- `STAGING_CLOUDFLARE_WORKER_NAME`: optional, defaults to `author-staging`.
+- `STAGING_NOTES_AUTH_SESSION_DAYS` and `STAGING_NOTES_METRICS_TOKEN`: optional staging runtime values.
+
+Run the smoke test manually from GitHub Actions after adding the secrets. The
+same workflow also runs weekly; scheduled runs skip cleanly until the required
+staging secrets exist. The workflow deploys the staging Worker with staging
+secrets, seeds the remote test account with current Argon2id credentials and
+`enc:v3` AES-GCM note data, then verifies login, session validation, encrypted
+pull/push, stale-write conflicts, and cleanup.
+
+For local operator checks:
+
+```sh
+AUTHOR_REMOTE_TEST_DATABASE_URL=libsql://your-staging-database.turso.io \
+AUTHOR_REMOTE_TEST_AUTH_TOKEN=your-staging-turso-token \
+AUTHOR_REMOTE_TEST_PASSWORD=use-a-long-random-test-password \
+aube run remote:test:seed
+
+AUTHOR_REMOTE_TEST_API_URL=https://author-staging.example.com \
+AUTHOR_REMOTE_TEST_DATABASE_URL=libsql://your-staging-database.turso.io \
+AUTHOR_REMOTE_TEST_AUTH_TOKEN=your-staging-turso-token \
+AUTHOR_REMOTE_TEST_PASSWORD=use-a-long-random-test-password \
+aube run remote:test
+```
+
 ### Cloudflare Workers Builds
 
 If you connect the repository directly in Cloudflare Workers Builds, use a

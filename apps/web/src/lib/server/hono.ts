@@ -75,7 +75,10 @@ import {
   setSyncMeta,
   upsertDevice
 } from './repository';
-import { syncRemoteDatabase } from './remote-sync';
+import {
+  syncRemoteDatabase,
+  waitForRemoteSyncIdleForTests
+} from './remote-sync';
 import { isSecureRequest } from './security-headers';
 
 type ApiBindings = RuntimeEnv;
@@ -113,6 +116,7 @@ let remoteSyncRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let remoteSyncFailureCount = 0;
 let remoteSyncQueueRunning = false;
 let remoteSyncQueued = false;
+let remoteSyncQueuePromise: Promise<void> | null = null;
 const serverStartedAt = Date.now();
 const SAFE_HTTP_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -288,6 +292,26 @@ function clearRemoteSyncRetry(): void {
   remoteSyncRetryTimer = null;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function resetHonoStateForTests(): Promise<void> {
+  clearRemoteSyncRetry();
+  remoteSyncQueued = false;
+  await remoteSyncQueuePromise?.catch(() => {});
+  await waitForRemoteSyncIdleForTests();
+  for (let attempt = 0; remoteSyncQueueRunning && attempt < 100; attempt += 1) {
+    await sleep(10);
+  }
+  remoteSyncFailureCount = 0;
+  loginAttempts.clear();
+  setRemoteSyncState('synced', {
+    pendingSince: null,
+    lastError: null
+  });
+}
+
 async function setPersistentRemoteSyncPending(
   pending: boolean,
   env?: RuntimeEnv | null
@@ -404,7 +428,7 @@ async function queueRemoteSyncAfter(
   if (remoteSyncQueueRunning) return;
 
   remoteSyncQueueRunning = true;
-  void (async () => {
+  remoteSyncQueuePromise = (async () => {
     try {
       let previousOk = remoteSync ? await remoteSync : true;
       while (remoteSyncQueued) {
@@ -458,11 +482,13 @@ async function queueRemoteSyncAfter(
       }
     } finally {
       remoteSyncQueueRunning = false;
+      remoteSyncQueuePromise = null;
       if (remoteSyncQueued) {
         queueRemoteSyncSoon(env);
       }
     }
   })();
+  void remoteSyncQueuePromise.catch(reportRemoteSyncError);
 }
 
 function queueRemoteSyncSoon(env?: RuntimeEnv | null): void {

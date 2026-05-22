@@ -864,3 +864,7 @@ export async function syncRemoteDatabase(local: NotesDb): Promise<void> {
     syncInFlight = null;
   }
 }
+
+export async function waitForRemoteSyncIdleForTests(): Promise<void> {
+  await syncInFlight?.catch(() => {});
+}

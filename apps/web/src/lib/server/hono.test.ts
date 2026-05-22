@@ -10,7 +10,7 @@ import {
 } from '@author/test-fixtures';
 import { setUserPassword, updateUserProfile } from './auth';
 import { get, openConfiguredDatabase, openDatabase } from './db';
-import { api } from './hono';
+import { api, resetHonoStateForTests } from './hono';
 import { getNote, pushChanges, setSyncMeta } from './repository';
 
 let tempDir: string;
@@ -32,7 +32,8 @@ beforeEach(() => {
   process.env.NOTES_LOGIN_PASSWORD = 'test-password';
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await resetHonoStateForTests();
   rmSync(tempDir, { recursive: true, force: true });
   delete process.env.NOTES_DB_PROVIDER;
   delete process.env.NOTES_DB_PATH;
@@ -810,7 +811,7 @@ describe('Hono API', () => {
     expect(valid.status).toBe(200);
 
     await sleep(5_200);
-  }, 30_000);
+  });
 
   it('revokes existing sessions when a password is reset', async () => {
     const token = await loginToken();

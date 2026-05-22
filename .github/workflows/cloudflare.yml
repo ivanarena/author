@@ -37,6 +37,16 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
+      - name: Refuse stale CI result
+        if: github.event_name == 'workflow_run'
+        run: |
+          git fetch --no-tags --depth=1 origin main
+          current_main="$(git rev-parse origin/main)"
+          if [ "$current_main" != "${{ github.event.workflow_run.head_sha }}" ]; then
+            echo "::error::CI completed for ${{ github.event.workflow_run.head_sha }}, but main is now ${current_main}."
+            exit 1
+          fi
+
       - uses: actions/setup-node@v5
         with:
           node-version: 24

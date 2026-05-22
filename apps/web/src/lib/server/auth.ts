@@ -1,4 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { argon2idAsync } from '@noble/hashes/argon2.js';
 import {
   getAuthSessionDays,
   getLegacyAuthToken,
@@ -16,8 +17,11 @@ import {
 } from './db';
 
 const PASSWORD_KEY_LENGTH = 32;
-const PASSWORD_ITERATIONS = 600_000;
-const PASSWORD_ITERATION_PLATFORM_FALLBACK = 100_000;
+const PASSWORD_ARGON2_MEMORY_KIB = 19_456;
+const PASSWORD_ARGON2_ITERATIONS = 2;
+const PASSWORD_ARGON2_PARALLELISM = 1;
+const PASSWORD_ARGON2_PARAMS = `m=${PASSWORD_ARGON2_MEMORY_KIB},t=${PASSWORD_ARGON2_ITERATIONS},p=${PASSWORD_ARGON2_PARALLELISM}`;
+const PASSWORD_ARGON2_PREFIX = 'argon2id:v1:';
 const MIN_PASSWORD_LENGTH = 12;
 const SESSION_TOKEN_BYTES = 32;
 const AUTH_SESSION_COOKIE_NAME = 'author_session';
@@ -31,7 +35,6 @@ const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,62}[a-z0-9]$|^[a-z0-9]$/;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 const textEncoder = new TextEncoder();
-let passwordIterationTarget: Promise<number> | null = null;
 
 type UserRow = {
   username: string;
@@ -39,12 +42,9 @@ type UserRow = {
   display_name: string | null;
   password_hash: string;
   password_salt: string;
-  password_iterations: number;
   totp_secret: string | null;
   totp_enabled_at: string | null;
 };
-
-type PasswordVerification = 'match' | 'mismatch' | 'unsupported';
 
 type SessionRow = {
   username: string;
@@ -260,78 +260,26 @@ function cleanDisplayName(
 
 async function hashPassword(
   password: string,
-  salt = randomBytes(16).toString('base64url'),
-  iterations = PASSWORD_ITERATIONS
-): Promise<{ hash: string; salt: string; iterations: number }> {
-  const { derived, iterations: effectiveIterations } =
-    await supportedPasswordHash(password, salt, iterations);
+  salt = randomBytes(16).toString('base64url')
+): Promise<{ hash: string; salt: string }> {
+  const derived = await deriveArgon2PasswordBytes(password, salt);
   return {
-    hash: Buffer.from(derived).toString('base64url'),
-    salt,
-    iterations: effectiveIterations
+    hash: `${PASSWORD_ARGON2_PREFIX}${PASSWORD_ARGON2_PARAMS}:${Buffer.from(derived).toString('base64url')}`,
+    salt
   };
 }
 
-async function supportedPasswordHash(
+async function deriveArgon2PasswordBytes(
   password: string,
-  salt: string,
-  iterations: number
-): Promise<{ derived: Uint8Array; iterations: number }> {
-  try {
-    return {
-      derived: await derivePasswordBytes(password, salt, iterations),
-      iterations
-    };
-  } catch (error) {
-    if (
-      iterations > PASSWORD_ITERATION_PLATFORM_FALLBACK &&
-      isPbkdf2IterationLimitError(error)
-    ) {
-      return {
-        derived: await derivePasswordBytes(
-          password,
-          salt,
-          PASSWORD_ITERATION_PLATFORM_FALLBACK
-        ),
-        iterations: PASSWORD_ITERATION_PLATFORM_FALLBACK
-      };
-    }
-    throw error;
-  }
-}
-
-function effectivePasswordIterations(): Promise<number> {
-  passwordIterationTarget ??= supportedPasswordHash(
-    'author-password-iteration-probe',
-    'author-password-iteration-probe-salt',
-    PASSWORD_ITERATIONS
-  ).then(({ iterations }) => iterations);
-  return passwordIterationTarget;
-}
-
-async function derivePasswordBytes(
-  password: string,
-  salt: string,
-  iterations: number
+  salt: string
 ): Promise<Uint8Array> {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    textEncoder.encode(password),
-    'PBKDF2',
-    false,
-    ['deriveBits']
-  );
-  const bits = await crypto.subtle.deriveBits(
-    {
-      name: 'PBKDF2',
-      hash: 'SHA-256',
-      salt: textEncoder.encode(salt),
-      iterations: Number(iterations)
-    },
-    key,
-    PASSWORD_KEY_LENGTH * 8
-  );
-  return new Uint8Array(bits);
+  return argon2idAsync(textEncoder.encode(password), textEncoder.encode(salt), {
+    t: PASSWORD_ARGON2_ITERATIONS,
+    m: PASSWORD_ARGON2_MEMORY_KIB,
+    p: PASSWORD_ARGON2_PARALLELISM,
+    dkLen: PASSWORD_KEY_LENGTH,
+    maxmem: PASSWORD_ARGON2_MEMORY_KIB * 1024 + 1024 * 1024
+  });
 }
 
 function constantTimeEqual(actual: Uint8Array, expected: Uint8Array): boolean {
@@ -532,36 +480,27 @@ async function verifyPassword(
   password: string,
   row: UserRow
 ): Promise<boolean> {
-  return (await verifyPasswordStatus(password, row)) === 'match';
+  const argon2Hash = parseArgon2PasswordHash(row.password_hash);
+  if (!argon2Hash) return false;
+  const derived = await deriveArgon2PasswordBytes(password, row.password_salt);
+  const stored = Buffer.from(argon2Hash.hash, 'base64url');
+  return constantTimeEqual(stored, derived);
 }
 
-async function verifyPasswordStatus(
-  password: string,
-  row: UserRow
-): Promise<PasswordVerification> {
-  let derived: Uint8Array;
-  try {
-    derived = await derivePasswordBytes(
-      password,
-      row.password_salt,
-      Number(row.password_iterations)
-    );
-  } catch (error) {
-    if (isPbkdf2IterationLimitError(error)) return 'unsupported';
-    throw error;
-  }
-  const stored = Buffer.from(row.password_hash, 'base64url');
-  return constantTimeEqual(stored, derived) ? 'match' : 'mismatch';
+function parseArgon2PasswordHash(
+  passwordHash: string
+): { params: string; hash: string } | null {
+  if (!passwordHash.startsWith(PASSWORD_ARGON2_PREFIX)) return null;
+  const parts = passwordHash.split(':');
+  if (parts.length !== 4) return null;
+  const [, version, params, hash] = parts;
+  if (version !== 'v1' || !params || !hash) return null;
+  return { params, hash };
 }
 
-function isPbkdf2IterationLimitError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    error.name === 'NotSupportedError' &&
-    /Pbkdf2 failed: iteration counts above \d+ are not supported/.test(
-      error.message
-    )
-  );
+function passwordHashNeedsRehash(row: UserRow): boolean {
+  const argon2Hash = parseArgon2PasswordHash(row.password_hash);
+  return !argon2Hash || argon2Hash.params !== PASSWORD_ARGON2_PARAMS;
 }
 
 async function getUserRow(
@@ -570,7 +509,7 @@ async function getUserRow(
 ): Promise<UserRow | null> {
   const row = await get(
     db,
-    `SELECT username, email, display_name, password_hash, password_salt, password_iterations,
+    `SELECT username, email, display_name, password_hash, password_salt,
             totp_secret, totp_enabled_at
      FROM users
      WHERE username = ?`,
@@ -585,7 +524,7 @@ async function getUserRowByEmail(
 ): Promise<UserRow | null> {
   const row = await get(
     db,
-    `SELECT username, email, display_name, password_hash, password_salt, password_iterations,
+    `SELECT username, email, display_name, password_hash, password_salt,
             totp_secret, totp_enabled_at
      FROM users
      WHERE email = ?`,
@@ -621,7 +560,6 @@ function authCredentialsChanged(
     !existing ||
     existing.password_hash !== next.password_hash ||
     existing.password_salt !== next.password_salt ||
-    existing.password_iterations !== next.password_iterations ||
     existing.totp_secret !== next.totp_secret ||
     existing.totp_enabled_at !== next.totp_enabled_at
   );
@@ -655,28 +593,6 @@ async function rehashUserPassword(
   return await getUserRow(db, row.username);
 }
 
-async function maybeRecoverBootstrapEnvUser(
-  db: NotesExecutor,
-  row: UserRow,
-  password: string
-): Promise<UserRow | null> {
-  if (row.password_iterations <= PASSWORD_ITERATION_PLATFORM_FALLBACK)
-    return null;
-
-  const bootstrapUsername = normalizeUsername(getLoginUsername());
-  const bootstrapPassword = getLoginPassword();
-  if (
-    !bootstrapUsername ||
-    !bootstrapPassword ||
-    row.username !== bootstrapUsername ||
-    !tokensMatch(password, bootstrapPassword)
-  ) {
-    return null;
-  }
-
-  return await rehashUserPassword(db, row, password);
-}
-
 export async function setUserPassword(
   db: NotesExecutor,
   username: string,
@@ -694,13 +610,12 @@ export async function setUserPassword(
   await run(
     db,
     `INSERT INTO users (
-       username, email, display_name, password_hash, password_salt, password_iterations,
+       username, email, display_name, password_hash, password_salt,
        totp_secret, totp_enabled_at, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(username) DO UPDATE SET
        password_hash = excluded.password_hash,
        password_salt = excluded.password_salt,
-       password_iterations = excluded.password_iterations,
        updated_at = excluded.updated_at`,
     [
       normalized,
@@ -708,7 +623,6 @@ export async function setUserPassword(
       null,
       passwordHash.hash,
       passwordHash.salt,
-      passwordHash.iterations,
       null,
       null,
       now,
@@ -748,16 +662,15 @@ export async function createUserAccount(
   await run(
     db,
     `INSERT INTO users (
-       username, email, display_name, password_hash, password_salt, password_iterations,
+       username, email, display_name, password_hash, password_salt,
        totp_secret, totp_enabled_at, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       normalized,
       normalizedEmail,
       nextDisplayName,
       passwordHash.hash,
       passwordHash.salt,
-      passwordHash.iterations,
       null,
       null,
       now,
@@ -796,15 +709,14 @@ export async function mirrorUserForLocalSession(
   await run(
     target,
     `INSERT INTO users (
-       username, email, display_name, password_hash, password_salt, password_iterations,
+       username, email, display_name, password_hash, password_salt,
        totp_secret, totp_enabled_at, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(username) DO UPDATE SET
        email = excluded.email,
        display_name = excluded.display_name,
        password_hash = excluded.password_hash,
        password_salt = excluded.password_salt,
-       password_iterations = excluded.password_iterations,
        totp_secret = excluded.totp_secret,
        totp_enabled_at = excluded.totp_enabled_at,
        updated_at = excluded.updated_at`,
@@ -814,7 +726,6 @@ export async function mirrorUserForLocalSession(
       sourceUser.display_name,
       sourceUser.password_hash,
       sourceUser.password_salt,
-      sourceUser.password_iterations,
       sourceUser.totp_secret,
       sourceUser.totp_enabled_at,
       now,
@@ -847,25 +758,17 @@ export async function authenticateUser(
       : null);
   if (!row) return null;
 
-  const verification = await verifyPasswordStatus(password, row);
-  if (verification === 'match') {
+  if (await verifyPassword(password, row)) {
     if (row.totp_secret && !(await verifyTotpCode(row.totp_secret, totpCode))) {
       return null;
     }
-    const activeRow =
-      row.password_iterations < (await effectivePasswordIterations())
-        ? ((await rehashUserPassword(db, row, password)) ?? row)
-        : row;
+    const activeRow = passwordHashNeedsRehash(row)
+      ? ((await rehashUserPassword(db, row, password)) ?? row)
+      : row;
     return rowToAuthUser(activeRow);
   }
 
-  if (verification !== 'unsupported') return null;
-
-  const recoveredRow = await maybeRecoverBootstrapEnvUser(db, row, password);
-  if (!recoveredRow || !(await verifyPassword(password, recoveredRow))) {
-    return null;
-  }
-  return rowToAuthUser(recoveredRow);
+  return null;
 }
 
 export async function trustAuthDevice(

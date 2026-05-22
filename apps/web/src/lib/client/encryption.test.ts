@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Note, Notebook } from '@author/schema';
 import {
   ENCRYPTION_KEY_MATERIAL_STORAGE_KEY,
+  assertSupportedEncryptionKeyMaterial,
   canDecryptEncryptedText,
   clearStoredEncryptionKeyMaterial,
   commitEncryptionKeyMaterial,
@@ -16,6 +17,7 @@ import {
   isCurrentEncryptedText,
   isCurrentFieldHash,
   isEncryptedText,
+  isUnsupportedEncryptedText,
   keyMaterialFromPassword,
   reencryptNoteFields
 } from './encryption';
@@ -74,54 +76,6 @@ class MemoryStorage {
   }
 }
 
-const testEncoder = new TextEncoder();
-
-async function legacyPasswordMaterial(
-  username: string,
-  password: string
-): Promise<string> {
-  const normalized = username.trim().toLowerCase();
-  const digest = await crypto.subtle.digest(
-    'SHA-256',
-    testEncoder.encode(`${normalized}\0${password}`)
-  );
-  return base64UrlEncode(new Uint8Array(digest));
-}
-
-async function passwordV2MaterialFromPassword(
-  username: string,
-  password: string
-): Promise<string> {
-  const normalized = username.trim().toLowerCase();
-  const passwordKey = await crypto.subtle.importKey(
-    'raw',
-    testEncoder.encode(password),
-    'PBKDF2',
-    false,
-    ['deriveBits']
-  );
-  const derived = await crypto.subtle.deriveBits(
-    {
-      name: 'PBKDF2',
-      hash: 'SHA-256',
-      iterations: 210_000,
-      salt: testEncoder.encode(`author:password-key:v2:${normalized}`)
-    },
-    passwordKey,
-    256
-  );
-  return `password:v2:210000:${base64UrlEncode(new Uint8Array(derived))}:legacy:${await legacyPasswordMaterial(username, password)}`;
-}
-
-function base64UrlEncode(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary)
-    .replaceAll('+', '-')
-    .replaceAll('/', '_')
-    .replaceAll('=', '');
-}
-
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -154,7 +108,7 @@ describe('client note encryption', () => {
   });
 
   it('encrypts literal text that only imitates an encryption prefix', async () => {
-    const prefixedPlaintext = 'enc:v2:ZmFrZS1pdg:bm90LWFlcy1nY20';
+    const prefixedPlaintext = 'enc:v3:ZmFrZS1pdg:bm90LWFlcy1nY20';
     const encrypted = await encryptText(prefixedPlaintext, 'test-key');
 
     expect(encrypted).not.toBe(prefixedPlaintext);
@@ -188,8 +142,8 @@ describe('client note encryption', () => {
   it('encrypts prefixed note fields instead of preserving spoofed envelopes', async () => {
     const prefixedNote = {
       ...note,
-      title: 'enc:v2:dGl0bGU:ZmFrZQ',
-      body: 'enc:v2:Ym9keQ:ZmFrZQ',
+      title: 'enc:v3:dGl0bGU:ZmFrZQ',
+      body: 'enc:v3:Ym9keQ:ZmFrZQ',
       titleHash: 'hash:v2:stale-title',
       bodyHash: 'hash:v2:stale-body'
     };
@@ -251,29 +205,6 @@ describe('client note encryption', () => {
     });
   });
 
-  it('reads legacy notebook name envelopes and migrates them to id-bound context', async () => {
-    const legacyEncrypted = {
-      ...notebook,
-      name: await encryptText(notebook.name, 'sync-key', 'notebook:name'),
-      nameHash: null
-    };
-
-    await expect(
-      decryptNotebookFields(legacyEncrypted, 'sync-key')
-    ).resolves.toMatchObject({
-      name: notebook.name
-    });
-
-    const migrated = await encryptNotebookFields(legacyEncrypted, 'sync-key');
-    expect(migrated.name).not.toBe(legacyEncrypted.name);
-    expect(isCurrentFieldHash(migrated.nameHash)).toBe(true);
-    await expect(
-      decryptNotebookFields(migrated, 'sync-key')
-    ).resolves.toMatchObject({
-      name: notebook.name
-    });
-  });
-
   it('reencrypts existing notes when the active key changes', async () => {
     const oldEncrypted = await encryptNoteFields(note, 'old-key');
     const nextEncrypted = await reencryptNoteFields(
@@ -294,7 +225,7 @@ describe('client note encryption', () => {
     );
   });
 
-  it('generates local browser key material instead of using the legacy public fallback', async () => {
+  it('generates local browser key material when storage is available', async () => {
     const storage = new MemoryStorage();
     vi.stubGlobal('localStorage', storage);
 
@@ -323,71 +254,32 @@ describe('client note encryption', () => {
     expect(session.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY)).toBeNull();
   });
 
-  it('derives Argon2id password key material with PBKDF2 and legacy fallbacks', async () => {
+  it('derives Argon2id-only password key material', async () => {
     const material = await keyMaterialFromPassword('Owner', 'test-password');
 
     expect(material).toMatch(
-      /^password:v3:argon2id:m=19456,t=2,p=1:[A-Za-z0-9_-]+:pbkdf2:v2:210000:[A-Za-z0-9_-]+:legacy:[A-Za-z0-9_-]+$/
+      /^password:v4:argon2id:m=19456,t=2,p=1:[A-Za-z0-9_-]+$/
     );
+    expect(material).not.toContain('pbkdf2');
   });
 
-  it('uses only the active Argon2id segment for v3 primary encryption', async () => {
-    const material = await keyMaterialFromPassword('Owner', 'test-password');
-    const encrypted = await encryptText('argon secret', material);
-    const tamperedFallbacks = [
-      ...material.split(':').slice(0, 5),
-      'pbkdf2',
-      'v2',
-      '210000',
-      'unused-fallback',
-      'legacy',
-      'unused-legacy'
-    ].join(':');
+  it('identifies old encryption formats as requiring the migration release', () => {
+    expect(isUnsupportedEncryptedText('enc:v1:old')).toBe(true);
+    expect(isUnsupportedEncryptedText('enc:v2:old')).toBe(true);
+    expect(isUnsupportedEncryptedText('enc:v3:spoof')).toBe(false);
 
-    expect(await decryptText(encrypted, tamperedFallbacks)).toBe(
-      'argon secret'
-    );
-  });
-
-  it('migrates PBKDF2 password notes to the active Argon2id material', async () => {
-    const oldMaterial = await passwordV2MaterialFromPassword(
-      'Owner',
-      'password'
-    );
-    const oldEncrypted = await encryptNoteFields(note, oldMaterial);
-    const nextMaterial = await keyMaterialFromPassword('Owner', 'password');
-
-    await expect(
-      decryptNoteFields(oldEncrypted, nextMaterial)
-    ).resolves.toMatchObject({
-      title: note.title,
-      body: note.body
-    });
-
-    const migrated = await encryptNoteFields(oldEncrypted, nextMaterial);
-
-    expect(migrated.title).not.toBe(oldEncrypted.title);
-    expect(migrated.body).not.toBe(oldEncrypted.body);
-    expect(
-      await decryptText(migrated.body, oldMaterial, `note:${note.id}:body`)
-    ).toBe(migrated.body);
-    await expect(
-      decryptNoteFields(migrated, nextMaterial)
-    ).resolves.toMatchObject({
-      title: note.title,
-      body: note.body
-    });
-  });
-
-  it('derives password key material that can still read legacy password notes', async () => {
-    const legacyMaterial =
-      'password:abSPzwfsxk9bY3O09rjIx28-3mo4XMf4kCbea9af9M0';
-    const encrypted = await encryptText('legacy secret', legacyMaterial);
-    const nextMaterial = await keyMaterialFromPassword('Owner', 'password');
-
-    expect(nextMaterial).toContain(':legacy:');
-    await expect(decryptText(encrypted, nextMaterial)).resolves.toBe(
-      'legacy secret'
-    );
+    expect(() =>
+      assertSupportedEncryptionKeyMaterial(
+        'password:v3:argon2id:m=1,t=1,p=1:key'
+      )
+    ).toThrow('migration-capable release');
+    expect(() =>
+      assertSupportedEncryptionKeyMaterial('password:old-sha-key')
+    ).toThrow('migration-capable release');
+    expect(() =>
+      assertSupportedEncryptionKeyMaterial(
+        'password:v4:argon2id:m=19456,t=2,p=1:key'
+      )
+    ).not.toThrow();
   });
 });

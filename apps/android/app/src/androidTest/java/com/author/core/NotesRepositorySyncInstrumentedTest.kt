@@ -12,11 +12,8 @@ import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.nio.charset.StandardCharsets.UTF_8
-import java.security.MessageDigest
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import javax.crypto.SecretKeyFactory
-import javax.crypto.spec.PBEKeySpec
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
@@ -24,7 +21,6 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -161,128 +157,6 @@ class NotesRepositorySyncInstrumentedTest {
       assertNull(remoteAfterResolution.deletedAt)
       assertEquals(3, remoteAfterResolution.version)
     }
-  }
-
-  @Test
-  fun migratesLegacyPasswordEncryptedConflictsAndResolvesRemoteWinner() = runBlocking {
-    val device = repository.getOrCreateDevice()
-    val oldMaterial = passwordV2MaterialFromPassword(TEST_USERNAME, TEST_PASSWORD)
-    val localPlain =
-      note(
-        id = "legacy-conflict-note",
-        title = "Legacy local title",
-        body = "Legacy local body",
-        deviceId = device.id,
-        version = 2,
-        lastSyncedVersion = 1,
-        syncStatus = "conflict",
-      )
-    val remotePlain =
-      localPlain.copy(
-        title = "Legacy remote title",
-        body = "Legacy remote body",
-        titleHash = null,
-        bodyHash = null,
-        updatedAt = "2026-05-21T10:20:00Z",
-        deviceId = "web-device",
-        version = 3,
-        syncStatus = "synced",
-        lastSyncedVersion = 3,
-      )
-    val legacyStoredLocal = crypto.encryptNoteFields(localPlain, oldMaterial)
-    val legacyConflict =
-      SyncConflict(
-        id = "legacy-conflict",
-        entityType = "note",
-        entityId = localPlain.id,
-        reason = "remote_changed",
-        local =
-          ConflictVersion(
-            source = "local",
-            deviceId = device.id,
-            deviceName = "Android",
-            updatedAt = localPlain.updatedAt,
-            version = localPlain.version,
-            previewText = "",
-            record = legacyStoredLocal,
-          ),
-        remote =
-          ConflictVersion(
-            source = "remote",
-            deviceId = "web-device",
-            deviceName = "Web",
-            updatedAt = remotePlain.updatedAt,
-            version = remotePlain.version,
-            previewText = "",
-            record = crypto.encryptNoteFields(remotePlain, oldMaterial),
-          ),
-      )
-
-    val db = NotesDatabase(context)
-    try {
-      db.putDevice(Device("web-device", "Web"))
-      db.putNote(legacyStoredLocal)
-      db.putConflict(
-        legacyConflict.id,
-        legacyConflict.entityType,
-        legacyConflict.entityId,
-        "pending",
-        "2026-05-21T10:21:00Z",
-        noteConflictToJson(legacyConflict).toString(),
-      )
-      db.deleteMeta("localEncryptionAuditVersion")
-    } finally {
-      db.close()
-    }
-
-    assertFalse(
-      crypto.canDecryptEncryptedTextWithPrimaryMaterial(
-        legacyStoredLocal.title,
-        keyMaterial,
-        "note:${localPlain.id}:title",
-      )
-    )
-    assertEquals("Legacy local body", crypto.decryptNoteFields(legacyStoredLocal, keyMaterial).body)
-
-    repository.ensureLocalNotesEncrypted()
-
-    val migratedRaw = requireNotNull(rawConflict("legacy-conflict"))
-    val migratedConflict = noteConflictFromJson(JSONObject(migratedRaw.conflictJson))
-    assertTrue(
-      crypto.canDecryptEncryptedTextWithPrimaryMaterial(
-        migratedConflict.local.record.title,
-        keyMaterial,
-        "note:${localPlain.id}:title",
-      )
-    )
-    assertTrue(
-      crypto.canDecryptEncryptedTextWithPrimaryMaterial(
-        migratedConflict.remote.record.body,
-        keyMaterial,
-        "note:${localPlain.id}:body",
-      )
-    )
-    assertStoredConflictDoesNotLeakPlaintext(
-      "legacy-conflict",
-      "Legacy local title",
-      "Legacy local body",
-      "Legacy remote title",
-      "Legacy remote body",
-    )
-
-    val displayedConflict =
-      requireNotNull(repository.loadWorkspace().conflicts.single().noteConflict)
-    assertEquals("Legacy local body", displayedConflict.local.record.body)
-    assertEquals("Legacy remote body", displayedConflict.remote.record.body)
-
-    repository.resolveConflict("legacy-conflict", "keep-remote")
-
-    val resolved = repository.loadWorkspace().notes.single { it.id == localPlain.id }
-    assertEquals("Legacy remote title", resolved.title)
-    assertEquals("Legacy remote body", resolved.body)
-    assertEquals("synced", resolved.syncStatus)
-    assertEquals(3, resolved.lastSyncedVersion)
-    assertEquals("resolved", requireNotNull(rawConflict("legacy-conflict")).status)
   }
 
   private fun rawConflict(id: String): RawConflict? {
@@ -502,22 +376,6 @@ private class FakeSyncServer : Closeable {
     executor.shutdownNow()
     executor.awaitTermination(2, TimeUnit.SECONDS)
   }
-}
-
-private fun passwordV2MaterialFromPassword(username: String, password: String): String {
-  val normalized = username.trim().lowercase()
-  val passwordKey =
-    PBEKeySpec(
-      password.toCharArray(),
-      "author:password-key:v2:$normalized".toByteArray(UTF_8),
-      210_000,
-      256,
-    )
-  val derived =
-    SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(passwordKey).encoded
-  val legacy =
-    MessageDigest.getInstance("SHA-256").digest("$normalized\u0000$password".toByteArray(UTF_8))
-  return "password:v2:210000:${base64UrlEncode(derived)}:legacy:${base64UrlEncode(legacy)}"
 }
 
 private const val TEST_USERNAME = "alice"

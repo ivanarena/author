@@ -13,7 +13,8 @@ import {
   encryptNoteFields,
   encryptNotebookFields,
   isCurrentEncryptedText,
-  isEncryptedText
+  isEncryptedText,
+  isUnsupportedEncryptedText
 } from './encryption';
 
 vi.mock('./db', () => ({
@@ -45,12 +46,15 @@ vi.mock('./db', () => ({
 }));
 
 vi.mock('./encryption', () => ({
+  ENCRYPTION_UPGRADE_REQUIRED_MESSAGE:
+    'This workspace uses an older encryption format. Open it with the migration-capable release first, then return to this version.',
   decryptNoteFields: vi.fn(async (note) => note),
   decryptNotebookFields: vi.fn(async (notebook) => notebook),
   encryptNoteFields: vi.fn(async (note) => note),
   encryptNotebookFields: vi.fn(async (notebook) => notebook),
   isCurrentEncryptedText: vi.fn(() => true),
-  isEncryptedText: vi.fn(() => true)
+  isEncryptedText: vi.fn(() => true),
+  isUnsupportedEncryptedText: vi.fn(() => false)
 }));
 
 vi.mock('./local-state', () => ({
@@ -139,6 +143,7 @@ beforeEach(() => {
   );
   vi.mocked(isCurrentEncryptedText).mockReturnValue(true);
   vi.mocked(isEncryptedText).mockReturnValue(true);
+  vi.mocked(isUnsupportedEncryptedText).mockReturnValue(false);
 });
 
 describe('client sync store', () => {
@@ -326,6 +331,22 @@ describe('client sync store', () => {
 
     expect(localDb.notes.put).not.toHaveBeenCalled();
     expect(localDb.conflicts.put).not.toHaveBeenCalled();
+  });
+
+  it('fails closed instead of republishing old remote ciphertext envelopes', async () => {
+    vi.mocked(isUnsupportedEncryptedText).mockImplementation((value) =>
+      value.startsWith('enc:v2:')
+    );
+
+    await expect(
+      mergeRemoteChanges(
+        [remoteNote({ title: 'enc:v2:old-title' })],
+        [],
+        syncedAt
+      )
+    ).rejects.toThrow('older encryption format');
+
+    expect(localDb.notes.put).not.toHaveBeenCalled();
   });
 
   it('queues pulled plaintext notes for encrypted republish', async () => {

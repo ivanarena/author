@@ -12,11 +12,13 @@ import {
 } from './conflict-crypto';
 import { localDb, type LocalNote, type LocalNotebook } from './db';
 import {
+  ENCRYPTION_UPGRADE_REQUIRED_MESSAGE,
   decryptNoteFields,
   decryptNotebookFields,
   encryptNoteFields,
   encryptNotebookFields,
-  isCurrentEncryptedText
+  isCurrentEncryptedText,
+  isUnsupportedEncryptedText
 } from './encryption';
 import { getOrCreateDevice, newId, nowIso } from './local-state';
 
@@ -342,6 +344,7 @@ export async function repairSameDevicePendingConflicts(
 }
 
 async function mergeRemoteNote(remote: Note, syncedAt: string): Promise<void> {
+  assertRemoteNoteDoesNotNeedLegacyMigration(remote);
   const local = await localDb.notes.get(remote.id);
   const remotePlain = await decryptNoteFields(remote);
   const remoteStored = await encryptNoteFields(remotePlain);
@@ -417,6 +420,23 @@ async function mergeRemoteNote(remote: Note, syncedAt: string): Promise<void> {
   }
 }
 
+function assertSupportedRemoteEncryptedText(value: string): void {
+  if (isUnsupportedEncryptedText(value)) {
+    throw new Error(ENCRYPTION_UPGRADE_REQUIRED_MESSAGE);
+  }
+}
+
+function assertRemoteNoteDoesNotNeedLegacyMigration(remote: Note): void {
+  assertSupportedRemoteEncryptedText(remote.title);
+  assertSupportedRemoteEncryptedText(remote.body);
+}
+
+function assertRemoteNotebookDoesNotNeedLegacyMigration(
+  remote: Notebook
+): void {
+  assertSupportedRemoteEncryptedText(remote.name);
+}
+
 function noteNeedsEncryptionRepublish(remote: Note, stored: Note): boolean {
   return (
     !isCurrentEncryptedText(remote.title) ||
@@ -430,6 +450,7 @@ async function mergeRemoteNotebook(
   remote: Notebook,
   syncedAt: string
 ): Promise<void> {
+  assertRemoteNotebookDoesNotNeedLegacyMigration(remote);
   const local = await localDb.notebooks.get(remote.id);
   const remotePlain = await decryptNotebookFields(remote);
   const remoteStored = await encryptNotebookFields(remotePlain);

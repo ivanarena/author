@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createHmac, pbkdf2Sync } from 'node:crypto';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHmac } from 'node:crypto';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   fixtureDevice,
   fixtureNote,
@@ -567,109 +567,16 @@ describe('Hono API', () => {
     });
     try {
       const user = await primary.execute({
-        sql: 'SELECT username, display_name, password_iterations FROM users WHERE username = ?',
+        sql: 'SELECT username, display_name, password_hash FROM users WHERE username = ?',
         args: ['worker-user']
       });
       expect(user.rows[0]).toMatchObject({
         username: 'worker-user',
-        display_name: 'Worker User',
-        password_iterations: 600_000
+        display_name: 'Worker User'
       });
+      expect(String(user.rows[0].password_hash)).toMatch(/^argon2id:v1:/);
     } finally {
       primary.close();
-    }
-  });
-
-  it('rehashes an older bootstrap password row to the Worker PBKDF2 ceiling', async () => {
-    const primaryPath = join(tempDir, 'worker-old-password.sqlite');
-    const workerEnv = {
-      NOTES_DB_PROVIDER: 'turso',
-      TURSO_DATABASE_URL: `file:${primaryPath}`,
-      TURSO_AUTH_TOKEN: 'test-token',
-      NOTES_REMOTE_SYNC_ENABLED: 'false',
-      NOTES_LOGIN_USERNAME: 'owner',
-      NOTES_LOGIN_PASSWORD: 'test-password'
-    };
-    const oldSalt = 'old-worker-password-salt';
-    const oldIterations = 210_000;
-    const oldHash = pbkdf2Sync(
-      'test-password',
-      oldSalt,
-      oldIterations,
-      32,
-      'sha256'
-    ).toString('base64url');
-
-    const primary = await openConfiguredDatabase({
-      provider: 'turso',
-      client: { url: `file:${primaryPath}`, authToken: 'test-token' }
-    });
-    try {
-      const now = new Date().toISOString();
-      await primary.execute({
-        sql: `INSERT INTO users (
-          username, display_name, password_hash, password_salt, password_iterations, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        args: ['owner', 'Owner', oldHash, oldSalt, oldIterations, now, now]
-      });
-    } finally {
-      primary.close();
-    }
-
-    const originalDeriveBits = crypto.subtle.deriveBits.bind(
-      crypto.subtle
-    ) as SubtleCrypto['deriveBits'];
-    const deriveBitsSpy = vi
-      .spyOn(crypto.subtle, 'deriveBits')
-      .mockImplementation(
-        async (...args: Parameters<SubtleCrypto['deriveBits']>) => {
-          const [algorithm] = args;
-          if (
-            typeof algorithm !== 'string' &&
-            algorithm.name === 'PBKDF2' &&
-            'iterations' in algorithm &&
-            Number(algorithm.iterations) > 100_000
-          ) {
-            throw new DOMException(
-              'Pbkdf2 failed: iteration counts above 100000 are not supported (requested 210000).',
-              'NotSupportedError'
-            );
-          }
-          return await originalDeriveBits(...args);
-        }
-      );
-    try {
-      const login = await api.fetch(
-        new Request('http://localhost/api/auth/login', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            username: 'owner',
-            password: 'test-password',
-            device: fixtureDevice
-          })
-        }),
-        workerEnv
-      );
-      expect(login.status).toBe(200);
-    } finally {
-      deriveBitsSpy.mockRestore();
-    }
-
-    const updated = await openConfiguredDatabase({
-      provider: 'turso',
-      client: { url: `file:${primaryPath}`, authToken: 'test-token' }
-    });
-    try {
-      const user = await updated.execute({
-        sql: 'SELECT password_iterations FROM users WHERE username = ?',
-        args: ['owner']
-      });
-      expect(user.rows[0]).toMatchObject({
-        password_iterations: 100_000
-      });
-    } finally {
-      updated.close();
     }
   });
 
@@ -903,7 +810,7 @@ describe('Hono API', () => {
     expect(valid.status).toBe(200);
 
     await sleep(5_200);
-  }, 10_000);
+  }, 30_000);
 
   it('revokes existing sessions when a password is reset', async () => {
     const token = await loginToken();
@@ -1280,7 +1187,7 @@ describe('Hono API', () => {
       })
     );
     expect(missing.status).toBe(401);
-  }, 10_000);
+  }, 30_000);
 
   it('enables TOTP and requires a valid code on login', async () => {
     const remotePath = join(tempDir, 'totp-remote.sqlite');

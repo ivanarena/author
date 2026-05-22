@@ -10,11 +10,13 @@ import {
 } from './entity-store';
 import { clearLocalWorkspace, localDb } from './db';
 import {
+  assertSupportedEncryptionKeyMaterial,
   canDecryptEncryptedText,
   encryptNoteFields,
   isCurrentEncryptedText,
   isCurrentFieldHash,
   isEncryptedText,
+  isUnsupportedEncryptedText,
   reencryptNoteFields
 } from './encryption';
 import { getOrCreateDevice } from './local-state';
@@ -48,6 +50,9 @@ vi.mock('./db', () => ({
 }));
 
 vi.mock('./encryption', () => ({
+  ENCRYPTION_UPGRADE_REQUIRED_MESSAGE:
+    'This workspace uses an older encryption format. Open it with the migration-capable release first, then return to this version.',
+  assertSupportedEncryptionKeyMaterial: vi.fn(),
   canDecryptEncryptedText: vi.fn(async () => true),
   canDecryptEncryptedTextWithPrimaryMaterial: vi.fn(async () => true),
   decryptNoteFields: vi.fn(async (note) => note),
@@ -57,6 +62,7 @@ vi.mock('./encryption', () => ({
   isCurrentEncryptedText: vi.fn(() => true),
   isCurrentFieldHash: vi.fn(() => true),
   isEncryptedText: vi.fn(() => true),
+  isUnsupportedEncryptedText: vi.fn(() => false),
   notebookNameContext: vi.fn(
     (notebook: { id: string }) => `notebook:${notebook.id}:name`
   ),
@@ -98,9 +104,13 @@ beforeEach(() => {
   vi.mocked(encryptNoteFields).mockImplementation(
     async (storedNote) => storedNote
   );
+  vi.mocked(assertSupportedEncryptionKeyMaterial).mockImplementation(
+    () => undefined
+  );
   vi.mocked(isCurrentEncryptedText).mockReturnValue(true);
   vi.mocked(isCurrentFieldHash).mockReturnValue(true);
   vi.mocked(isEncryptedText).mockReturnValue(true);
+  vi.mocked(isUnsupportedEncryptedText).mockReturnValue(false);
   vi.mocked(canDecryptEncryptedText).mockResolvedValue(true);
   vi.mocked(reencryptNoteFields).mockImplementation(async (storedNote) => ({
     ...storedNote,
@@ -182,7 +192,35 @@ describe('local workspace account adoption', () => {
 });
 
 describe('local note encryption sync state', () => {
-  it('marks legacy encrypted migrations as pending sync changes', async () => {
+  it('fails closed when stored key material needs the migration build', async () => {
+    vi.mocked(assertSupportedEncryptionKeyMaterial).mockImplementation(() => {
+      throw new Error('migration build required');
+    });
+
+    await expect(ensureLocalNotesEncrypted()).rejects.toThrow(
+      'migration build required'
+    );
+
+    expect(localDb.notes.toArray).not.toHaveBeenCalled();
+    expect(localDb.notes.bulkPut).not.toHaveBeenCalled();
+  });
+
+  it('fails closed instead of re-encrypting old ciphertext envelopes as text', async () => {
+    vi.mocked(localDb.notes.toArray).mockResolvedValue([
+      { ...note, title: 'enc:v2:old-title', body: 'enc:v3:new-body' }
+    ]);
+    vi.mocked(isUnsupportedEncryptedText).mockImplementation((value) =>
+      value.startsWith('enc:v2:')
+    );
+
+    await expect(ensureLocalNotesEncrypted()).rejects.toThrow(
+      'older encryption format'
+    );
+
+    expect(localDb.notes.bulkPut).not.toHaveBeenCalled();
+  });
+
+  it('marks encryption upgrades as pending sync changes', async () => {
     const syncedNote: LocalNote = {
       ...note,
       syncStatus: 'synced',
@@ -220,7 +258,7 @@ describe('local note encryption sync state', () => {
   it('skips the local encryption scan after a clean audit', async () => {
     vi.mocked(localDb.syncMeta.get).mockResolvedValue({
       key: 'localEncryptionAuditVersion',
-      value: 'notebook-context:v5'
+      value: 'argon2-aes:v6'
     });
 
     await ensureLocalNotesEncrypted();
@@ -263,7 +301,7 @@ describe('local note encryption sync state', () => {
     expect(localDb.notes.bulkPut).not.toHaveBeenCalled();
   });
 
-  it('encrypts legacy plaintext note conflicts for storage', async () => {
+  it('encrypts plaintext note conflicts for storage', async () => {
     const conflict: LocalConflict = {
       id: 'conflict-1',
       entityType: 'note',

@@ -34,7 +34,7 @@ private const val EDITOR_LINE_HEIGHT_KEY = "author-editor-line-height"
 private const val API_BASE_URL_KEY = "author-api-base-url"
 private const val LOCAL_WORKSPACE_OWNER_KEY = "localWorkspaceOwner"
 private const val ENCRYPTION_AUDIT_VERSION_KEY = "localEncryptionAuditVersion"
-private const val ENCRYPTION_AUDIT_VERSION = "notebook-context:v5"
+private const val ENCRYPTION_AUDIT_VERSION = "argon2-aes:v6"
 private const val LAST_SYNC_ERROR_AT_KEY = "lastSyncErrorAt"
 private const val LAST_SYNC_ERROR_SOURCE_KEY = "lastSyncErrorSource"
 private const val LAST_SYNC_ERROR_MESSAGE_KEY = "lastSyncErrorMessage"
@@ -484,8 +484,13 @@ class NotesRepository(context: Context) {
 
   suspend fun ensureLocalNotesEncrypted() =
     withContext(Dispatchers.IO) {
+      crypto.assertSupportedEncryptionKeyMaterial()
       if (db.getMeta(ENCRYPTION_AUDIT_VERSION_KEY) == ENCRYPTION_AUDIT_VERSION) return@withContext
       val notes = db.allNotes()
+      notes.forEach {
+        crypto.assertSupportedEncryptedText(it.title)
+        crypto.assertSupportedEncryptedText(it.body)
+      }
       val changed =
         notes.filter {
           !crypto.isCurrentEncryptedText(it.title) ||
@@ -519,6 +524,7 @@ class NotesRepository(context: Context) {
         )
       }
       val notebooks = db.allNotebooks()
+      notebooks.forEach { crypto.assertSupportedEncryptedText(it.name) }
       val changedNotebooks =
         notebooks.filter {
           !crypto.isCurrentEncryptedText(it.name) ||
@@ -621,7 +627,7 @@ class NotesRepository(context: Context) {
     withContext(Dispatchers.IO) {
       assertLocalWorkspaceCanUseAccountInternal(username, previousUsername)
       val material = crypto.getEncryptionKeyMaterial()
-      reencryptLocalNotesInternal(material, material)
+      crypto.commitEncryptionKeyMaterial(material)
       rememberLocalWorkspaceAccount(username)
     }
 
@@ -1111,6 +1117,8 @@ class NotesRepository(context: Context) {
   }
 
   private fun mergeRemoteNote(remote: LocalNote, syncedAt: String, currentDevice: Device) {
+    crypto.assertSupportedEncryptedText(remote.title)
+    crypto.assertSupportedEncryptedText(remote.body)
     val local = db.getNote(remote.id)
     val remotePlain = crypto.decryptNoteFields(remote)
     val remoteStored = crypto.encryptNoteFields(remotePlain)
@@ -1177,6 +1185,7 @@ class NotesRepository(context: Context) {
   }
 
   private fun mergeRemoteNotebook(remote: LocalNotebook, syncedAt: String, currentDevice: Device) {
+    crypto.assertSupportedEncryptedText(remote.name)
     val local = db.getNotebook(remote.id)
     val remotePlain = crypto.decryptNotebookFields(remote)
     val remoteStored = crypto.encryptNotebookFields(remotePlain)
@@ -1666,10 +1675,9 @@ class NotesRepository(context: Context) {
     db.rawConflicts().forEach { raw ->
       when (raw.entityType) {
         "note" -> {
-          val stored =
-            encryptNoteConflictForStorage(
-              decryptNoteConflictForDisplay(noteConflictFromJson(JSONObject(raw.conflictJson)))
-            )
+          val conflict = noteConflictFromJson(JSONObject(raw.conflictJson))
+          assertNoteConflictDoesNotNeedLegacyMigration(conflict)
+          val stored = encryptNoteConflictForStorage(decryptNoteConflictForDisplay(conflict))
           db.putConflict(
             raw.id,
             raw.entityType,
@@ -1680,12 +1688,10 @@ class NotesRepository(context: Context) {
           )
         }
         "notebook" -> {
+          val conflict = notebookConflictFromJson(JSONObject(raw.conflictJson))
+          assertNotebookConflictDoesNotNeedLegacyMigration(conflict)
           val stored =
-            encryptNotebookConflictForStorage(
-              decryptNotebookConflictForDisplay(
-                notebookConflictFromJson(JSONObject(raw.conflictJson))
-              )
-            )
+            encryptNotebookConflictForStorage(decryptNotebookConflictForDisplay(conflict))
           db.putConflict(
             raw.id,
             raw.entityType,
@@ -1697,6 +1703,20 @@ class NotesRepository(context: Context) {
         }
       }
     }
+  }
+
+  private fun assertNoteConflictDoesNotNeedLegacyMigration(conflict: SyncConflict<LocalNote>) {
+    crypto.assertSupportedEncryptedText(conflict.local.record.title)
+    crypto.assertSupportedEncryptedText(conflict.local.record.body)
+    crypto.assertSupportedEncryptedText(conflict.remote.record.title)
+    crypto.assertSupportedEncryptedText(conflict.remote.record.body)
+  }
+
+  private fun assertNotebookConflictDoesNotNeedLegacyMigration(
+    conflict: SyncConflict<LocalNotebook>
+  ) {
+    crypto.assertSupportedEncryptedText(conflict.local.record.name)
+    crypto.assertSupportedEncryptedText(conflict.remote.record.name)
   }
 
   private fun deviceName(deviceId: String): String = db.getDevice(deviceId)?.name ?: deviceId

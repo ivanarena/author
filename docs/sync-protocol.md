@@ -23,29 +23,27 @@ Each changed entity is sent as:
 Clients send at most 20 note/notebook changes in a single push request so
 remote database round trips stay below Worker subrequest limits.
 `baseVersion` is the last remote version the client successfully synced. New local entities use `0`.
-For notes, clients encrypt `title` and `body` into `enc:v2` string envelopes before storage
+For notes, clients encrypt `title` and `body` into `enc:v3` string envelopes before storage
 and push, then decrypt them after pull. Notebook names use the same envelope format before
 storage and push. A value is preserved as encrypted only when its envelope is structurally valid
 and decrypts with the active key material for that exact field context; literal text that merely
-starts with `enc:v1:` or `enc:v2:` is encrypted again as normal plaintext. Encryption uses random
+imitates an `enc:v3` envelope is encrypted again as normal plaintext. Encryption uses random
 AES-GCM IVs with field-specific additional authenticated data, so a title envelope cannot be
 silently moved into a body or another note field, and a notebook name envelope cannot be
 silently moved to another notebook. Stable HMAC field hashes (`titleHash`,
 `bodyHash`, and `nameHash`) let sync compare encrypted fields and check duplicate notebook names
 without reusing nonces or exposing plaintext names. Sync metadata and notebook assignment remain
 plain so versioning and relationship repair stay small.
-Password-derived note key material uses Argon2id for primary encryption with compatibility
-PBKDF2-SHA-256 and legacy SHA-256 fallback material embedded in the local key-material string so
-upgraded clients can decrypt and republish older encrypted rows. Sync-capable browser key material
-is persisted on the signed-in device so users can keep working offline and survive normal browser
-restarts without a password prompt; unsigned local-only browsers generate random local key material
-in `localStorage` so offline drafts still work without an account. New key material can still
-decrypt older PBKDF2-derived `enc:v2` envelopes and `enc:v1` SHA-256-derived envelopes so browsers
-and Android can re-encrypt and republish notes during normal sync. This avoids storing note
-plaintext remotely by default, but Author is intentionally not a hardened zero-knowledge system:
-account recovery and offline usability are allowed to take priority over making every server or
-browser compromise unrecoverable.
-Older local fallback envelopes remain decryptable so existing local data can be migrated.
+Password-derived note key material is Argon2id-only `password:v4` material. Runtime clients do
+not keep pre-Argon2 or pre-`enc:v3` compatibility paths; older installs must migrate through a
+release that can republish data as `enc:v3` before running this version. If a current client sees
+older note envelopes or old password key material, it stops instead of rewriting that ciphertext as
+literal text. Sync-capable browser key material is persisted on the signed-in device so users can
+keep working offline and survive normal browser restarts without a password prompt; unsigned
+local-only browsers generate random local key material in `localStorage` so offline drafts still
+work without an account. This avoids storing note plaintext remotely by default, but Author is
+intentionally not a hardened zero-knowledge system: account recovery and offline usability are
+allowed to take priority over making every server or browser compromise unrecoverable.
 Browsers with an old session token but no stored encryption key material must sign in again before
 syncing encrypted notes.
 

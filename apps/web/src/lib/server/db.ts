@@ -42,7 +42,6 @@ const schemaSql = `
     display_name TEXT,
     password_hash TEXT NOT NULL,
     password_salt TEXT NOT NULL,
-    password_iterations INTEGER NOT NULL,
     totp_secret TEXT,
     totp_enabled_at TEXT,
     created_at TEXT NOT NULL,
@@ -522,6 +521,84 @@ async function seedSignupAllowedEmails(db: NotesDb): Promise<void> {
   }
 }
 
+async function tableExists(db: NotesDb, tableName: string): Promise<boolean> {
+  const row = await get(
+    db,
+    `SELECT 1 AS present
+     FROM sqlite_master
+     WHERE type = 'table' AND name = ?`,
+    [tableName]
+  );
+  return Boolean(row);
+}
+
+async function unsupportedEncryptedFieldCount(
+  db: NotesDb,
+  tableName: string,
+  columns: string[]
+): Promise<number> {
+  if (!(await tableExists(db, tableName))) return 0;
+  const predicates = columns
+    .map((column) => `${column} LIKE 'enc:v1:%' OR ${column} LIKE 'enc:v2:%'`)
+    .join(' OR ');
+  const row = await get(
+    db,
+    `SELECT count(*) AS count FROM ${tableName} WHERE ${predicates}`
+  );
+  return Number(row?.count ?? 0);
+}
+
+async function requireCurrentEncryptedServerRows(db: NotesDb): Promise<void> {
+  const checkedTables = [
+    { tableName: 'notes', columns: ['title', 'body'] },
+    { tableName: 'note_versions', columns: ['title', 'body'] },
+    { tableName: 'notebooks', columns: ['name'] },
+    { tableName: 'notebook_versions', columns: ['name'] }
+  ];
+  const blockers: string[] = [];
+
+  for (const table of checkedTables) {
+    const count = await unsupportedEncryptedFieldCount(
+      db,
+      table.tableName,
+      table.columns
+    );
+    if (count > 0) blockers.push(`${table.tableName}=${count}`);
+  }
+
+  if (blockers.length) {
+    throw new Error(
+      `Server database contains enc:v1 or enc:v2 note data (${blockers.join(
+        ', '
+      )}). Run the migration-capable release first so clients republish enc:v3 rows before starting this version.`
+    );
+  }
+}
+
+async function requireCurrentPasswordVerifiers(db: NotesDb): Promise<void> {
+  if (!(await tableExists(db, 'users'))) return;
+  const row = await get(
+    db,
+    `SELECT count(*) AS count
+     FROM users
+     WHERE password_hash NOT LIKE 'argon2id:v1:%'`
+  );
+  const count = Number(row?.count ?? 0);
+  if (count > 0) {
+    throw new Error(
+      `Server database contains ${count} pre-Argon2 password verifier row(s). Run the migration-capable release first or reset those accounts before starting this version.`
+    );
+  }
+}
+
+async function migrateArgon2AesCurrentOnly(db: NotesDb): Promise<void> {
+  await requireCurrentEncryptedServerRows(db);
+  await requireCurrentPasswordVerifiers(db);
+  if (await hasColumn(db, 'users', 'password_iterations')) {
+    await run(db, 'ALTER TABLE users DROP COLUMN password_iterations');
+  }
+}
+
 export interface ServerMigration {
   version: number;
   name: string;
@@ -717,6 +794,13 @@ export const SERVER_MIGRATIONS: ServerMigration[] = [
            ON devices(owner_username, id)`
       );
     }
+  },
+  {
+    version: 13,
+    name: 'argon2-aes-current-only-cleanup',
+    rollback:
+      'Restore from the pre-upgrade backup. This migration refuses old encrypted rows or pre-Argon2 password verifiers and drops the obsolete password_iterations column.',
+    up: migrateArgon2AesCurrentOnly
   }
 ];
 

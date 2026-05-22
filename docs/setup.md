@@ -362,6 +362,16 @@ Set `NOTES_CLEANUP_ENABLED=false` if you prefer an external cron job:
 aube -F @author/web run cleanup
 ```
 
+For the current-only AES/Argon2 release line, use the explicit cleanup task when
+a database still contains pre-`enc:v3` note envelopes or pre-Argon2 account
+verifiers. It writes backups first, tombstones active unsupported notes and
+notebooks, purges unsupported version snapshots, deletes old verifier account
+rows, and then applies pending schema migrations:
+
+```sh
+aube -F @author/web run cleanup:current-only -- --target=both --apply
+```
+
 ## Development
 
 ```sh

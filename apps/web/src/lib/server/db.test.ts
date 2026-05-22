@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { resolveDatabasePath } from './config';
 import {
   appliedMigrationVersions,
+  all,
   get,
   openConfiguredDatabase,
   openDatabase,
@@ -21,6 +22,14 @@ const ENV_KEYS = [
   'TURSO_DATABASE_URL',
   'TURSO_AUTH_TOKEN'
 ] as const;
+
+function currentOnlyMigration() {
+  const migration = SERVER_MIGRATIONS.find(
+    (candidate) => candidate.version === 13
+  );
+  if (!migration) throw new Error('Current-only cleanup migration is missing');
+  return migration;
+}
 
 function restoreEnv(
   previous: Map<(typeof ENV_KEYS)[number], string | undefined>
@@ -197,6 +206,10 @@ describe('server database migrations', () => {
             'SELECT email, display_name, totp_secret FROM users LIMIT 1'
           )
         ).resolves.toBeNull();
+        const userColumns = await all(upgraded, 'PRAGMA table_info(users)');
+        expect(userColumns.map((row) => row.name)).not.toContain(
+          'password_iterations'
+        );
         await expect(
           get(
             upgraded,
@@ -263,6 +276,55 @@ describe('server database migrations', () => {
       }
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses server databases with pre-Argon2 password verifiers', async () => {
+    const db = await openMemoryDatabase();
+    const migration = currentOnlyMigration();
+    const now = new Date().toISOString();
+    try {
+      await run(
+        db,
+        `INSERT INTO users (
+           username, password_hash, password_salt, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?)`,
+        ['old-user', 'pbkdf2:v1:old-hash', 'old-salt', now, now]
+      );
+
+      await expect(migration.up(db)).rejects.toThrow(/pre-Argon2/);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('refuses server databases with unsupported encrypted note envelopes', async () => {
+    const db = await openMemoryDatabase();
+    const migration = currentOnlyMigration();
+    const now = new Date().toISOString();
+    try {
+      await run(
+        db,
+        `INSERT INTO notes (
+           id, title, body, notebook_ids, created_at, updated_at,
+           device_id, version, sync_status
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'old-note',
+          'enc:v2:old-title',
+          'enc:v3:new-body',
+          '[]',
+          now,
+          now,
+          'device-1',
+          1,
+          'synced'
+        ]
+      );
+
+      await expect(migration.up(db)).rejects.toThrow(/enc:v1 or enc:v2/);
+    } finally {
+      db.close();
     }
   });
 });

@@ -40,22 +40,26 @@ Tables:
 
 `note_versions` and `notebook_versions` keep snapshots for accepted pushes, conflicts, and cleanup. This gives v1 a recovery path without building a full audit UI.
 
-Notes store `title` and `body` as `enc:v2` encrypted text envelopes after the client has
+Notes store `title` and `body` as `enc:v3` encrypted text envelopes after the client has
 opened them once or synced with key material available. Notebooks store `name` as the same
 envelope format. `title_hash`, `body_hash`, and `name_hash` store stable keyed HMAC hashes for
 sync comparison and duplicate notebook checks while the encrypted text uses random IVs and
 field-specific authenticated data. Clients validate that an existing envelope decrypts before
-preserving it; spoofed prefix text is treated as plaintext and encrypted. Legacy plaintext and
-`enc:v1` rows are migrated by the browser or Android app before normal reads and sync.
+preserving it; spoofed prefix text is treated as plaintext and encrypted. Plaintext rows are
+encrypted by the browser or Android app before normal reads and sync.
 Markdown is not parsed or rendered.
 
 Devices, notes, notebooks, entity changes, tombstones, and version snapshots include
 `owner_username` so sync results and device labels are scoped to the authenticated
 account. Legacy token data is stored under `legacy-token`.
 
-Password-derived client encryption keys use Argon2id for new ciphertext. Existing PBKDF2-derived
-and legacy SHA-256-derived password envelopes remain decryptable so clients can republish them
-under the active key material during the normal encryption audit.
+Password-derived client encryption keys use Argon2id-only material, and runtime clients do not
+keep pre-Argon2 or pre-`enc:v3` compatibility paths. Older installs must migrate through a release
+that republishes data as `enc:v3` before running this version. Current clients fail closed when
+they see older local or remote note envelopes, rather than rewriting old ciphertext as plaintext.
+Server-side account password verifiers are Argon2id-only. The current server migration refuses
+previous verifier rows and removes the obsolete verifier iteration column instead of preserving
+dead password metadata.
 
 `trusted_auth_devices` records browsers or Android installs that completed a
 password login for an account and presented a local device trust secret. The

@@ -13,6 +13,8 @@ import {
   reencryptConflictForStorage
 } from './conflict-crypto';
 import {
+  ENCRYPTION_UPGRADE_REQUIRED_MESSAGE,
+  assertSupportedEncryptionKeyMaterial,
   canDecryptEncryptedTextWithPrimaryMaterial,
   decryptNoteFields,
   decryptNotebookFields,
@@ -20,6 +22,7 @@ import {
   encryptNotebookFields,
   isCurrentEncryptedText,
   isCurrentFieldHash,
+  isUnsupportedEncryptedText,
   notebookNameContext,
   reencryptNoteFields,
   reencryptNotebookFields
@@ -32,7 +35,7 @@ import {
 import { getOrCreateDevice, newId, nowIso } from './local-state';
 
 const ENCRYPTION_AUDIT_META_KEY = 'localEncryptionAuditVersion';
-const ENCRYPTION_AUDIT_VERSION = 'notebook-context:v5';
+const ENCRYPTION_AUDIT_VERSION = 'argon2-aes:v6';
 
 const LOCAL_WORKSPACE_OWNER_KEY = 'localWorkspaceOwner';
 
@@ -566,10 +569,12 @@ export async function adoptLocalWorkspaceForAccount({
 }
 
 export async function ensureLocalNotesEncrypted(): Promise<void> {
+  assertSupportedEncryptionKeyMaterial();
   const currentAudit = await localDb.syncMeta.get(ENCRYPTION_AUDIT_META_KEY);
   if (currentAudit?.value === ENCRYPTION_AUDIT_VERSION) return;
 
   const notes = await localDb.notes.toArray();
+  assertNotesDoNotNeedLegacyMigration(notes);
   const noteEncryptionChecks = await Promise.all(
     notes.map(async (note) => ({
       note,
@@ -608,6 +613,7 @@ export async function ensureLocalNotesEncrypted(): Promise<void> {
   }
 
   const notebooks = await localDb.notebooks.toArray();
+  assertNotebooksDoNotNeedLegacyMigration(notebooks);
   const notebookEncryptionChecks = await Promise.all(
     notebooks.map(async (notebook) => ({
       notebook,
@@ -839,6 +845,43 @@ function notebookConflictNeedsEncryption(
   );
 }
 
+function assertSupportedEncryptedText(value: string): void {
+  if (isUnsupportedEncryptedText(value)) {
+    throw new Error(ENCRYPTION_UPGRADE_REQUIRED_MESSAGE);
+  }
+}
+
+function assertNotesDoNotNeedLegacyMigration(notes: LocalNote[]): void {
+  for (const note of notes) {
+    assertSupportedEncryptedText(note.title);
+    assertSupportedEncryptedText(note.body);
+  }
+}
+
+function assertNotebooksDoNotNeedLegacyMigration(
+  notebooks: LocalNotebook[]
+): void {
+  for (const notebook of notebooks) {
+    assertSupportedEncryptedText(notebook.name);
+  }
+}
+
+function assertConflictDoesNotNeedLegacyMigration(
+  conflict: LocalConflict
+): void {
+  if (isNoteConflict(conflict)) {
+    assertSupportedEncryptedText(conflict.conflict.local.record.title);
+    assertSupportedEncryptedText(conflict.conflict.local.record.body);
+    assertSupportedEncryptedText(conflict.conflict.remote.record.title);
+    assertSupportedEncryptedText(conflict.conflict.remote.record.body);
+    return;
+  }
+  if (isNotebookConflict(conflict)) {
+    assertSupportedEncryptedText(conflict.conflict.local.record.name);
+    assertSupportedEncryptedText(conflict.conflict.remote.record.name);
+  }
+}
+
 function conflictEncryptedFieldsChanged(
   before: LocalConflict,
   after: LocalConflict['conflict']
@@ -907,6 +950,9 @@ async function saveConflictEncryptionChanges(
 
 async function ensureLocalConflictsEncrypted(): Promise<void> {
   const conflicts = await localDb.conflicts.toArray();
+  for (const conflict of conflicts) {
+    assertConflictDoesNotNeedLegacyMigration(conflict);
+  }
   const conflictsNeedingEncryption = conflicts.filter(
     (conflict) =>
       (isNoteConflict(conflict) &&

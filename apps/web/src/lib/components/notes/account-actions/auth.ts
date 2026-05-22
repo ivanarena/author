@@ -153,10 +153,13 @@ export async function submitLoginMenu(
     }
     const encryption = hasPassword
       ? await prepareEncryptionPassword(session.user.username, password)
-      : {
-          previousMaterial: getEncryptionKeyMaterial(),
-          nextMaterial: getEncryptionKeyMaterial()
-        };
+      : (() => {
+          const previousMaterial = getEncryptionKeyMaterial();
+          return {
+            previousMaterial,
+            nextMaterial: previousMaterial
+          };
+        })();
     await adoptLocalWorkspaceForAccount({
       username: session.user.username,
       fallbackOwnerUsername: workspaceCleared ? null : previousUsername,

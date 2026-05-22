@@ -7,36 +7,38 @@ import java.security.SecureRandom
 import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.Mac
-import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 import org.bouncycastle.crypto.generators.Argon2BytesGenerator
 import org.bouncycastle.crypto.params.Argon2Parameters
 
-private const val ENCRYPTION_PREFIX = "enc:v2:"
+private const val ENCRYPTION_PREFIX = "enc:v3:"
 private const val HASH_V2_PREFIX = "hash:v2:"
 private const val KEY_MATERIAL_KEY = "author-encryption-key-material-v1"
-private const val USERNAME_KEY = "author-username"
 private const val LOCAL_KEY_PREFIX = "local:v2:"
-private const val FALLBACK_KEY_MATERIAL = "author:local:v1"
-private const val PASSWORD_PBKDF2_ITERATIONS = 210_000
-private const val PASSWORD_PBKDF2_SALT_PREFIX = "author:password-key:v2"
 private const val PASSWORD_ARGON2_MEMORY_KIB = 19_456
 private const val PASSWORD_ARGON2_ITERATIONS = 2
 private const val PASSWORD_ARGON2_PARALLELISM = 1
 private const val PASSWORD_ARGON2_SALT_PREFIX = "author:password-key:v3"
-private const val LEGACY_NOTEBOOK_NAME_CONTEXT = "notebook:name"
+private const val CURRENT_ENCRYPTION_VERSION = "v3"
+private const val CURRENT_PASSWORD_MATERIAL_VERSION = "v4"
+private const val NOTEBOOK_NAME_HASH_CONTEXT = "notebook:name"
+const val ENCRYPTION_UPGRADE_REQUIRED_MESSAGE =
+  "This workspace uses an older encryption format. Open it with the migration-capable release first, then return to this version."
 
 class NoteCrypto(
-  private val prefs: SharedPreferences,
+  @Suppress("UNUSED_PARAMETER") prefs: SharedPreferences,
   private val securePrefs: SecurePreferenceStore,
 ) {
   private val random = SecureRandom()
 
   fun isEncryptedText(value: String): Boolean = encryptedEnvelope(value) != null
 
-  fun isCurrentEncryptedText(value: String): Boolean = encryptedEnvelope(value)?.version == "v2"
+  fun isCurrentEncryptedText(value: String): Boolean =
+    encryptedEnvelope(value)?.version == CURRENT_ENCRYPTION_VERSION
+
+  fun isUnsupportedEncryptedText(value: String): Boolean =
+    value.startsWith("enc:v1:") || value.startsWith("enc:v2:")
 
   fun isCurrentFieldHash(value: String?): Boolean = value?.startsWith(HASH_V2_PREFIX) == true
 
@@ -46,13 +48,7 @@ class NoteCrypto(
     value: String,
     keyMaterial: String = getEncryptionKeyMaterial(),
     context: String = "text",
-  ): Boolean {
-    if (canDecryptEncryptedTextWithPrimaryMaterial(value, keyMaterial, context)) return true
-    val envelope = encryptedEnvelope(value) ?: return false
-    return fallbackKeyMaterials(keyMaterial).any { material ->
-      canDecryptEnvelopeWithMaterial(envelope, material, context)
-    }
-  }
+  ): Boolean = canDecryptEncryptedTextWithPrimaryMaterial(value, keyMaterial, context)
 
   fun canDecryptEncryptedTextWithPrimaryMaterial(
     value: String,
@@ -72,10 +68,10 @@ class NoteCrypto(
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(
           Cipher.DECRYPT_MODE,
-          encryptionKey(keyMaterial, envelope.version),
+          encryptionKey(keyMaterial),
           GCMParameterSpec(128, envelope.iv),
         )
-        if (envelope.version == "v2") cipher.updateAAD(aad(context))
+        cipher.updateAAD(aad(context))
         cipher.doFinal(envelope.ciphertext)
       }
       .isSuccess
@@ -91,6 +87,24 @@ class NoteCrypto(
 
   fun hasStoredEncryptionKeyMaterial(): Boolean =
     securePrefs.getString(KEY_MATERIAL_KEY)?.let(::isSyncKeyMaterial) == true
+
+  fun isUnsupportedEncryptionKeyMaterial(material: String): Boolean =
+    (material.startsWith("password:") && !isCurrentPasswordKeyMaterial(material)) ||
+      material.startsWith("account:") ||
+      material == "author:local:v1"
+
+  fun assertSupportedEncryptionKeyMaterial() {
+    val material = securePrefs.getString(KEY_MATERIAL_KEY) ?: return
+    if (isUnsupportedEncryptionKeyMaterial(material)) {
+      throw IllegalStateException(ENCRYPTION_UPGRADE_REQUIRED_MESSAGE)
+    }
+  }
+
+  fun assertSupportedEncryptedText(value: String) {
+    if (isUnsupportedEncryptedText(value)) {
+      throw IllegalStateException(ENCRYPTION_UPGRADE_REQUIRED_MESSAGE)
+    }
+  }
 
   fun clearStoredEncryptionKeyMaterial() {
     securePrefs.remove(KEY_MATERIAL_KEY)
@@ -111,39 +125,15 @@ class NoteCrypto(
 
   fun keyMaterialFromPassword(username: String, password: String): String {
     val normalized = username.trim().lowercase()
-    val legacy = legacyPasswordMaterial(normalized, password)
-    val pbkdf2 = pbkdf2PasswordMaterial(normalized, password)
     val argon2 = argon2PasswordMaterial(normalized, password)
     return listOf(
         "password",
-        "v3",
+        CURRENT_PASSWORD_MATERIAL_VERSION,
         "argon2id",
         "m=$PASSWORD_ARGON2_MEMORY_KIB,t=$PASSWORD_ARGON2_ITERATIONS,p=$PASSWORD_ARGON2_PARALLELISM",
         base64UrlEncode(argon2),
-        "pbkdf2",
-        "v2",
-        PASSWORD_PBKDF2_ITERATIONS.toString(),
-        pbkdf2,
-        "legacy",
-        legacy,
       )
       .joinToString(":")
-  }
-
-  private fun legacyPasswordMaterial(normalizedUsername: String, password: String): String =
-    base64UrlEncode(sha256("$normalizedUsername\u0000$password".toByteArray(UTF_8)))
-
-  private fun pbkdf2PasswordMaterial(normalizedUsername: String, password: String): String {
-    val passwordKey =
-      PBEKeySpec(
-        password.toCharArray(),
-        "$PASSWORD_PBKDF2_SALT_PREFIX:$normalizedUsername".toByteArray(UTF_8),
-        PASSWORD_PBKDF2_ITERATIONS,
-        256,
-      )
-    val derived =
-      SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(passwordKey).encoded
-    return base64UrlEncode(derived)
   }
 
   private fun argon2PasswordMaterial(normalizedUsername: String, password: String): ByteArray {
@@ -168,8 +158,17 @@ class NoteCrypto(
     return "$LOCAL_KEY_PREFIX${base64UrlEncode(key)}"
   }
 
-  private fun isSyncKeyMaterial(material: String): Boolean =
-    material.startsWith("password:") || material.startsWith("account:")
+  private fun isSyncKeyMaterial(material: String): Boolean = isCurrentPasswordKeyMaterial(material)
+
+  private fun isCurrentPasswordKeyMaterial(material: String): Boolean {
+    val parts = material.split(":")
+    return (parts.getOrNull(0) == "password" &&
+      parts.getOrNull(1) == CURRENT_PASSWORD_MATERIAL_VERSION &&
+      parts.getOrNull(2) == "argon2id" &&
+      !parts.getOrNull(3).isNullOrBlank() &&
+      !parts.getOrNull(4).isNullOrBlank() &&
+      parts.size == 5)
+  }
 
   private data class EncryptionEnvelope(
     val version: String,
@@ -182,7 +181,7 @@ class NoteCrypto(
     if (
       parts.size != 4 ||
         parts[0] != "enc" ||
-        parts[1] !in setOf("v1", "v2") ||
+        parts[1] != CURRENT_ENCRYPTION_VERSION ||
         parts[2].isBlank() ||
         parts[3].isBlank()
     ) {
@@ -203,7 +202,7 @@ class NoteCrypto(
     val iv = ByteArray(12)
     random.nextBytes(iv)
     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-    cipher.init(Cipher.ENCRYPT_MODE, encryptionKey(keyMaterial, "v2"), GCMParameterSpec(128, iv))
+    cipher.init(Cipher.ENCRYPT_MODE, encryptionKey(keyMaterial), GCMParameterSpec(128, iv))
     cipher.updateAAD(aad(context))
     val encrypted = cipher.doFinal(value.toByteArray(UTF_8))
     return "$ENCRYPTION_PREFIX${base64UrlEncode(iv)}:${base64UrlEncode(encrypted)}"
@@ -222,10 +221,10 @@ class NoteCrypto(
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(
               Cipher.DECRYPT_MODE,
-              encryptionKey(material, envelope.version),
+              encryptionKey(material),
               GCMParameterSpec(128, envelope.iv),
             )
-            if (envelope.version == "v2") cipher.updateAAD(aad(context))
+            cipher.updateAAD(aad(context))
             String(cipher.doFinal(envelope.ciphertext), UTF_8)
           }
           .getOrNull()
@@ -295,7 +294,7 @@ class NoteCrypto(
         fieldHash(
           normalizedNotebookName(plainName ?: notebook.name),
           keyMaterial,
-          LEGACY_NOTEBOOK_NAME_CONTEXT,
+          NOTEBOOK_NAME_HASH_CONTEXT,
         )
     return notebook.copy(
       nameHash = nameHash,
@@ -309,9 +308,6 @@ class NoteCrypto(
     val currentContext = notebookNameContext(notebook)
     if (canDecryptEncryptedText(notebook.name, keyMaterial, currentContext)) {
       return decryptText(notebook.name, keyMaterial, currentContext)
-    }
-    if (canDecryptEncryptedText(notebook.name, keyMaterial, LEGACY_NOTEBOOK_NAME_CONTEXT)) {
-      return decryptText(notebook.name, keyMaterial, LEGACY_NOTEBOOK_NAME_CONTEXT)
     }
     return notebook.name
   }
@@ -328,74 +324,31 @@ class NoteCrypto(
   ): LocalNotebook =
     encryptNotebookFields(decryptNotebookFields(notebook, previousMaterial), nextMaterial)
 
-  private fun encryptionKey(keyMaterial: String, version: String): SecretKeySpec {
+  private fun encryptionKey(keyMaterial: String): SecretKeySpec {
     val primaryMaterial = primaryEncryptionKeyMaterial(keyMaterial)
-    val domain =
-      if (version == "v2") "author:encryption:v2:$primaryMaterial" else "author:$primaryMaterial"
+    val domain = "author:encryption:v3:$primaryMaterial"
     return SecretKeySpec(sha256(domain.toByteArray(UTF_8)), "AES")
   }
 
   private fun primaryEncryptionKeyMaterial(material: String): String {
-    if (!material.startsWith("password:v3:")) return material
+    if (!material.startsWith("password:v4:")) return material
 
     val parts = material.split(":")
     if (
       parts.getOrNull(0) == "password" &&
-        parts.getOrNull(1) == "v3" &&
+        parts.getOrNull(1) == CURRENT_PASSWORD_MATERIAL_VERSION &&
         parts.getOrNull(2) == "argon2id" &&
         !parts.getOrNull(3).isNullOrBlank() &&
-        !parts.getOrNull(4).isNullOrBlank()
+        !parts.getOrNull(4).isNullOrBlank() &&
+        parts.size == 5
     ) {
-      return parts.take(5).joinToString(":")
+      return material
     }
 
     return material
   }
 
-  private fun decryptionKeyMaterials(primary: String): List<String> {
-    val candidates = mutableListOf(primary)
-    candidates.addAll(fallbackKeyMaterials(primary))
-    prefs
-      .getString(USERNAME_KEY, null)
-      ?.trim()
-      ?.takeIf { it.isNotEmpty() }
-      ?.let { candidates.add("account:${it.lowercase()}:v1") }
-    candidates.add(FALLBACK_KEY_MATERIAL)
-    return candidates.distinct()
-  }
-
-  private fun fallbackKeyMaterials(material: String): List<String> {
-    if (material.startsWith("password:v2:")) {
-      val legacy = material.substringAfter(":legacy:", "")
-      return legacy.takeIf { it.isNotEmpty() }?.let { listOf("password:$it") } ?: emptyList()
-    }
-
-    if (material.startsWith("password:v3:")) {
-      val parts = material.split(":")
-      val pbkdf2Index = parts.indexOf("pbkdf2")
-      val legacyIndex = parts.indexOf("legacy")
-      val fallbacks = mutableListOf<String>()
-      if (
-        pbkdf2Index >= 0 && legacyIndex > pbkdf2Index && parts.getOrNull(pbkdf2Index + 1) == "v2"
-      ) {
-        val iterations = parts.getOrNull(pbkdf2Index + 2)
-        val pbkdf2 = parts.getOrNull(pbkdf2Index + 3)
-        val legacy = parts.getOrNull(legacyIndex + 1)
-        if (!iterations.isNullOrBlank() && !pbkdf2.isNullOrBlank() && !legacy.isNullOrBlank()) {
-          fallbacks.add("password:v2:$iterations:$pbkdf2:legacy:$legacy")
-        }
-      }
-      if (legacyIndex >= 0) {
-        parts
-          .getOrNull(legacyIndex + 1)
-          ?.takeIf { it.isNotBlank() }
-          ?.let { fallbacks.add("password:$it") }
-      }
-      return fallbacks
-    }
-
-    return emptyList()
-  }
+  private fun decryptionKeyMaterials(primary: String): List<String> = listOf(primary)
 
   private fun fieldHash(value: String, keyMaterial: String, context: String): String {
     val mac = Mac.getInstance("HmacSHA256")
@@ -406,7 +359,7 @@ class NoteCrypto(
   }
 
   private fun aad(context: String): ByteArray =
-    "author:encrypted-field:v2:$context".toByteArray(UTF_8)
+    "author:encrypted-field:$CURRENT_ENCRYPTION_VERSION:$context".toByteArray(UTF_8)
 
   private fun sha256(bytes: ByteArray): ByteArray =
     MessageDigest.getInstance("SHA-256").digest(bytes)

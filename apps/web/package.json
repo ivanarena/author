@@ -22,6 +22,7 @@
     "sync:bench": "tsx scripts/benchmark-sync.ts",
     "mock:browser": "tsx scripts/prefill-browser.ts",
     "cleanup": "tsx scripts/cleanup-trash.ts",
+    "cleanup:current-only": "tsx scripts/cleanup-current-only-blockers.ts",
     "prepare": "command -v svelte-kit >/dev/null 2>&1 && svelte-kit sync || true"
   },
   "dependencies": {

@@ -46,7 +46,6 @@ type AuthUserRecord = {
   displayName: string | null;
   passwordHash: string;
   passwordSalt: string;
-  passwordIterations: number;
   totpSecret: string | null;
   totpEnabledAt: string | null;
   createdAt: string;
@@ -197,7 +196,6 @@ function toAuthUser(row: Row): AuthUserRecord {
         : asString(row.display_name),
     passwordHash: asString(row.password_hash),
     passwordSalt: asString(row.password_salt),
-    passwordIterations: Number(row.password_iterations),
     totpSecret:
       row.totp_secret === null || row.totp_secret === undefined
         ? null
@@ -313,7 +311,6 @@ function authCredentialsDiffer(
   return (
     source.passwordHash !== target.passwordHash ||
     source.passwordSalt !== target.passwordSalt ||
-    source.passwordIterations !== target.passwordIterations ||
     source.totpSecret !== target.totpSecret ||
     source.totpEnabledAt !== target.totpEnabledAt
   );
@@ -367,15 +364,14 @@ async function putAuthUser(
   await runSql(
     db,
     `INSERT INTO users (
-       username, email, display_name, password_hash, password_salt, password_iterations,
+       username, email, display_name, password_hash, password_salt,
        totp_secret, totp_enabled_at, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(username) DO UPDATE SET
        email = excluded.email,
        display_name = excluded.display_name,
        password_hash = excluded.password_hash,
        password_salt = excluded.password_salt,
-       password_iterations = excluded.password_iterations,
        totp_secret = excluded.totp_secret,
        totp_enabled_at = excluded.totp_enabled_at,
        created_at = excluded.created_at,
@@ -386,7 +382,6 @@ async function putAuthUser(
       user.displayName,
       user.passwordHash,
       user.passwordSalt,
-      user.passwordIterations,
       user.totpSecret,
       user.totpEnabledAt,
       user.createdAt,

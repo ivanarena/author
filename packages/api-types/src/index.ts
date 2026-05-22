@@ -4,6 +4,7 @@ export const API_PATHS = {
   health: '/api/health',
   metrics: '/api/metrics',
   config: '/api/config',
+  authChallenge: '/api/auth/challenge',
   authLogin: '/api/auth/login',
   authSignup: '/api/auth/signup',
   authValidate: '/api/auth/validate',
@@ -23,8 +24,59 @@ export const API_PATHS = {
 
 export type ApiPath = (typeof API_PATHS)[keyof typeof API_PATHS];
 
+export type AuthProofPurpose =
+  | 'login'
+  | 'password_change'
+  | 'totp'
+  | 'delete_account';
+
+export interface AuthKdfParams {
+  algorithm: 'argon2id';
+  memoryKiB: number;
+  iterations: number;
+  parallelism: number;
+  keyLength: number;
+}
+
+export interface PasswordVerifier {
+  algorithm: 'argon2id-scram-sha256';
+  salt: string;
+  params: AuthKdfParams;
+  storedKey: string;
+  serverKey: string;
+}
+
+export interface AuthProof {
+  challengeId: string;
+  clientNonce: string;
+  proof: string;
+}
+
+export interface AuthChallengeRequest {
+  username?: string | null;
+  purpose: AuthProofPurpose;
+  clientNonce: string;
+}
+
+export interface AuthChallengeResponse {
+  mode: 'proof' | 'bootstrap';
+  challengeId: string;
+  username: string;
+  purpose: AuthProofPurpose;
+  clientNonce: string;
+  serverNonce: string;
+  expiresAt: string;
+  salt: string;
+  params: AuthKdfParams;
+}
+
 export interface AuthLoginRequest {
   username?: string;
+  proof?: AuthProof | null;
+  passwordVerifier?: PasswordVerifier | null;
+  /** Used only to verify the one-time env bootstrap account. */
+  bootstrapPassword?: string | null;
+  /** @deprecated Client convenience only. Runtime API requests use proof. */
   password?: string | null;
   totpCode?: string | null;
   device: Device;
@@ -34,7 +86,9 @@ export interface AuthLoginRequest {
 export interface AuthSignupRequest {
   username: string;
   email: string;
-  password: string;
+  passwordVerifier?: PasswordVerifier | null;
+  /** @deprecated Client convenience only. Runtime API requests use passwordVerifier. */
+  password?: string;
   /** @deprecated Display names are accepted only for older clients. */
   displayName?: string | null;
   device: Device;
@@ -66,6 +120,7 @@ export interface AuthLoginResponse {
   user: AuthUser;
   device: Device;
   expiresAt: string;
+  serverProof?: string | null;
 }
 
 export interface AuthValidateResponse {
@@ -82,12 +137,18 @@ export interface AccountUpdateRequest {
 }
 
 export interface PasswordChangeRequest {
-  currentPassword: string;
-  newPassword: string;
+  proof?: AuthProof | null;
+  newPasswordVerifier?: PasswordVerifier | null;
+  /** @deprecated Client convenience only. Runtime API requests use proof. */
+  currentPassword?: string;
+  /** @deprecated Client convenience only. Runtime API requests use newPasswordVerifier. */
+  newPassword?: string;
 }
 
 export interface DeleteAccountRequest {
-  password: string;
+  proof?: AuthProof | null;
+  /** @deprecated Client convenience only. Runtime API requests use proof. */
+  password?: string;
 }
 
 export interface AccountResponse {
@@ -102,13 +163,17 @@ export interface TotpSetupResponse {
 }
 
 export interface TotpEnableRequest {
-  currentPassword: string;
+  proof?: AuthProof | null;
+  /** @deprecated Client convenience only. Runtime API requests use proof. */
+  currentPassword?: string;
   secret: string;
   totpCode: string;
 }
 
 export interface TotpDisableRequest {
-  currentPassword: string;
+  proof?: AuthProof | null;
+  /** @deprecated Client convenience only. Runtime API requests use proof. */
+  currentPassword?: string;
   totpCode?: string | null;
 }
 

@@ -134,7 +134,7 @@ aube exec wrangler secret put NOTES_LOGIN_PASSWORD
 aube exec wrangler secret put NOTES_SERVER_SECRET
 ```
 
-`apps/web/wrangler.jsonc` sets `NOTES_DB_PROVIDER=turso`, so Cloudflare Workers use Turso directly as the primary database. The app initializes the Turso schema on first API access, using the same idempotent schema/migration code as local SQLite. Argon2id password verification is intentionally CPU-expensive, so the Worker plan must provide enough CPU for login/signup; do not lower the password KDF cost as an operational workaround.
+`apps/web/wrangler.jsonc` sets `NOTES_DB_PROVIDER=turso`, so Cloudflare Workers use Turso directly as the primary database. The app initializes the Turso schema on first API access, using the same idempotent schema/migration code as local SQLite. Password authentication uses a client-side Argon2id challenge/proof verifier, so Worker login and signup requests do not run Argon2 and can stay inside the free plan CPU budget without weakening the password KDF.
 
 Then deploy:
 
@@ -412,11 +412,12 @@ Set `NOTES_CLEANUP_ENABLED=false` if you prefer an external cron job:
 aube -F @author/web run cleanup
 ```
 
-For the current-only AES/Argon2 release line, use the explicit cleanup task when
-a database still contains pre-`enc:v3` note envelopes or pre-Argon2 account
-verifiers. It writes backups first, tombstones active unsupported notes and
-notebooks, purges unsupported version snapshots, deletes old verifier account
-rows, and then applies pending schema migrations:
+For the current-only AES/Argon2 proof release line, use the explicit cleanup
+task when a database still contains pre-`enc:v3` note envelopes or account
+verifiers that are not `argon2id-scram-sha256:v1`. It writes backups first,
+tombstones active unsupported notes and notebooks, purges unsupported version
+snapshots, deletes old verifier account rows, and then applies pending schema
+migrations:
 
 ```sh
 aube -F @author/web run cleanup:current-only -- --target=both --apply

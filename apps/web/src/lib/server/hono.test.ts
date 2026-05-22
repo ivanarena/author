@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHmac } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { AuthProofPurpose } from '@author/api-types';
 import {
   fixtureDevice,
   fixtureNote,
@@ -12,6 +13,11 @@ import { setUserPassword, updateUserProfile } from './auth';
 import { get, openConfiguredDatabase, openDatabase } from './db';
 import { api, resetHonoStateForTests } from './hono';
 import { getNote, pushChanges, setSyncMeta } from './repository';
+import {
+  authProofFromPassword,
+  passwordVerifierFromPassword,
+  randomAuthNonce
+} from '../shared/auth-proof';
 
 let tempDir: string;
 const fixtureDeviceTrustSecret = 'test-device-trust-secret-0123456789';
@@ -59,20 +65,89 @@ async function loginToken(
   username = 'owner',
   password = 'test-password'
 ): Promise<string> {
-  const login = await api.fetch(
-    new Request('http://localhost/api/auth/login', {
+  const login = await loginResponse(username, password);
+  expect(login.status).toBe(200);
+  return ((await login.json()) as { token: string }).token;
+}
+
+async function authChallenge(
+  username: string | null,
+  purpose: AuthProofPurpose,
+  token?: string
+) {
+  const challenge = await api.fetch(
+    new Request('http://localhost/api/auth/challenge', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        'content-type': 'application/json'
+      },
       body: JSON.stringify({
         username,
-        password,
-        device: fixtureDevice,
-        deviceTrustSecret: fixtureDeviceTrustSecret
+        purpose,
+        clientNonce: randomAuthNonce()
       })
     })
   );
-  expect(login.status).toBe(200);
-  return ((await login.json()) as { token: string }).token;
+  expect(challenge.status).toBe(200);
+  return await challenge.json();
+}
+
+async function loginResponse(
+  username = 'owner',
+  password = 'test-password',
+  totpCode: string | null = null
+): Promise<Response> {
+  const challenge = await authChallenge(username, 'login');
+  const body =
+    challenge.mode === 'bootstrap'
+      ? {
+          username,
+          bootstrapPassword: password,
+          passwordVerifier: await passwordVerifierFromPassword(password),
+          totpCode,
+          device: fixtureDevice,
+          deviceTrustSecret: fixtureDeviceTrustSecret
+        }
+      : {
+          username,
+          proof: (await authProofFromPassword(password, challenge)).proof,
+          totpCode,
+          device: fixtureDevice,
+          deviceTrustSecret: fixtureDeviceTrustSecret
+        };
+  return await api.fetch(
+    new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+  );
+}
+
+async function passwordProof(
+  token: string,
+  password: string,
+  purpose: Exclude<AuthProofPurpose, 'login'>
+) {
+  const challenge = await authChallenge(null, purpose, token);
+  return (await authProofFromPassword(password, challenge)).proof;
+}
+
+async function signupBody(
+  username: string,
+  email: string,
+  password: string,
+  overrides: Record<string, unknown> = {}
+) {
+  return {
+    username,
+    email,
+    passwordVerifier: await passwordVerifierFromPassword(password),
+    device: fixtureDevice,
+    deviceTrustSecret: fixtureDeviceTrustSecret,
+    ...overrides
+  };
 }
 
 async function post(
@@ -221,17 +296,7 @@ describe('Hono API', () => {
   });
 
   it('sets an HttpOnly auth cookie and accepts cookie-backed sessions', async () => {
-    const login = await api.fetch(
-      new Request('http://localhost/api/auth/login', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          username: 'owner',
-          password: 'test-password',
-          device: fixtureDevice
-        })
-      })
-    );
+    const login = await loginResponse();
     expect(login.status).toBe(200);
     const cookie = login.headers.get('set-cookie') ?? '';
     expect(cookie).toContain('author_session=');
@@ -300,17 +365,7 @@ describe('Hono API', () => {
   });
 
   it('persists and clears login throttle attempts', async () => {
-    const badLogin = await api.fetch(
-      new Request('http://localhost/api/auth/login', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          username: 'owner',
-          password: 'wrong-password',
-          device: fixtureDevice
-        })
-      })
-    );
+    const badLogin = await loginResponse('owner', 'wrong-password');
     expect(badLogin.status).toBe(401);
 
     let db = await openDatabase();
@@ -364,13 +419,11 @@ describe('Hono API', () => {
       new Request('http://localhost/api/auth/signup', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          username: 'new-user',
-          email: 'new@example.com',
-          password: 'new-user-password',
-          displayName: 'New User',
-          device: fixtureDevice
-        })
+        body: JSON.stringify(
+          await signupBody('new-user', 'new@example.com', 'new-user-password', {
+            displayName: 'New User'
+          })
+        )
       })
     );
     expect(signup.status).toBe(200);
@@ -401,19 +454,15 @@ describe('Hono API', () => {
       new Request('http://localhost/api/auth/signup', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          username: 'new-user',
-          email: 'new@example.com',
-          password: 'new-user-password',
-          device: fixtureDevice,
-          deviceTrustSecret: fixtureDeviceTrustSecret
-        })
+        body: JSON.stringify(
+          await signupBody('new-user', 'new@example.com', 'new-user-password')
+        )
       })
     );
     expect(duplicate.status).toBe(409);
   });
 
-  it('rejects new account passwords that are too short', async () => {
+  it('rejects signup payloads without a client password verifier', async () => {
     const remotePath = join(tempDir, 'short-password-remote.sqlite');
     process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
     process.env.TURSO_AUTH_TOKEN = 'test-token';
@@ -435,7 +484,7 @@ describe('Hono API', () => {
 
     expect(signup.status).toBe(400);
     await expect(signup.json()).resolves.toEqual({
-      error: 'Password must be at least 12 characters'
+      error: 'Invalid signup payload'
     });
   });
 
@@ -450,13 +499,9 @@ describe('Hono API', () => {
       new Request('http://localhost/api/auth/signup', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          username: 'new-user',
-          email: 'new@example.com',
-          password: 'new-user-password',
-          device: fixtureDevice,
-          deviceTrustSecret: fixtureDeviceTrustSecret
-        })
+        body: JSON.stringify(
+          await signupBody('new-user', 'new@example.com', 'new-user-password')
+        )
       })
     );
     expect(signup.status).toBe(200);
@@ -498,7 +543,7 @@ describe('Hono API', () => {
     const enable = await post(
       '/api/account/totp',
       {
-        currentPassword: 'new-user-password',
+        proof: await passwordProof(session.token, 'new-user-password', 'totp'),
         secret: setupBody.secret,
         totpCode: totpCode(setupBody.secret)
       },
@@ -550,13 +595,14 @@ describe('Hono API', () => {
       new Request('http://localhost/api/auth/signup', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          username: 'worker-user',
-          email: 'worker@example.com',
-          password: 'worker-user-password',
-          displayName: 'Worker User',
-          device: fixtureDevice
-        })
+        body: JSON.stringify(
+          await signupBody(
+            'worker-user',
+            'worker@example.com',
+            'worker-user-password',
+            { displayName: 'Worker User' }
+          )
+        )
       }),
       workerEnv
     );
@@ -575,7 +621,9 @@ describe('Hono API', () => {
         username: 'worker-user',
         display_name: 'Worker User'
       });
-      expect(String(user.rows[0].password_hash)).toMatch(/^argon2id:v1:/);
+      expect(String(user.rows[0].password_hash)).toMatch(
+        /^argon2id-scram-sha256:v1:/
+      );
     } finally {
       primary.close();
     }
@@ -591,12 +639,13 @@ describe('Hono API', () => {
       new Request('http://localhost/api/auth/signup', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          username: 'disabled-user',
-          email: 'disabled@example.com',
-          password: 'new-user-password',
-          device: fixtureDevice
-        })
+        body: JSON.stringify(
+          await signupBody(
+            'disabled-user',
+            'disabled@example.com',
+            'new-user-password'
+          )
+        )
       })
     );
 
@@ -617,12 +666,13 @@ describe('Hono API', () => {
       new Request('http://localhost/api/auth/signup', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          username: 'denied-user',
-          email: 'denied@example.com',
-          password: 'new-user-password',
-          device: fixtureDevice
-        })
+        body: JSON.stringify(
+          await signupBody(
+            'denied-user',
+            'denied@example.com',
+            'new-user-password'
+          )
+        )
       })
     );
     expect(deniedEmail.status).toBe(403);
@@ -631,12 +681,13 @@ describe('Hono API', () => {
       new Request('http://localhost/api/auth/signup', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          username: 'invite-user',
-          email: 'invite@example.com',
-          password: 'new-user-password',
-          device: fixtureDevice
-        })
+        body: JSON.stringify(
+          await signupBody(
+            'invite-user',
+            'invite@example.com',
+            'new-user-password'
+          )
+        )
       })
     );
     expect(allowed.status).toBe(200);
@@ -669,12 +720,13 @@ describe('Hono API', () => {
       new Request('http://localhost/api/auth/signup', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          username: 'db-invite-user',
-          email: 'db-invite@example.com',
-          password: 'new-user-password',
-          device: fixtureDevice
-        })
+        body: JSON.stringify(
+          await signupBody(
+            'db-invite-user',
+            'db-invite@example.com',
+            'new-user-password'
+          )
+        )
       })
     );
 
@@ -689,12 +741,13 @@ describe('Hono API', () => {
       new Request('http://localhost/api/auth/signup', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          username: 'remote-required-user',
-          email: 'remote-required@example.com',
-          password: 'new-user-password',
-          device: fixtureDevice
-        })
+        body: JSON.stringify(
+          await signupBody(
+            'remote-required-user',
+            'remote-required@example.com',
+            'new-user-password'
+          )
+        )
       })
     );
 
@@ -727,30 +780,10 @@ describe('Hono API', () => {
       remote.close();
     }
 
-    const oldLocalPassword = await api.fetch(
-      new Request('http://localhost/api/auth/login', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          username: 'owner',
-          password: 'old-local-password',
-          device: fixtureDevice
-        })
-      })
-    );
+    const oldLocalPassword = await loginResponse('owner', 'old-local-password');
     expect(oldLocalPassword.status).toBe(401);
 
-    const remotePassword = await api.fetch(
-      new Request('http://localhost/api/auth/login', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          username: 'owner',
-          password: 'remote-password',
-          device: fixtureDevice
-        })
-      })
-    );
+    const remotePassword = await loginResponse('owner', 'remote-password');
     expect(remotePassword.status).toBe(200);
     await expect(remotePassword.json()).resolves.toMatchObject({
       user: { username: 'owner' },
@@ -788,17 +821,7 @@ describe('Hono API', () => {
       local.close();
     }
 
-    const response = await api.fetch(
-      new Request('http://localhost/api/auth/login', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          username: 'owner',
-          password: 'remote-password',
-          device: fixtureDevice
-        })
-      })
-    );
+    const response = await loginResponse('owner', 'remote-password');
     expect(response.status).toBe(200);
     const body = (await response.json()) as { token: string };
     expect(body.token).toEqual(expect.any(String));
@@ -830,17 +853,7 @@ describe('Hono API', () => {
     );
     expect(oldSession.status).toBe(401);
 
-    const oldPassword = await api.fetch(
-      new Request('http://localhost/api/auth/login', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          username: 'owner',
-          password: 'test-password',
-          device: fixtureDevice
-        })
-      })
-    );
+    const oldPassword = await loginResponse('owner', 'test-password');
     expect(oldPassword.status).toBe(401);
 
     await expect(loginToken('owner', 'new-test-password')).resolves.toEqual(
@@ -871,7 +884,7 @@ describe('Hono API', () => {
     const enable = await post(
       '/api/account/totp',
       {
-        currentPassword: 'test-password',
+        proof: await passwordProof(token, 'test-password', 'totp'),
         secret: setupBody.secret,
         totpCode: totpCode(setupBody.secret)
       },
@@ -1058,21 +1071,21 @@ describe('Hono API', () => {
     const shortPassword = await post(
       '/api/account/password',
       {
-        currentPassword: 'test-password',
-        newPassword: 'short'
+        proof: await passwordProof(token, 'test-password', 'password_change')
       },
       token
     );
     expect(shortPassword.status).toBe(400);
     await expect(shortPassword.json()).resolves.toEqual({
-      error: 'Password must be at least 12 characters'
+      error: 'Invalid password payload'
     });
 
     const password = await post(
       '/api/account/password',
       {
-        currentPassword: 'test-password',
-        newPassword: 'new-test-password'
+        proof: await passwordProof(token, 'test-password', 'password_change'),
+        newPasswordVerifier:
+          await passwordVerifierFromPassword('new-test-password')
       },
       token
     );
@@ -1123,7 +1136,13 @@ describe('Hono API', () => {
           authorization: `Bearer ${token}`,
           'content-type': 'application/json'
         },
-        body: JSON.stringify({ password: 'new-test-password' })
+        body: JSON.stringify({
+          proof: await passwordProof(
+            token,
+            'new-test-password',
+            'delete_account'
+          )
+        })
       })
     );
     expect(deleted.status).toBe(200);
@@ -1177,17 +1196,7 @@ describe('Hono API', () => {
       local.close();
     }
 
-    const missing = await api.fetch(
-      new Request('http://localhost/api/auth/login', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          username: 'owner',
-          password: 'new-test-password',
-          device: fixtureDevice
-        })
-      })
-    );
+    const missing = await loginResponse('owner', 'new-test-password');
     expect(missing.status).toBe(401);
   }, 180_000);
 
@@ -1214,7 +1223,7 @@ describe('Hono API', () => {
     const enable = await post(
       '/api/account/totp',
       {
-        currentPassword: 'test-password',
+        proof: await passwordProof(token, 'test-password', 'totp'),
         secret: setupBody.secret,
         totpCode: totpCode(setupBody.secret)
       },
@@ -1241,17 +1250,7 @@ describe('Hono API', () => {
       storedRemote.close();
     }
 
-    const withoutCode = await api.fetch(
-      new Request('http://localhost/api/auth/login', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          username: 'owner',
-          password: 'test-password',
-          device: fixtureDevice
-        })
-      })
-    );
+    const withoutCode = await loginResponse('owner', 'test-password');
     expect(withoutCode.status).toBe(401);
 
     const trustedDeviceCode = await api.fetch(
@@ -1294,17 +1293,10 @@ describe('Hono API', () => {
     );
     expect(unknownDeviceCode.status).toBe(401);
 
-    const withCode = await api.fetch(
-      new Request('http://localhost/api/auth/login', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          username: 'owner',
-          password: 'test-password',
-          totpCode: totpCode(setupBody.secret),
-          device: fixtureDevice
-        })
-      })
+    const withCode = await loginResponse(
+      'owner',
+      'test-password',
+      totpCode(setupBody.secret)
     );
     expect(withCode.status).toBe(200);
   });
@@ -1357,17 +1349,7 @@ describe('Hono API', () => {
   });
 
   it('logs in, pushes a note, and pulls it back', async () => {
-    const login = await api.fetch(
-      new Request('http://localhost/api/auth/login', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          username: 'owner',
-          password: 'test-password',
-          device: fixtureDevice
-        })
-      })
-    );
+    const login = await loginResponse();
     expect(login.status).toBe(200);
     const token = ((await login.json()) as { token: string }).token;
 

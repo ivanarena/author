@@ -1,6 +1,8 @@
 import type {
   AccountResponse,
   AccountUpdateRequest,
+  AuthChallengeRequest,
+  AuthChallengeResponse,
   AuthLoginRequest,
   AuthLoginResponse,
   AuthSignupRequest,
@@ -23,11 +25,14 @@ import { Hono, type Context } from 'hono';
 import {
   type AuthSession,
   authenticateTrustedDevice,
-  authenticateUser,
+  authenticateUserProof,
   authSessionCookie,
+  bootstrapUserWithVerifier,
   changeUserPassword,
   clearAuthSessionCookie,
+  createAuthChallenge,
   createAuthSession,
+  createSessionAuthChallenge,
   createUserAccount,
   disableUserTotp,
   enableUserTotp,
@@ -986,6 +991,77 @@ api.get(API_PATHS.config, async (c) => {
   } satisfies ConfigResponse);
 });
 
+api.post(API_PATHS.authChallenge, async (c) => {
+  const parsed = await jsonOrSizeError<AuthChallengeRequest>(
+    c.req.raw,
+    MAX_LOGIN_BODY_BYTES,
+    'Auth challenge payload too large'
+  );
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
+  if (
+    !body ||
+    !['login', 'password_change', 'totp', 'delete_account'].includes(
+      body.purpose
+    ) ||
+    typeof body.clientNonce !== 'string'
+  ) {
+    return c.json({ error: 'Invalid auth challenge payload' }, 400);
+  }
+
+  const remoteConfig = remoteMirrorConfig(c);
+  if (body.purpose === 'login') {
+    if (typeof body.username !== 'string') {
+      return c.json({ error: 'Invalid auth challenge payload' }, 400);
+    }
+    const target = remoteConfig
+      ? await openConfiguredDatabase(remoteConfig)
+      : await openPrimaryDatabase(c);
+    try {
+      const challenge = await createAuthChallenge(
+        target,
+        body.username,
+        'login',
+        body.clientNonce
+      );
+      if (!challenge) {
+        return c.json({ error: 'Invalid auth challenge payload' }, 400);
+      }
+      return c.json(challenge satisfies AuthChallengeResponse);
+    } finally {
+      target.close();
+    }
+  }
+
+  const db = await openPrimaryDatabase(c);
+  try {
+    const session = await sessionFromRequest(db, c.req.raw);
+    if (!session) return unauthorized();
+    if (session.legacy) {
+      return c.json({ error: 'Legacy token accounts cannot be edited' }, 400);
+    }
+    const target = remoteConfig
+      ? await openConfiguredDatabase(remoteConfig)
+      : db;
+    try {
+      const challenge = await createSessionAuthChallenge(
+        target,
+        session.user.username,
+        body.purpose,
+        body.clientNonce
+      );
+      if (!challenge) {
+        return c.json({ error: 'Invalid auth challenge payload' }, 400);
+      }
+      return c.json(challenge satisfies AuthChallengeResponse);
+    } finally {
+      if (target !== db) target.close();
+    }
+  } finally {
+    db.close();
+  }
+});
+
 api.post(API_PATHS.authLogin, async (c) => {
   const parsed = await jsonOrSizeError<AuthLoginRequest>(
     c.req.raw,
@@ -997,23 +1073,27 @@ api.post(API_PATHS.authLogin, async (c) => {
 
   if (
     !hasDevicePayload(body?.device) ||
-    (body?.password !== undefined &&
-      body.password !== null &&
-      typeof body.password !== 'string') ||
+    typeof body?.username !== 'string' ||
+    (body?.proof !== undefined &&
+      body.proof !== null &&
+      typeof body.proof !== 'object') ||
+    (body?.passwordVerifier !== undefined &&
+      body.passwordVerifier !== null &&
+      typeof body.passwordVerifier !== 'object') ||
+    (body?.bootstrapPassword !== undefined &&
+      body.bootstrapPassword !== null &&
+      typeof body.bootstrapPassword !== 'string') ||
     (body?.deviceTrustSecret !== undefined &&
       body.deviceTrustSecret !== null &&
       typeof body.deviceTrustSecret !== 'string')
   ) {
     return c.json({ error: 'Invalid login payload' }, 400);
   }
-  const password =
-    typeof body.password === 'string' && body.password.trim()
-      ? body.password
-      : null;
-  if (!password && typeof body?.username !== 'string') {
-    return c.json({ error: 'Invalid login payload' }, 400);
-  }
   const deviceTrustSecret = deviceTrustSecretFromBody(body);
+  const hasProof = Boolean(body.proof);
+  const hasBootstrapVerifier = Boolean(
+    body.passwordVerifier && body.bootstrapPassword
+  );
 
   const attemptKey = loginAttemptKey(c.req.raw, body.username);
   const db = await openPrimaryDatabase(c);
@@ -1025,26 +1105,38 @@ api.post(API_PATHS.authLogin, async (c) => {
       );
     }
 
-    let remoteUser: Awaited<ReturnType<typeof authenticateUser>> = null;
+    let remoteUser: AuthLoginResponse['user'] | null = null;
+    let serverProof: string | null = null;
     const remoteConfig = remoteMirrorConfig(c);
     if (remoteConfig) {
       let remote: NotesDb | null = null;
       try {
         remote = await openConfiguredDatabase(remoteConfig);
-        remoteUser = password
-          ? await authenticateUser(
-              remote,
-              body.username,
-              password,
-              body.totpCode
-            )
-          : await authenticateTrustedDevice(
-              remote,
-              body.username,
-              body.device.id,
-              deviceTrustSecret,
-              body.totpCode
-            );
+        if (hasProof) {
+          const verified = await authenticateUserProof(
+            remote,
+            body.username,
+            body.proof,
+            body.totpCode
+          );
+          remoteUser = verified?.user ?? null;
+          serverProof = verified?.serverProof ?? null;
+        } else if (hasBootstrapVerifier) {
+          remoteUser = await bootstrapUserWithVerifier(
+            remote,
+            body.username,
+            body.bootstrapPassword,
+            body.passwordVerifier
+          );
+        } else {
+          remoteUser = await authenticateTrustedDevice(
+            remote,
+            body.username,
+            body.device.id,
+            deviceTrustSecret,
+            body.totpCode
+          );
+        }
         if (remoteUser) {
           await upsertDevice(
             remote,
@@ -1094,19 +1186,35 @@ api.post(API_PATHS.authLogin, async (c) => {
       await queueRemoteSyncAfter(undefined, c.env);
     }
 
-    let user: Awaited<ReturnType<typeof authenticateUser>>;
+    let user: AuthLoginResponse['user'] | null;
     try {
-      user = remoteUser
-        ? remoteUser
-        : password
-          ? await authenticateUser(db, body.username, password, body.totpCode)
-          : await authenticateTrustedDevice(
-              db,
-              body.username,
-              body.device.id,
-              deviceTrustSecret,
-              body.totpCode
-            );
+      if (remoteUser) {
+        user = remoteUser;
+      } else if (hasProof) {
+        const verified = await authenticateUserProof(
+          db,
+          body.username,
+          body.proof,
+          body.totpCode
+        );
+        user = verified?.user ?? null;
+        serverProof = verified?.serverProof ?? null;
+      } else if (hasBootstrapVerifier) {
+        user = await bootstrapUserWithVerifier(
+          db,
+          body.username,
+          body.bootstrapPassword,
+          body.passwordVerifier
+        );
+      } else {
+        user = await authenticateTrustedDevice(
+          db,
+          body.username,
+          body.device.id,
+          deviceTrustSecret,
+          body.totpCode
+        );
+      }
     } catch (error) {
       return c.json(
         { error: error instanceof Error ? error.message : 'Login failed' },
@@ -1142,7 +1250,8 @@ api.post(API_PATHS.authLogin, async (c) => {
       token: session.token,
       user,
       device: body.device,
-      expiresAt: session.expiresAt
+      expiresAt: session.expiresAt,
+      serverProof
     } satisfies AuthLoginResponse);
   } finally {
     db.close();
@@ -1162,7 +1271,8 @@ api.post(API_PATHS.authSignup, async (c) => {
     !hasDevicePayload(body?.device) ||
     typeof body?.username !== 'string' ||
     typeof body?.email !== 'string' ||
-    typeof body?.password !== 'string' ||
+    !body.passwordVerifier ||
+    typeof body.passwordVerifier !== 'object' ||
     (body?.deviceTrustSecret !== undefined &&
       body.deviceTrustSecret !== null &&
       typeof body.deviceTrustSecret !== 'string')
@@ -1217,7 +1327,7 @@ api.post(API_PATHS.authSignup, async (c) => {
         db,
         body.username,
         body.email,
-        body.password,
+        body.passwordVerifier,
         body.displayName
       );
       if (!user) {
@@ -1287,7 +1397,7 @@ api.post(API_PATHS.authSignup, async (c) => {
       remote,
       body.username,
       body.email,
-      body.password,
+      body.passwordVerifier,
       body.displayName
     );
     if (!createdUser) {
@@ -1492,8 +1602,10 @@ api.post(API_PATHS.accountPassword, async (c) => {
     if (!parsed.ok) return parsed.response;
     const body = parsed.body;
     if (
-      typeof body?.currentPassword !== 'string' ||
-      typeof body?.newPassword !== 'string'
+      !body?.proof ||
+      typeof body.proof !== 'object' ||
+      !body.newPasswordVerifier ||
+      typeof body.newPasswordVerifier !== 'object'
     ) {
       return c.json({ error: 'Invalid password payload' }, 400);
     }
@@ -1506,8 +1618,8 @@ api.post(API_PATHS.accountPassword, async (c) => {
           user = await changeUserPassword(
             db,
             session.user.username,
-            body.currentPassword,
-            body.newPassword
+            body.proof,
+            body.newPasswordVerifier
           );
         } catch (error) {
           return c.json(
@@ -1555,8 +1667,8 @@ api.post(API_PATHS.accountPassword, async (c) => {
       user = await changeUserPassword(
         remote,
         session.user.username,
-        body.currentPassword,
-        body.newPassword
+        body.proof,
+        body.newPasswordVerifier
       );
     } catch (error) {
       return c.json(
@@ -1628,7 +1740,8 @@ api.post(API_PATHS.accountTotp, async (c) => {
     if (!parsed.ok) return parsed.response;
     const body = parsed.body;
     if (
-      typeof body?.currentPassword !== 'string' ||
+      !body?.proof ||
+      typeof body.proof !== 'object' ||
       typeof body?.secret !== 'string' ||
       typeof body?.totpCode !== 'string'
     ) {
@@ -1641,7 +1754,7 @@ api.post(API_PATHS.accountTotp, async (c) => {
         const user = await enableUserTotp(
           db,
           session.user.username,
-          body.currentPassword,
+          body.proof,
           body.secret,
           body.totpCode
         );
@@ -1666,7 +1779,7 @@ api.post(API_PATHS.accountTotp, async (c) => {
       user = await enableUserTotp(
         remote,
         session.user.username,
-        body.currentPassword,
+        body.proof,
         body.secret,
         body.totpCode
       );
@@ -1705,7 +1818,7 @@ api.delete(API_PATHS.accountTotp, async (c) => {
     );
     if (!parsed.ok) return parsed.response;
     const body = parsed.body;
-    if (typeof body?.currentPassword !== 'string') {
+    if (!body?.proof || typeof body.proof !== 'object') {
       return c.json({ error: 'Invalid 2FA payload' }, 400);
     }
 
@@ -1715,7 +1828,7 @@ api.delete(API_PATHS.accountTotp, async (c) => {
         const user = await disableUserTotp(
           db,
           session.user.username,
-          body.currentPassword,
+          body.proof,
           body.totpCode
         );
         if (!user) return c.json({ error: 'Could not verify 2FA code' }, 401);
@@ -1739,7 +1852,7 @@ api.delete(API_PATHS.accountTotp, async (c) => {
       user = await disableUserTotp(
         remote,
         session.user.username,
-        body.currentPassword,
+        body.proof,
         body.totpCode
       );
     } finally {
@@ -1833,7 +1946,7 @@ api.delete(API_PATHS.account, async (c) => {
     );
     if (!parsed.ok) return parsed.response;
     const body = parsed.body;
-    if (typeof body?.password !== 'string') {
+    if (!body?.proof || typeof body.proof !== 'object') {
       return c.json({ error: 'Invalid delete payload' }, 400);
     }
 
@@ -1843,7 +1956,7 @@ api.delete(API_PATHS.account, async (c) => {
         const deleted = await deleteUserAccount(
           db,
           session.user.username,
-          body.password
+          body.proof
         );
         if (!deleted) return c.json({ error: 'Password is incorrect' }, 401);
         clearAuthCookie(c);
@@ -1866,7 +1979,7 @@ api.delete(API_PATHS.account, async (c) => {
       deleted = await deleteUserAccount(
         remote,
         session.user.username,
-        body.password
+        body.proof
       );
     } finally {
       remote.close();

@@ -6,6 +6,7 @@ import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.SecureRandom
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -14,6 +15,8 @@ class AuthException(message: String = "Login expired") : Exception(message)
 class SyncHttpException(val status: Int, message: String) : Exception(message)
 
 class SyncClient(private val baseUrlProvider: () -> String) {
+  private val random = SecureRandom()
+
   fun loadServerConfig(): ServerConfig {
     val json = requestJson("/api/config", "GET")
     val remote = json.optJSONObject("remote") ?: JSONObject()
@@ -33,9 +36,20 @@ class SyncClient(private val baseUrlProvider: () -> String) {
     return parseAuthUser(user) to json.optNullableString("expiresAt")
   }
 
-  fun login(
+  fun authChallenge(username: String?, purpose: String, token: String? = null): AuthChallenge {
+    val body =
+      JSONObject()
+        .putNullable("username", username)
+        .put("purpose", purpose)
+        .put("clientNonce", randomAuthNonce())
+    return parseAuthChallenge(
+      requestJson("/api/auth/challenge", "POST", token = token, body = body)
+    )
+  }
+
+  fun loginWithProof(
     username: String,
-    password: String,
+    proof: AuthProof,
     totpCode: String?,
     device: Device,
     deviceTrustSecret: String,
@@ -43,7 +57,26 @@ class SyncClient(private val baseUrlProvider: () -> String) {
     val body =
       JSONObject()
         .put("username", username)
-        .put("password", password)
+        .put("proof", authProofToJson(proof))
+        .putNullable("totpCode", totpCode)
+        .put("device", deviceToJson(device))
+        .put("deviceTrustSecret", deviceTrustSecret)
+    return parseLoginResponse(requestJson("/api/auth/login", "POST", body = body))
+  }
+
+  fun loginBootstrap(
+    username: String,
+    bootstrapPassword: String,
+    verifier: PasswordVerifier,
+    totpCode: String?,
+    device: Device,
+    deviceTrustSecret: String,
+  ): LoginResponse {
+    val body =
+      JSONObject()
+        .put("username", username)
+        .put("bootstrapPassword", bootstrapPassword)
+        .put("passwordVerifier", passwordVerifierToJson(verifier))
         .putNullable("totpCode", totpCode)
         .put("device", deviceToJson(device))
         .put("deviceTrustSecret", deviceTrustSecret)
@@ -53,7 +86,7 @@ class SyncClient(private val baseUrlProvider: () -> String) {
   fun signup(
     username: String,
     email: String,
-    password: String,
+    verifier: PasswordVerifier,
     device: Device,
     deviceTrustSecret: String,
   ): LoginResponse {
@@ -61,7 +94,7 @@ class SyncClient(private val baseUrlProvider: () -> String) {
       JSONObject()
         .put("username", username)
         .put("email", email)
-        .put("password", password)
+        .put("passwordVerifier", passwordVerifierToJson(verifier))
         .put("device", deviceToJson(device))
         .put("deviceTrustSecret", deviceTrustSecret)
     return parseLoginResponse(requestJson("/api/auth/signup", "POST", body = body))
@@ -126,8 +159,15 @@ class SyncClient(private val baseUrlProvider: () -> String) {
     return parseAccountResponse(requestJson("/api/account", "PATCH", token = token, body = body))
   }
 
-  fun changePassword(token: String, currentPassword: String, newPassword: String): AccountResponse {
-    val body = JSONObject().put("currentPassword", currentPassword).put("newPassword", newPassword)
+  fun changePassword(
+    token: String,
+    proof: AuthProof,
+    newVerifier: PasswordVerifier,
+  ): AccountResponse {
+    val body =
+      JSONObject()
+        .put("proof", authProofToJson(proof))
+        .put("newPasswordVerifier", passwordVerifierToJson(newVerifier))
     return parseAccountResponse(
       requestJson("/api/account/password", "POST", token = token, body = body)
     )
@@ -140,13 +180,13 @@ class SyncClient(private val baseUrlProvider: () -> String) {
 
   fun enableTotp(
     token: String,
-    currentPassword: String,
+    proof: AuthProof,
     secret: String,
     totpCode: String,
   ): AccountResponse {
     val body =
       JSONObject()
-        .put("currentPassword", currentPassword)
+        .put("proof", authProofToJson(proof))
         .put("secret", secret)
         .put("totpCode", totpCode)
     return parseAccountResponse(
@@ -154,9 +194,8 @@ class SyncClient(private val baseUrlProvider: () -> String) {
     )
   }
 
-  fun disableTotp(token: String, currentPassword: String, totpCode: String?): AccountResponse {
-    val body =
-      JSONObject().put("currentPassword", currentPassword).putNullable("totpCode", totpCode)
+  fun disableTotp(token: String, proof: AuthProof, totpCode: String?): AccountResponse {
+    val body = JSONObject().put("proof", authProofToJson(proof)).putNullable("totpCode", totpCode)
     return parseAccountResponse(
       requestJson("/api/account/totp", "DELETE", token = token, body = body)
     )
@@ -173,12 +212,12 @@ class SyncClient(private val baseUrlProvider: () -> String) {
     requestJson("/api/auth/logout", "POST", token = token, body = JSONObject())
   }
 
-  fun deleteAccount(token: String, password: String) {
+  fun deleteAccount(token: String, proof: AuthProof) {
     requestJson(
       "/api/account",
       "DELETE",
       token = token,
-      body = JSONObject().put("password", password),
+      body = JSONObject().put("proof", authProofToJson(proof)),
     )
   }
 
@@ -233,6 +272,12 @@ class SyncClient(private val baseUrlProvider: () -> String) {
     val base = baseUrlProvider().trim().ifBlank { BuildConfig.DEFAULT_API_BASE_URL }
     return URL(URL(base.trimEnd('/') + "/"), path.trimStart('/')).toString()
   }
+
+  private fun randomAuthNonce(): String {
+    val bytes = ByteArray(32)
+    random.nextBytes(bytes)
+    return base64UrlEncode(bytes)
+  }
 }
 
 data class LoginResponse(
@@ -240,6 +285,7 @@ data class LoginResponse(
   val user: AuthUser,
   val device: Device,
   val expiresAt: String?,
+  val serverProof: String?,
 )
 
 private fun parseLoginResponse(json: JSONObject): LoginResponse {
@@ -249,8 +295,53 @@ private fun parseLoginResponse(json: JSONObject): LoginResponse {
     user = parseAuthUser(user),
     device = deviceFromJson(json.getJSONObject("device")),
     expiresAt = json.optNullableString("expiresAt"),
+    serverProof = json.optNullableString("serverProof"),
   )
 }
+
+private fun parseAuthChallenge(json: JSONObject): AuthChallenge =
+  AuthChallenge(
+    mode = json.getString("mode"),
+    challengeId = json.getString("challengeId"),
+    username = json.getString("username"),
+    purpose = json.getString("purpose"),
+    clientNonce = json.getString("clientNonce"),
+    serverNonce = json.getString("serverNonce"),
+    expiresAt = json.getString("expiresAt"),
+    salt = json.getString("salt"),
+    params = parseAuthKdfParams(json.getJSONObject("params")),
+  )
+
+private fun parseAuthKdfParams(json: JSONObject): AuthKdfParams =
+  AuthKdfParams(
+    algorithm = json.getString("algorithm"),
+    memoryKiB = json.getInt("memoryKiB"),
+    iterations = json.getInt("iterations"),
+    parallelism = json.getInt("parallelism"),
+    keyLength = json.getInt("keyLength"),
+  )
+
+private fun passwordVerifierToJson(verifier: PasswordVerifier): JSONObject =
+  JSONObject()
+    .put("algorithm", verifier.algorithm)
+    .put("salt", verifier.salt)
+    .put("params", authKdfParamsToJson(verifier.params))
+    .put("storedKey", verifier.storedKey)
+    .put("serverKey", verifier.serverKey)
+
+private fun authKdfParamsToJson(params: AuthKdfParams): JSONObject =
+  JSONObject()
+    .put("algorithm", params.algorithm)
+    .put("memoryKiB", params.memoryKiB)
+    .put("iterations", params.iterations)
+    .put("parallelism", params.parallelism)
+    .put("keyLength", params.keyLength)
+
+private fun authProofToJson(proof: AuthProof): JSONObject =
+  JSONObject()
+    .put("challengeId", proof.challengeId)
+    .put("clientNonce", proof.clientNonce)
+    .put("proof", proof.proof)
 
 private fun parseAuthUser(user: JSONObject): AuthUser =
   AuthUser(

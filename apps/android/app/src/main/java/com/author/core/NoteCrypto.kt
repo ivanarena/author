@@ -23,8 +23,44 @@ private const val PASSWORD_ARGON2_SALT_PREFIX = "author:password-key:v3"
 private const val CURRENT_ENCRYPTION_VERSION = "v3"
 private const val CURRENT_PASSWORD_MATERIAL_VERSION = "v4"
 private const val NOTEBOOK_NAME_HASH_CONTEXT = "notebook:name"
+private const val AUTH_PROOF_ALGORITHM = "argon2id-scram-sha256"
+private const val AUTH_MESSAGE_VERSION = "author-auth-proof-v1"
+private const val AUTH_CLIENT_KEY_LABEL = "Client Key"
+private const val AUTH_SERVER_KEY_LABEL = "Server Key"
 const val ENCRYPTION_UPGRADE_REQUIRED_MESSAGE =
   "This workspace uses an older encryption format. Open it with the migration-capable release first, then return to this version."
+
+data class AuthKdfParams(
+  val algorithm: String = "argon2id",
+  val memoryKiB: Int = PASSWORD_ARGON2_MEMORY_KIB,
+  val iterations: Int = PASSWORD_ARGON2_ITERATIONS,
+  val parallelism: Int = PASSWORD_ARGON2_PARALLELISM,
+  val keyLength: Int = 32,
+)
+
+data class PasswordVerifier(
+  val algorithm: String,
+  val salt: String,
+  val params: AuthKdfParams,
+  val storedKey: String,
+  val serverKey: String,
+)
+
+data class AuthChallenge(
+  val mode: String,
+  val challengeId: String,
+  val username: String,
+  val purpose: String,
+  val clientNonce: String,
+  val serverNonce: String,
+  val expiresAt: String,
+  val salt: String,
+  val params: AuthKdfParams,
+)
+
+data class AuthProof(val challengeId: String, val clientNonce: String, val proof: String)
+
+data class AuthProofResult(val proof: AuthProof, val expectedServerProof: String)
 
 class NoteCrypto(
   @Suppress("UNUSED_PARAMETER") prefs: SharedPreferences,
@@ -136,6 +172,56 @@ class NoteCrypto(
       .joinToString(":")
   }
 
+  fun randomAuthNonce(bytes: Int = 32): String {
+    val output = ByteArray(bytes)
+    random.nextBytes(output)
+    return base64UrlEncode(output)
+  }
+
+  fun passwordVerifierFromPassword(
+    password: String,
+    salt: String = randomAuthNonce(16),
+    params: AuthKdfParams = AuthKdfParams(),
+  ): PasswordVerifier {
+    require(authParamsAreCurrent(params)) { "Unsupported password proof parameters" }
+    val saltedPassword = argon2AuthMaterial(password, base64UrlDecode(salt), params)
+    val clientKey = hmacSha256(saltedPassword, AUTH_CLIENT_KEY_LABEL.toByteArray(UTF_8))
+    val storedKey = sha256(clientKey)
+    val serverKey = hmacSha256(saltedPassword, AUTH_SERVER_KEY_LABEL.toByteArray(UTF_8))
+    return PasswordVerifier(
+      algorithm = AUTH_PROOF_ALGORITHM,
+      salt = salt,
+      params = params,
+      storedKey = base64UrlEncode(storedKey),
+      serverKey = base64UrlEncode(serverKey),
+    )
+  }
+
+  fun authProofFromPassword(password: String, challenge: AuthChallenge): AuthProofResult {
+    require(challenge.mode == "proof") { "Password proof challenge is not available" }
+    require(authParamsAreCurrent(challenge.params)) { "Unsupported password proof parameters" }
+    val saltedPassword =
+      argon2AuthMaterial(password, base64UrlDecode(challenge.salt), challenge.params)
+    val clientKey = hmacSha256(saltedPassword, AUTH_CLIENT_KEY_LABEL.toByteArray(UTF_8))
+    val storedKey = sha256(clientKey)
+    val message = authProofMessage(challenge).toByteArray(UTF_8)
+    val clientSignature = hmacSha256(storedKey, message)
+    val proof = xorBytes(clientKey, clientSignature)
+    val serverKey = hmacSha256(saltedPassword, AUTH_SERVER_KEY_LABEL.toByteArray(UTF_8))
+    return AuthProofResult(
+      proof = AuthProof(challenge.challengeId, challenge.clientNonce, base64UrlEncode(proof)),
+      expectedServerProof = base64UrlEncode(hmacSha256(serverKey, message)),
+    )
+  }
+
+  fun verifyAuthServerProof(expectedServerProof: String, serverProof: String?): Boolean {
+    if (serverProof.isNullOrBlank()) return false
+    return runCatching {
+        constantTimeEqual(base64UrlDecode(expectedServerProof), base64UrlDecode(serverProof))
+      }
+      .getOrDefault(false)
+  }
+
   private fun argon2PasswordMaterial(normalizedUsername: String, password: String): ByteArray {
     val parameters =
       Argon2Parameters.Builder(Argon2Parameters.ARGON2_id)
@@ -147,6 +233,27 @@ class NoteCrypto(
         .build()
     val generator = Argon2BytesGenerator()
     val output = ByteArray(32)
+    generator.init(parameters)
+    generator.generateBytes(password.toByteArray(UTF_8), output)
+    return output
+  }
+
+  private fun argon2AuthMaterial(
+    password: String,
+    salt: ByteArray,
+    params: AuthKdfParams,
+  ): ByteArray {
+    require(salt.size >= 16) { "Invalid password proof salt" }
+    val parameters =
+      Argon2Parameters.Builder(Argon2Parameters.ARGON2_id)
+        .withVersion(Argon2Parameters.ARGON2_VERSION_13)
+        .withSalt(salt)
+        .withMemoryAsKB(params.memoryKiB)
+        .withIterations(params.iterations)
+        .withParallelism(params.parallelism)
+        .build()
+    val generator = Argon2BytesGenerator()
+    val output = ByteArray(params.keyLength)
     generator.init(parameters)
     generator.generateBytes(password.toByteArray(UTF_8), output)
     return output
@@ -363,6 +470,49 @@ class NoteCrypto(
 
   private fun sha256(bytes: ByteArray): ByteArray =
     MessageDigest.getInstance("SHA-256").digest(bytes)
+
+  private fun hmacSha256(key: ByteArray, message: ByteArray): ByteArray {
+    val mac = Mac.getInstance("HmacSHA256")
+    mac.init(SecretKeySpec(key, "HmacSHA256"))
+    return mac.doFinal(message)
+  }
+
+  private fun authParamsAreCurrent(params: AuthKdfParams): Boolean =
+    params.algorithm == "argon2id" &&
+      params.memoryKiB == PASSWORD_ARGON2_MEMORY_KIB &&
+      params.iterations == PASSWORD_ARGON2_ITERATIONS &&
+      params.parallelism == PASSWORD_ARGON2_PARALLELISM &&
+      params.keyLength == 32
+
+  private fun authProofMessage(challenge: AuthChallenge): String =
+    listOf(
+        AUTH_MESSAGE_VERSION,
+        "username=${challenge.username}",
+        "purpose=${challenge.purpose}",
+        "challenge=${challenge.challengeId}",
+        "clientNonce=${challenge.clientNonce}",
+        "serverNonce=${challenge.serverNonce}",
+        "salt=${challenge.salt}",
+        "params=${authKdfParamsString(challenge.params)}",
+      )
+      .joinToString("\n")
+
+  private fun authKdfParamsString(params: AuthKdfParams): String =
+    "m=${params.memoryKiB},t=${params.iterations},p=${params.parallelism}"
+
+  private fun xorBytes(left: ByteArray, right: ByteArray): ByteArray {
+    require(left.size == right.size) { "Cannot XOR byte arrays with different lengths" }
+    return ByteArray(left.size) { index -> (left[index].toInt() xor right[index].toInt()).toByte() }
+  }
+
+  private fun constantTimeEqual(left: ByteArray, right: ByteArray): Boolean {
+    if (left.size != right.size) return false
+    var difference = 0
+    for (index in left.indices) {
+      difference = difference or (left[index].toInt() xor right[index].toInt())
+    }
+    return difference == 0
+  }
 }
 
 fun base64UrlEncode(bytes: ByteArray): String =

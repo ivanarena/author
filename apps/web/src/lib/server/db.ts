@@ -71,6 +71,22 @@ const schemaSql = `
   CREATE INDEX IF NOT EXISTS auth_rate_limits_reset_at_idx
     ON auth_rate_limits(reset_at);
 
+  CREATE TABLE IF NOT EXISTS auth_challenges (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    purpose TEXT NOT NULL,
+    client_nonce TEXT NOT NULL,
+    server_nonce TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS auth_challenges_expires_at_idx
+    ON auth_challenges(expires_at);
+
+  CREATE INDEX IF NOT EXISTS auth_challenges_user_purpose_idx
+    ON auth_challenges(username, purpose, created_at);
+
   CREATE TABLE IF NOT EXISTS trusted_auth_devices (
     username TEXT NOT NULL,
     device_id TEXT NOT NULL,
@@ -581,12 +597,12 @@ async function requireCurrentPasswordVerifiers(db: NotesDb): Promise<void> {
     db,
     `SELECT count(*) AS count
      FROM users
-     WHERE password_hash NOT LIKE 'argon2id:v1:%'`
+     WHERE password_hash NOT LIKE 'argon2id-scram-sha256:v1:%'`
   );
   const count = Number(row?.count ?? 0);
   if (count > 0) {
     throw new Error(
-      `Server database contains ${count} pre-Argon2 password verifier row(s). Run the migration-capable release first or reset those accounts before starting this version.`
+      `Server database contains ${count} non-current password verifier row(s). Run the current-only cleanup task or reset those accounts before starting this version.`
     );
   }
 }
@@ -799,8 +815,32 @@ export const SERVER_MIGRATIONS: ServerMigration[] = [
     version: 13,
     name: 'argon2-aes-current-only-cleanup',
     rollback:
-      'Restore from the pre-upgrade backup. This migration refuses old encrypted rows or pre-Argon2 password verifiers and drops the obsolete password_iterations column.',
+      'Restore from the pre-upgrade backup. This migration refuses old encrypted rows or non-current password verifiers and drops the obsolete password_iterations column.',
     up: migrateArgon2AesCurrentOnly
+  },
+  {
+    version: 14,
+    name: 'auth-proof-challenges',
+    rollback:
+      'Restore from the pre-upgrade backup or drop auth_challenges; rows are short-lived login challenge state.',
+    up: async (db) => {
+      await exec(
+        db,
+        `CREATE TABLE IF NOT EXISTS auth_challenges (
+           id TEXT PRIMARY KEY,
+           username TEXT NOT NULL,
+           purpose TEXT NOT NULL,
+           client_nonce TEXT NOT NULL,
+           server_nonce TEXT NOT NULL,
+           created_at TEXT NOT NULL,
+           expires_at TEXT NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS auth_challenges_expires_at_idx
+           ON auth_challenges(expires_at);
+         CREATE INDEX IF NOT EXISTS auth_challenges_user_purpose_idx
+           ON auth_challenges(username, purpose, created_at);`
+      );
+    }
   }
 ];
 

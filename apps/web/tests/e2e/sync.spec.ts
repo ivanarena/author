@@ -7,6 +7,11 @@ import {
   isEncryptedText,
   keyMaterialFromPassword
 } from '../../src/lib/client/encryption';
+import {
+  authProofFromPassword,
+  passwordVerifierFromPassword,
+  randomAuthNonce
+} from '../../src/lib/shared/auth-proof';
 
 let token = '';
 const localDeviceId = 'e2e-browser-device';
@@ -122,12 +127,30 @@ async function pushRemoteNote(
 }
 
 async function loginForToken(request: APIRequestContext): Promise<string> {
-  const response = await request.post('/api/auth/login', {
+  const challengeResponse = await request.post('/api/auth/challenge', {
     data: {
       username: loginUsername,
-      password: loginPassword,
-      device: { id: localDeviceId, name: 'E2E browser' }
+      purpose: 'login',
+      clientNonce: randomAuthNonce()
     }
+  });
+  expect(challengeResponse.ok()).toBe(true);
+  const challenge = await challengeResponse.json();
+  const loginBody =
+    challenge.mode === 'bootstrap'
+      ? {
+          username: loginUsername,
+          bootstrapPassword: loginPassword,
+          passwordVerifier: await passwordVerifierFromPassword(loginPassword),
+          device: { id: localDeviceId, name: 'E2E browser' }
+        }
+      : {
+          username: loginUsername,
+          proof: (await authProofFromPassword(loginPassword, challenge)).proof,
+          device: { id: localDeviceId, name: 'E2E browser' }
+        };
+  const response = await request.post('/api/auth/login', {
+    data: loginBody
   });
   expect(response.ok()).toBe(true);
   const body = (await response.json()) as { token: string };

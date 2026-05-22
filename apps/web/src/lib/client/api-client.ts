@@ -2,6 +2,8 @@ import {
   API_PATHS,
   type AccountResponse,
   type AccountUpdateRequest,
+  type AuthChallengeRequest,
+  type AuthChallengeResponse,
   type AuthLoginRequest,
   type AuthLoginResponse,
   type AuthSignupRequest,
@@ -18,6 +20,12 @@ import {
   type TotpEnableRequest,
   type TotpSetupResponse
 } from '@author/api-types';
+import {
+  authProofFromPassword,
+  passwordVerifierFromPassword,
+  randomAuthNonce,
+  verifyAuthServerProof
+} from '$lib/shared/auth-proof';
 
 export interface ApiClientOptions {
   baseUrl?: string;
@@ -123,6 +131,34 @@ function createRequestHelpers(options: ApiClientOptions) {
 export function createApiClient(options: ApiClientOptions = {}) {
   const { requestJson, authedGet, authedPost } = createRequestHelpers(options);
 
+  async function requestAuthChallenge(
+    body: Omit<AuthChallengeRequest, 'clientNonce'>,
+    token?: string
+  ): Promise<AuthChallengeResponse> {
+    return await requestJson<AuthChallengeResponse>(
+      API_PATHS.authChallenge,
+      {
+        method: 'POST',
+        headers: {
+          ...(token ? authHeaders(token) : {}),
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          ...body,
+          clientNonce: randomAuthNonce()
+        } satisfies AuthChallengeRequest)
+      },
+      'Auth challenge failed'
+    );
+  }
+
+  async function proofForPassword(
+    password: string,
+    challenge: AuthChallengeResponse
+  ) {
+    return await authProofFromPassword(password, challenge);
+  }
+
   return {
     async loadConfig(): Promise<ConfigResponse> {
       return await requestJson<ConfigResponse>(
@@ -148,6 +184,13 @@ export function createApiClient(options: ApiClientOptions = {}) {
       );
     },
 
+    async requestAuthChallenge(
+      body: Omit<AuthChallengeRequest, 'clientNonce'>,
+      token?: string
+    ): Promise<AuthChallengeResponse> {
+      return await requestAuthChallenge(body, token);
+    },
+
     async pushSyncChanges(
       token: string,
       body: PushRequest
@@ -171,6 +214,34 @@ export function createApiClient(options: ApiClientOptions = {}) {
     },
 
     async loginWithDevice(body: AuthLoginRequest): Promise<AuthLoginResponse> {
+      let requestBody: AuthLoginRequest = body;
+      let expectedServerProof: string | null = null;
+      if (typeof body.password === 'string' && body.password.trim()) {
+        const challenge = await requestAuthChallenge({
+          username: body.username,
+          purpose: 'login'
+        });
+        if (challenge.mode === 'bootstrap') {
+          requestBody = {
+            username: body.username,
+            bootstrapPassword: body.password,
+            passwordVerifier: await passwordVerifierFromPassword(body.password),
+            totpCode: body.totpCode,
+            device: body.device,
+            deviceTrustSecret: body.deviceTrustSecret
+          };
+        } else {
+          const material = await proofForPassword(body.password, challenge);
+          expectedServerProof = material.expectedServerProof;
+          requestBody = {
+            username: body.username,
+            proof: material.proof,
+            totpCode: body.totpCode,
+            device: body.device,
+            deviceTrustSecret: body.deviceTrustSecret
+          };
+        }
+      }
       return await requestJson<AuthLoginResponse>(
         API_PATHS.authLogin,
         {
@@ -178,15 +249,32 @@ export function createApiClient(options: ApiClientOptions = {}) {
           headers: {
             'content-type': 'application/json'
           },
-          body: JSON.stringify(body)
+          body: JSON.stringify(requestBody)
         },
         'Login failed'
-      );
+      ).then((response) => {
+        if (
+          expectedServerProof &&
+          !verifyAuthServerProof(expectedServerProof, response.serverProof)
+        ) {
+          throw new AuthError('Login proof failed');
+        }
+        return response;
+      });
     },
 
     async signupWithDevice(
       body: AuthSignupRequest
     ): Promise<AuthLoginResponse> {
+      const requestBody: AuthSignupRequest = {
+        ...body,
+        passwordVerifier:
+          body.passwordVerifier ??
+          (typeof body.password === 'string'
+            ? await passwordVerifierFromPassword(body.password)
+            : undefined),
+        password: undefined
+      };
       return await requestJson<AuthLoginResponse>(
         API_PATHS.authSignup,
         {
@@ -194,7 +282,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
           headers: {
             'content-type': 'application/json'
           },
-          body: JSON.stringify(body)
+          body: JSON.stringify(requestBody)
         },
         'Signup failed'
       );
@@ -230,10 +318,31 @@ export function createApiClient(options: ApiClientOptions = {}) {
       token: string,
       body: PasswordChangeRequest
     ): Promise<AccountResponse> {
+      const currentPassword = body.currentPassword;
+      const newPassword = body.newPassword;
+      if (
+        typeof currentPassword !== 'string' ||
+        typeof newPassword !== 'string'
+      ) {
+        return await authedPost<PasswordChangeRequest, AccountResponse>(
+          API_PATHS.accountPassword,
+          token,
+          body,
+          'Account failed'
+        );
+      }
+      const challenge = await requestAuthChallenge(
+        { purpose: 'password_change' },
+        token
+      );
+      const material = await proofForPassword(currentPassword, challenge);
       return await authedPost<PasswordChangeRequest, AccountResponse>(
         API_PATHS.accountPassword,
         token,
-        body,
+        {
+          proof: material.proof,
+          newPasswordVerifier: await passwordVerifierFromPassword(newPassword)
+        },
         'Account failed'
       );
     },
@@ -251,6 +360,26 @@ export function createApiClient(options: ApiClientOptions = {}) {
       token: string,
       body: TotpEnableRequest
     ): Promise<AccountResponse> {
+      if (typeof body.currentPassword === 'string') {
+        const challenge = await requestAuthChallenge(
+          { purpose: 'totp' },
+          token
+        );
+        const material = await proofForPassword(
+          body.currentPassword,
+          challenge
+        );
+        return await authedPost<TotpEnableRequest, AccountResponse>(
+          API_PATHS.accountTotp,
+          token,
+          {
+            proof: material.proof,
+            secret: body.secret,
+            totpCode: body.totpCode
+          },
+          '2FA update failed'
+        );
+      }
       return await authedPost<TotpEnableRequest, AccountResponse>(
         API_PATHS.accountTotp,
         token,
@@ -263,6 +392,31 @@ export function createApiClient(options: ApiClientOptions = {}) {
       token: string,
       body: TotpDisableRequest
     ): Promise<AccountResponse> {
+      if (typeof body.currentPassword === 'string') {
+        const challenge = await requestAuthChallenge(
+          { purpose: 'totp' },
+          token
+        );
+        const material = await proofForPassword(
+          body.currentPassword,
+          challenge
+        );
+        return await requestJson<AccountResponse>(
+          API_PATHS.accountTotp,
+          {
+            method: 'DELETE',
+            headers: {
+              ...authHeaders(token),
+              'content-type': 'application/json'
+            },
+            body: JSON.stringify({
+              proof: material.proof,
+              totpCode: body.totpCode
+            } satisfies TotpDisableRequest)
+          },
+          '2FA update failed'
+        );
+      }
       return await requestJson<AccountResponse>(
         API_PATHS.accountTotp,
         {
@@ -303,6 +457,28 @@ export function createApiClient(options: ApiClientOptions = {}) {
       token: string,
       body: DeleteAccountRequest
     ): Promise<void> {
+      if (typeof body.password === 'string') {
+        const challenge = await requestAuthChallenge(
+          { purpose: 'delete_account' },
+          token
+        );
+        const material = await proofForPassword(body.password, challenge);
+        await requestJson<{ ok: true }>(
+          API_PATHS.account,
+          {
+            method: 'DELETE',
+            headers: {
+              ...authHeaders(token),
+              'content-type': 'application/json'
+            },
+            body: JSON.stringify({
+              proof: material.proof
+            } satisfies DeleteAccountRequest)
+          },
+          'Delete account failed'
+        );
+        return;
+      }
       await requestJson<{ ok: true }>(
         API_PATHS.account,
         {

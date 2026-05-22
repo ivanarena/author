@@ -557,13 +557,31 @@ class NotesRepository(context: Context) {
 
   suspend fun login(username: String, password: String, totpCode: String?): LoginResponse =
     withContext(Dispatchers.IO) {
-      syncClient.login(
-        username,
-        password,
-        totpCode,
-        getOrCreateDevice(),
-        getOrCreateDeviceTrustSecret(),
-      )
+      val challenge = syncClient.authChallenge(username, "login")
+      if (challenge.mode == "bootstrap") {
+        syncClient.loginBootstrap(
+          username,
+          password,
+          crypto.passwordVerifierFromPassword(password),
+          totpCode,
+          getOrCreateDevice(),
+          getOrCreateDeviceTrustSecret(),
+        )
+      } else {
+        val proof = crypto.authProofFromPassword(password, challenge)
+        val response =
+          syncClient.loginWithProof(
+            username,
+            proof.proof,
+            totpCode,
+            getOrCreateDevice(),
+            getOrCreateDeviceTrustSecret(),
+          )
+        check(crypto.verifyAuthServerProof(proof.expectedServerProof, response.serverProof)) {
+          "Login proof failed"
+        }
+        response
+      }
     }
 
   suspend fun signup(username: String, email: String, password: String): LoginResponse =
@@ -571,7 +589,7 @@ class NotesRepository(context: Context) {
       syncClient.signup(
         username,
         email,
-        password,
+        crypto.passwordVerifierFromPassword(password),
         getOrCreateDevice(),
         getOrCreateDeviceTrustSecret(),
       )
@@ -643,7 +661,14 @@ class NotesRepository(context: Context) {
       val (previous, next) =
         crypto.prepareEncryptionPassword(getStoredSession()?.user?.username ?: "", newPassword)
       preflightReencryptLocalNotesInternal(previous, next)
-      val response = syncClient.changePassword(token, currentPassword, newPassword)
+      val challenge = syncClient.authChallenge(null, "password_change", token)
+      val proof = crypto.authProofFromPassword(currentPassword, challenge)
+      val response =
+        syncClient.changePassword(
+          token,
+          proof.proof,
+          crypto.passwordVerifierFromPassword(newPassword),
+        )
       val replacementSession =
         response.session
           ?: throw IllegalStateException(
@@ -674,14 +699,22 @@ class NotesRepository(context: Context) {
     secret: String,
     totpCode: String,
   ): AccountResponse =
-    withContext(Dispatchers.IO) { syncClient.enableTotp(token, currentPassword, secret, totpCode) }
+    withContext(Dispatchers.IO) {
+      val challenge = syncClient.authChallenge(null, "totp", token)
+      val proof = crypto.authProofFromPassword(currentPassword, challenge)
+      syncClient.enableTotp(token, proof.proof, secret, totpCode)
+    }
 
   suspend fun disableTotp(
     token: String,
     currentPassword: String,
     totpCode: String?,
   ): AccountResponse =
-    withContext(Dispatchers.IO) { syncClient.disableTotp(token, currentPassword, totpCode) }
+    withContext(Dispatchers.IO) {
+      val challenge = syncClient.authChallenge(null, "totp", token)
+      val proof = crypto.authProofFromPassword(currentPassword, challenge)
+      syncClient.disableTotp(token, proof.proof, totpCode)
+    }
 
   suspend fun revokeTrustedDevice(token: String, deviceId: String): AccountResponse =
     withContext(Dispatchers.IO) { syncClient.revokeTrustedDevice(token, deviceId) }
@@ -691,7 +724,9 @@ class NotesRepository(context: Context) {
 
   suspend fun deleteAccount(token: String, password: String) =
     withContext(Dispatchers.IO) {
-      syncClient.deleteAccount(token, password)
+      val challenge = syncClient.authChallenge(null, "delete_account", token)
+      val proof = crypto.authProofFromPassword(password, challenge)
+      syncClient.deleteAccount(token, proof.proof)
       db.clearAll()
     }
 

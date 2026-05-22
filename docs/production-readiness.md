@@ -81,6 +81,10 @@ releases, set the `ANDROID_RELEASE_*` variables documented in
 - Keep the staging Turso database and `author-remote-test` seeded account
   separate from production, and run remote staging smoke after deploy-relevant
   sync, auth, encryption, or Cloudflare workflow changes.
+- Treat the browser threat model honestly: client-side Argon2 proofs keep
+  Workers CPU low and avoid raw-password API requests, but XSS or a malicious
+  deployed web bundle can still read passwords, local key material, and
+  decrypted notes.
 - Keep exactly one app process pointed at each local SQLite database.
 - Treat Docker image scan failures as release blockers. The CI workflow scans
   before publishing, then uploads a SARIF artifact for review.

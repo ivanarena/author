@@ -279,7 +279,7 @@ describe('server database migrations', () => {
     }
   });
 
-  it('refuses server databases with pre-Argon2 password verifiers', async () => {
+  it('refuses server databases with non-current password verifiers', async () => {
     const db = await openMemoryDatabase();
     const migration = currentOnlyMigration();
     const now = new Date().toISOString();
@@ -289,10 +289,16 @@ describe('server database migrations', () => {
         `INSERT INTO users (
            username, password_hash, password_salt, created_at, updated_at
          ) VALUES (?, ?, ?, ?, ?)`,
-        ['old-user', 'pbkdf2:v1:old-hash', 'old-salt', now, now]
+        [
+          'old-user',
+          'argon2id:v1:m=19456,t=2,p=1:old-hash',
+          'old-salt',
+          now,
+          now
+        ]
       );
 
-      await expect(migration.up(db)).rejects.toThrow(/pre-Argon2/);
+      await expect(migration.up(db)).rejects.toThrow(/non-current/);
     } finally {
       db.close();
     }

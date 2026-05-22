@@ -19,10 +19,14 @@ an additional layer for public deployments.
 Set `NOTES_SERVER_SECRET` to an independent high-entropy value in production.
 It is required for server-side encryption of 2FA seeds and must not be derived
 from or reused as the login password.
-Cloudflare Workers need enough CPU budget for Argon2id password verification.
-If login or signup returns 503 and Worker logs show an exceeded CPU limit,
-raise the Worker CPU limit or plan; do not reduce Argon2id parameters as an
-operational workaround.
+Password authentication uses client-side Argon2id plus a server challenge/proof
+verifier. This keeps Workers request CPU low while preserving Argon2id cost for
+offline password guessing after a database leak. It does not make the web app
+immune to JavaScript compromise: XSS, a malicious deployed bundle, or a
+compromised origin can still read passwords, local encryption key material, and
+decrypted note content. Keep the CSP strict, avoid third-party scripts, treat
+supply-chain alerts as release blockers, and prefer Android or another local
+client for stronger protection against mutable web code.
 
 ## Instances
 
@@ -42,8 +46,8 @@ typing and local maintenance are not blocked by Turso/network latency.
 
 Keep the staging Turso database isolated from production data. The remote smoke
 workflow seeds only the dedicated `author-remote-test` account, verifies that
-the database has no pre-Argon2 or pre-`enc:v3` blockers, and removes each
-run-specific smoke note after the check. Do not point
+the database has no pre-`enc:v3` rows or non-current account verifier blockers,
+and removes each run-specific smoke note after the check. Do not point
 `AUTHOR_REMOTE_TEST_DATABASE_URL` or `AUTHOR_REMOTE_TEST_API_URL` at production;
 the scripts fail closed unless the target name looks like test, staging,
 preview, smoke, or CI.

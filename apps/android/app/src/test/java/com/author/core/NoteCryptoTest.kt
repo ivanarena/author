@@ -58,6 +58,33 @@ class NoteCryptoTest {
   }
 
   @Test
+  fun derivesArgon2idScramPasswordProofs() {
+    val verifier = crypto.passwordVerifierFromPassword("test-password")
+    val challenge =
+      AuthChallenge(
+        mode = "proof",
+        challengeId = crypto.randomAuthNonce(24),
+        username = "owner",
+        purpose = "login",
+        clientNonce = crypto.randomAuthNonce(),
+        serverNonce = crypto.randomAuthNonce(),
+        expiresAt = "2026-05-22T12:00:00.000Z",
+        salt = verifier.salt,
+        params = verifier.params,
+      )
+
+    val proof = crypto.authProofFromPassword("test-password", challenge)
+    val changedPurpose =
+      crypto.authProofFromPassword("test-password", challenge.copy(purpose = "totp"))
+
+    assertEquals("argon2id-scram-sha256", verifier.algorithm)
+    assertTrue(Regex("^[A-Za-z0-9_-]+$").matches(proof.proof.proof))
+    assertTrue(crypto.verifyAuthServerProof(proof.expectedServerProof, proof.expectedServerProof))
+    assertFalse(crypto.verifyAuthServerProof(proof.expectedServerProof, verifier.storedKey))
+    assertNotEquals(proof.proof.proof, changedPurpose.proof.proof)
+  }
+
+  @Test
   fun identifiesOldEncryptionFormatsAsRequiringMigrationRelease() {
     assertTrue(crypto.isUnsupportedEncryptedText("enc:v1:old"))
     assertTrue(crypto.isUnsupportedEncryptedText("enc:v2:old"))

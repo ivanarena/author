@@ -1,5 +1,24 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { argon2idAsync } from '@noble/hashes/argon2.js';
+import type {
+  AuthChallengeResponse,
+  AuthKdfParams,
+  AuthProof,
+  AuthProofPurpose,
+  PasswordVerifier
+} from '@author/api-types';
+import {
+  AUTH_PROOF_ALGORITHM,
+  AUTH_PROOF_KDF_PARAMS,
+  authKdfParamsAreCurrent,
+  authKdfParamsString,
+  authProofMessage,
+  base64UrlEncode,
+  constantTimeEqual,
+  decodeBase64UrlStrict,
+  hmacSha256,
+  passwordVerifierFromPassword,
+  xorBytes
+} from '../shared/auth-proof';
 import {
   getAuthSessionDays,
   getLegacyAuthToken,
@@ -17,14 +36,12 @@ import {
 } from './db';
 
 const PASSWORD_KEY_LENGTH = 32;
-const PASSWORD_ARGON2_MEMORY_KIB = 19_456;
-const PASSWORD_ARGON2_ITERATIONS = 2;
-const PASSWORD_ARGON2_PARALLELISM = 1;
-const PASSWORD_ARGON2_PARAMS = `m=${PASSWORD_ARGON2_MEMORY_KIB},t=${PASSWORD_ARGON2_ITERATIONS},p=${PASSWORD_ARGON2_PARALLELISM}`;
-const PASSWORD_ARGON2_PREFIX = 'argon2id:v1:';
+const PASSWORD_VERIFIER_PREFIX = `${AUTH_PROOF_ALGORITHM}:v1:`;
 const MIN_PASSWORD_LENGTH = 12;
 const SESSION_TOKEN_BYTES = 32;
 const AUTH_SESSION_COOKIE_NAME = 'author_session';
+const AUTH_CHALLENGE_TTL_MS = 5 * 60_000;
+const MAX_AUTH_CHALLENGE_ROWS = 1_000;
 const SERVER_SECRET_PREFIX = 'srvenc:v1:';
 const TOTP_SECRET_BYTES = 20;
 const TOTP_PERIOD_SECONDS = 30;
@@ -52,6 +69,28 @@ type SessionRow = {
   last_seen_at: string;
   expires_at: string;
 };
+
+type AuthChallengeRow = {
+  id: string;
+  username: string;
+  purpose: AuthProofPurpose;
+  client_nonce: string;
+  server_nonce: string;
+  created_at: string;
+  expires_at: string;
+};
+
+type ParsedPasswordVerifier = {
+  params: AuthKdfParams;
+  storedKey: Uint8Array;
+  serverKey: Uint8Array;
+  salt: string;
+};
+
+export interface VerifiedAuthProof {
+  user: AuthUser;
+  serverProof: string;
+}
 
 export interface AuthUser {
   username: string;
@@ -149,6 +188,10 @@ function cookieValue(header: string | null, name: string): string | null {
 }
 
 function digest(value: string): Buffer {
+  return createHash('sha256').update(value).digest();
+}
+
+function digestBytes(value: Uint8Array): Buffer {
   return createHash('sha256').update(value).digest();
 }
 
@@ -256,39 +299,6 @@ function cleanDisplayName(
   const trimmed = displayName?.trim();
   if (!trimmed) return null;
   return trimmed.slice(0, 80);
-}
-
-async function hashPassword(
-  password: string,
-  salt = randomBytes(16).toString('base64url')
-): Promise<{ hash: string; salt: string }> {
-  const derived = await deriveArgon2PasswordBytes(password, salt);
-  return {
-    hash: `${PASSWORD_ARGON2_PREFIX}${PASSWORD_ARGON2_PARAMS}:${Buffer.from(derived).toString('base64url')}`,
-    salt
-  };
-}
-
-async function deriveArgon2PasswordBytes(
-  password: string,
-  salt: string
-): Promise<Uint8Array> {
-  return argon2idAsync(textEncoder.encode(password), textEncoder.encode(salt), {
-    t: PASSWORD_ARGON2_ITERATIONS,
-    m: PASSWORD_ARGON2_MEMORY_KIB,
-    p: PASSWORD_ARGON2_PARALLELISM,
-    dkLen: PASSWORD_KEY_LENGTH,
-    maxmem: PASSWORD_ARGON2_MEMORY_KIB * 1024 + 1024 * 1024
-  });
-}
-
-function constantTimeEqual(actual: Uint8Array, expected: Uint8Array): boolean {
-  if (actual.length !== expected.length) return false;
-  let difference = 0;
-  for (let index = 0; index < actual.length; index += 1) {
-    difference |= actual[index] ^ expected[index];
-  }
-  return difference === 0;
 }
 
 function base32Encode(bytes: Uint8Array): string {
@@ -480,27 +490,82 @@ async function verifyPassword(
   password: string,
   row: UserRow
 ): Promise<boolean> {
-  const argon2Hash = parseArgon2PasswordHash(row.password_hash);
-  if (!argon2Hash) return false;
-  const derived = await deriveArgon2PasswordBytes(password, row.password_salt);
-  const stored = Buffer.from(argon2Hash.hash, 'base64url');
-  return constantTimeEqual(stored, derived);
+  const verifier = parsePasswordVerifier(row);
+  if (!verifier) return false;
+  const candidate = await passwordVerifierFromPassword(
+    password,
+    verifier.salt,
+    verifier.params
+  );
+  const candidateStoredKey = decodeBase64UrlStrict(candidate.storedKey);
+  return Boolean(
+    candidateStoredKey &&
+    constantTimeEqual(candidateStoredKey, verifier.storedKey)
+  );
 }
 
-function parseArgon2PasswordHash(
-  passwordHash: string
-): { params: string; hash: string } | null {
-  if (!passwordHash.startsWith(PASSWORD_ARGON2_PREFIX)) return null;
-  const parts = passwordHash.split(':');
-  if (parts.length !== 4) return null;
-  const [, version, params, hash] = parts;
-  if (version !== 'v1' || !params || !hash) return null;
-  return { params, hash };
+function passwordHashFromVerifier(verifier: PasswordVerifier): {
+  hash: string;
+  salt: string;
+} {
+  const normalized = requirePasswordVerifier(verifier);
+  return {
+    hash: `${PASSWORD_VERIFIER_PREFIX}${authKdfParamsString(
+      normalized.params
+    )}:${normalized.storedKey}:${normalized.serverKey}`,
+    salt: normalized.salt
+  };
 }
 
-function passwordHashNeedsRehash(row: UserRow): boolean {
-  const argon2Hash = parseArgon2PasswordHash(row.password_hash);
-  return !argon2Hash || argon2Hash.params !== PASSWORD_ARGON2_PARAMS;
+function requirePasswordVerifier(verifier: PasswordVerifier): PasswordVerifier {
+  if (
+    verifier?.algorithm !== AUTH_PROOF_ALGORITHM ||
+    !authKdfParamsAreCurrent(verifier.params)
+  ) {
+    throw new Error('Unsupported password verifier');
+  }
+  const salt = decodeBase64UrlStrict(verifier.salt);
+  const storedKey = decodeBase64UrlStrict(verifier.storedKey);
+  const serverKey = decodeBase64UrlStrict(verifier.serverKey);
+  if (
+    !salt ||
+    salt.length < 16 ||
+    !storedKey ||
+    storedKey.length !== PASSWORD_KEY_LENGTH ||
+    !serverKey ||
+    serverKey.length !== PASSWORD_KEY_LENGTH
+  ) {
+    throw new Error('Invalid password verifier');
+  }
+  return verifier;
+}
+
+function parsePasswordVerifier(row: UserRow): ParsedPasswordVerifier | null {
+  if (!row.password_hash.startsWith(PASSWORD_VERIFIER_PREFIX)) return null;
+  const payload = row.password_hash.slice(PASSWORD_VERIFIER_PREFIX.length);
+  const parts = payload.split(':');
+  if (parts.length !== 3) return null;
+  const [params, storedKeyValue, serverKeyValue] = parts;
+  if (params !== authKdfParamsString(AUTH_PROOF_KDF_PARAMS)) return null;
+  const storedKey = decodeBase64UrlStrict(storedKeyValue);
+  const serverKey = decodeBase64UrlStrict(serverKeyValue);
+  const salt = decodeBase64UrlStrict(row.password_salt);
+  if (
+    !storedKey ||
+    storedKey.length !== PASSWORD_KEY_LENGTH ||
+    !serverKey ||
+    serverKey.length !== PASSWORD_KEY_LENGTH ||
+    !salt ||
+    salt.length < 16
+  ) {
+    return null;
+  }
+  return {
+    params: AUTH_PROOF_KDF_PARAMS,
+    storedKey,
+    serverKey,
+    salt: row.password_salt
+  };
 }
 
 async function getUserRow(
@@ -541,6 +606,10 @@ async function getUserRowByLogin(
   if (username) return await getUserRow(db, username);
   const email = normalizeEmail(login);
   return email ? await getUserRowByEmail(db, email) : null;
+}
+
+function cleanLoginIdentifier(login: string | null | undefined): string | null {
+  return normalizeUsername(login) ?? normalizeEmail(login);
 }
 
 function rowToAuthUser(row: UserRow): AuthUser {
@@ -584,13 +653,226 @@ async function maybeBootstrapEnvUser(
   return await getUserRow(db, username);
 }
 
-async function rehashUserPassword(
+export async function createAuthChallenge(
   db: NotesExecutor,
+  login: string | null | undefined,
+  purpose: AuthProofPurpose,
+  clientNonce: string
+): Promise<AuthChallengeResponse | null> {
+  const username = cleanLoginIdentifier(login);
+  const clientNonceBytes = decodeBase64UrlStrict(clientNonce);
+  if (!username || !clientNonceBytes || clientNonceBytes.length < 16) {
+    return null;
+  }
+
+  const row = await getUserRowByLogin(db, username);
+  const verifier = row ? parsePasswordVerifier(row) : null;
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const expiresAt = new Date(
+    now.getTime() + AUTH_CHALLENGE_TTL_MS
+  ).toISOString();
+  const challengeId = randomBytes(24).toString('base64url');
+  const serverNonce = randomBytes(32).toString('base64url');
+  const bootstrapUsername = normalizeUsername(getLoginUsername());
+  const bootstrapPassword = getLoginPassword();
+  const mode =
+    purpose === 'login' &&
+    !row &&
+    bootstrapUsername &&
+    bootstrapPassword &&
+    username === bootstrapUsername
+      ? 'bootstrap'
+      : 'proof';
+  const salt = verifier?.salt ?? randomBytes(16).toString('base64url');
+
+  await run(db, 'DELETE FROM auth_challenges WHERE expires_at <= ?', [
+    nowIso
+  ]).catch(() => {});
+  await run(
+    db,
+    `DELETE FROM auth_challenges
+     WHERE username = ? AND purpose = ? AND created_at < ?`,
+    [
+      username,
+      purpose,
+      new Date(now.getTime() - AUTH_CHALLENGE_TTL_MS).toISOString()
+    ]
+  ).catch(() => {});
+  await run(
+    db,
+    `INSERT INTO auth_challenges (
+       id, username, purpose, client_nonce, server_nonce, created_at, expires_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      challengeId,
+      username,
+      purpose,
+      clientNonce,
+      serverNonce,
+      nowIso,
+      expiresAt
+    ]
+  );
+  const count = Number(
+    (await get(db, 'SELECT count(*) AS count FROM auth_challenges'))?.count ?? 0
+  );
+  if (count > MAX_AUTH_CHALLENGE_ROWS) {
+    await run(
+      db,
+      `DELETE FROM auth_challenges
+       WHERE id IN (
+         SELECT id
+         FROM auth_challenges
+         ORDER BY created_at ASC
+         LIMIT ?
+       )`,
+      [count - MAX_AUTH_CHALLENGE_ROWS]
+    );
+  }
+
+  return {
+    mode,
+    challengeId,
+    username,
+    purpose,
+    clientNonce,
+    serverNonce,
+    expiresAt,
+    salt,
+    params: verifier?.params ?? AUTH_PROOF_KDF_PARAMS
+  };
+}
+
+export async function createSessionAuthChallenge(
+  db: NotesExecutor,
+  username: string,
+  purpose: Exclude<AuthProofPurpose, 'login'>,
+  clientNonce: string
+): Promise<AuthChallengeResponse | null> {
+  return await createAuthChallenge(db, username, purpose, clientNonce);
+}
+
+async function consumeAuthChallenge(
+  db: NotesExecutor,
+  proof: AuthProof | null | undefined,
+  purpose: AuthProofPurpose
+): Promise<AuthChallengeRow | null> {
+  if (
+    !proof ||
+    typeof proof.challengeId !== 'string' ||
+    typeof proof.clientNonce !== 'string' ||
+    typeof proof.proof !== 'string'
+  ) {
+    return null;
+  }
+  const row = (await get(
+    db,
+    `SELECT id, username, purpose, client_nonce, server_nonce, created_at, expires_at
+     FROM auth_challenges
+     WHERE id = ?`,
+    [proof.challengeId]
+  )) as AuthChallengeRow | null;
+  if (row) {
+    await run(db, 'DELETE FROM auth_challenges WHERE id = ?', [
+      proof.challengeId
+    ]);
+  }
+  if (
+    !row ||
+    row.purpose !== purpose ||
+    row.client_nonce !== proof.clientNonce ||
+    row.expires_at <= new Date().toISOString()
+  ) {
+    return null;
+  }
+  return row;
+}
+
+async function verifyProofForRow(
   row: UserRow,
-  password: string
+  challenge: AuthChallengeRow,
+  proof: AuthProof
+): Promise<string | null> {
+  const verifier = parsePasswordVerifier(row);
+  const proofBytes = decodeBase64UrlStrict(proof.proof);
+  if (!verifier || !proofBytes || proofBytes.length !== PASSWORD_KEY_LENGTH) {
+    return null;
+  }
+  const message = authProofMessage({
+    challengeId: challenge.id,
+    username: challenge.username,
+    purpose: challenge.purpose,
+    clientNonce: challenge.client_nonce,
+    serverNonce: challenge.server_nonce,
+    salt: verifier.salt,
+    params: verifier.params
+  });
+  const clientSignature = hmacSha256(verifier.storedKey, message);
+  const clientKey = xorBytes(proofBytes, clientSignature);
+  if (!constantTimeEqual(digestBytes(clientKey), verifier.storedKey)) {
+    return null;
+  }
+  return base64UrlEncode(hmacSha256(verifier.serverKey, message));
+}
+
+export async function authenticateUserProof(
+  db: NotesExecutor,
+  login: string | null | undefined,
+  proof: AuthProof | null | undefined,
+  totpCode?: string | null
+): Promise<VerifiedAuthProof | null> {
+  const challenge = await consumeAuthChallenge(db, proof, 'login');
+  const requestedLogin = cleanLoginIdentifier(login);
+  if (!challenge || (requestedLogin && requestedLogin !== challenge.username)) {
+    return null;
+  }
+  const row = await getUserRowByLogin(db, challenge.username);
+  if (!row) return null;
+  const serverProof = await verifyProofForRow(row, challenge, proof!);
+  if (!serverProof) return null;
+  if (row.totp_secret && !(await verifyTotpCode(row.totp_secret, totpCode))) {
+    return null;
+  }
+  return { user: rowToAuthUser(row), serverProof };
+}
+
+async function verifyUserProof(
+  db: NotesExecutor,
+  username: string,
+  proof: AuthProof | null | undefined,
+  purpose: Exclude<AuthProofPurpose, 'login'>
 ): Promise<UserRow | null> {
-  await setUserPassword(db, row.username, password);
-  return await getUserRow(db, row.username);
+  const normalized = requireUsername(username);
+  const challenge = await consumeAuthChallenge(db, proof, purpose);
+  if (!challenge || challenge.username !== normalized) return null;
+  const row = await getUserRow(db, normalized);
+  if (!row) return null;
+  return (await verifyProofForRow(row, challenge, proof!)) ? row : null;
+}
+
+export async function bootstrapUserWithVerifier(
+  db: NotesExecutor,
+  username: string | null | undefined,
+  bootstrapPassword: string | null | undefined,
+  verifier: PasswordVerifier | null | undefined
+): Promise<AuthUser | null> {
+  const normalized = normalizeUsername(username);
+  const bootstrapUsername = normalizeUsername(getLoginUsername());
+  const configuredPassword = getLoginPassword();
+  if (
+    !normalized ||
+    !bootstrapUsername ||
+    normalized !== bootstrapUsername ||
+    typeof bootstrapPassword !== 'string' ||
+    !configuredPassword ||
+    !tokensMatch(bootstrapPassword, configuredPassword) ||
+    !verifier ||
+    (await getUserRow(db, normalized))
+  ) {
+    return null;
+  }
+  return await setUserPasswordVerifier(db, normalized, verifier);
 }
 
 export async function setUserPassword(
@@ -598,10 +880,22 @@ export async function setUserPassword(
   username: string,
   password: string
 ): Promise<AuthUser> {
-  const normalized = requireUsername(username);
   const safePassword = requirePassword(password);
+  return await setUserPasswordVerifier(
+    db,
+    username,
+    await passwordVerifierFromPassword(safePassword)
+  );
+}
+
+export async function setUserPasswordVerifier(
+  db: NotesExecutor,
+  username: string,
+  verifier: PasswordVerifier
+): Promise<AuthUser> {
+  const normalized = requireUsername(username);
   const now = new Date().toISOString();
-  const passwordHash = await hashPassword(safePassword);
+  const passwordHash = passwordHashFromVerifier(verifier);
 
   await run(db, 'DELETE FROM auth_sessions WHERE username = ?', [normalized]);
   await run(db, 'DELETE FROM trusted_auth_devices WHERE username = ?', [
@@ -642,12 +936,11 @@ export async function createUserAccount(
   db: NotesExecutor,
   username: string,
   email: string,
-  password: string,
+  verifier: PasswordVerifier,
   displayName: string | null | undefined
 ): Promise<AuthUser | null> {
   const normalized = requireUsername(username);
   const normalizedEmail = requireEmail(email);
-  const safePassword = requirePassword(password);
   if (
     (await getUserRow(db, normalized)) ||
     (await getUserRowByEmail(db, normalizedEmail))
@@ -656,7 +949,7 @@ export async function createUserAccount(
   }
 
   const now = new Date().toISOString();
-  const passwordHash = await hashPassword(safePassword);
+  const passwordHash = passwordHashFromVerifier(verifier);
   const nextDisplayName = cleanDisplayName(displayName);
 
   await run(
@@ -762,10 +1055,7 @@ export async function authenticateUser(
     if (row.totp_secret && !(await verifyTotpCode(row.totp_secret, totpCode))) {
       return null;
     }
-    const activeRow = passwordHashNeedsRehash(row)
-      ? ((await rehashUserPassword(db, row, password)) ?? row)
-      : row;
-    return rowToAuthUser(activeRow);
+    return rowToAuthUser(row);
   }
 
   return null;
@@ -1034,13 +1324,13 @@ export async function updateUserProfile(
 export async function changeUserPassword(
   db: NotesExecutor,
   username: string,
-  currentPassword: string,
-  newPassword: string
+  proof: AuthProof | null | undefined,
+  newVerifier: PasswordVerifier | null | undefined
 ): Promise<AuthUser | null> {
   const normalized = requireUsername(username);
-  const row = await getUserRow(db, normalized);
-  if (!row || !(await verifyPassword(currentPassword, row))) return null;
-  await setUserPassword(db, normalized, newPassword);
+  const row = await verifyUserProof(db, normalized, proof, 'password_change');
+  if (!row || !newVerifier) return null;
+  await setUserPasswordVerifier(db, normalized, newVerifier);
   const updated = await getUserRow(db, normalized);
   return updated ? rowToAuthUser(updated) : null;
 }
@@ -1048,19 +1338,14 @@ export async function changeUserPassword(
 export async function enableUserTotp(
   db: NotesExecutor,
   username: string,
-  currentPassword: string,
+  proof: AuthProof | null | undefined,
   secret: string,
   totpCode: string
 ): Promise<AuthUser | null> {
   const normalized = requireUsername(username);
-  const row = await getUserRow(db, normalized);
+  const row = await verifyUserProof(db, normalized, proof, 'totp');
   const cleanSecret = cleanTotpSecret(secret);
-  if (
-    !row ||
-    !cleanSecret ||
-    !(await verifyPassword(currentPassword, row)) ||
-    !(await verifyTotpCode(cleanSecret, totpCode))
-  ) {
+  if (!row || !cleanSecret || !(await verifyTotpCode(cleanSecret, totpCode))) {
     return null;
   }
 
@@ -1084,12 +1369,12 @@ export async function enableUserTotp(
 export async function disableUserTotp(
   db: NotesExecutor,
   username: string,
-  currentPassword: string,
+  proof: AuthProof | null | undefined,
   totpCode?: string | null
 ): Promise<AuthUser | null> {
   const normalized = requireUsername(username);
-  const row = await getUserRow(db, normalized);
-  if (!row || !(await verifyPassword(currentPassword, row))) return null;
+  const row = await verifyUserProof(db, normalized, proof, 'totp');
+  if (!row) return null;
   if (row.totp_secret && !(await verifyTotpCode(row.totp_secret, totpCode))) {
     return null;
   }
@@ -1109,12 +1394,12 @@ export async function disableUserTotp(
 export async function deleteUserAccount(
   db: NotesDb,
   username: string,
-  password: string
+  proof: AuthProof | null | undefined
 ): Promise<boolean> {
   const normalized = requireUsername(username);
   return await withWriteTransaction(db, async (tx) => {
-    const row = await getUserRow(tx, normalized);
-    if (!row || !(await verifyPassword(password, row))) return false;
+    const row = await verifyUserProof(tx, normalized, proof, 'delete_account');
+    if (!row) return false;
 
     await run(tx, 'DELETE FROM auth_sessions WHERE username = ?', [normalized]);
     await run(tx, 'DELETE FROM note_versions WHERE owner_username = ?', [

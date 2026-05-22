@@ -44,6 +44,10 @@ local-only browsers generate random local key material in `localStorage` so offl
 work without an account. This avoids storing note plaintext remotely by default, but Author is
 intentionally not a hardened zero-knowledge system: account recovery and offline usability are
 allowed to take priority over making every server or browser compromise unrecoverable.
+Account authentication also runs Argon2id on the client, using a separate
+SCRAM-style challenge/proof verifier from the note encryption key material.
+This keeps Worker request CPU low and avoids sending raw passwords to the API,
+but it does not protect against JavaScript that runs on the app origin.
 Browsers with an old session token but no stored encryption key material must sign in again before
 syncing encrypted notes.
 

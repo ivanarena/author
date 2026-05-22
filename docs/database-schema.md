@@ -27,6 +27,7 @@ Tables:
 - `users`
 - `auth_sessions`
 - `auth_rate_limits`
+- `auth_challenges`
 - `trusted_auth_devices`
 - `invitation_codes` (legacy, unused by current signup)
 - `signup_allowed_emails`
@@ -57,9 +58,13 @@ Password-derived client encryption keys use Argon2id-only material, and runtime 
 keep pre-Argon2 or pre-`enc:v3` compatibility paths. Older installs must migrate through a release
 that republishes data as `enc:v3` before running this version. Current clients fail closed when
 they see older local or remote note envelopes, rather than rewriting old ciphertext as plaintext.
-Server-side account password verifiers are Argon2id-only. The current server migration refuses
-previous verifier rows and removes the obsolete verifier iteration column instead of preserving
-dead password metadata.
+Server-side account password verifiers are Argon2id SCRAM-style
+`argon2id-scram-sha256:v1` records. The browser or Android client runs Argon2id
+and sends a challenge-bound proof; the server stores only the random salt,
+Argon2id parameters, stored key, and server key, then verifies logins with
+SHA-256/HMAC work. The current server migration refuses previous verifier rows
+and removes the obsolete verifier iteration column instead of preserving dead
+password metadata.
 
 `trusted_auth_devices` records browsers or Android installs that completed a
 password login for an account and presented a local device trust secret. The
@@ -73,6 +78,9 @@ production deployments must set it explicitly.
 `auth_rate_limits` stores temporary hashed login/signup throttle keys so rate
 limits survive process restarts and multi-instance Worker execution without
 persisting raw IP addresses or usernames.
+
+`auth_challenges` stores short-lived password proof challenge state. Challenges
+are single-use and deleted during proof verification.
 
 `signup_allowed_emails` is the server-side allow-list for remote account creation.
 Signup only creates an account when the submitted email matches a row in this

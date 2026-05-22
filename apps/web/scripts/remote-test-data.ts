@@ -243,7 +243,7 @@ export async function assertNoCurrentOnlyBlockers(db: NotesDb): Promise<void> {
      UNION ALL
      SELECT 'notebook_versions.name' AS kind, COUNT(*) AS count FROM notebook_versions WHERE name LIKE 'enc:v1:%' OR name LIKE 'enc:v2:%'
      UNION ALL
-     SELECT 'users.password_hash' AS kind, COUNT(*) AS count FROM users WHERE password_hash NOT LIKE 'argon2id:v1:%'`
+     SELECT 'users.password_hash' AS kind, COUNT(*) AS count FROM users WHERE password_hash NOT LIKE 'argon2id-scram-sha256:v1:%'`
   );
   const blockers = rows
     .map((row) => ({
@@ -292,8 +292,12 @@ async function assertSeededAccountIsCurrentOnly(
     'SELECT password_hash FROM users WHERE username = ?',
     [username]
   );
-  if (!String(row?.password_hash ?? '').startsWith('argon2id:v1:')) {
-    throw new Error('Seeded remote test account is not Argon2id current-only');
+  if (
+    !String(row?.password_hash ?? '').startsWith('argon2id-scram-sha256:v1:')
+  ) {
+    throw new Error(
+      'Seeded remote test account is not client-proof Argon2id current-only'
+    );
   }
   await assertStoredNoteIsEncrypted(
     db,

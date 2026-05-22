@@ -174,7 +174,7 @@ async function inspect(db: NotesExecutor) {
     oldUsers: await countWhere(
       db,
       'users',
-      "password_hash NOT LIKE 'argon2id:v1:%'"
+      "password_hash NOT LIKE 'argon2id-scram-sha256:v1:%'"
     )
   };
 }
@@ -183,7 +183,7 @@ async function deleteOldUsers(tx: NotesExecutor): Promise<string[]> {
   const rows = await rowsWhere(
     tx,
     'users',
-    "password_hash NOT LIKE 'argon2id:v1:%'"
+    "password_hash NOT LIKE 'argon2id-scram-sha256:v1:%'"
   );
   const usernames = rows.map((row) => asString(row.username)).filter(Boolean);
   for (const username of usernames) {

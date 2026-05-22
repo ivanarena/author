@@ -156,7 +156,7 @@ For GitHub Actions deploys, add these repository secrets:
 - `NOTES_SIGNUP_ALLOWED_EMAILS`: optional comma-separated signup email allow list.
 - `AUTHOR_API_URL`: optional public API URL override.
 
-The workflow syncs the GitHub app secrets into Cloudflare Worker secrets with `wrangler secret bulk` before deploying the Worker. If you deploy manually, run the `wrangler secret put` commands above once before using the app.
+The workflow writes a temporary secret file and passes it to `wrangler deploy --secrets-file`, so Worker code and updated secrets are uploaded together in one deployed version. If you deploy manually, run the `wrangler secret put` commands above once before using the app, or pass an equivalent secrets file to `wrangler deploy --secrets-file`.
 
 The `Cloudflare Deploy` workflow only deploys from `main`. It runs on pushes to `main` that touch the web app, shared packages, or lockfile, and manual runs from other branches are skipped.
 

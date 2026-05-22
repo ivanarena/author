@@ -19,6 +19,10 @@ an additional layer for public deployments.
 Set `NOTES_SERVER_SECRET` to an independent high-entropy value in production.
 It is required for server-side encryption of 2FA seeds and must not be derived
 from or reused as the login password.
+Cloudflare Workers need enough CPU budget for Argon2id password verification.
+If login or signup returns 503 and Worker logs show an exceeded CPU limit,
+raise the Worker CPU limit or plan; do not reduce Argon2id parameters as an
+operational workaround.
 
 ## Instances
 

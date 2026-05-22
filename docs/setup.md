@@ -134,7 +134,7 @@ aube exec wrangler secret put NOTES_LOGIN_PASSWORD
 aube exec wrangler secret put NOTES_SERVER_SECRET
 ```
 
-`apps/web/wrangler.jsonc` sets `NOTES_DB_PROVIDER=turso`, so Cloudflare Workers use Turso directly as the primary database. The app initializes the Turso schema on first API access, using the same idempotent schema/migration code as local SQLite.
+`apps/web/wrangler.jsonc` sets `NOTES_DB_PROVIDER=turso`, so Cloudflare Workers use Turso directly as the primary database. The app initializes the Turso schema on first API access, using the same idempotent schema/migration code as local SQLite. Argon2id password verification is intentionally CPU-expensive, so the Worker plan must provide enough CPU for login/signup; do not lower the password KDF cost as an operational workaround.
 
 Then deploy:
 

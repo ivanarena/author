@@ -12,10 +12,24 @@ permissions:
   contents: read
 
 env:
+  ACTIONLINT_VERSION: v1.7.12
   AUBE_VERSION: 1.8.0
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  workflow-lint:
+    name: Workflow lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+
+      - name: Actionlint
+        run: go run "github.com/rhysd/actionlint/cmd/actionlint@${ACTIONLINT_VERSION}"
+
   web:
     name: Web
     runs-on: ubuntu-latest

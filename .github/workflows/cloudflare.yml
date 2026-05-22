@@ -2,16 +2,13 @@ name: Cloudflare Deploy
 
 on:
   workflow_dispatch:
-  push:
+  workflow_run:
+    workflows:
+      - CI
     branches:
       - main
-    paths:
-      - .github/workflows/cloudflare.yml
-      - apps/web/**
-      - packages/**
-      - package.json
-      - aube-lock.yaml
-      - aube-workspace.yaml
+    types:
+      - completed
 
 permissions:
   contents: read
@@ -28,9 +25,17 @@ jobs:
   deploy:
     name: Deploy Worker
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      ${{
+        (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+        (github.event_name == 'workflow_run' &&
+          github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.head_branch == 'main')
+      }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - uses: actions/setup-node@v5
         with:

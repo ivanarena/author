@@ -935,6 +935,7 @@ describe('Hono API', () => {
     }
 
     const token = await loginToken();
+    await resetHonoStateForTests();
 
     const updatedRemote = await openConfiguredDatabase({
       provider: 'turso',

@@ -1,0 +1,2 @@
+# False positive: historical test fixture for password-derived key material.
+9e4175b57c7d8e7a2132dea87747daebcd2d7fb1:apps/web/src/lib/client/encryption.test.ts:generic-api-key:77

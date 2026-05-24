@@ -8,6 +8,38 @@ import org.junit.Test
 
 class UpdateCheckWorkerTest {
   @Test
+  fun parsesGithubReleasePageAndPrefersAndroidApkAsset() {
+    val update =
+      parseUpdateInfo(
+        """
+        <html>
+          <body>
+            <a href="/ivanarena/author/releases/download/android-v1.0.4/author-desktop.zip">
+              Desktop
+            </a>
+            <a href="/ivanarena/author/releases/download/android-v1.0.4/author-android-v1.0.4-release-signed.apk">
+              Android
+            </a>
+          </body>
+        </html>
+        """
+          .trimIndent(),
+        "https://github.com/ivanarena/author/releases/latest",
+        "https://github.com/ivanarena/author/releases/tag/android-v1.0.4",
+      )
+
+    assertNull(update.versionCode)
+    assertEquals("1.0.4", update.versionName)
+    assertEquals(
+      "https://github.com/ivanarena/author/releases/download/android-v1.0.4/author-android-v1.0.4-release-signed.apk",
+      update.downloadUrl,
+    )
+    assertTrue(
+      update.isNewerThanInstalled(installedVersionCode = 4, installedVersionName = "1.0.3")
+    )
+  }
+
+  @Test
   fun parsesGithubReleaseAndPrefersAndroidApkAsset() {
     val update =
       parseUpdateInfo(

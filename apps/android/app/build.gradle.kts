@@ -88,8 +88,7 @@ val releaseKeystorePassword = configValue("ANDROID_RELEASE_KEYSTORE_PASSWORD")
 val releaseKeyAlias = configValue("ANDROID_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = configValue("ANDROID_RELEASE_KEY_PASSWORD")
 val androidUpdateCheckUrl =
-  configValue("ANDROID_UPDATE_CHECK_URL")
-    ?: "https://api.github.com/repos/ivanarena/author/releases/latest"
+  configValue("ANDROID_UPDATE_CHECK_URL") ?: "https://github.com/ivanarena/author/releases/latest"
 val androidUpdateDownloadUrl =
   configValue("ANDROID_UPDATE_DOWNLOAD_URL")
     ?: "https://github.com/ivanarena/author/releases/latest"
@@ -135,8 +134,8 @@ android {
     applicationId = "com.author"
     minSdk = 26
     targetSdk = 37
-    versionCode = 4
-    versionName = "1.0.3"
+    versionCode = 5
+    versionName = "1.0.4"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

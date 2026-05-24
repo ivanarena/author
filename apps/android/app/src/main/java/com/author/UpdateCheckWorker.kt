@@ -23,6 +23,7 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLDecoder
 import java.util.concurrent.TimeUnit
 import org.json.JSONObject
 
@@ -34,6 +35,7 @@ private const val LAST_NOTIFIED_VERSION_NAME = "lastNotifiedVersionName"
 private const val UNIQUE_PERIODIC_WORK_NAME = "author-android-update-check"
 private const val UNIQUE_STARTUP_WORK_NAME = "author-android-update-check-after-startup"
 private const val UNIQUE_MANUAL_WORK_NAME = "author-android-update-check-now"
+private const val MAX_UPDATE_RESPONSE_CHARS = 2 * 1024 * 1024
 
 class UpdateCheckWorker(appContext: Context, params: WorkerParameters) :
   CoroutineWorker(appContext, params) {
@@ -49,13 +51,25 @@ class UpdateCheckWorker(appContext: Context, params: WorkerParameters) :
         onFailure = { if (runAttemptCount < 3) Result.retry() else Result.success() },
       )
 
-  private fun loadLatestUpdate(): UpdateInfo {
+  private fun loadLatestUpdate(): UpdateInfo =
+    runCatching { fetchLatestUpdate(BuildConfig.UPDATE_CHECK_URL) }
+      .getOrElse { primaryError ->
+        val fallbackUrl = BuildConfig.UPDATE_DOWNLOAD_URL
+        if (fallbackUrl.isNotBlank() && fallbackUrl != BuildConfig.UPDATE_CHECK_URL) {
+          runCatching { fetchLatestUpdate(fallbackUrl) }.getOrElse { throw primaryError }
+        } else {
+          throw primaryError
+        }
+      }
+
+  private fun fetchLatestUpdate(url: String): UpdateInfo {
     val connection =
-      (URL(BuildConfig.UPDATE_CHECK_URL).openConnection() as HttpURLConnection).apply {
+      (URL(url).openConnection() as HttpURLConnection).apply {
         requestMethod = "GET"
+        instanceFollowRedirects = true
         connectTimeout = 15_000
         readTimeout = 15_000
-        setRequestProperty("accept", "application/json,text/plain,*/*")
+        setRequestProperty("accept", "text/html,application/json,text/plain,*/*")
         setRequestProperty("user-agent", "AuthorAndroid/${BuildConfig.VERSION_NAME}")
       }
 
@@ -63,7 +77,7 @@ class UpdateCheckWorker(appContext: Context, params: WorkerParameters) :
       val status = connection.responseCode
       val body = readResponse(connection, status)
       if (status !in 200..299) error("Update check failed: $status")
-      return parseUpdateInfo(body, BuildConfig.UPDATE_DOWNLOAD_URL)
+      return parseUpdateInfo(body, BuildConfig.UPDATE_DOWNLOAD_URL, connection.url.toString())
     } finally {
       connection.disconnect()
     }
@@ -117,7 +131,19 @@ class UpdateCheckWorker(appContext: Context, params: WorkerParameters) :
   private fun readResponse(connection: HttpURLConnection, status: Int): String {
     val stream = if (status in 200..299) connection.inputStream else connection.errorStream
     if (stream == null) return ""
-    return BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { it.readText() }
+    return BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { reader ->
+      val buffer = CharArray(8192)
+      val builder = StringBuilder()
+      while (true) {
+        val count = reader.read(buffer)
+        if (count == -1) break
+        if (builder.length + count > MAX_UPDATE_RESPONSE_CHARS) {
+          error("Update check response too large")
+        }
+        builder.append(buffer, 0, count)
+      }
+      builder.toString()
+    }
   }
 
   companion object {
@@ -183,7 +209,11 @@ class UpdateCheckWorker(appContext: Context, params: WorkerParameters) :
   }
 }
 
-internal fun parseUpdateInfo(body: String, fallbackDownloadUrl: String): UpdateInfo {
+internal fun parseUpdateInfo(
+  body: String,
+  fallbackDownloadUrl: String,
+  sourceUrl: String = fallbackDownloadUrl,
+): UpdateInfo {
   val trimmed = body.trim()
   if (trimmed.startsWith("{")) {
     val json = JSONObject(trimmed)
@@ -199,6 +229,10 @@ internal fun parseUpdateInfo(body: String, fallbackDownloadUrl: String): UpdateI
     )
   }
 
+  parseGithubReleasePage(trimmed, fallbackDownloadUrl, sourceUrl)?.let {
+    return it
+  }
+
   val versionCode =
     Regex("""versionCode\s*=\s*(\d+)""").find(trimmed)?.groupValues?.get(1)?.toIntOrNull()
       ?: error("Could not find Android versionCode")
@@ -208,6 +242,8 @@ internal fun parseUpdateInfo(body: String, fallbackDownloadUrl: String): UpdateI
 
   return UpdateInfo(versionCode, versionName, fallbackDownloadUrl)
 }
+
+private data class GithubReleaseLink(val tag: String, val href: String)
 
 private fun parseGithubRelease(json: JSONObject, fallbackDownloadUrl: String): UpdateInfo {
   val releaseName = json.optString("tag_name").ifBlank { json.optString("name") }
@@ -230,6 +266,61 @@ private fun parseGithubRelease(json: JSONObject, fallbackDownloadUrl: String): U
   }
   return UpdateInfo(null, versionName, apkUrl.ifBlank { releaseUrl })
 }
+
+private fun parseGithubReleasePage(
+  body: String,
+  fallbackDownloadUrl: String,
+  sourceUrl: String,
+): UpdateInfo? {
+  val tagFromUrl = githubReleaseTagFromUrl(sourceUrl)
+  val releaseLink = githubReleaseLinkFromHtml(body)
+  val tag = tagFromUrl ?: releaseLink?.tag ?: return null
+  val versionName = normalizeReleaseVersion(tag)
+  if (versionName.isBlank()) return null
+
+  val releaseUrl =
+    if (tagFromUrl != null) sourceUrl.substringBefore("?").substringBefore("#")
+    else releaseLink?.let { resolveUrl(sourceUrl, it.href) }.orEmpty()
+  val apkUrl = apkUrlFromGithubReleasePage(body, sourceUrl)
+
+  return UpdateInfo(
+    versionCode = null,
+    versionName = versionName,
+    downloadUrl = apkUrl.ifBlank { releaseUrl.ifBlank { fallbackDownloadUrl } },
+  )
+}
+
+private fun githubReleaseTagFromUrl(url: String): String? =
+  Regex("""/releases/tag/([^?#/]+)""").find(url)?.groupValues?.get(1)?.let(::decodeUrlComponent)
+
+private fun githubReleaseLinkFromHtml(body: String): GithubReleaseLink? {
+  val match =
+    Regex("""href=["']([^"']*/releases/tag/([^"'?#]+)[^"']*)["']""", RegexOption.IGNORE_CASE)
+      .find(body) ?: return null
+  return GithubReleaseLink(
+    tag = decodeUrlComponent(match.groupValues[2]),
+    href = decodeHtmlAttribute(match.groupValues[1]),
+  )
+}
+
+private fun apkUrlFromGithubReleasePage(body: String, sourceUrl: String): String {
+  val apkLinks =
+    Regex("""href=["']([^"']+\.apk(?:\?[^"']*)?)["']""", RegexOption.IGNORE_CASE)
+      .findAll(body)
+      .map { decodeHtmlAttribute(it.groupValues[1]) }
+      .toList()
+  val apk =
+    apkLinks.firstOrNull { it.contains("android", ignoreCase = true) } ?: apkLinks.firstOrNull()
+  return apk?.let { resolveUrl(sourceUrl, it) }.orEmpty()
+}
+
+private fun resolveUrl(baseUrl: String, href: String): String =
+  runCatching { URL(URL(baseUrl), href).toString() }.getOrElse { href }
+
+private fun decodeHtmlAttribute(value: String): String = value.replace("&amp;", "&")
+
+private fun decodeUrlComponent(value: String): String =
+  runCatching { URLDecoder.decode(value, "UTF-8") }.getOrElse { value }
 
 internal data class UpdateInfo(
   val versionCode: Int?,

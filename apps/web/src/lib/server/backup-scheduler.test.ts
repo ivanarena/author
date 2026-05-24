@@ -1,8 +1,9 @@
 import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runScheduledDatabaseBackup } from './backup-scheduler';
+import { setRuntimeEnv } from './config';
 import { get, openConfiguredDatabase, openDatabase, run } from './db';
 
 const ENV_KEYS = [
@@ -16,6 +17,7 @@ const ENV_KEYS = [
 const previousEnv = new Map(ENV_KEYS.map((key) => [key, process.env[key]]));
 
 function restoreEnv(): void {
+  setRuntimeEnv(null);
   for (const key of ENV_KEYS) {
     const value = previousEnv.get(key);
     if (value === undefined) {
@@ -26,6 +28,10 @@ function restoreEnv(): void {
   }
   globalThis.__authorDatabaseBackupRunning = false;
 }
+
+beforeEach(() => {
+  restoreEnv();
+});
 
 afterEach(() => {
   restoreEnv();
@@ -40,6 +46,7 @@ describe('database backup scheduler', () => {
     process.env.NOTES_DB_PATH = dbPath;
     process.env.NOTES_BACKUP_ENABLED = 'true';
     process.env.NOTES_BACKUP_DIR = backupDir;
+    delete process.env.NOTES_DB_PROVIDER;
 
     try {
       const db = await openDatabase();
@@ -91,6 +98,7 @@ describe('database backup scheduler', () => {
     process.env.NOTES_BACKUP_ENABLED = 'true';
     process.env.NOTES_BACKUP_DIR = backupDir;
     process.env.NOTES_BACKUP_RETENTION_COUNT = '2';
+    delete process.env.NOTES_DB_PROVIDER;
 
     try {
       const db = await openDatabase();

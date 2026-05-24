@@ -88,6 +88,11 @@ table.
 
 Active notebook names are treated as unique after trimming and case-folding. The client prevents duplicates locally; the server rejects duplicate-name pushes as sync conflicts.
 
+The server keeps active-count indexes on `(owner_username, deleted_at, id)` for
+notes and notebooks. These support sync payload checks and the optional
+Turso-budget record-limit estimate without scanning the full note tables on
+every push.
+
 ## Trash
 
 Moving a note to Trash sets `trashedAt` and keeps the row syncable. Cleanup permanently removes notes whose `trashedAt` is older than 90 days, after writing a final snapshot and an `entity_tombstones` row. Tombstones let stale offline clients receive `deleted_remotely` conflicts instead of recreating cleaned-up rows.

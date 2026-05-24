@@ -8,7 +8,7 @@ import {
   resolveServerPath,
   shouldRunDatabaseBackupOnStart
 } from './config';
-import { openDatabase } from './db';
+import { openDatabase, type NotesDb } from './db';
 
 declare global {
   var __authorDatabaseBackupScheduler: NodeJS.Timeout | undefined;
@@ -91,8 +91,9 @@ export async function runScheduledDatabaseBackup(
   globalThis.__authorDatabaseBackupRunning = true;
   const { mkdir } = await import('node:fs/promises');
   const { backupDir, backupPath, backupPrefix } = await backupPaths(now);
-  const db = await openDatabase();
+  let db: NotesDb | null = null;
   try {
+    db = await openDatabase();
     await mkdir(backupDir, { recursive: true });
     await db.execute(`VACUUM INTO ${sqlString(backupPath)}`);
     await pruneOldBackups(
@@ -106,7 +107,7 @@ export async function runScheduledDatabaseBackup(
     console.error('Database backup failed', error);
     return null;
   } finally {
-    db.close();
+    db?.close();
     globalThis.__authorDatabaseBackupRunning = false;
   }
 }

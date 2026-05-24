@@ -24,6 +24,7 @@ const fixtureDeviceTrustSecret = 'test-device-trust-secret-0123456789';
 
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'author-api-'));
+  delete process.env.NOTES_DB_PROVIDER;
   delete process.env.TURSO_DATABASE_URL;
   delete process.env.TURSO_AUTH_TOKEN;
   delete process.env.AUTHOR_API_URL;
@@ -32,6 +33,11 @@ beforeEach(() => {
   delete process.env.ANDROID_SYNC_SERVER_URL;
   delete process.env.NOTES_SYNC_SERVER_URL;
   delete process.env.NOTES_SIGNUP_ALLOWED_EMAILS;
+  delete process.env.NOTES_RECORD_LIMITS_ENABLED;
+  delete process.env.NOTES_RECORD_LIMIT_STORAGE_BYTES;
+  delete process.env.NOTES_RECORD_LIMIT_SAFETY_RATIO;
+  delete process.env.NOTES_RECORD_LIMIT_NOTE_BYTES;
+  delete process.env.NOTES_RECORD_LIMIT_NOTEBOOK_BYTES;
   process.env.NOTES_DB_PATH = join(tempDir, 'notes.sqlite');
   process.env.NOTES_REMOTE_SYNC_ENABLED = 'false';
   process.env.NOTES_LOGIN_USERNAME = 'owner';
@@ -59,6 +65,11 @@ afterEach(async () => {
   delete process.env.NOTES_METRICS_PUBLIC;
   delete process.env.NOTES_METRICS_TOKEN;
   delete process.env.NOTES_SERVER_SECRET;
+  delete process.env.NOTES_RECORD_LIMITS_ENABLED;
+  delete process.env.NOTES_RECORD_LIMIT_STORAGE_BYTES;
+  delete process.env.NOTES_RECORD_LIMIT_SAFETY_RATIO;
+  delete process.env.NOTES_RECORD_LIMIT_NOTE_BYTES;
+  delete process.env.NOTES_RECORD_LIMIT_NOTEBOOK_BYTES;
 });
 
 async function loginToken(
@@ -664,6 +675,42 @@ describe('Hono API', () => {
     } finally {
       primary.close();
     }
+  });
+
+  it('reports missing Worker database secrets instead of advertising signup', async () => {
+    const workerEnv = {
+      NOTES_DB_PROVIDER: 'turso',
+      NOTES_REMOTE_SYNC_ENABLED: 'false',
+      NOTES_LOGIN_USERNAME: 'owner',
+      NOTES_LOGIN_PASSWORD: 'test-password'
+    };
+
+    const config = await api.fetch(
+      new Request('http://localhost/api/config'),
+      workerEnv
+    );
+    expect(config.status).toBe(200);
+    await expect(config.json()).resolves.toMatchObject({
+      remote: { enabled: false, configured: false },
+      signup: { enabled: false }
+    });
+
+    const challenge = await api.fetch(
+      new Request('http://localhost/api/auth/challenge', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: 'owner',
+          purpose: 'login',
+          clientNonce: randomAuthNonce()
+        })
+      }),
+      workerEnv
+    );
+    expect(challenge.status).toBe(503);
+    await expect(challenge.json()).resolves.toEqual({
+      error: 'Server database is not configured'
+    });
   });
 
   it('keeps signup disabled until an email allow list is configured', async () => {
@@ -1585,6 +1632,75 @@ describe('Hono API', () => {
     expect(push.status).toBe(413);
     await expect(push.json()).resolves.toMatchObject({
       error: 'Too many changes in one sync push; refresh Author and try again.'
+    });
+  });
+
+  it('updates storage-limit estimates when the number of users changes', async () => {
+    process.env.NOTES_RECORD_LIMITS_ENABLED = 'true';
+    process.env.NOTES_RECORD_LIMIT_STORAGE_BYTES = '1000';
+    process.env.NOTES_RECORD_LIMIT_SAFETY_RATIO = '1';
+    process.env.NOTES_RECORD_LIMIT_NOTE_BYTES = '450';
+    process.env.NOTES_RECORD_LIMIT_NOTEBOOK_BYTES = '50';
+
+    const token = await loginToken();
+    const firstPush = await post(
+      '/api/sync/push',
+      {
+        device: fixtureDevice,
+        notebooks: [],
+        notes: [
+          {
+            record: {
+              ...fixtureNote,
+              id: 'quota-note-1',
+              notebookIds: [],
+              notebookId: null
+            },
+            baseVersion: 0
+          }
+        ]
+      },
+      token
+    );
+    expect(firstPush.status).toBe(200);
+
+    const db = await openDatabase();
+    try {
+      await setUserPassword(db, 'second-user', 'second-user-password');
+    } finally {
+      db.close();
+    }
+
+    const secondPush = await post(
+      '/api/sync/push',
+      {
+        device: fixtureDevice,
+        notebooks: [],
+        notes: [
+          {
+            record: {
+              ...fixtureNote,
+              id: 'quota-note-2',
+              notebookIds: [],
+              notebookId: null
+            },
+            baseVersion: 0
+          }
+        ]
+      },
+      token
+    );
+
+    expect(secondPush.status).toBe(409);
+    await expect(secondPush.json()).resolves.toMatchObject({
+      error: expect.stringContaining(
+        'allows about 1 active note and 1 active notebook per user with 2 active users'
+      ),
+      limits: {
+        activeUsers: 2,
+        maxNotes: 1,
+        estimatedNotes: 2
+      }
     });
   });
 

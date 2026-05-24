@@ -34,6 +34,10 @@ There are three checked-in env templates:
 - `apps/web/.dev.vars.example` is only for local Cloudflare Worker runs with Wrangler.
 
 For local web development, copy `apps/web/.env.example` to `apps/web/.env`.
+The web dev/build config also loads the repo-root `.env` as defaults for known
+Author server and Android keys before Vite reads `apps/web/.env`, so shared
+values such as `NOTES_LOGIN_PASSWORD`, `TURSO_DATABASE_URL`, and
+`AUTHOR_API_URL` can live in the root file and stay aligned with Android.
 
 ```env
 NOTES_DB_PATH=.data/notes.sqlite
@@ -65,6 +69,24 @@ Signup is email allow-list only when a remote database is configured. Allowed ad
 Leave `NOTES_TRUST_PROXY_HEADERS=false` unless your reverse proxy strips incoming `X-Forwarded-For` / `X-Real-IP` headers and sets trusted ones itself. It only affects login throttling.
 
 In Node/self-hosted runs, when Turso variables are present, the server keeps local SQLite active and mirrors local/remote records in both directions before reads and after writes. Set `NOTES_REMOTE_SYNC_ENABLED=false` to force local-only behavior temporarily.
+
+When Turso is configured, Author enables a conservative record-limit estimate by
+default to help stay within Turso's free storage budget. The per-user note and
+notebook limits are recalculated from the current `users` count on each sync
+push, so adding accounts lowers the estimate and deleting accounts raises it.
+Tune or disable the estimate with:
+
+```env
+NOTES_RECORD_LIMITS_ENABLED=true
+NOTES_RECORD_LIMIT_STORAGE_BYTES=5000000000
+NOTES_RECORD_LIMIT_SAFETY_RATIO=0.8
+NOTES_RECORD_LIMIT_NOTE_BYTES=24576
+NOTES_RECORD_LIMIT_NOTEBOOK_BYTES=4096
+```
+
+The estimate intentionally applies only when syncing to the server. Local
+offline writing, imports, trash actions, and notebook changes still complete
+locally first.
 
 For Node/self-hosted runs, `NOTES_BACKUP_ENABLED=true` writes periodic SQLite snapshots with `VACUUM INTO`. By default backups go next to the database under `backups/`, run once after startup when `NOTES_BACKUP_RUN_ON_START=true`, then every `NOTES_BACKUP_INTERVAL_MINUTES`, keeping `NOTES_BACKUP_RETENTION_COUNT` files. Set `NOTES_BACKUP_DIR` to place them in a bind mount or host backup path. Cloudflare/Turso-primary deployments should use Turso's managed backup/export flow instead.
 
@@ -128,13 +150,14 @@ Set the Worker secrets:
 
 ```sh
 cd apps/web
-aube exec wrangler secret put TURSO_DATABASE_URL
-aube exec wrangler secret put TURSO_AUTH_TOKEN
-aube exec wrangler secret put NOTES_LOGIN_PASSWORD
-aube exec wrangler secret put NOTES_SERVER_SECRET
+aube run cf:secrets
 ```
 
 `apps/web/wrangler.jsonc` sets `NOTES_DB_PROVIDER=turso`, so Cloudflare Workers use Turso directly as the primary database. The app initializes the Turso schema on first API access, using the same idempotent schema/migration code as local SQLite. Password authentication uses a client-side Argon2id challenge/proof verifier, so Worker login and signup requests do not run Argon2 and can stay inside the free plan CPU budget without weakening the password KDF.
+`cf:secrets` reads the ignored repo-root `.env` and uploads only Worker runtime
+keys with `wrangler secret bulk`; it never prints secret values. In
+non-interactive shells, set `CLOUDFLARE_API_TOKEN` first or run
+`aube exec wrangler login` locally.
 
 Then deploy:
 
@@ -154,6 +177,7 @@ For GitHub Actions deploys, add these repository secrets:
 - `NOTES_AUTH_SESSION_DAYS`: optional session lifetime.
 - `NOTES_METRICS_TOKEN`: optional bearer or `x-author-metrics-token` value for scraping `/api/metrics`.
 - `NOTES_SIGNUP_ALLOWED_EMAILS`: optional comma-separated signup email allow list.
+- `NOTES_RECORD_LIMIT_*`: optional Turso storage-budget estimate overrides.
 - `AUTHOR_API_URL`: optional public API URL override.
 
 The workflow writes a temporary secret file and passes it to `wrangler deploy --secrets-file`, so Worker code and updated secrets are uploaded together in one deployed version. If you deploy manually, run the `wrangler secret put` commands above once before using the app, or pass an equivalent secrets file to `wrangler deploy --secrets-file`.

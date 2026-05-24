@@ -11,6 +11,7 @@
     "build": "aube -F @author/web run build",
     "cf:build": "aube -F @author/web run cf:build",
     "cf:deploy": "aube -F @author/web run cf:deploy",
+    "cf:secrets": "aube -F @author/web run cf:secrets",
     "preview": "aube -F @author/web run preview",
     "check": "aube -F @author/web run check",
     "lint": "eslint . --max-warnings=0",

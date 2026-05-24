@@ -42,6 +42,20 @@ typing and local maintenance are not blocked by Turso/network latency.
 - `/api/metrics`: Prometheus text for uptime and remote-sync state. It is authenticated by default; set `NOTES_METRICS_TOKEN` for scrapers, or `NOTES_METRICS_PUBLIC=true` only on a private trusted network.
 - Logs: stdout/stderr. Warnings include remote mirror failures and scheduler failures, without Turso tokens or session tokens.
 
+## Turso Usage Guard
+
+When a Turso database is configured, sync pushes are checked against an
+estimated shared storage budget before writing remote rows. The estimate uses
+`NOTES_RECORD_LIMIT_STORAGE_BYTES`, `NOTES_RECORD_LIMIT_SAFETY_RATIO`,
+`NOTES_RECORD_LIMIT_NOTE_BYTES`, and `NOTES_RECORD_LIMIT_NOTEBOOK_BYTES`, then
+divides the usable budget by the current number of accounts. This is a guardrail
+for free-plan storage, not a precise billing meter; Turso row-read and
+row-write quotas still depend on query patterns and monthly activity.
+
+If users hit the estimate, they can keep editing locally but sync reports an
+explicit limit error until data is deleted/exported or the operator raises the
+budget estimate. Set `NOTES_RECORD_LIMITS_ENABLED=false` to disable the guard.
+
 ## Staging Remote Checks
 
 Keep the staging Turso database isolated from production data. The remote smoke

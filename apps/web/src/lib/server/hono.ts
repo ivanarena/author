@@ -59,6 +59,7 @@ import {
   getMetricsToken,
   getPublicApiBaseUrl,
   getRemoteDatabaseConfig,
+  isTursoPrimaryDatabase,
   setRuntimeEnv,
   shouldSyncRemoteDatabase,
   shouldTrustProxyHeaders,
@@ -85,6 +86,7 @@ import {
   syncRemoteDatabase,
   waitForRemoteSyncIdleForTests
 } from './remote-sync';
+import { checkRecordLimits } from './record-limits';
 import { isSecureRequest } from './security-headers';
 
 type ApiBindings = RuntimeEnv;
@@ -92,6 +94,22 @@ type ApiBindings = RuntimeEnv;
 type ApiContext = Context<{ Bindings: ApiBindings }>;
 
 export const api = new Hono<{ Bindings: ApiBindings }>();
+
+api.onError((error, c) => {
+  const message = error instanceof Error ? error.message : '';
+  if (message === 'Turso primary database is not configured') {
+    return c.json({ error: 'Server database is not configured' }, 503);
+  }
+  if (
+    message.includes('NOTES_SERVER_SECRET') ||
+    message.includes('NOTES_LOGIN_PASSWORD')
+  ) {
+    return c.json({ error: 'Server authentication is not configured' }, 503);
+  }
+
+  console.error('API request failed:', message || error);
+  return c.json({ error: 'Internal server error' }, 500);
+});
 
 api.use('*', async (c, next) => {
   setRuntimeEnv(c.env);
@@ -138,7 +156,7 @@ function syncOwner(session: AuthSession): string {
 }
 
 function isTursoPrimary(c: ApiContext): boolean {
-  return c.env?.NOTES_DB_PROVIDER === 'turso';
+  return isTursoPrimaryDatabase(c.env);
 }
 
 function remoteMirrorConfig(
@@ -975,9 +993,15 @@ api.get(API_PATHS.metrics, async (c) => {
 });
 
 api.get(API_PATHS.config, async (c) => {
-  const remoteConfig = remoteMirrorConfig(c);
-  const remoteEnabled = remoteConfig !== null;
+  const databaseConfig = getRemoteDatabaseConfig(c.env);
   const primaryTurso = isTursoPrimary(c);
+  const primaryTursoConfigured = primaryTurso && databaseConfig !== null;
+  const remoteConfig = primaryTurso
+    ? null
+    : shouldSyncRemoteDatabase(c.env)
+      ? databaseConfig
+      : null;
+  const remoteEnabled = remoteConfig !== null;
   return c.json({
     apiBaseUrl: publicApiBaseUrl(c.req.raw, c),
     remote: {
@@ -985,7 +1009,7 @@ api.get(API_PATHS.config, async (c) => {
       configured: remoteConfig !== null
     },
     signup: {
-      enabled: remoteEnabled || primaryTurso,
+      enabled: remoteEnabled || primaryTursoConfigured,
       emailRequired: true,
       emailAllowListRequired: true
     }
@@ -2100,6 +2124,16 @@ api.post(API_PATHS.syncPush, async (c) => {
         },
         413
       );
+    }
+
+    const limitError = await checkRecordLimits(
+      db,
+      syncOwner(session),
+      body,
+      c.env
+    );
+    if (limitError) {
+      return c.json(limitError, 409);
     }
 
     const response = await pushChanges(db, body, syncOwner(session));

@@ -10,6 +10,7 @@
     "cf:build": "SVELTEKIT_ADAPTER=cloudflare vite build",
     "cf:dev": "SVELTEKIT_ADAPTER=cloudflare vite build && wrangler dev",
     "cf:deploy": "SVELTEKIT_ADAPTER=cloudflare vite build && wrangler deploy",
+    "cf:secrets": "tsx scripts/sync-worker-secrets.ts",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",

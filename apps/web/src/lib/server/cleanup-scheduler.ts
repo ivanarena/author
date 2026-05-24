@@ -1,10 +1,11 @@
 import {
   getCleanupIntervalMs,
   isCleanupSchedulerEnabled,
+  isTursoPrimaryDatabase,
   shouldSyncRemoteDatabase,
   shouldRunCleanupOnStart
 } from './config';
-import { openDatabase } from './db';
+import { openDatabase, type NotesDb } from './db';
 import { cleanupTrash } from './repository';
 import { syncRemoteDatabase } from './remote-sync';
 
@@ -17,8 +18,9 @@ export async function runScheduledTrashCleanup(): Promise<void> {
   if (globalThis.__authorCleanupRunning) return;
 
   globalThis.__authorCleanupRunning = true;
-  const db = await openDatabase();
+  let db: NotesDb | null = null;
   try {
+    db = await openDatabase();
     const result = await cleanupTrash(db);
     if (result.deletedNotes || result.deletedNotebooks) {
       console.info(
@@ -31,13 +33,17 @@ export async function runScheduledTrashCleanup(): Promise<void> {
   } catch (error) {
     console.error('Trash cleanup failed', error);
   } finally {
-    db.close();
+    db?.close();
     globalThis.__authorCleanupRunning = false;
   }
 }
 
 export function startTrashCleanupScheduler(): void {
-  if (!isCleanupSchedulerEnabled() || globalThis.__authorCleanupScheduler)
+  if (
+    !isCleanupSchedulerEnabled() ||
+    isTursoPrimaryDatabase() ||
+    globalThis.__authorCleanupScheduler
+  )
     return;
 
   const intervalMs = getCleanupIntervalMs();

@@ -20,6 +20,11 @@ declare global {
         NOTES_TRUST_PROXY_HEADERS?: string;
         NOTES_LEGACY_AUTH_TOKEN_ENABLED?: string;
         NOTES_AUTH_TOKEN?: string;
+        NOTES_RECORD_LIMITS_ENABLED?: string;
+        NOTES_RECORD_LIMIT_STORAGE_BYTES?: string;
+        NOTES_RECORD_LIMIT_SAFETY_RATIO?: string;
+        NOTES_RECORD_LIMIT_NOTE_BYTES?: string;
+        NOTES_RECORD_LIMIT_NOTEBOOK_BYTES?: string;
         AUTHOR_API_URL?: string;
       };
     }

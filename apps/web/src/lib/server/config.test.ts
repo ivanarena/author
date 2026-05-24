@@ -1,11 +1,24 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { getLoginPassword, getServerSecret } from './config';
+import {
+  getLoginPassword,
+  getRecordLimitConfig,
+  getServerSecret,
+  shouldEnforceRecordLimits
+} from './config';
 
 const ENV_KEYS = [
   'NODE_ENV',
   'NOTES_LOGIN_PASSWORD',
   'NOTES_SERVER_SECRET',
-  'NOTES_TOTP_SECRET_KEY'
+  'NOTES_TOTP_SECRET_KEY',
+  'NOTES_DB_PROVIDER',
+  'TURSO_DATABASE_URL',
+  'TURSO_AUTH_TOKEN',
+  'NOTES_RECORD_LIMITS_ENABLED',
+  'NOTES_RECORD_LIMIT_STORAGE_BYTES',
+  'NOTES_RECORD_LIMIT_SAFETY_RATIO',
+  'NOTES_RECORD_LIMIT_NOTE_BYTES',
+  'NOTES_RECORD_LIMIT_NOTEBOOK_BYTES'
 ];
 
 const previousEnv = new Map<string, string | undefined>();
@@ -68,5 +81,31 @@ describe('server config', () => {
     expect(() => getLoginPassword()).toThrow(
       'NOTES_LOGIN_PASSWORD must be changed before production use'
     );
+  });
+
+  it('enables record limits automatically for Turso-backed deployments', () => {
+    setEnv('TURSO_DATABASE_URL', 'libsql://author.example.turso.io');
+    setEnv('TURSO_AUTH_TOKEN', 'token');
+
+    expect(shouldEnforceRecordLimits()).toBe(true);
+
+    setEnv('NOTES_RECORD_LIMITS_ENABLED', 'false');
+    expect(shouldEnforceRecordLimits()).toBe(false);
+  });
+
+  it('parses record limit estimates with safe defaults', () => {
+    setEnv('NOTES_RECORD_LIMITS_ENABLED', 'true');
+    setEnv('NOTES_RECORD_LIMIT_STORAGE_BYTES', '1000');
+    setEnv('NOTES_RECORD_LIMIT_SAFETY_RATIO', '1.5');
+    setEnv('NOTES_RECORD_LIMIT_NOTE_BYTES', '450');
+    setEnv('NOTES_RECORD_LIMIT_NOTEBOOK_BYTES', '50');
+
+    expect(getRecordLimitConfig()).toEqual({
+      enabled: true,
+      storageBudgetBytes: 1000,
+      safetyRatio: 1,
+      estimatedNoteBytes: 450,
+      estimatedNotebookBytes: 50
+    });
   });
 });

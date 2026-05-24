@@ -11,7 +11,20 @@ export type DatabaseConfig =
 
 export type RuntimeEnv = Partial<Record<string, string>>;
 
+export interface RecordLimitConfig {
+  enabled: boolean;
+  storageBudgetBytes: number;
+  safetyRatio: number;
+  estimatedNoteBytes: number;
+  estimatedNotebookBytes: number;
+}
+
 let runtimeEnv: RuntimeEnv | null = null;
+
+const DEFAULT_RECORD_LIMIT_STORAGE_BYTES = 5_000_000_000;
+const DEFAULT_RECORD_LIMIT_SAFETY_RATIO = 0.8;
+const DEFAULT_RECORD_LIMIT_NOTE_BYTES = 24 * 1024;
+const DEFAULT_RECORD_LIMIT_NOTEBOOK_BYTES = 4 * 1024;
 
 export function setRuntimeEnv(env: RuntimeEnv | null | undefined): void {
   runtimeEnv = env ?? null;
@@ -19,6 +32,25 @@ export function setRuntimeEnv(env: RuntimeEnv | null | undefined): void {
 
 function envValue(name: string, env?: RuntimeEnv | null): string | undefined {
   return env?.[name] ?? runtimeEnv?.[name] ?? process.env[name];
+}
+
+function envNumber(
+  name: string,
+  fallback: number,
+  env?: RuntimeEnv | null
+): number {
+  const value = Number(envValue(name, env));
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function envRatio(
+  name: string,
+  fallback: number,
+  env?: RuntimeEnv | null
+): number {
+  const value = Number(envValue(name, env));
+  if (!Number.isFinite(value) || value <= 0) return fallback;
+  return Math.min(value, 1);
 }
 
 function isProductionEnv(env?: RuntimeEnv | null): boolean {
@@ -123,6 +155,41 @@ export function shouldSyncRemoteDatabase(env?: RuntimeEnv | null): boolean {
 
 export function isTursoPrimaryDatabase(env?: RuntimeEnv | null): boolean {
   return envValue('NOTES_DB_PROVIDER', env) === 'turso';
+}
+
+export function shouldEnforceRecordLimits(env?: RuntimeEnv | null): boolean {
+  const configured = envValue('NOTES_RECORD_LIMITS_ENABLED', env);
+  if (configured === 'false') return false;
+  if (configured === 'true') return true;
+  return isTursoPrimaryDatabase(env) || Boolean(getRemoteDatabaseConfig(env));
+}
+
+export function getRecordLimitConfig(
+  env?: RuntimeEnv | null
+): RecordLimitConfig {
+  return {
+    enabled: shouldEnforceRecordLimits(env),
+    storageBudgetBytes: envNumber(
+      'NOTES_RECORD_LIMIT_STORAGE_BYTES',
+      DEFAULT_RECORD_LIMIT_STORAGE_BYTES,
+      env
+    ),
+    safetyRatio: envRatio(
+      'NOTES_RECORD_LIMIT_SAFETY_RATIO',
+      DEFAULT_RECORD_LIMIT_SAFETY_RATIO,
+      env
+    ),
+    estimatedNoteBytes: envNumber(
+      'NOTES_RECORD_LIMIT_NOTE_BYTES',
+      DEFAULT_RECORD_LIMIT_NOTE_BYTES,
+      env
+    ),
+    estimatedNotebookBytes: envNumber(
+      'NOTES_RECORD_LIMIT_NOTEBOOK_BYTES',
+      DEFAULT_RECORD_LIMIT_NOTEBOOK_BYTES,
+      env
+    )
+  };
 }
 
 export function getSignupAllowedEmails(env?: RuntimeEnv | null): string[] {

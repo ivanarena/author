@@ -841,6 +841,21 @@ export const SERVER_MIGRATIONS: ServerMigration[] = [
            ON auth_challenges(username, purpose, created_at);`
       );
     }
+  },
+  {
+    version: 15,
+    name: 'record-limit-active-count-indexes',
+    rollback:
+      'Restore from the pre-upgrade backup or drop notes_owner_active_idx and notebooks_owner_active_idx.',
+    up: async (db) => {
+      await exec(
+        db,
+        `CREATE INDEX IF NOT EXISTS notes_owner_active_idx
+           ON notes(owner_username, deleted_at, id);
+         CREATE INDEX IF NOT EXISTS notebooks_owner_active_idx
+           ON notebooks(owner_username, deleted_at, id);`
+      );
+    }
   }
 ];
 

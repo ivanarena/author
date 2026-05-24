@@ -22,6 +22,11 @@ Each changed entity is sent as:
 
 Clients send at most 20 note/notebook changes in a single push request so
 remote database round trips stay below Worker subrequest limits.
+When server-side record limits are enabled, the server also estimates the
+post-push active note/notebook counts for the authenticated user before
+accepting a batch. A limit failure returns an explicit sync error and does not
+drop local pending records; clients can retry after deleting/exporting data or
+after the operator adjusts the configured budget.
 `baseVersion` is the last remote version the client successfully synced. New local entities use `0`.
 For notes, clients encrypt `title` and `body` into `enc:v3` string envelopes before storage
 and push, then decrypt them after pull. Notebook names use the same envelope format before

@@ -3,6 +3,11 @@
   "private": true,
   "type": "module",
   "packageManager": "aube@1.8.0",
+  "pnpm": {
+    "overrides": {
+      "brace-expansion": "5.0.6"
+    }
+  },
   "engines": {
     "node": ">=24.0.0"
   },

@@ -415,10 +415,12 @@ async function deleteAuthUserData(
   await runSql(db, 'DELETE FROM notebooks WHERE owner_username = ?', [
     username
   ]);
+  await runSql(db, 'DELETE FROM devices WHERE owner_username = ?', [username]);
 }
 
 async function orphanedOwnerUsernames(db: NotesExecutor): Promise<string[]> {
   const ownerTables = [
+    'devices',
     'notes',
     'notebooks',
     'entity_changes',

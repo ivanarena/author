@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  brace-expansion: 5.0.6
+
 time:
   '@babel/helper-string-parser@7.27.1': 2025-04-30T15:08:26.501Z
   '@babel/helper-validator-identifier@7.28.5': 2025-10-23T15:17:38.203Z
@@ -144,7 +147,7 @@ time:
   axobject-query@4.1.0: 2024-07-15T19:08:33.508Z
   balanced-match@4.0.4: 2026-02-22T11:38:25.951Z
   blake3-wasm@2.1.5: 2020-11-29T08:20:10.136Z
-  brace-expansion@5.0.5: 2026-03-24T17:58:07.554Z
+  brace-expansion@5.0.6: 2026-05-08T05:41:43.205Z
   chai@6.2.2: 2025-12-22T21:26:03.989Z
   chokidar@4.0.3: 2024-12-18T22:21:34.451Z
   cli-cursor@5.0.0: 2024-07-26T14:02:26.233Z
@@ -1304,8 +1307,8 @@ packages:
   blake3-wasm@2.1.5:
     resolution: {integrity: sha512-F1+K8EbfOZE49dtoPtmxUQrpXaBIl3ICvasLh+nJta0xkz+9kF/7uet9fLnwKqhDrmj6g+6K3Tw9yQPUg2ka5g==}
 
-  brace-expansion@5.0.5:
-    resolution: {integrity: sha512-VZznLgtwhn+Mact9tfiwx64fA9erHH/MCXEUfB/0bX/6Fz6ny5EGTXYltMocqg4xFAQZtnO3DHWWXi8RiuN7cQ==}
+  brace-expansion@5.0.6:
+    resolution: {integrity: sha512-kLpxurY4Z4r9sgMsyG0Z9uzsBlgiU/EFKhj/h91/8yHu0edo7XuixOIH3VcJ8kkxs6/jPzoI6U9Vj3WqbMQ94g==}
     engines: {node: 18 || 20 || >=22}
 
   chai@6.2.2:
@@ -2834,7 +2837,7 @@ snapshots:
 
   blake3-wasm@2.1.5: {}
 
-  brace-expansion@5.0.5:
+  brace-expansion@5.0.6:
     dependencies:
       balanced-match: 4.0.4
 
@@ -3241,7 +3244,7 @@ snapshots:
 
   minimatch@10.2.5:
     dependencies:
-      brace-expansion: 5.0.5
+      brace-expansion: 5.0.6
 
   mri@1.2.0: {}
 

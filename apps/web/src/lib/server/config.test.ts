@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  hasHttpsPublicApiBaseUrl,
   getLoginPassword,
   getRecordLimitConfig,
   getServerSecret,
@@ -11,6 +12,7 @@ const ENV_KEYS = [
   'NOTES_LOGIN_PASSWORD',
   'NOTES_SERVER_SECRET',
   'NOTES_TOTP_SECRET_KEY',
+  'AUTHOR_API_URL',
   'NOTES_DB_PROVIDER',
   'TURSO_DATABASE_URL',
   'TURSO_AUTH_TOKEN',
@@ -107,5 +109,16 @@ describe('server config', () => {
       estimatedNoteBytes: 450,
       estimatedNotebookBytes: 50
     });
+  });
+
+  it('detects configured HTTPS public API URLs for proxy-safe hardening', () => {
+    setEnv('AUTHOR_API_URL', 'https://author.example.com');
+    expect(hasHttpsPublicApiBaseUrl()).toBe(true);
+
+    setEnv('AUTHOR_API_URL', 'http://localhost:3000');
+    expect(hasHttpsPublicApiBaseUrl()).toBe(false);
+
+    setEnv('AUTHOR_API_URL', 'not a url');
+    expect(hasHttpsPublicApiBaseUrl()).toBe(false);
   });
 });

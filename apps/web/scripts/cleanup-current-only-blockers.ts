@@ -191,6 +191,7 @@ async function deleteOldUsers(tx: NotesExecutor): Promise<string[]> {
     await run(tx, 'DELETE FROM trusted_auth_devices WHERE username = ?', [
       username
     ]);
+    await run(tx, 'DELETE FROM devices WHERE owner_username = ?', [username]);
     await run(tx, 'DELETE FROM users WHERE username = ?', [username]);
   }
   return usernames;

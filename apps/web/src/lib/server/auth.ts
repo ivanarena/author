@@ -1425,6 +1425,10 @@ export async function deleteUserAccount(
     await run(tx, 'DELETE FROM notebooks WHERE owner_username = ?', [
       normalized
     ]);
+    await run(tx, 'DELETE FROM trusted_auth_devices WHERE username = ?', [
+      normalized
+    ]);
+    await run(tx, 'DELETE FROM devices WHERE owner_username = ?', [normalized]);
     await run(tx, 'DELETE FROM users WHERE username = ?', [normalized]);
 
     return true;

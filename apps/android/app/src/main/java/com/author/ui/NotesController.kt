@@ -27,6 +27,7 @@ import com.author.core.TrustedAuthDevice
 import com.author.core.formatDateTime
 import com.author.core.normalizedNotebookName
 import com.author.core.noteNotebookIds
+import com.author.core.readBoundedUtf8
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -37,6 +38,8 @@ import kotlinx.coroutines.withContext
 class NotesController(private val repository: NotesRepository, private val scope: CoroutineScope) {
   private companion object {
     const val MIN_PASSWORD_LENGTH = 12
+    const val MAX_MARKDOWN_IMPORT_FILE_BYTES = 2L * 1024L * 1024L
+    const val MAX_MARKDOWN_IMPORT_TOTAL_BYTES = 20L * 1024L * 1024L
   }
 
   private val initialWorkspace =
@@ -1249,13 +1252,27 @@ class NotesController(private val repository: NotesRepository, private val scope
     scope.launch {
       isArchiveBusy = true
       try {
+        var totalBytes = 0L
         val files =
           uris.mapNotNull { uri ->
-            val text =
-              resolver.openInputStream(uri)?.use { String(it.readBytes(), Charsets.UTF_8) }
-                ?: return@mapNotNull null
             val name = displayName(uri, resolver)
-            MarkdownInputFile(name, importPath(uri, name), text)
+            val declaredSize = contentSize(uri, resolver)
+            if (declaredSize != null && declaredSize > MAX_MARKDOWN_IMPORT_FILE_BYTES) {
+              error("$name is too large to import")
+            }
+            if (
+              declaredSize != null && totalBytes + declaredSize > MAX_MARKDOWN_IMPORT_TOTAL_BYTES
+            ) {
+              error("Markdown import is too large")
+            }
+            val remainingBytes = MAX_MARKDOWN_IMPORT_TOTAL_BYTES - totalBytes
+            if (remainingBytes <= 0) error("Markdown import is too large")
+            val bounded =
+              resolver.openInputStream(uri)?.use {
+                readBoundedUtf8(it, minOf(MAX_MARKDOWN_IMPORT_FILE_BYTES, remainingBytes))
+              } ?: return@mapNotNull null
+            totalBytes += bounded.byteCount
+            MarkdownInputFile(name, importPath(uri, name), bounded.text)
           }
         val result = repository.importMarkdownFiles(files)
         importBanner = result.summary()
@@ -1492,6 +1509,14 @@ class NotesController(private val repository: NotesRepository, private val scope
         if (cursor.moveToFirst()) cursor.getString(0) else null
       }
     return fromCursor ?: uri.lastPathSegment?.substringAfterLast('/') ?: "note.md"
+  }
+
+  private fun contentSize(uri: Uri, resolver: ContentResolver): Long? {
+    val fromCursor =
+      resolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+        if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else null
+      }
+    return fromCursor?.takeIf { it >= 0 }
   }
 
   private fun importPath(uri: Uri, displayName: String): String {

@@ -59,6 +59,7 @@ import {
   getMetricsToken,
   getPublicApiBaseUrl,
   getRemoteDatabaseConfig,
+  hasHttpsPublicApiBaseUrl,
   isTursoPrimaryDatabase,
   setRuntimeEnv,
   shouldSyncRemoteDatabase,
@@ -259,6 +260,7 @@ function rejectCrossOriginMutation(c: ApiContext): Response | null {
 }
 
 function authCookieSecure(c: ApiContext): boolean {
+  if (hasHttpsPublicApiBaseUrl(c.env)) return true;
   return isSecureRequest(
     c.req.raw,
     new URL(c.req.raw.url),

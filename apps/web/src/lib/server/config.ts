@@ -210,6 +210,16 @@ export function getPublicApiBaseUrl(env?: RuntimeEnv | null): string | null {
   return trimmed || null;
 }
 
+export function hasHttpsPublicApiBaseUrl(env?: RuntimeEnv | null): boolean {
+  const value = getPublicApiBaseUrl(env);
+  if (!value) return false;
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 export function getLegacyAuthToken(): string | null {
   if (envValue('NOTES_LEGACY_AUTH_TOKEN_ENABLED') !== 'true') return null;
 

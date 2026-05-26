@@ -332,6 +332,14 @@ describe('Hono API', () => {
     expect(logout.headers.get('set-cookie')).toContain('Max-Age=0');
   });
 
+  it('marks auth cookies secure when the configured public API URL is HTTPS', async () => {
+    process.env.AUTHOR_API_URL = 'https://author.example.com';
+
+    const login = await loginResponse();
+    expect(login.status).toBe(200);
+    expect(login.headers.get('set-cookie')).toContain('Secure');
+  });
+
   it('validates active auth tokens without accepting invalid ones', async () => {
     const token = await loginToken();
     const valid = await api.fetch(
@@ -1239,9 +1247,10 @@ describe('Hono API', () => {
         (SELECT count(*) FROM entity_changes WHERE owner_username = ?) AS entity_changes,
         (SELECT count(*) FROM entity_tombstones WHERE owner_username = ?) AS tombstones,
         (SELECT count(*) FROM note_versions WHERE owner_username = ?) AS note_versions,
-        (SELECT count(*) FROM notebook_versions WHERE owner_username = ?) AS notebook_versions
+        (SELECT count(*) FROM notebook_versions WHERE owner_username = ?) AS notebook_versions,
+        (SELECT count(*) FROM devices WHERE owner_username = ?) AS devices
     `;
-    const countArgs = Array(7).fill('owner');
+    const countArgs = Array(8).fill('owner');
     const deletedRemote = await openConfiguredDatabase({
       provider: 'turso',
       client: { url: `file:${remotePath}`, authToken: 'test-token' }
@@ -1258,7 +1267,8 @@ describe('Hono API', () => {
         entity_changes: 0,
         tombstones: 0,
         note_versions: 0,
-        notebook_versions: 0
+        notebook_versions: 0,
+        devices: 0
       });
     } finally {
       deletedRemote.close();
@@ -1274,7 +1284,8 @@ describe('Hono API', () => {
         entity_changes: 0,
         tombstones: 0,
         note_versions: 0,
-        notebook_versions: 0
+        notebook_versions: 0,
+        devices: 0
       });
     } finally {
       local.close();

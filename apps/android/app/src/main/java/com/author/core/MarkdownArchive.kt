@@ -1,6 +1,7 @@
 package com.author.core
 
 import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -9,6 +10,8 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 data class MarkdownInputFile(val name: String, val path: String, val text: String)
+
+data class BoundedUtf8Text(val text: String, val byteCount: Long)
 
 data class ParsedImportNotebook(val name: String, val createdAt: String?, val updatedAt: String?)
 
@@ -44,6 +47,25 @@ data class ImportNotesResult(
     val skippedText = if (skippedNotes > 0) ", $skippedNotes blank skipped" else ""
     return "Imported $noteText$notebookText$skippedText"
   }
+}
+
+fun readBoundedUtf8(input: InputStream, maxBytes: Long): BoundedUtf8Text {
+  require(maxBytes > 0) { "Markdown import size limit must be positive" }
+  val output = ByteArrayOutputStream()
+  val buffer = ByteArray(8192)
+  var byteCount = 0L
+
+  while (true) {
+    val read = input.read(buffer)
+    if (read == -1) break
+    byteCount += read.toLong()
+    if (byteCount > maxBytes) {
+      error("Markdown import file is too large")
+    }
+    output.write(buffer, 0, read)
+  }
+
+  return BoundedUtf8Text(output.toString(Charsets.UTF_8.name()), byteCount)
 }
 
 private val markdownExtension = Regex("\\.md$", RegexOption.IGNORE_CASE)

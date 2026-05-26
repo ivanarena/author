@@ -1,7 +1,9 @@
 package com.author.core
 
+import java.io.ByteArrayInputStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class MarkdownArchiveTest {
@@ -47,6 +49,17 @@ class MarkdownArchiveTest {
 
     assertEquals("Loose note", parsed.notes.single().title)
     assertEquals("", parsed.notes.single().body)
+  }
+
+  @Test
+  fun readBoundedUtf8StopsOversizedImports() {
+    val text = readBoundedUtf8(ByteArrayInputStream("hello".toByteArray()), 5)
+    assertEquals("hello", text.text)
+    assertEquals(5, text.byteCount)
+
+    assertThrows(IllegalStateException::class.java) {
+      readBoundedUtf8(ByteArrayInputStream("oversized".toByteArray()), 4)
+    }
   }
 
   private fun markdownFile(path: String, text: String): MarkdownInputFile =

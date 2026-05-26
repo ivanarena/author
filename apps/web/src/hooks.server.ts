@@ -7,6 +7,7 @@ import {
   createSecurityNonce,
   isSecureRequest
 } from '$lib/server/security-headers';
+import { hasHttpsPublicApiBaseUrl } from '$lib/server/config';
 
 if (!building) {
   startTrashCleanupScheduler();
@@ -22,7 +23,9 @@ export const handle: Handle = async ({ event, resolve }) => {
   applySecurityHeaders(response, {
     nonce,
     dev,
-    secure: isSecureRequest(event.request, event.url)
+    secure:
+      hasHttpsPublicApiBaseUrl(event.platform?.env) ||
+      isSecureRequest(event.request, event.url)
   });
   return response;
 };

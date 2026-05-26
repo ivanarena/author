@@ -1,6 +1,7 @@
 import Dexie, { type Table } from 'dexie';
 import type { SyncConflict } from '@author/api-types';
 import type { Device, Note, Notebook } from '@author/schema';
+import { recordDebugLog } from './debug-log';
 
 export interface LocalNote extends Note {
   lastSyncedVersion: number;
@@ -92,6 +93,23 @@ export class NotesLocalDatabase extends Dexie {
 }
 
 export const localDb = new NotesLocalDatabase();
+
+localDb.on('blocked', () => {
+  recordDebugLog({
+    level: 'warn',
+    source: 'IndexedDB',
+    message: 'Database upgrade blocked by another open Author tab'
+  });
+});
+
+localDb.on('versionchange', () => {
+  recordDebugLog({
+    level: 'info',
+    source: 'IndexedDB',
+    message: 'Database version changed; closing this connection'
+  });
+  localDb.close();
+});
 
 export async function clearLocalWorkspace(): Promise<void> {
   await localDb.transaction(

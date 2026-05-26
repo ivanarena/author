@@ -33,7 +33,7 @@ export interface ApiClientOptions {
 }
 
 export class AuthError extends Error {
-  constructor(message = 'Login expired') {
+  constructor(message = 'Sign-in expired') {
     super(message);
     this.name = 'AuthError';
   }

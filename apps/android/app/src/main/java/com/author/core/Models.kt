@@ -76,6 +76,7 @@ data class Workspace(
   val pendingSyncCount: Int,
   val lastSyncPass: LastSyncPass,
   val syncDebugInfo: SyncDebugInfo,
+  val appDebugLogEntries: List<DebugLogEntry>,
 )
 
 data class LastSyncPass(
@@ -89,6 +90,15 @@ data class SyncDebugInfo(
   val lastErrorAt: String?,
   val lastErrorMessage: String,
   val lastErrorStack: String,
+)
+
+data class DebugLogEntry(
+  val id: String,
+  val at: String,
+  val level: String,
+  val source: String,
+  val message: String,
+  val detail: String,
 )
 
 data class AuthUser(

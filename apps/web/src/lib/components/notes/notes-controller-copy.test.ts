@@ -38,7 +38,7 @@ describe('notes controller copy helpers', () => {
         pulled: 0,
         conflicts: 0
       })
-    ).toBe('Sync has not completed in this browser.');
+    ).toBe('No sync pass has completed in this browser.');
 
     expect(
       formatSyncPassDetail({
@@ -57,7 +57,7 @@ describe('notes controller copy helpers', () => {
         lastErrorMessage: '',
         lastErrorStack: ''
       })
-    ).toBe('No sync errors recorded on this browser.');
+    ).toBe('No sync errors recorded in this browser.');
 
     const iso = '2026-05-12T10:30:00.000Z';
     expect(

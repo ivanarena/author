@@ -287,6 +287,10 @@ export interface SettingsModalModel {
   syncDebugTitle: string;
   syncDebugDetail: string;
   syncDebugLog: string;
+  appDebugTitle: string;
+  appDebugDetail: string;
+  appDebugLog: string;
+  clearAppDebugLog: () => void;
   syncNow: () => void | Promise<void>;
   saveAccountProfile: () => void | Promise<void>;
   changeAccountPassword: () => void | Promise<void>;

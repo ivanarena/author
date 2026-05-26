@@ -21,7 +21,7 @@
     <strong>Trusted devices</strong>
   </div>
   <p class="trusted-device-note">
-    Removing trust stops future 2FA-code login without a password. It does not
+    Removing trust stops future 2FA-code sign-in without a password. It does not
     log out an active session on that device.
   </p>
   {#if model.accountTrustedDevices.length}
@@ -39,8 +39,8 @@
         <button
           class="icon-button mini trusted-device-remove"
           type="button"
-          title="Remove trusted login"
-          aria-label={`Remove trusted login for ${device.deviceName}`}
+          title="Remove trusted sign-in"
+          aria-label={`Remove trusted sign-in for ${device.deviceName}`}
           disabled={model.isAccountBusy}
           onclick={() => void model.revokeTrustedDevice(device.deviceId)}
         >

@@ -21,7 +21,7 @@ export function formatSyncPassDetail(pass: {
   pulled: number;
   conflicts: number;
 }): string {
-  if (!pass.completedAt) return 'Sync has not completed in this browser.';
+  if (!pass.completedAt) return 'No sync pass has completed in this browser.';
   return [
     formatSyncCount(pass.pushed, 'pushed change'),
     formatSyncCount(pass.pulled, 'pulled change'),
@@ -35,7 +35,7 @@ export function formatSyncDebugLog(debug: {
   lastErrorStack: string;
 }): string {
   if (!debug.lastErrorAt && !debug.lastErrorMessage) {
-    return 'No sync errors recorded on this browser.';
+    return 'No sync errors recorded in this browser.';
   }
 
   return [

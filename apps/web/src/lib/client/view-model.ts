@@ -51,8 +51,8 @@ const HEALTHY_SYNC_MESSAGES = new Set([
   'Pushing local changes',
   'Pulling remote changes',
   'Waiting to sync',
-  'Remote sync queued',
-  'Syncing remote'
+  'Remote worker queued',
+  'Syncing remote worker'
 ]);
 
 export function filterNotesForView(
@@ -275,21 +275,21 @@ export function syncIndicatorState(state: SyncIndicatorState): SyncIndicator {
       'pending',
       label,
       syncDetail(syncMessage, label) ||
-        `${pendingSyncCount} item${pendingSyncCount === 1 ? '' : 's'} queued locally`
+        `${pendingSyncCount} local change${pendingSyncCount === 1 ? '' : 's'} queued`
     );
   }
 
   if (remoteSyncEnabled) {
     if (remoteSyncState === 'queued') {
-      const label = 'Remote sync queued';
+      const label = 'Remote worker queued';
       return syncIndicator('pending', label, 'Local changes saved');
     }
     if (remoteSyncState === 'syncing' || remoteSyncState === 'unknown') {
-      const label = 'Syncing remote';
+      const label = 'Syncing remote worker';
       return syncIndicator('syncing', label, 'Local changes saved');
     }
     if (remoteSyncState === 'error') {
-      return syncIndicator('conflict', 'Remote sync failed', remoteSyncError);
+      return syncIndicator('conflict', 'Remote worker failed', remoteSyncError);
     }
   }
 

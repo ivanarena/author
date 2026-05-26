@@ -211,7 +211,7 @@ describe('client note view model', () => {
     ).toMatchObject({
       kind: 'pending',
       label: 'Waiting to sync',
-      detail: '3 items queued locally'
+      detail: '3 local changes queued'
     });
 
     expect(
@@ -221,7 +221,7 @@ describe('client note view model', () => {
         isBrowserOnline: true,
         hasSession: true,
         pendingSyncCount: 0,
-        syncMessage: 'Login expired',
+        syncMessage: 'Sign-in expired',
         remoteSyncEnabled: false,
         remoteSyncState: 'disabled',
         remoteSyncError: ''
@@ -229,7 +229,7 @@ describe('client note view model', () => {
     ).toMatchObject({
       kind: 'synced',
       label: 'All changes saved',
-      detail: 'Login expired'
+      detail: 'Sign-in expired'
     });
 
     expect(
@@ -247,7 +247,7 @@ describe('client note view model', () => {
     ).toMatchObject({
       kind: 'pending',
       tone: 'info',
-      label: 'Remote sync queued',
+      label: 'Remote worker queued',
       detail: 'Local changes saved'
     });
 

@@ -523,9 +523,9 @@ private fun DeviceNameSettings(controller: NotesController) {
 private fun TrustedDevicesSettings(controller: NotesController) {
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
     InfoTile(
-      "Trusted-device login",
+      "Trusted-device sign-in",
       trustedDeviceCountLabel(controller.accountTrustedDevices.size),
-      "Removing trust stops future 2FA-code login without a password. Active sessions stay signed in.",
+      "Removing trust stops future 2FA-code sign-in without a password. Active sessions stay signed in.",
     )
     if (controller.accountTrustedDevices.isEmpty()) {
       InfoTile("Trusted devices", "None", "Sign in with a password to trust this device")
@@ -620,53 +620,68 @@ private fun DeleteAccountPanel(controller: NotesController) {
 
 @Composable
 private fun SyncSettings(controller: NotesController) {
-  Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-    SyncStatusTile(controller)
-    InfoTile(
-      "Pending local changes",
-      controller.pendingSyncCount.toString(),
-      "${controller.pendingSyncCount} items waiting to sync",
-      valueColor = syncStatusColor(if (controller.pendingSyncCount > 0) "Pending" else "Saved"),
-    )
-    InfoTile("Last sync pass", controller.lastSyncPassTitle, controller.lastSyncPassDetail)
-    InfoTile("Installed API", BuildConfig.DEFAULT_API_BASE_URL, buildApiDetail())
-    InfoTile(
-      "Connected API",
-      controller.serverApiBaseUrl.ifBlank { controller.apiBaseUrl },
-      serverApiDetail(controller),
-    )
-    InfoTile("Remote database", remoteDatabaseValue(controller), remoteDatabaseDetail(controller))
-    if (controller.remoteSyncEnabled || controller.remoteSyncError.isNotBlank()) {
+  Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    SettingsChoiceGroup("Status") {
+      SyncStatusTile(controller)
       InfoTile(
-        "Remote sync",
-        controller.remoteSyncState,
-        controller.remoteSyncError.ifBlank { "Remote worker status from the last check" },
-        valueColor = syncStatusColor(controller.remoteSyncState),
+        "Pending local changes",
+        controller.pendingSyncCount.toString(),
+        pendingSyncDetail(controller.pendingSyncCount),
+        valueColor = syncStatusColor(if (controller.pendingSyncCount > 0) "Pending" else "Saved"),
       )
-    }
-    SyncDebugTile(controller)
-    MiniField(controller.apiBaseUrl, "Author API URL", Modifier.fillMaxWidth()) {
-      controller.apiBaseUrl = it
-    }
-    ActionRow(Icons.Outlined.Check, "Save API URL") { controller.saveApiBaseUrl() }
-    ActionRow(Icons.Outlined.Settings, "Use installed API") { controller.useBuildApiBaseUrl() }
-    ActionRow(Icons.Outlined.Refresh, "Check API") {
-      controller.refreshServerConfig(showNotification = true)
-    }
-    ActionRow(Icons.Outlined.Download, "Check for updates") { controller.checkForUpdates() }
-    if (controller.hasToken) {
-      ActionRow(
-        Icons.Outlined.Refresh,
-        if (controller.isSyncing) "Syncing" else "Sync now",
-        enabled = !controller.isSyncing,
-      ) {
-        controller.syncNow()
+      InfoTile("Last sync", controller.lastSyncPassTitle, controller.lastSyncPassDetail)
+      if (controller.remoteSyncEnabled || controller.remoteSyncError.isNotBlank()) {
+        InfoTile(
+          "Remote worker",
+          controller.remoteSyncState,
+          controller.remoteSyncError.ifBlank { "Remote worker status from the last check" },
+          valueColor = syncStatusColor(controller.remoteSyncState),
+        )
       }
-    } else {
-      ActionRow(Icons.AutoMirrored.Outlined.Login, "Sign in to sync") { controller.openLogin() }
+    }
+
+    SettingsChoiceGroup("Server") {
+      InfoTile("Installed API URL", BuildConfig.DEFAULT_API_BASE_URL, buildApiDetail())
+      InfoTile(
+        "Current API URL",
+        controller.serverApiBaseUrl.ifBlank { controller.apiBaseUrl },
+        serverApiDetail(controller),
+      )
+      InfoTile("Remote database", remoteDatabaseValue(controller), remoteDatabaseDetail(controller))
+      MiniField(controller.apiBaseUrl, "Author API URL", Modifier.fillMaxWidth()) {
+        controller.apiBaseUrl = it
+      }
+      ActionRow(Icons.Outlined.Check, "Save API URL") { controller.saveApiBaseUrl() }
+      ActionRow(Icons.Outlined.Settings, "Use installed API") { controller.useBuildApiBaseUrl() }
+      ActionRow(Icons.Outlined.Refresh, "Check API") {
+        controller.refreshServerConfig(showNotification = true)
+      }
+    }
+
+    SettingsChoiceGroup("Troubleshooting") {
+      SyncDebugTile(controller)
+      ActionRow(Icons.Outlined.Delete, "Clear diagnostic log") { controller.clearDebugLog() }
+    }
+
+    SettingsChoiceGroup("Actions") {
+      ActionRow(Icons.Outlined.Download, "Check for updates") { controller.checkForUpdates() }
+      if (controller.hasToken) {
+        ActionRow(
+          Icons.Outlined.Refresh,
+          if (controller.isSyncing) "Syncing" else "Sync now",
+          enabled = !controller.isSyncing,
+        ) {
+          controller.syncNow()
+        }
+      } else {
+        ActionRow(Icons.AutoMirrored.Outlined.Login, "Sign in to sync") { controller.openLogin() }
+      }
     }
   }
 }
+
+private fun pendingSyncDetail(count: Int): String =
+  if (count == 1) "1 local change queued" else "$count local changes queued"
 
 @Composable
 private fun SyncStatusTile(controller: NotesController) {
@@ -700,14 +715,14 @@ private fun SyncStatusTile(controller: NotesController) {
 
 private fun buildApiDetail(): String =
   if (BuildConfig.DEFAULT_API_BASE_URL_CONFIGURED) {
-    "Loaded from build-time environment or Gradle property"
+    "Bundled with this Android build"
   } else {
     "Local emulator default. Set AUTHOR_API_URL for a real build."
   }
 
 private fun serverApiDetail(controller: NotesController): String =
   controller.serverConfigError.ifBlank {
-    "Reported by the Author API. Turso credentials stay on the server."
+    "Reported by the Author API. Database credentials stay on the server."
   }
 
 private fun remoteDatabaseValue(controller: NotesController): String =
@@ -720,10 +735,10 @@ private fun remoteDatabaseValue(controller: NotesController): String =
 private fun remoteDatabaseDetail(controller: NotesController): String =
   when {
     controller.serverConfigError.isNotBlank() -> controller.serverConfigError
-    controller.serverRemoteSyncEnabled -> "Turso remote mirror enabled by the API server"
+    controller.serverRemoteSyncEnabled -> "Remote mirror enabled by the API server"
     controller.serverRemoteDatabaseConfigured ->
-      "Turso configured on the API server, remote sync disabled"
-    else -> "Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN on the API server"
+      "Remote database configured on the API server; remote sync disabled"
+    else -> "Configure remote database credentials on the API server"
   }
 
 @Composable
@@ -731,7 +746,7 @@ private fun SyncDebugTile(controller: NotesController) {
   GlassPanel(Modifier.fillMaxWidth()) {
     Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
       Text(
-        "Debug",
+        "Last sync error",
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
         fontSize = AppTextSize.Label,
         fontWeight = FontWeight.SemiBold,
@@ -751,6 +766,27 @@ private fun SyncDebugTile(controller: NotesController) {
           lineHeight = 15.sp,
         )
       }
+      Text(
+        "Diagnostics",
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+        fontSize = AppTextSize.Label,
+        fontWeight = FontWeight.SemiBold,
+      )
+      Text(controller.appDebugTitle, fontWeight = FontWeight.SemiBold)
+      Text(
+        controller.appDebugDetail,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+        fontSize = AppTextSize.Label,
+      )
+      SelectionContainer {
+        Text(
+          controller.appDebugLog,
+          color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+          fontFamily = FontFamily.Monospace,
+          fontSize = AppTextSize.Debug,
+          lineHeight = 15.sp,
+        )
+      }
     }
   }
 }
@@ -760,13 +796,13 @@ private fun DataSettings(controller: NotesController, onExport: () -> Unit, onIm
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
     ActionRow(
       Icons.Outlined.Download,
-      if (controller.isArchiveBusy) "Working" else "Export MD ZIP",
+      if (controller.isArchiveBusy) "Working" else "Export Markdown ZIP",
     ) {
       if (!controller.isArchiveBusy) onExport()
     }
     ActionRow(
       Icons.Outlined.Upload,
-      if (controller.isArchiveBusy) "Working" else "Import MD files",
+      if (controller.isArchiveBusy) "Working" else "Import Markdown files",
     ) {
       if (!controller.isArchiveBusy) onImport()
     }

@@ -38,10 +38,10 @@ val NotesController.syncLabel: String
       conflicts.isNotEmpty() -> "${conflicts.size} conflict${if (conflicts.size == 1) "" else "s"}"
       !hasToken -> "Local only"
       pendingSyncCount > 0 -> "Waiting to sync"
-      remoteSyncEnabled && remoteSyncState == "queued" -> "Remote sync queued"
+      remoteSyncEnabled && remoteSyncState == "queued" -> "Remote worker queued"
       remoteSyncEnabled && (remoteSyncState == "syncing" || remoteSyncState == "unknown") ->
-        "Syncing remote"
-      remoteSyncEnabled && remoteSyncState == "error" -> "Remote sync failed"
+        "Syncing remote worker"
+      remoteSyncEnabled && remoteSyncState == "error" -> "Remote worker failed"
       remoteSyncEnabled -> "All changes synced"
       else -> "All changes saved"
     }
@@ -54,7 +54,7 @@ val NotesController.syncDetail: String
       !hasToken -> "Sign in to sync"
       remoteSyncState == "error" -> remoteSyncError
       pendingSyncCount > 0 ->
-        "$pendingSyncCount item${if (pendingSyncCount == 1) "" else "s"} queued locally"
+        "$pendingSyncCount local change${if (pendingSyncCount == 1) "" else "s"} queued"
       syncMessage !in
         setOf(
           "Online",
@@ -68,6 +68,8 @@ val NotesController.syncDetail: String
           "Pushing local changes",
           "Pulling remote changes",
           "Waiting to sync",
+          "Remote worker queued",
+          "Syncing remote worker",
         ) -> syncMessage
       else -> ""
     }

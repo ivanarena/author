@@ -10,7 +10,7 @@ import java.security.SecureRandom
 import org.json.JSONArray
 import org.json.JSONObject
 
-class AuthException(message: String = "Login expired") : Exception(message)
+class AuthException(message: String = "Sign-in expired") : Exception(message)
 
 class SyncHttpException(val status: Int, message: String) : Exception(message)
 

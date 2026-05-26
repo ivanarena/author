@@ -19,6 +19,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.author.core.DebugLogStore
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
@@ -41,14 +42,39 @@ class UpdateCheckWorker(appContext: Context, params: WorkerParameters) :
   CoroutineWorker(appContext, params) {
   override suspend fun doWork(): Result =
     runCatching {
+        DebugLogStore.record(applicationContext, "info", "Update worker", "Update check started")
         val latest = loadLatestUpdate()
         if (latest.isNewerThanInstalled(BuildConfig.VERSION_CODE, BuildConfig.VERSION_NAME)) {
           notifyOnce(latest)
+          DebugLogStore.record(
+            applicationContext,
+            "info",
+            "Update worker",
+            "Update available",
+            latest.versionName,
+          )
+        } else {
+          DebugLogStore.record(
+            applicationContext,
+            "debug",
+            "Update worker",
+            "No update available",
+            latest.versionName,
+          )
         }
       }
       .fold(
         onSuccess = { Result.success() },
-        onFailure = { if (runAttemptCount < 3) Result.retry() else Result.success() },
+        onFailure = {
+          DebugLogStore.record(
+            applicationContext,
+            "error",
+            "Update worker",
+            "Update check failed",
+            it.stackTraceToString(),
+          )
+          if (runAttemptCount < 3) Result.retry() else Result.success()
+        },
       )
 
   private fun loadLatestUpdate(): UpdateInfo =

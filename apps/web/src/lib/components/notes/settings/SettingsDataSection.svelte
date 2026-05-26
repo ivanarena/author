@@ -55,7 +55,7 @@
       onclick={model.exportMarkdown}
     >
       <Download size={15} strokeWidth={1.8} />
-      <span>Export MD ZIP</span>
+      <span>Export Markdown ZIP</span>
     </button>
     <button
       class="settings-action"
@@ -63,7 +63,7 @@
       onclick={model.startMarkdownImport}
     >
       <Upload size={15} strokeWidth={1.8} />
-      <span>Import MD folder</span>
+      <span>Import Markdown folder</span>
     </button>
   </div>
 </div>

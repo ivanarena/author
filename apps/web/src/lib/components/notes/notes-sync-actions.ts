@@ -5,6 +5,7 @@ import {
   loadSyncStatus,
   validateSession
 } from '$lib/client/api-client';
+import { recordDebugLog } from '$lib/client/debug-log';
 import { hasStoredEncryptionKeyMaterial } from '$lib/client/encryption';
 import {
   clearSyncError,
@@ -103,6 +104,11 @@ export async function syncNow(
   }
 
   await controller.flushPendingSave();
+  recordDebugLog({
+    level: 'info',
+    source: 'Sync',
+    message: 'Sync started'
+  });
 
   if (controller.autoSyncTimer) {
     clearTimeout(controller.autoSyncTimer);
@@ -132,6 +138,16 @@ export async function syncNow(
     await controller.refresh();
     await controller.refreshRemoteSyncStatus(token);
     pollRemoteSyncStatusIfBusy(controller);
+    recordDebugLog({
+      level: 'info',
+      source: 'Sync',
+      message: 'Sync completed',
+      detail: {
+        pushed: result.pushed,
+        pulled: result.pulled,
+        conflicts: result.conflicts
+      }
+    });
     syncCompleted = true;
   } catch (error) {
     await controller.handleSyncError(error);
@@ -281,11 +297,33 @@ export async function refreshRemoteSyncStatus(
     controller.remoteSyncState = status.remote.state;
     controller.remoteSyncError = status.remote.lastError ?? '';
     if (status.remote.lastError) {
-      await recordSyncError(status.remote.lastError, 'Remote sync');
+      recordDebugLog({
+        level: 'warn',
+        source: 'Remote worker',
+        message: 'Remote worker reported an error',
+        detail: status.remote.lastError
+      });
+      await recordSyncError(status.remote.lastError, 'Remote worker');
       await controller.refresh();
+    } else {
+      recordDebugLog({
+        level: 'debug',
+        source: 'Remote worker',
+        message: 'Remote worker status checked',
+        detail: {
+          enabled: status.remote.enabled,
+          state: status.remote.state
+        }
+      });
     }
   } catch (error) {
-    await recordSyncError(error, 'Remote sync status');
+    recordDebugLog({
+      level: 'error',
+      source: 'Remote worker',
+      message: 'Could not check remote worker status',
+      detail: error
+    });
+    await recordSyncError(error, 'Remote worker status');
     await controller.refresh();
     if (error instanceof AuthError) {
       controller.expireSession(error.message);
@@ -323,10 +361,10 @@ export function pollRemoteSyncStatusIfBusy(
 
 export function expireSession(
   controller: NotesSyncActionController,
-  message = 'Login expired'
+  message = 'Sign-in expired'
 ): void {
   const displayMessage =
-    message.toLowerCase() === 'unauthorized' ? 'Login expired' : message;
+    message.toLowerCase() === 'unauthorized' ? 'Sign-in expired' : message;
   controller.clearLocalSession({
     accountMessage: displayMessage,
     openLogin: true,
@@ -339,6 +377,12 @@ export async function handleSyncError(
   controller: NotesSyncActionController,
   error: unknown
 ): Promise<void> {
+  recordDebugLog({
+    level: 'error',
+    source: 'Sync',
+    message: 'Sync failed',
+    detail: error
+  });
   await recordSyncError(error, 'Sync');
   await controller.refresh();
 

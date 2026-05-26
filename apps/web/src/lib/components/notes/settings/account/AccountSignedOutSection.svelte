@@ -9,7 +9,7 @@
   <UserRound size={22} strokeWidth={1.7} />
   <div>
     <strong>Local workspace</strong>
-    <span>Sync is off for this browser</span>
+    <span>Sync is off on this browser</span>
   </div>
 </div>
 <button

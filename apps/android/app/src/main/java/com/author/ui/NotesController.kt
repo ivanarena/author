@@ -12,6 +12,8 @@ import androidx.compose.runtime.setValue
 import com.author.BuildConfig
 import com.author.core.AuthException
 import com.author.core.AuthUser
+import com.author.core.DebugLogEntry
+import com.author.core.DebugLogStore
 import com.author.core.Device
 import com.author.core.LocalConflict
 import com.author.core.LocalNote
@@ -37,7 +39,17 @@ class NotesController(private val repository: NotesRepository, private val scope
     const val MIN_PASSWORD_LENGTH = 12
   }
 
-  private val initialWorkspace = runCatching { repository.loadWorkspaceSnapshot() }.getOrNull()
+  private val initialWorkspace =
+    runCatching { repository.loadWorkspaceSnapshot() }
+      .onFailure {
+        repository.recordDebugLog(
+          "error",
+          "Database",
+          "Could not load workspace",
+          it.stackTraceToString(),
+        )
+      }
+      .getOrNull()
   private val initialSession = repository.getStoredSession()
   private var pageBackStack by mutableStateOf<List<String>>(emptyList())
 
@@ -126,22 +138,22 @@ class NotesController(private val repository: NotesRepository, private val scope
     mutableStateOf(
       initialWorkspace?.lastSyncPass?.let {
         if (it.completedAt == null) {
-          "Sync has not completed on this device."
+          "No sync pass has completed on this device."
         } else {
           "${it.pushed} pushed, ${it.pulled} pulled, ${it.conflicts} conflicts"
         }
-      } ?: "Sync has not completed on this device."
+      } ?: "No sync pass has completed on this device."
     )
   var syncDebugTitle by
     mutableStateOf(
       initialWorkspace?.syncDebugInfo?.lastErrorAt?.let { formatDateTime(it) }
-        ?: "No sync errors recorded"
+        ?: "No sync errors yet"
     )
   var syncDebugDetail by
     mutableStateOf(
       initialWorkspace?.syncDebugInfo?.lastErrorMessage?.ifBlank {
-        "The last caught sync error will appear here."
-      } ?: "The last caught sync error will appear here."
+        "The most recent sync error will appear here."
+      } ?: "The most recent sync error will appear here."
     )
   var syncDebugLog by
     mutableStateOf(
@@ -149,6 +161,10 @@ class NotesController(private val repository: NotesRepository, private val scope
         formatSyncDebugLog(it.lastErrorAt, it.lastErrorMessage, it.lastErrorStack)
       } ?: "No sync errors recorded on this device."
     )
+  var appDebugTitle by mutableStateOf(formatAppDebugTitle(initialWorkspace?.appDebugLogEntries))
+  var appDebugDetail by mutableStateOf(formatAppDebugDetail(initialWorkspace?.appDebugLogEntries))
+  var appDebugLog by
+    mutableStateOf(DebugLogStore.format(initialWorkspace?.appDebugLogEntries ?: emptyList()))
   var remoteSyncEnabled by mutableStateOf(false)
   var remoteSyncState by mutableStateOf("unknown")
   var remoteSyncError by mutableStateOf("")
@@ -196,6 +212,7 @@ class NotesController(private val repository: NotesRepository, private val scope
 
   fun initialize() {
     scope.launch {
+      repository.recordDebugLog("info", "App", "Opening workspace")
       try {
         refresh()
         isWorkspaceLoading = false
@@ -207,7 +224,9 @@ class NotesController(private val repository: NotesRepository, private val scope
         runCatching { refreshServerConfigNow() }
           .onFailure { serverConfigError = it.message ?: "Could not reach sync API" }
         repository.getStoredSession()?.let { resumeSession(it.token) }
+        repository.recordDebugLog("info", "App", "Workspace opened")
       } catch (error: Throwable) {
+        repository.recordDebugLog("error", "App", "Startup failed", error.stackTraceToString())
         isWorkspaceLoading = false
         notify("error", "Startup failed", error.message ?: "Could not open notes")
       }
@@ -309,15 +328,15 @@ class NotesController(private val repository: NotesRepository, private val scope
       workspace.lastSyncPass.completedAt?.let { formatDateTime(it) } ?: "No completed pass yet"
     lastSyncPassDetail =
       if (workspace.lastSyncPass.completedAt == null) {
-        "Sync has not completed on this device."
+        "No sync pass has completed on this device."
       } else {
         "${workspace.lastSyncPass.pushed} pushed, ${workspace.lastSyncPass.pulled} pulled, ${workspace.lastSyncPass.conflicts} conflicts"
       }
     syncDebugTitle =
-      workspace.syncDebugInfo.lastErrorAt?.let { formatDateTime(it) } ?: "No sync errors recorded"
+      workspace.syncDebugInfo.lastErrorAt?.let { formatDateTime(it) } ?: "No sync errors yet"
     syncDebugDetail =
       workspace.syncDebugInfo.lastErrorMessage.ifBlank {
-        "The last caught sync error will appear here."
+        "The most recent sync error will appear here."
       }
     syncDebugLog =
       formatSyncDebugLog(
@@ -325,6 +344,9 @@ class NotesController(private val repository: NotesRepository, private val scope
         workspace.syncDebugInfo.lastErrorMessage,
         workspace.syncDebugInfo.lastErrorStack,
       )
+    appDebugTitle = formatAppDebugTitle(workspace.appDebugLogEntries)
+    appDebugDetail = formatAppDebugDetail(workspace.appDebugLogEntries)
+    appDebugLog = DebugLogStore.format(workspace.appDebugLogEntries)
     selectedNoteIds = selectedNoteIds.filter { id -> (notes + trash).any { it.id == id } }.toSet()
     if (selectedId != null) {
       val refreshed = (notes + trash).firstOrNull { it.id == selectedId }
@@ -334,6 +356,13 @@ class NotesController(private val repository: NotesRepository, private val scope
         bodyValue = refreshed.body
       }
     }
+  }
+
+  fun clearDebugLog() {
+    repository.clearDebugLog()
+    appDebugTitle = formatAppDebugTitle(emptyList())
+    appDebugDetail = formatAppDebugDetail(emptyList())
+    appDebugLog = DebugLogStore.format(emptyList())
   }
 
   private fun formatSyncDebugLog(
@@ -353,6 +382,16 @@ class NotesController(private val repository: NotesRepository, private val scope
       .filter { it.isNotBlank() }
       .joinToString("\n")
   }
+
+  private fun formatAppDebugTitle(entries: List<DebugLogEntry>?): String =
+    entries?.lastOrNull()?.at?.let { formatDateTime(it) } ?: "No diagnostic logs recorded"
+
+  private fun formatAppDebugDetail(entries: List<DebugLogEntry>?): String =
+    if (entries.isNullOrEmpty()) {
+      "App, database, sync, and worker logs will appear here."
+    } else {
+      "${entries.size} entries saved locally"
+    }
 
   private fun pluralizeSyncCount(value: Int, singular: String): String =
     "$value $singular${if (value == 1) "" else "s"}"
@@ -882,27 +921,27 @@ class NotesController(private val repository: NotesRepository, private val scope
           remoteSyncState = remote.state
           remoteSyncError = remote.lastError ?: ""
           if (!remote.lastError.isNullOrBlank()) {
-            repository.recordSyncError(IllegalStateException(remote.lastError), "Remote sync")
+            repository.recordSyncError(IllegalStateException(remote.lastError), "Remote worker")
             refresh()
           }
         } catch (error: AuthException) {
-          repository.recordSyncError(error, "Remote sync status")
+          repository.recordSyncError(error, "Remote worker status")
           refresh()
-          expireSession(error.message ?: "Login expired")
+          expireSession(error.message ?: "Sign-in expired")
           return@launch
         } catch (error: Throwable) {
-          repository.recordSyncError(error, "Remote sync status")
+          repository.recordSyncError(error, "Remote worker status")
           refresh()
           remoteSyncEnabled = true
           remoteSyncState = "error"
-          remoteSyncError = error.message ?: "Could not check remote sync"
+          remoteSyncError = error.message ?: "Could not check remote worker"
         }
         runCatching { refreshServerConfigNow() }
           .onFailure { serverConfigError = it.message ?: "Could not reach sync API" }
         syncCompleted = true
       } catch (error: AuthException) {
         refresh()
-        expireSession(error.message ?: "Login expired")
+        expireSession(error.message ?: "Sign-in expired")
       } catch (error: Throwable) {
         refresh()
         syncMessage = error.message ?: "Sync failed"
@@ -1007,7 +1046,7 @@ class NotesController(private val repository: NotesRepository, private val scope
         applyAccount(response.user, response.trustedDevices)
       } catch (error: AuthException) {
         repository.recordSyncError(error, "Account refresh")
-        expireSession(error.message ?: "Login expired")
+        expireSession(error.message ?: "Sign-in expired")
       } catch (error: Throwable) {
         repository.recordSyncError(error, "Account refresh")
       }
@@ -1311,7 +1350,7 @@ class NotesController(private val repository: NotesRepository, private val scope
     } catch (error: AuthException) {
       repository.recordSyncError(error, "Session resume")
       refresh()
-      expireSession(error.message ?: "Login expired")
+      expireSession(error.message ?: "Sign-in expired")
     } catch (error: Throwable) {
       repository.recordSyncError(error, "Session resume")
       refresh()

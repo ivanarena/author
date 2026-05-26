@@ -3,6 +3,15 @@ import type { Device } from '@author/schema';
 import type { RemoteSyncState, TrustedAuthDevice } from '@author/api-types';
 import type { LocalConflict, LocalNote, LocalNotebook } from '$lib/client/db';
 import { hasStoredEncryptionKeyMaterial } from '$lib/client/encryption';
+import {
+  clearDebugLog,
+  debugLogUpdatedEventName,
+  formatDebugLogEntries,
+  installFrontendDebugLogging,
+  loadDebugLogEntries,
+  recordDebugLog,
+  type DebugLogEntry
+} from '$lib/client/debug-log';
 import { noteNotebookIds, normalizeNotebookName } from '$lib/client/note-utils';
 import {
   clearStoredSession,
@@ -219,6 +228,7 @@ export class NotesPageController
     lastErrorMessage: '',
     lastErrorStack: ''
   });
+  appDebugLogEntries = $state<DebugLogEntry[]>([]);
 
   titleInput: HTMLInputElement | null = null;
   bodyTextarea: HTMLTextAreaElement | null = null;
@@ -310,13 +320,24 @@ export class NotesPageController
   syncDebugTitle = $derived(
     this.syncDebugInfo.lastErrorAt
       ? formatSyncPassTime(this.syncDebugInfo.lastErrorAt)
-      : 'No sync errors recorded'
+      : 'No sync errors yet'
   );
   syncDebugDetail = $derived(
     this.syncDebugInfo.lastErrorMessage ||
-      'The last caught sync error will appear here.'
+      'The most recent sync error will appear here.'
   );
   syncDebugLog = $derived(formatSyncDebugLog(this.syncDebugInfo));
+  appDebugTitle = $derived(
+    this.appDebugLogEntries.at(-1)?.at
+      ? formatSyncPassTime(this.appDebugLogEntries.at(-1)?.at ?? '')
+      : 'No diagnostic logs recorded'
+  );
+  appDebugDetail = $derived(
+    this.appDebugLogEntries.at(-1)
+      ? `${this.appDebugLogEntries.length} entries saved locally`
+      : 'App, database, sync, and worker logs will appear here.'
+  );
+  appDebugLog = $derived(formatDebugLogEntries(this.appDebugLogEntries));
   contextNote = $derived(this.getContextNote(this.contextMenu));
   contextNotebook = $derived(this.getContextNotebook(this.contextMenu));
   selectedDeviceName = $derived(
@@ -355,6 +376,15 @@ export class NotesPageController
     });
 
     onMount(() => {
+      const stopDebugLogging = installFrontendDebugLogging();
+      const handleDebugLogUpdated = () => {
+        this.appDebugLogEntries = loadDebugLogEntries();
+      };
+      window.addEventListener(
+        debugLogUpdatedEventName(),
+        handleDebugLogUpdated
+      );
+      this.appDebugLogEntries = loadDebugLogEntries();
       this.isBrowserOnline = navigator.onLine;
       const clock = setInterval(() => {
         this.currentTime = new Date();
@@ -395,7 +425,12 @@ export class NotesPageController
           this.handleVisibilityChange
         );
         window.removeEventListener('pagehide', this.handlePageHide);
+        window.removeEventListener(
+          debugLogUpdatedEventName(),
+          handleDebugLogUpdated
+        );
         stopWatchingSystemTheme();
+        stopDebugLogging();
       };
     });
   }
@@ -569,6 +604,11 @@ export class NotesPageController
 
   setSettingsSection = (section: SettingsSection) => {
     uiActions.setSettingsSection(this, section);
+  };
+
+  clearAppDebugLog = () => {
+    clearDebugLog();
+    this.appDebugLogEntries = [];
   };
 
   changeSort = (event: Event) => {
@@ -899,43 +939,72 @@ export class NotesPageController
   };
 
   private initialize = async () => {
-    this.theme = getTheme();
-    this.resolvedTheme = setTheme(this.theme);
-    this.noteSort = getStoredSort();
-    this.noteGroup = getStoredGroup();
-    this.compactView = getStoredCompactView();
-    this.editorZoom = getStoredEditorZoom();
-    this.editorFont = getStoredEditorFont();
-    applyAppFont(this.editorFont);
-    this.editorTextSize = getStoredEditorTextSize();
-    this.editorLineHeight = getStoredEditorLineHeight();
-    const storedSession = getStoredSession();
-    this.accountUsername = storedSession?.user.username ?? '';
-    this.accountEmail = storedSession?.user.email ?? '';
-    this.accountDisplayName = storedSession?.user.displayName ?? '';
-    this.accountTwoFactorEnabled = Boolean(
-      storedSession?.user.twoFactorEnabled
-    );
-    this.loginUsernameValue = getLoginHint();
-    this.deviceOtpLoginAvailable = hasStoredEncryptionKeyMaterial();
-    await this.refreshPublicConfig();
-    if (storedSession?.token && !hasStoredEncryptionKeyMaterial()) {
-      this.clearLocalSession({
-        accountMessage: 'Sign in again to unlock notes.',
-        openLogin: true,
-        syncMessage: 'Sign in to unlock and sync'
-      });
-      return;
-    }
-    await ensureLocalNotesEncrypted();
-    await this.refresh();
-    if (!(await editorActions.restoreEditorRecovery(this))) {
-      this.openDraftNote();
-    }
+    recordDebugLog({
+      level: 'info',
+      source: 'App',
+      message: 'Opening workspace'
+    });
+    try {
+      this.theme = getTheme();
+      this.resolvedTheme = setTheme(this.theme);
+      this.noteSort = getStoredSort();
+      this.noteGroup = getStoredGroup();
+      this.compactView = getStoredCompactView();
+      this.editorZoom = getStoredEditorZoom();
+      this.editorFont = getStoredEditorFont();
+      applyAppFont(this.editorFont);
+      this.editorTextSize = getStoredEditorTextSize();
+      this.editorLineHeight = getStoredEditorLineHeight();
+      const storedSession = getStoredSession();
+      this.accountUsername = storedSession?.user.username ?? '';
+      this.accountEmail = storedSession?.user.email ?? '';
+      this.accountDisplayName = storedSession?.user.displayName ?? '';
+      this.accountTwoFactorEnabled = Boolean(
+        storedSession?.user.twoFactorEnabled
+      );
+      this.loginUsernameValue = getLoginHint();
+      this.deviceOtpLoginAvailable = hasStoredEncryptionKeyMaterial();
+      await this.refreshPublicConfig();
+      if (storedSession?.token && !hasStoredEncryptionKeyMaterial()) {
+        recordDebugLog({
+          level: 'warn',
+          source: 'App',
+          message: 'Stored session has no encryption key material'
+        });
+        this.clearLocalSession({
+          accountMessage: 'Sign in again to unlock notes.',
+          openLogin: true,
+          syncMessage: 'Sign in to unlock and sync'
+        });
+        return;
+      }
+      await ensureLocalNotesEncrypted();
+      await this.refresh();
+      if (!(await editorActions.restoreEditorRecovery(this))) {
+        this.openDraftNote();
+      }
 
-    this.hasToken = Boolean(storedSession?.token);
-    if (storedSession?.token) {
-      await this.resumeOnlineSession(storedSession.token);
+      this.hasToken = Boolean(storedSession?.token);
+      if (storedSession?.token) {
+        await this.resumeOnlineSession(storedSession.token);
+      }
+      recordDebugLog({
+        level: 'info',
+        source: 'App',
+        message: 'Workspace opened'
+      });
+    } catch (error) {
+      recordDebugLog({
+        level: 'error',
+        source: 'App',
+        message: 'Startup failed',
+        detail: error
+      });
+      this.notify(
+        'error',
+        'Startup failed',
+        error instanceof Error ? error.message : 'Could not open notes'
+      );
     }
   };
 
@@ -949,7 +1018,13 @@ export class NotesPageController
         this.signupEmailValue = '';
         this.signupConfirmPasswordValue = '';
       }
-    } catch {
+    } catch (error) {
+      recordDebugLog({
+        level: 'warn',
+        source: 'API',
+        message: 'Could not load public config',
+        detail: error
+      });
       this.signupEnabled = false;
       this.signupEmailRequired = true;
       if (this.authMode === 'signup') this.authMode = 'signin';
@@ -967,42 +1042,52 @@ export class NotesPageController
   };
 
   refresh = async () => {
-    const [
-      notes,
-      notebooks,
-      trash,
-      conflicts,
-      devices,
-      currentDevice,
-      pendingSyncCount,
-      lastSyncPass,
-      syncDebugInfo
-    ] = await Promise.all([
-      loadNotes(),
-      loadNotebooks(),
-      loadTrash(),
-      loadPendingConflicts(),
-      loadDevices(),
-      getOrCreateDevice(),
-      loadPendingSyncCount(),
-      loadLastSyncPass(),
-      loadSyncDebugInfo()
-    ]);
+    try {
+      const [
+        notes,
+        notebooks,
+        trash,
+        conflicts,
+        devices,
+        currentDevice,
+        pendingSyncCount,
+        lastSyncPass,
+        syncDebugInfo
+      ] = await Promise.all([
+        loadNotes(),
+        loadNotebooks(),
+        loadTrash(),
+        loadPendingConflicts(),
+        loadDevices(),
+        getOrCreateDevice(),
+        loadPendingSyncCount(),
+        loadLastSyncPass(),
+        loadSyncDebugInfo()
+      ]);
 
-    this.notes = notes;
-    this.notebooks = notebooks;
-    this.trash = trash;
-    this.conflicts = conflicts;
-    this.devices = devices.some((device) => device.id === currentDevice.id)
-      ? devices
-      : [currentDevice, ...devices];
-    this.currentDeviceName = currentDevice.name;
-    if (!this.deviceNameEditing) this.deviceNameValue = currentDevice.name;
-    this.pendingSyncCount = pendingSyncCount;
-    this.lastSyncPass = lastSyncPass;
-    this.syncDebugInfo = syncDebugInfo;
-    this.refreshSelectedNote(notes, trash);
-    this.pruneSelectedNotes(notes, trash);
+      this.notes = notes;
+      this.notebooks = notebooks;
+      this.trash = trash;
+      this.conflicts = conflicts;
+      this.devices = devices.some((device) => device.id === currentDevice.id)
+        ? devices
+        : [currentDevice, ...devices];
+      this.currentDeviceName = currentDevice.name;
+      if (!this.deviceNameEditing) this.deviceNameValue = currentDevice.name;
+      this.pendingSyncCount = pendingSyncCount;
+      this.lastSyncPass = lastSyncPass;
+      this.syncDebugInfo = syncDebugInfo;
+      this.refreshSelectedNote(notes, trash);
+      this.pruneSelectedNotes(notes, trash);
+    } catch (error) {
+      recordDebugLog({
+        level: 'error',
+        source: 'Database',
+        message: 'Could not load local workspace',
+        detail: error
+      });
+      throw error;
+    }
   };
 
   clearPendingSave = () => {
@@ -1291,7 +1376,7 @@ export class NotesPageController
     await syncActions.refreshRemoteSyncStatus(this, token);
   };
 
-  expireSession = (message = 'Login expired') => {
+  expireSession = (message = 'Sign-in expired') => {
     syncActions.expireSession(this, message);
   };
 

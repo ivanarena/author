@@ -404,7 +404,7 @@ test('logs in from the profile menu when no session is stored', async ({
   await expect(page.getByRole('dialog', { name: 'Sign in' })).toBeVisible();
 });
 
-test('signs up and manages trusted-device login without ending the active session', async ({
+test('signs up and manages trusted-device sign-in without ending the active session', async ({
   context,
   page
 }, testInfo) => {
@@ -587,13 +587,13 @@ test('signs up and manages trusted-device login without ending the active sessio
   );
   await expect(
     trustedDevices.getByText(
-      'Removing trust stops future 2FA-code login without a password. It does not log out an active session on that device.'
+      'Removing trust stops future 2FA-code sign-in without a password. It does not log out an active session on that device.'
     )
   ).toBeVisible();
   await expect(trustedDevices.getByText('This browser')).toBeVisible();
 
   await trustedDevices
-    .getByRole('button', { name: 'Remove trusted login for This browser' })
+    .getByRole('button', { name: 'Remove trusted sign-in for This browser' })
     .click();
 
   await expect(trustedDevices.getByText('No trusted devices')).toBeVisible();
@@ -654,10 +654,10 @@ test('exports Markdown without closing settings', async ({ page }) => {
   await page.getByRole('button', { name: 'Profile and settings' }).click();
   await page.getByRole('menuitem', { name: 'Settings' }).click();
   await page.getByRole('button', { name: 'Data' }).click();
-  await expect(page.getByText('Markdown')).toBeVisible();
+  await expect(page.getByText('Markdown', { exact: true })).toBeVisible();
 
   const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export MD ZIP' }).click();
+  await page.getByRole('button', { name: 'Export Markdown ZIP' }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(
     /^author-.*-md-frontmatter\.zip$/

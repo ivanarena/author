@@ -253,6 +253,31 @@
   white-space: pre-wrap;
 }
 
+.settings-debug-clear {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 6px 9px;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.settings-debug-clear:hover,
+.settings-debug-clear:focus-visible {
+  color: var(--text);
+  border-color: var(--accent-soft);
+  outline: none;
+}
+
 .settings-action {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

@@ -475,7 +475,16 @@ class NotesRepository(context: Context) {
       pendingSyncCount = db.pendingSyncCount(),
       lastSyncPass = loadLastSyncPassInternal(),
       syncDebugInfo = loadSyncDebugInfoInternal(),
+      appDebugLogEntries = DebugLogStore.load(appContext),
     )
+  }
+
+  fun recordDebugLog(level: String = "info", source: String, message: String, detail: String = "") {
+    DebugLogStore.record(appContext, level, source, message, detail)
+  }
+
+  fun clearDebugLog() {
+    DebugLogStore.clear(appContext)
   }
 
   fun enqueueUpdateCheck() {
@@ -741,6 +750,7 @@ class NotesRepository(context: Context) {
   ): SyncRunResult =
     withContext(Dispatchers.IO) {
       try {
+        recordDebugLog("info", "Sync", "Sync started")
         if (!crypto.hasStoredEncryptionKeyMaterial()) {
           throw IllegalStateException("Sign in again to sync encrypted notes")
         }
@@ -874,6 +884,12 @@ class NotesRepository(context: Context) {
         SyncRunResult(pushed, pulled, conflicts).also {
           recordLastSyncPass(it)
           clearSyncErrorInternal()
+          recordDebugLog(
+            "info",
+            "Sync",
+            "Sync completed",
+            "pushed=${it.pushed}, pulled=${it.pulled}, conflicts=${it.conflicts}",
+          )
         }
       } catch (error: Throwable) {
         if (error is CancellationException) throw error
@@ -1066,6 +1082,7 @@ class NotesRepository(context: Context) {
     db.putMeta(LAST_SYNC_ERROR_SOURCE_KEY, source)
     db.putMeta(LAST_SYNC_ERROR_MESSAGE_KEY, syncErrorMessage(error))
     db.putMeta(LAST_SYNC_ERROR_STACK_KEY, error.stackTraceToString())
+    recordDebugLog("error", source, syncErrorMessage(error), error.stackTraceToString())
   }
 
   private fun clearSyncErrorInternal() {

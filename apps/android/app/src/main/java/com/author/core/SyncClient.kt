@@ -64,6 +64,21 @@ class SyncClient(private val baseUrlProvider: () -> String) {
     return parseLoginResponse(requestJson("/api/auth/login", "POST", body = body))
   }
 
+  fun loginTrustedDevice(
+    username: String,
+    totpCode: String?,
+    device: Device,
+    deviceTrustSecret: String,
+  ): LoginResponse {
+    val body =
+      JSONObject()
+        .put("username", username)
+        .putNullable("totpCode", totpCode)
+        .put("device", deviceToJson(device))
+        .put("deviceTrustSecret", deviceTrustSecret)
+    return parseLoginResponse(requestJson("/api/auth/login", "POST", body = body))
+  }
+
   fun loginBootstrap(
     username: String,
     bootstrapPassword: String,

@@ -566,6 +566,17 @@ class NotesRepository(context: Context) {
 
   suspend fun login(username: String, password: String, totpCode: String?): LoginResponse =
     withContext(Dispatchers.IO) {
+      val device = getOrCreateDevice()
+      val deviceTrustSecret = getOrCreateDeviceTrustSecret()
+      if (password.isBlank()) {
+        return@withContext syncClient.loginTrustedDevice(
+          username,
+          totpCode,
+          device,
+          deviceTrustSecret,
+        )
+      }
+
       val challenge = syncClient.authChallenge(username, "login")
       if (challenge.mode == "bootstrap") {
         syncClient.loginBootstrap(
@@ -573,19 +584,13 @@ class NotesRepository(context: Context) {
           password,
           crypto.passwordVerifierFromPassword(password),
           totpCode,
-          getOrCreateDevice(),
-          getOrCreateDeviceTrustSecret(),
+          device,
+          deviceTrustSecret,
         )
       } else {
         val proof = crypto.authProofFromPassword(password, challenge)
         val response =
-          syncClient.loginWithProof(
-            username,
-            proof.proof,
-            totpCode,
-            getOrCreateDevice(),
-            getOrCreateDeviceTrustSecret(),
-          )
+          syncClient.loginWithProof(username, proof.proof, totpCode, device, deviceTrustSecret)
         check(crypto.verifyAuthServerProof(proof.expectedServerProof, response.serverProof)) {
           "Login proof failed"
         }

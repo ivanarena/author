@@ -86,7 +86,17 @@ async function authChallenge(
   purpose: AuthProofPurpose,
   token?: string
 ) {
-  const challenge = await api.fetch(
+  const challenge = await authChallengeResponse(username, purpose, token);
+  expect(challenge.status).toBe(200);
+  return await challenge.json();
+}
+
+async function authChallengeResponse(
+  username: string | null,
+  purpose: AuthProofPurpose,
+  token?: string
+): Promise<Response> {
+  return await api.fetch(
     new Request('http://localhost/api/auth/challenge', {
       method: 'POST',
       headers: {
@@ -100,8 +110,6 @@ async function authChallenge(
       })
     })
   );
-  expect(challenge.status).toBe(200);
-  return await challenge.json();
 }
 
 async function loginResponse(
@@ -143,6 +151,57 @@ async function passwordProof(
 ) {
   const challenge = await authChallenge(null, purpose, token);
   return (await authProofFromPassword(password, challenge)).proof;
+}
+
+async function fakePasswordProof(
+  token: string,
+  purpose: Exclude<AuthProofPurpose, 'login'>
+) {
+  const challenge = await authChallenge(null, purpose, token);
+  return {
+    challengeId: challenge.challengeId,
+    clientNonce: challenge.clientNonce,
+    proof: Buffer.alloc(32).toString('base64url')
+  };
+}
+
+async function seedRemoteOwner(
+  remotePath: string,
+  password = 'test-password'
+): Promise<void> {
+  process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
+  process.env.TURSO_AUTH_TOKEN = 'test-token';
+  process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
+
+  const remote = await openConfiguredDatabase({
+    provider: 'turso',
+    client: { url: `file:${remotePath}`, authToken: 'test-token' }
+  });
+  try {
+    await setUserPassword(remote, 'owner', password);
+  } finally {
+    remote.close();
+  }
+}
+
+async function authRateLimitRowCount(): Promise<number> {
+  const db = await openDatabase();
+  try {
+    const row = await get(db, 'SELECT count(*) AS count FROM auth_rate_limits');
+    return Number(row?.count ?? 0);
+  } finally {
+    db.close();
+  }
+}
+
+async function authChallengeRowCount(): Promise<number> {
+  const db = await openDatabase();
+  try {
+    const row = await get(db, 'SELECT count(*) AS count FROM auth_challenges');
+    return Number(row?.count ?? 0);
+  } finally {
+    db.close();
+  }
 }
 
 async function signupBody(
@@ -407,6 +466,107 @@ describe('Hono API', () => {
     }
   });
 
+  it('persists and clears account verification throttle attempts', async () => {
+    await seedRemoteOwner(join(tempDir, 'account-proof-throttle.sqlite'));
+    const token = await loginToken();
+
+    const failed = await post(
+      '/api/account/password',
+      {
+        proof: await fakePasswordProof(token, 'password_change'),
+        newPasswordVerifier: {}
+      },
+      token
+    );
+    expect(failed.status).toBe(401);
+    expect(await authRateLimitRowCount()).toBe(1);
+
+    const changed = await post(
+      '/api/account/password',
+      {
+        proof: await passwordProof(token, 'test-password', 'password_change'),
+        newPasswordVerifier:
+          await passwordVerifierFromPassword('new-test-password')
+      },
+      token
+    );
+    expect(changed.status).toBe(200);
+    expect(await authRateLimitRowCount()).toBe(0);
+  });
+
+  it('rate-limits repeated account delete verification failures', async () => {
+    await seedRemoteOwner(join(tempDir, 'account-delete-throttle.sqlite'));
+    const token = await loginToken();
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const failed = await api.fetch(
+        new Request('http://localhost/api/account', {
+          method: 'DELETE',
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json'
+          },
+          body: JSON.stringify({
+            proof: await fakePasswordProof(token, 'delete_account')
+          })
+        })
+      );
+      expect(failed.status).toBe(401);
+    }
+
+    const limited = await api.fetch(
+      new Request('http://localhost/api/account', {
+        method: 'DELETE',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          proof: await fakePasswordProof(token, 'delete_account')
+        })
+      })
+    );
+    expect(limited.status).toBe(429);
+    await expect(limited.json()).resolves.toEqual({
+      error: 'Too many verification attempts. Try again shortly.'
+    });
+  });
+
+  it('rate-limits repeated 2FA verification failures', async () => {
+    await seedRemoteOwner(join(tempDir, 'totp-proof-throttle.sqlite'));
+    const token = await loginToken();
+    const setup = await post('/api/account/totp/setup', {}, token);
+    expect(setup.status).toBe(200);
+    const setupBody = (await setup.json()) as { secret: string };
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const failed = await post(
+        '/api/account/totp',
+        {
+          proof: await fakePasswordProof(token, 'totp'),
+          secret: setupBody.secret,
+          totpCode: totpCode(setupBody.secret)
+        },
+        token
+      );
+      expect(failed.status).toBe(401);
+    }
+
+    const limited = await post(
+      '/api/account/totp',
+      {
+        proof: await fakePasswordProof(token, 'totp'),
+        secret: setupBody.secret,
+        totpCode: totpCode(setupBody.secret)
+      },
+      token
+    );
+    expect(limited.status).toBe(429);
+    await expect(limited.json()).resolves.toEqual({
+      error: 'Too many verification attempts. Try again shortly.'
+    });
+  });
+
   it('does not reveal account existence through login challenge salt stability', async () => {
     await loginToken();
 
@@ -423,6 +583,23 @@ describe('Hono API', () => {
     expect(existingOne.salt).toBe(existingTwo.salt);
     expect(missingOne.salt).toBe(missingTwo.salt);
     expect(missingOne.salt).not.toBe(existingOne.salt);
+  });
+
+  it('rate-limits login challenge creation before inserting more challenges', async () => {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const response = await authChallengeResponse('owner', 'login');
+      expect(response.status).toBe(200);
+    }
+
+    const before = await authChallengeRowCount();
+    expect(before).toBe(5);
+
+    const limited = await authChallengeResponse('owner', 'login');
+    expect(limited.status).toBe(429);
+    await expect(limited.json()).resolves.toEqual({
+      error: 'Too many auth challenge attempts. Try again shortly.'
+    });
+    expect(await authChallengeRowCount()).toBe(before);
   });
 
   it('rejects malformed login challenge nonces', async () => {

@@ -3,6 +3,7 @@ import type {
   AccountUpdateRequest,
   AuthChallengeRequest,
   AuthChallengeResponse,
+  AuthProofPurpose,
   AuthLoginRequest,
   AuthLoginResponse,
   AuthSignupRequest,
@@ -121,6 +122,8 @@ api.use('*', async (c, next) => {
 
 const LOGIN_ATTEMPT_WINDOW_MS = 60_000;
 const MAX_FAILED_LOGIN_ATTEMPTS = 8;
+const MAX_AUTH_CHALLENGE_ATTEMPTS = 20;
+const MAX_AUTH_CHALLENGE_CLIENT_ATTEMPTS = 100;
 const MAX_SIGNUP_ATTEMPTS = 4;
 const MAX_LOGIN_ATTEMPT_KEYS = 500;
 const MAX_LOGIN_BODY_BYTES = 16 * 1024;
@@ -534,18 +537,22 @@ function scheduleRemoteSyncRetry(env?: RuntimeEnv | null): void {
   }, delayMs);
 }
 
-function loginAttemptKey(
-  request: Request,
-  username: string | null | undefined
-): string {
+function requestClientKey(request: Request): string {
   const forwardedFor = shouldTrustProxyHeaders()
     ? request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
     : null;
   const realIp = shouldTrustProxyHeaders()
     ? request.headers.get('x-real-ip')?.trim()
     : null;
-  const ip = forwardedFor || realIp || 'local';
-  return `${ip}:${normalizeUsername(username) ?? normalizeEmail(username) ?? 'unknown'}`;
+  return forwardedFor || realIp || 'local';
+}
+
+function loginAttemptKey(
+  request: Request,
+  username: string | null | undefined
+): string {
+  const client = requestClientKey(request);
+  return `${client}:${normalizeUsername(username) ?? normalizeEmail(username) ?? 'unknown'}`;
 }
 
 function signupAttemptKey(
@@ -553,6 +560,34 @@ function signupAttemptKey(
   username: string | null | undefined
 ): string {
   return `signup:${loginAttemptKey(request, username)}`;
+}
+
+function accountProofAttemptKey(
+  request: Request,
+  username: string,
+  purpose: 'password_change' | 'totp' | 'delete_account'
+): string {
+  return `${purpose}:${loginAttemptKey(request, username)}`;
+}
+
+function authChallengeAttemptLimits(
+  request: Request,
+  username: string,
+  purpose: AuthProofPurpose
+): Array<{ key: string; maxAttempts: number }> {
+  const client = requestClientKey(request);
+  const identity =
+    normalizeUsername(username) ?? normalizeEmail(username) ?? 'unknown';
+  return [
+    {
+      key: `auth-challenge:client:${client}`,
+      maxAttempts: MAX_AUTH_CHALLENGE_CLIENT_ATTEMPTS
+    },
+    {
+      key: `auth-challenge:${purpose}:${client}:${identity}`,
+      maxAttempts: MAX_AUTH_CHALLENGE_ATTEMPTS
+    }
+  ];
 }
 
 function pruneLoginAttempts(now = Date.now()): void {
@@ -679,12 +714,66 @@ async function recordFailedAuthAttempt(
   await recordPersistentFailedLogin(db, key, now);
 }
 
+async function authChallengeRateLimitError(
+  c: ApiContext,
+  db: NotesDb,
+  username: string,
+  purpose: AuthProofPurpose
+): Promise<Response | null> {
+  const limits = authChallengeAttemptLimits(c.req.raw, username, purpose);
+  for (const limit of limits) {
+    if (await isRateLimited(db, limit.key, undefined, limit.maxAttempts)) {
+      return c.json(
+        { error: 'Too many auth challenge attempts. Try again shortly.' },
+        429
+      );
+    }
+  }
+
+  await Promise.all(
+    limits.map((limit) => recordFailedAuthAttempt(db, limit.key))
+  );
+  return null;
+}
+
 async function clearFailedAuthAttempts(
   db: NotesDb,
   key: string
 ): Promise<void> {
   clearFailedLogins(key);
   await clearPersistentFailedLogins(db, key);
+}
+
+async function clearAuthChallengeAttempts(
+  db: NotesDb,
+  request: Request,
+  username: string,
+  purpose: AuthProofPurpose
+): Promise<void> {
+  await Promise.all(
+    authChallengeAttemptLimits(request, username, purpose).map((limit) =>
+      clearFailedAuthAttempts(db, limit.key)
+    )
+  );
+}
+
+async function accountProofRateLimitError(
+  c: ApiContext,
+  db: NotesDb,
+  username: string,
+  purpose: 'password_change' | 'totp' | 'delete_account'
+): Promise<{ key: string; response: Response | null }> {
+  const key = accountProofAttemptKey(c.req.raw, username, purpose);
+  if (await isRateLimited(db, key)) {
+    return {
+      key,
+      response: c.json(
+        { error: 'Too many verification attempts. Try again shortly.' },
+        429
+      )
+    };
+  }
+  return { key, response: null };
 }
 
 function metricLine(name: string, value: string | number): string {
@@ -1036,8 +1125,9 @@ api.post(API_PATHS.authChallenge, async (c) => {
     return c.json({ error: 'Invalid auth challenge payload' }, 400);
   }
 
+  const purpose = body.purpose as AuthProofPurpose;
   const remoteConfig = remoteMirrorConfig(c);
-  if (body.purpose === 'login') {
+  if (purpose === 'login') {
     if (typeof body.username !== 'string') {
       return c.json({ error: 'Invalid auth challenge payload' }, 400);
     }
@@ -1045,10 +1135,18 @@ api.post(API_PATHS.authChallenge, async (c) => {
       ? await openConfiguredDatabase(remoteConfig)
       : await openPrimaryDatabase(c);
     try {
+      const rateLimit = await authChallengeRateLimitError(
+        c,
+        target,
+        body.username,
+        purpose
+      );
+      if (rateLimit) return rateLimit;
+
       const challenge = await createAuthChallenge(
         target,
         body.username,
-        'login',
+        purpose,
         body.clientNonce
       );
       if (!challenge) {
@@ -1071,10 +1169,18 @@ api.post(API_PATHS.authChallenge, async (c) => {
       ? await openConfiguredDatabase(remoteConfig)
       : db;
     try {
+      const rateLimit = await authChallengeRateLimitError(
+        c,
+        target,
+        session.user.username,
+        purpose
+      );
+      if (rateLimit) return rateLimit;
+
       const challenge = await createSessionAuthChallenge(
         target,
         session.user.username,
-        body.purpose,
+        purpose,
         body.clientNonce
       );
       if (!challenge) {
@@ -1165,6 +1271,12 @@ api.post(API_PATHS.authLogin, async (c) => {
           );
         }
         if (remoteUser) {
+          await clearAuthChallengeAttempts(
+            remote,
+            c.req.raw,
+            body.username,
+            'login'
+          );
           await upsertDevice(
             remote,
             body.device,
@@ -1260,6 +1372,7 @@ api.post(API_PATHS.authLogin, async (c) => {
       );
     }
     await clearFailedAuthAttempts(db, attemptKey);
+    await clearAuthChallengeAttempts(db, c.req.raw, body.username, 'login');
 
     await upsertDevice(db, body.device, undefined, user.username);
     if (deviceTrustSecret) {
@@ -1637,6 +1750,14 @@ api.post(API_PATHS.accountPassword, async (c) => {
       return c.json({ error: 'Invalid password payload' }, 400);
     }
 
+    const rateLimit = await accountProofRateLimitError(
+      c,
+      db,
+      session.user.username,
+      'password_change'
+    );
+    if (rateLimit.response) return rateLimit.response;
+
     const remoteConfig = remoteMirrorConfig(c);
     if (!remoteConfig) {
       if (isTursoPrimary(c)) {
@@ -1660,8 +1781,10 @@ api.post(API_PATHS.accountPassword, async (c) => {
           );
         }
         if (!user) {
+          await recordFailedAuthAttempt(db, rateLimit.key);
           return c.json({ error: 'Current password is incorrect' }, 401);
         }
+        await clearFailedAuthAttempts(db, rateLimit.key);
         const replacementSession = await createAuthSession(
           db,
           user,
@@ -1708,7 +1831,11 @@ api.post(API_PATHS.accountPassword, async (c) => {
     } finally {
       remote.close();
     }
-    if (!user) return c.json({ error: 'Current password is incorrect' }, 401);
+    if (!user) {
+      await recordFailedAuthAttempt(db, rateLimit.key);
+      return c.json({ error: 'Current password is incorrect' }, 401);
+    }
+    await clearFailedAuthAttempts(db, rateLimit.key);
 
     if (!(await syncRemoteBestEffort(db, c.env))) {
       return c.json(
@@ -1775,6 +1902,14 @@ api.post(API_PATHS.accountTotp, async (c) => {
       return c.json({ error: 'Invalid 2FA payload' }, 400);
     }
 
+    const rateLimit = await accountProofRateLimitError(
+      c,
+      db,
+      session.user.username,
+      'totp'
+    );
+    if (rateLimit.response) return rateLimit.response;
+
     const remoteConfig = remoteMirrorConfig(c);
     if (!remoteConfig) {
       if (isTursoPrimary(c)) {
@@ -1785,7 +1920,11 @@ api.post(API_PATHS.accountTotp, async (c) => {
           body.secret,
           body.totpCode
         );
-        if (!user) return c.json({ error: 'Could not verify 2FA setup' }, 401);
+        if (!user) {
+          await recordFailedAuthAttempt(db, rateLimit.key);
+          return c.json({ error: 'Could not verify 2FA setup' }, 401);
+        }
+        await clearFailedAuthAttempts(db, rateLimit.key);
         clearAuthCookie(c);
         return c.json(await accountResponse(db, session, user));
       }
@@ -1813,7 +1952,11 @@ api.post(API_PATHS.accountTotp, async (c) => {
     } finally {
       remote.close();
     }
-    if (!user) return c.json({ error: 'Could not verify 2FA setup' }, 401);
+    if (!user) {
+      await recordFailedAuthAttempt(db, rateLimit.key);
+      return c.json({ error: 'Could not verify 2FA setup' }, 401);
+    }
+    await clearFailedAuthAttempts(db, rateLimit.key);
 
     if (!(await syncRemoteBestEffort(db, c.env))) {
       return c.json(
@@ -1849,6 +1992,14 @@ api.delete(API_PATHS.accountTotp, async (c) => {
       return c.json({ error: 'Invalid 2FA payload' }, 400);
     }
 
+    const rateLimit = await accountProofRateLimitError(
+      c,
+      db,
+      session.user.username,
+      'totp'
+    );
+    if (rateLimit.response) return rateLimit.response;
+
     const remoteConfig = remoteMirrorConfig(c);
     if (!remoteConfig) {
       if (isTursoPrimary(c)) {
@@ -1858,7 +2009,11 @@ api.delete(API_PATHS.accountTotp, async (c) => {
           body.proof,
           body.totpCode
         );
-        if (!user) return c.json({ error: 'Could not verify 2FA code' }, 401);
+        if (!user) {
+          await recordFailedAuthAttempt(db, rateLimit.key);
+          return c.json({ error: 'Could not verify 2FA code' }, 401);
+        }
+        await clearFailedAuthAttempts(db, rateLimit.key);
         clearAuthCookie(c);
         return c.json(await accountResponse(db, session, user));
       }
@@ -1885,7 +2040,11 @@ api.delete(API_PATHS.accountTotp, async (c) => {
     } finally {
       remote.close();
     }
-    if (!user) return c.json({ error: 'Could not verify 2FA code' }, 401);
+    if (!user) {
+      await recordFailedAuthAttempt(db, rateLimit.key);
+      return c.json({ error: 'Could not verify 2FA code' }, 401);
+    }
+    await clearFailedAuthAttempts(db, rateLimit.key);
 
     if (!(await syncRemoteBestEffort(db, c.env))) {
       return c.json(
@@ -1977,6 +2136,14 @@ api.delete(API_PATHS.account, async (c) => {
       return c.json({ error: 'Invalid delete payload' }, 400);
     }
 
+    const rateLimit = await accountProofRateLimitError(
+      c,
+      db,
+      session.user.username,
+      'delete_account'
+    );
+    if (rateLimit.response) return rateLimit.response;
+
     const remoteConfig = remoteMirrorConfig(c);
     if (!remoteConfig) {
       if (isTursoPrimary(c)) {
@@ -1985,7 +2152,11 @@ api.delete(API_PATHS.account, async (c) => {
           session.user.username,
           body.proof
         );
-        if (!deleted) return c.json({ error: 'Password is incorrect' }, 401);
+        if (!deleted) {
+          await recordFailedAuthAttempt(db, rateLimit.key);
+          return c.json({ error: 'Password is incorrect' }, 401);
+        }
+        await clearFailedAuthAttempts(db, rateLimit.key);
         clearAuthCookie(c);
         return c.json({ ok: true });
       }
@@ -2011,7 +2182,11 @@ api.delete(API_PATHS.account, async (c) => {
     } finally {
       remote.close();
     }
-    if (!deleted) return c.json({ error: 'Password is incorrect' }, 401);
+    if (!deleted) {
+      await recordFailedAuthAttempt(db, rateLimit.key);
+      return c.json({ error: 'Password is incorrect' }, 401);
+    }
+    await clearFailedAuthAttempts(db, rateLimit.key);
 
     if (!(await syncRemoteBestEffort(db, c.env))) {
       return c.json(

@@ -42,6 +42,7 @@ const SESSION_TOKEN_BYTES = 32;
 const AUTH_SESSION_COOKIE_NAME = 'author_session';
 const AUTH_CHALLENGE_TTL_MS = 5 * 60_000;
 const MAX_AUTH_CHALLENGE_ROWS = 1_000;
+const MAX_AUTH_CHALLENGES_PER_USER_PURPOSE = 5;
 const SERVER_SECRET_PREFIX = 'srvenc:v1:';
 const TOTP_SECRET_BYTES = 20;
 const TOTP_PERIOD_SECONDS = 30;
@@ -721,6 +722,18 @@ export async function createAuthChallenge(
       expiresAt
     ]
   );
+  await run(
+    db,
+    `DELETE FROM auth_challenges
+     WHERE username = ? AND purpose = ? AND id NOT IN (
+       SELECT id
+       FROM auth_challenges
+       WHERE username = ? AND purpose = ?
+       ORDER BY created_at DESC, id DESC
+       LIMIT ?
+     )`,
+    [username, purpose, username, purpose, MAX_AUTH_CHALLENGES_PER_USER_PURPOSE]
+  ).catch(() => {});
   const count = Number(
     (await get(db, 'SELECT count(*) AS count FROM auth_challenges'))?.count ?? 0
   );

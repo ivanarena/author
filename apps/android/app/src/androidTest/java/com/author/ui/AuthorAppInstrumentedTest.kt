@@ -27,6 +27,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class AuthorAppInstrumentedTest {
   private companion object {
+    const val SAVE_DELAY_ADVANCE_MS = 250L
     const val SAVE_TIMEOUT_MS = 15_000L
   }
 
@@ -60,6 +61,8 @@ class AuthorAppInstrumentedTest {
 
     compose.onNodeWithTag("note-title-field").assertIsDisplayed().performTextInput(title)
     compose.onNodeWithTag("note-body-field").assertIsDisplayed().performTextInput(body)
+    compose.mainClock.advanceTimeBy(SAVE_DELAY_ADVANCE_MS)
+    compose.waitForIdle()
     compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) { savedDraft(title)?.body == body }
 
     compose.onNodeWithContentDescription("Notes").performClick()

@@ -40,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -124,7 +125,7 @@ private fun EditorPane(controller: NotesController, modifier: Modifier = Modifie
             lineHeight = titleLineHeight,
             fontFamily = fontFamily,
           ),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().testTag("note-title-field"),
         decorationBox = { inner ->
           if (controller.titleValue.isBlank()) {
             Text(
@@ -150,7 +151,11 @@ private fun EditorPane(controller: NotesController, modifier: Modifier = Modifie
             lineHeight = bodyLineHeight,
             fontFamily = fontFamily,
           ),
-        modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()),
+        modifier =
+          Modifier.fillMaxWidth()
+            .weight(1f)
+            .verticalScroll(rememberScrollState())
+            .testTag("note-body-field"),
         decorationBox = { inner ->
           if (controller.bodyValue.isBlank()) {
             Text(

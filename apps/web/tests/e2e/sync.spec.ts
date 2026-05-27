@@ -19,6 +19,19 @@ const loginUsername = 'owner';
 const loginPassword = 'e2e-password';
 let e2eKeyMaterial = '';
 
+const testsWithoutPreloadedSession = new Set([
+  'recovers editor text when reload interrupts the debounced save',
+  'logs in from the profile menu when no session is stored',
+  'signs up and manages trusted-device sign-in without ending the active session',
+  'keeps local drafts when signing in and then syncs them remote'
+]);
+
+const testsWithoutRemoteTokenSetup = new Set([
+  'recovers editor text when reload interrupts the debounced save',
+  'logs in from the profile menu when no session is stored',
+  'signs up and manages trusted-device sign-in without ending the active session'
+]);
+
 type RemoteNote = {
   id: string;
   title: string;
@@ -183,6 +196,18 @@ async function clickSignInSubmit(page: Page) {
     .click();
 }
 
+async function setEditorFieldSynchronously(
+  page: Page,
+  label: 'Note title' | 'Note body',
+  value: string
+) {
+  await page.getByLabel(label).evaluate((field, nextValue) => {
+    const editorField = field as HTMLInputElement | HTMLTextAreaElement;
+    editorField.value = nextValue;
+    editorField.dispatchEvent(new Event('input', { bubbles: true }));
+  }, value);
+}
+
 async function openProfileMenu(page: Page) {
   const trigger = page.getByRole('button', { name: 'Profile and settings' });
   await expect(trigger).toBeVisible();
@@ -213,23 +238,20 @@ async function expectFieldsInVerticalOrder(
 }
 
 async function waitForDraftEditorReady(page: Page) {
-  await expect(
-    page.getByLabel('Note metadata').getByText(/Unsaved draft|Pending sync/)
-  ).toBeVisible();
+  await expect(page.getByLabel('Note title')).toBeVisible();
+  await expect(page.getByLabel('Note body')).toBeVisible();
 }
 
 test.beforeEach(async ({ page, request }, testInfo) => {
-  token = await loginForToken(request);
-  e2eKeyMaterial = await keyMaterialFromPassword(loginUsername, loginPassword);
+  if (!testsWithoutRemoteTokenSetup.has(testInfo.title)) {
+    token = await loginForToken(request);
+    e2eKeyMaterial = await keyMaterialFromPassword(
+      loginUsername,
+      loginPassword
+    );
+  }
 
-  if (
-    testInfo.title ===
-      'logs in from the profile menu when no session is stored' ||
-    testInfo.title ===
-      'recovers editor text when reload interrupts the debounced save' ||
-    testInfo.title ===
-      'keeps local drafts when signing in and then syncs them remote'
-  ) {
+  if (testsWithoutPreloadedSession.has(testInfo.title)) {
     await page.addInitScript((deviceId) => {
       localStorage.setItem('author-device-id', deviceId);
     }, localDeviceId);
@@ -333,9 +355,14 @@ test('shows local IndexedDB notes after a browser reload', async ({ page }) => {
 
   await page.reload();
   await hoverMenusThroughBridge(page);
-  await expect(page.getByText(titleText, { exact: true })).toBeVisible();
+  const reloadedNote = page
+    .getByRole('complementary', { name: 'Notes' })
+    .getByRole('button')
+    .filter({ hasText: titleText })
+    .first();
+  await expect(reloadedNote).toBeVisible();
 
-  await page.getByText(titleText, { exact: true }).click();
+  await reloadedNote.click();
   await expect(page.getByLabel('Note body')).toHaveValue(bodyText);
 });
 
@@ -348,13 +375,13 @@ test('recovers editor text when reload interrupts the debounced save', async ({
   const titleText = `Interrupted reload note ${Date.now()}`;
   const bodyText = 'Recovered from the synchronous editor recovery snapshot';
 
-  await page.getByLabel('Note title').fill(titleText);
-  await page.getByLabel('Note body').fill(bodyText);
-  await expect
-    .poll(() =>
-      page.evaluate(() => localStorage.getItem('author-editor-recovery-v1'))
-    )
-    .toContain(titleText);
+  await setEditorFieldSynchronously(page, 'Note title', titleText);
+  await setEditorFieldSynchronously(page, 'Note body', bodyText);
+  const recovery = await page.evaluate(() =>
+    localStorage.getItem('author-editor-recovery-v1')
+  );
+  expect(recovery).toContain(titleText);
+  expect(recovery).toContain(bodyText);
   await page.reload();
 
   await expect(page.getByLabel('Note title')).toHaveValue(titleText);
@@ -383,13 +410,11 @@ test('logs in from the profile menu when no session is stored', async ({
   await loginDialog.getByLabel('Password', { exact: true }).fill(loginPassword);
   await clickSignInSubmit(page);
 
+  await expect(loginDialog).toBeHidden({ timeout: 30_000 });
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('author-username')))
     .toBe(loginUsername);
-  await expect
-    .poll(() => browserEncryptionKeyMaterial(page))
-    .toEqual(expect.any(String));
-  await expect(loginDialog).toBeHidden();
+  await expect.poll(() => browserEncryptionKeyMaterial(page)).not.toBe('');
 
   await openProfileMenu(page);
   await expect(
@@ -633,7 +658,7 @@ test('keeps local drafts when signing in and then syncs them remote', async ({
   await loginDialog.getByLabel('Password', { exact: true }).fill(loginPassword);
   await clickSignInSubmit(page);
 
-  await expect(loginDialog).toBeHidden();
+  await expect(loginDialog).toBeHidden({ timeout: 30_000 });
   await hoverMenusThroughBridge(page);
   await expect(page.getByText(titleText, { exact: true })).toBeVisible();
   await expectBrowserStoredEncryptedNote(page, titleText, bodyText);

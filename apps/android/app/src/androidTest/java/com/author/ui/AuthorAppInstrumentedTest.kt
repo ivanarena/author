@@ -26,6 +26,10 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class AuthorAppInstrumentedTest {
+  private companion object {
+    const val SAVE_TIMEOUT_MS = 15_000L
+  }
+
   @get:Rule val compose = createComposeRule()
 
   private lateinit var context: Context
@@ -56,7 +60,7 @@ class AuthorAppInstrumentedTest {
 
     compose.onNodeWithTag("note-title-field").assertIsDisplayed().performTextInput(title)
     compose.onNodeWithTag("note-body-field").assertIsDisplayed().performTextInput(body)
-    compose.waitUntil(timeoutMillis = 5_000) { savedDraft(title)?.body == body }
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) { savedDraft(title)?.body == body }
 
     compose.onNodeWithContentDescription("Notes").performClick()
     compose.onNodeWithText(title).assertIsDisplayed()

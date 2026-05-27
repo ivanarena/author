@@ -352,8 +352,8 @@ export async function upsertDevice(
 ): Promise<void> {
   const existing = (await queryOne(
     db,
-    'SELECT owner_username, name FROM devices WHERE id = ?',
-    [device.id]
+    'SELECT name FROM devices WHERE owner_username = ? AND id = ?',
+    [ownerUsername, device.id]
   )) as Row | null;
   const latestOperation = await latestEntityOperation(
     db,
@@ -361,27 +361,12 @@ export async function upsertDevice(
     'device',
     device.id
   );
-  const existingOwner = asNullableString(existing?.owner_username);
-  if (existing && existingOwner && existingOwner !== ownerUsername) {
-    if (latestOperation !== 'upsert') {
-      await recordEntityChange(
-        db,
-        'device',
-        device.id,
-        'upsert',
-        seenAt,
-        ownerUsername
-      );
-    }
-    return;
-  }
 
   await runSql(
     db,
     `INSERT INTO devices (id, owner_username, name, last_seen_at)
      VALUES (?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET
-       owner_username = excluded.owner_username,
+     ON CONFLICT(owner_username, id) DO UPDATE SET
        name = excluded.name,
        last_seen_at = excluded.last_seen_at`,
     [device.id, ownerUsername, device.name, seenAt]
@@ -651,15 +636,26 @@ export async function deleteNotebooksByIds(
 
 async function deviceIsReferenced(
   db: NotesExecutor,
-  deviceId: string
+  deviceId: string,
+  ownerUsername: string
 ): Promise<boolean> {
   const row = await queryOne(
     db,
     `SELECT
-      (SELECT count(*) FROM notes WHERE device_id = ?) +
-       (SELECT count(*) FROM notebooks WHERE device_id = ?) +
-       (SELECT count(*) FROM auth_sessions WHERE device_id = ?) AS references_count`,
-    [deviceId, deviceId, deviceId]
+      (SELECT count(*) FROM notes WHERE owner_username = ? AND device_id = ?) +
+       (SELECT count(*) FROM notebooks WHERE owner_username = ? AND device_id = ?) +
+       (SELECT count(*) FROM auth_sessions WHERE username = ? AND device_id = ?) +
+       (SELECT count(*) FROM trusted_auth_devices WHERE username = ? AND device_id = ?) AS references_count`,
+    [
+      ownerUsername,
+      deviceId,
+      ownerUsername,
+      deviceId,
+      ownerUsername,
+      deviceId,
+      ownerUsername,
+      deviceId
+    ]
   );
   return Number(row?.references_count ?? 0) > 0;
 }
@@ -671,7 +667,7 @@ export async function deleteDevicesByIds(
 ): Promise<void> {
   const uniqueIds = [...new Set(ids)].filter(Boolean);
   for (const id of uniqueIds) {
-    if (!(await deviceIsReferenced(db, id))) {
+    if (!(await deviceIsReferenced(db, id, ownerUsername))) {
       await runSql(
         db,
         'DELETE FROM devices WHERE owner_username = ? AND id = ?',

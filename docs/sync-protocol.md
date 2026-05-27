@@ -85,7 +85,7 @@ The response includes changed notes, notebooks, known devices, hard-delete IDs, 
 
 ## Ownership
 
-Server-side notes, notebooks, tombstones, and revision changes are scoped to the authenticated username. Legacy bearer-token sync uses the `legacy-token` owner.
+Server-side notes, notebooks, device rows, tombstones, and revision changes are scoped to the authenticated username. The server stores device metadata under `(owner_username, device_id)` so shared browser device ids do not merge labels, sessions, or trusted-login state across accounts. Legacy bearer-token sync uses the `legacy-token` owner.
 
 ## Version Rule
 

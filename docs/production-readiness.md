@@ -50,6 +50,9 @@ HTTPS, and keep `NOTES_TRUST_PROXY_HEADERS` disabled unless a trusted reverse
 proxy overwrites forwarding headers.
 Treat a missing `NOTES_SERVER_SECRET` as a release blocker; production TOTP
 seed encryption fails closed without it.
+API responses are served with `Cache-Control: no-store, private` and vary on
+`Authorization`/`Cookie`. The production CSP uses nonce-bound scripts and keeps
+inline style permission narrowed to dynamic style attributes used by the app UI.
 
 ## Android
 

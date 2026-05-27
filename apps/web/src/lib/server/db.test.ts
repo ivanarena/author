@@ -111,6 +111,40 @@ describe('server database migrations', () => {
     }
   });
 
+  it('creates account-scoped device constraints in fresh databases', async () => {
+    const db = await openMemoryDatabase();
+    try {
+      const deviceColumns = await all(db, 'PRAGMA table_info(devices)');
+      const primaryKeyColumns = deviceColumns
+        .filter((row) => Number(row.pk ?? 0) > 0)
+        .sort((left, right) => Number(left.pk) - Number(right.pk))
+        .map((row) => row.name);
+      expect(primaryKeyColumns).toEqual(['owner_username', 'id']);
+
+      const trustedDeviceKeys = await all(
+        db,
+        'PRAGMA foreign_key_list(trusted_auth_devices)'
+      );
+      expect(trustedDeviceKeys).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            table: 'devices',
+            from: 'username',
+            to: 'owner_username'
+          }),
+          expect.objectContaining({
+            table: 'devices',
+            from: 'device_id',
+            to: 'id',
+            on_delete: 'CASCADE'
+          })
+        ])
+      );
+    } finally {
+      db.close();
+    }
+  });
+
   it('upgrades older databases before creating indexes on new columns', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'author-old-schema-'));
     const dbPath = join(tempDir, 'old.sqlite');
@@ -226,6 +260,155 @@ describe('server database migrations', () => {
         expect(await appliedMigrationVersions(upgraded)).toEqual(
           new Set(SERVER_MIGRATIONS.map((migration) => migration.version))
         );
+      } finally {
+        upgraded.close();
+      }
+    } finally {
+      if (!legacyClosed) legacy.close();
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('migrates globally keyed devices into account-scoped rows', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'author-device-migration-'));
+    const dbPath = join(tempDir, 'old-devices.sqlite');
+    const { createClient } = await import('@libsql/client');
+    const legacy = createClient({ url: `file:${dbPath}` });
+    let legacyClosed = false;
+    const now = '2026-05-10T10:00:00.000Z';
+
+    try {
+      await legacy.executeMultiple(`
+        PRAGMA foreign_keys = ON;
+        CREATE TABLE schema_migrations (
+          version INTEGER PRIMARY KEY,
+          name TEXT NOT NULL,
+          applied_at TEXT NOT NULL
+        );
+        INSERT INTO schema_migrations (version, name, applied_at)
+        VALUES
+          (1, 'applied', '${now}'),
+          (2, 'applied', '${now}'),
+          (3, 'applied', '${now}'),
+          (4, 'applied', '${now}'),
+          (5, 'applied', '${now}'),
+          (6, 'applied', '${now}'),
+          (7, 'applied', '${now}'),
+          (8, 'applied', '${now}'),
+          (9, 'applied', '${now}'),
+          (10, 'applied', '${now}'),
+          (11, 'applied', '${now}'),
+          (12, 'applied', '${now}'),
+          (13, 'applied', '${now}'),
+          (14, 'applied', '${now}'),
+          (15, 'applied', '${now}');
+        CREATE TABLE users (
+          username TEXT PRIMARY KEY,
+          email TEXT,
+          display_name TEXT,
+          password_hash TEXT NOT NULL,
+          password_salt TEXT NOT NULL,
+          totp_secret TEXT,
+          totp_enabled_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE devices (
+          id TEXT PRIMARY KEY,
+          owner_username TEXT NOT NULL DEFAULT 'legacy-token',
+          name TEXT NOT NULL,
+          last_seen_at TEXT NOT NULL
+        );
+        CREATE TABLE auth_sessions (
+          token_hash TEXT PRIMARY KEY,
+          username TEXT NOT NULL,
+          device_id TEXT,
+          created_at TEXT NOT NULL,
+          last_seen_at TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE,
+          FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE SET NULL
+        );
+        CREATE TABLE trusted_auth_devices (
+          username TEXT NOT NULL,
+          device_id TEXT NOT NULL,
+          secret_hash TEXT,
+          created_at TEXT NOT NULL,
+          last_used_at TEXT NOT NULL,
+          PRIMARY KEY (username, device_id),
+          FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE,
+          FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+        );
+        INSERT INTO users (
+          username, password_hash, password_salt, created_at, updated_at
+        )
+        VALUES
+          ('alice', 'argon2id-scram-sha256:v1:test', 'salt', '${now}', '${now}'),
+          ('bob', 'argon2id-scram-sha256:v1:test', 'salt', '${now}', '${now}');
+        INSERT INTO devices (id, owner_username, name, last_seen_at)
+        VALUES ('shared-device', 'alice', 'Alice laptop', '${now}');
+        INSERT INTO auth_sessions (
+          token_hash, username, device_id, created_at, last_seen_at, expires_at
+        )
+        VALUES
+          ('alice-token', 'alice', 'shared-device', '${now}', '${now}', '2026-06-10T10:00:00.000Z'),
+          ('bob-token', 'bob', 'shared-device', '${now}', '${now}', '2026-06-10T10:00:00.000Z');
+        INSERT INTO trusted_auth_devices (
+          username, device_id, secret_hash, created_at, last_used_at
+        )
+        VALUES
+          ('alice', 'shared-device', 'alice-secret', '${now}', '${now}'),
+          ('bob', 'shared-device', 'bob-secret', '${now}', '${now}');
+      `);
+      legacy.close();
+      legacyClosed = true;
+
+      const upgraded = await openConfiguredDatabase({
+        provider: 'local',
+        filePath: dbPath,
+        client: { url: `file:${dbPath}` }
+      });
+      try {
+        await expect(
+          get(
+            upgraded,
+            `SELECT count(*) AS count
+             FROM devices
+             WHERE id = ?`,
+            ['shared-device']
+          )
+        ).resolves.toMatchObject({ count: 2 });
+        await expect(
+          get(
+            upgraded,
+            `SELECT name FROM devices
+             WHERE owner_username = ? AND id = ?`,
+            ['bob', 'shared-device']
+          )
+        ).resolves.toMatchObject({ name: 'shared-device' });
+
+        await run(upgraded, 'DELETE FROM devices WHERE owner_username = ?', [
+          'alice'
+        ]);
+
+        await expect(
+          get(
+            upgraded,
+            `SELECT device_id
+             FROM auth_sessions
+             WHERE username = ?`,
+            ['bob']
+          )
+        ).resolves.toMatchObject({ device_id: 'shared-device' });
+        await expect(
+          get(
+            upgraded,
+            `SELECT secret_hash
+             FROM trusted_auth_devices
+             WHERE username = ? AND device_id = ?`,
+            ['bob', 'shared-device']
+          )
+        ).resolves.toMatchObject({ secret_hash: 'bob-secret' });
       } finally {
         upgraded.close();
       }

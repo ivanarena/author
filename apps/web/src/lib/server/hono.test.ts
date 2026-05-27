@@ -348,6 +348,21 @@ describe('Hono API', () => {
     expect(JSON.stringify(body)).not.toContain('author.example.turso.io');
   });
 
+  it('marks API responses non-cacheable and auth-varying', async () => {
+    const login = await loginResponse();
+    expect(login.status).toBe(200);
+    expect(login.headers.get('cache-control')).toBe('no-store, private');
+    expect(login.headers.get('vary')).toContain('Authorization');
+    expect(login.headers.get('vary')).toContain('Cookie');
+
+    const token = ((await login.json()) as { token: string }).token;
+    const pull = await post('/api/sync/pull', { since: null }, token);
+    expect(pull.status).toBe(200);
+    expect(pull.headers.get('cache-control')).toBe('no-store, private');
+    expect(pull.headers.get('vary')).toContain('Authorization');
+    expect(pull.headers.get('vary')).toContain('Cookie');
+  });
+
   it('allows metrics only with an explicit metrics token when configured', async () => {
     process.env.NOTES_METRICS_TOKEN = 'metrics-secret';
 

@@ -43,6 +43,7 @@ export function contentSecurityPolicy({
 }): string {
   const connectSrc = ["'self'"];
   const scriptSrc = ["'self'", `'nonce-${nonce}'`];
+  const styleSrcElem = ["'self'"];
   if (dev) {
     connectSrc.push(
       'http://localhost:*',
@@ -51,6 +52,7 @@ export function contentSecurityPolicy({
       'ws://127.0.0.1:*'
     );
     scriptSrc.push("'unsafe-eval'");
+    styleSrcElem.push("'unsafe-inline'");
   }
 
   const directives = [
@@ -63,7 +65,9 @@ export function contentSecurityPolicy({
     ['img-src', "'self'", 'data:', 'blob:'],
     ['font-src', "'self'", 'data:'],
     ['connect-src', ...connectSrc],
-    ['style-src', "'self'", "'unsafe-inline'"],
+    ['style-src', "'self'"],
+    ['style-src-elem', ...styleSrcElem],
+    ['style-src-attr', "'unsafe-inline'"],
     ['script-src', ...scriptSrc],
     ['worker-src', "'self'", 'blob:'],
     ['manifest-src', "'self'"]

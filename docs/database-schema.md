@@ -50,9 +50,11 @@ preserving it; spoofed prefix text is treated as plaintext and encrypted. Plaint
 encrypted by the browser or Android app before normal reads and sync.
 Markdown is not parsed or rendered.
 
-Devices, notes, notebooks, entity changes, tombstones, and version snapshots include
-`owner_username` so sync results and device labels are scoped to the authenticated
-account. Legacy token data is stored under `legacy-token`.
+Devices are keyed by `(owner_username, id)` so two accounts using the same
+browser- or Android-generated device id keep separate labels, trusted-device
+records, and session metadata. Notes, notebooks, entity changes, tombstones,
+and version snapshots also include `owner_username` so sync results are scoped
+to the authenticated account. Legacy token data is stored under `legacy-token`.
 
 Password-derived client encryption keys use Argon2id-only material, and runtime clients do not
 keep pre-Argon2 or pre-`enc:v3` compatibility paths. Older installs must migrate through a release

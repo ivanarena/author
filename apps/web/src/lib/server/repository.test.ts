@@ -7,7 +7,14 @@ import {
   fixtureNote,
   fixtureNotebook
 } from '@author/test-fixtures';
-import { authenticateUser, setUserPassword } from './auth';
+import {
+  authenticateUser,
+  createAuthSession,
+  listTrustedAuthDevices,
+  setUserPassword,
+  sessionFromToken,
+  trustAuthDevice
+} from './auth';
 import { openMemoryDatabase, run as runSql } from './db';
 import {
   cleanupTrash,
@@ -1151,13 +1158,13 @@ describe('server repository', () => {
     }
   });
 
-  it('keeps globally referenced devices when applying one owner device delete', async () => {
+  it('keeps each owner device row isolated when accounts share a browser device id', async () => {
     const db = await openMemoryDatabase();
     try {
       await pushChanges(
         db,
         {
-          device: fixtureDevice,
+          device: { ...fixtureDevice, name: 'Alice laptop' },
           notebooks: [{ record: fixtureNotebook, baseVersion: 0 }],
           notes: [{ record: fixtureNote, baseVersion: 0 }]
         },
@@ -1166,7 +1173,7 @@ describe('server repository', () => {
       await pushChanges(
         db,
         {
-          device: fixtureDevice,
+          device: { ...fixtureDevice, name: 'Bob phone' },
           notebooks: [
             {
               record: { ...fixtureNotebook, id: 'bob-notebook' },
@@ -1183,8 +1190,15 @@ describe('server repository', () => {
       await deleteDevicesByIds(db, [fixtureDevice.id], 'alice');
 
       expect(
-        (await getDevicesByIds(db, [fixtureDevice.id])).has(fixtureDevice.id)
-      ).toBe(true);
+        (await getDevicesByIds(db, [fixtureDevice.id], 'alice')).get(
+          fixtureDevice.id
+        )?.name
+      ).toBe('Alice laptop');
+      expect(
+        (await getDevicesByIds(db, [fixtureDevice.id], 'bob')).get(
+          fixtureDevice.id
+        )?.name
+      ).toBe('Bob phone');
     } finally {
       db.close();
     }
@@ -1212,10 +1226,71 @@ describe('server repository', () => {
         )?.name
       ).toBe('Alice laptop');
       expect(
-        (await getDevicesByIds(db, [fixtureDevice.id], 'bob')).has(
+        (await getDevicesByIds(db, [fixtureDevice.id], 'bob')).get(
           fixtureDevice.id
-        )
-      ).toBe(false);
+        )?.name
+      ).toBe('Bob phone');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('does not revoke another account session or trusted device when one owner account deletes a shared device id', async () => {
+    const db = await openMemoryDatabase();
+    try {
+      const alice = await setUserPassword(db, 'alice', 'alice-password');
+      const bob = await setUserPassword(db, 'bob', 'bob-password');
+      await upsertDevice(
+        db,
+        { id: fixtureDevice.id, name: 'Alice laptop' },
+        undefined,
+        'alice'
+      );
+      await upsertDevice(
+        db,
+        { id: fixtureDevice.id, name: 'Bob phone' },
+        undefined,
+        'bob'
+      );
+      await trustAuthDevice(
+        db,
+        'alice',
+        fixtureDevice.id,
+        'alice-device-trust-secret-0123456789'
+      );
+      await trustAuthDevice(
+        db,
+        'bob',
+        fixtureDevice.id,
+        'bob-device-trust-secret-0123456789'
+      );
+      const bobSession = await createAuthSession(db, bob, fixtureDevice.id);
+      await createAuthSession(db, alice, fixtureDevice.id);
+
+      await runSql(db, 'DELETE FROM auth_sessions WHERE username = ?', [
+        'alice'
+      ]);
+      await runSql(db, 'DELETE FROM trusted_auth_devices WHERE username = ?', [
+        'alice'
+      ]);
+      await runSql(db, 'DELETE FROM devices WHERE owner_username = ?', [
+        'alice'
+      ]);
+
+      await expect(sessionFromToken(db, bobSession.token)).resolves.toEqual(
+        expect.objectContaining({
+          user: expect.objectContaining({ username: 'bob' }),
+          deviceId: fixtureDevice.id
+        })
+      );
+      await expect(
+        listTrustedAuthDevices(db, 'bob', fixtureDevice.id)
+      ).resolves.toEqual([
+        expect.objectContaining({
+          deviceId: fixtureDevice.id,
+          deviceName: 'Bob phone'
+        })
+      ]);
     } finally {
       db.close();
     }

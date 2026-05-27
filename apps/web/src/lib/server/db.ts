@@ -30,10 +30,11 @@ const schemaSql = `
   PRAGMA foreign_keys = ON;
 
   CREATE TABLE IF NOT EXISTS devices (
-    id TEXT PRIMARY KEY,
+    id TEXT NOT NULL,
     owner_username TEXT NOT NULL DEFAULT 'legacy-token',
     name TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL
+    last_seen_at TEXT NOT NULL,
+    PRIMARY KEY (owner_username, id)
   );
 
   CREATE TABLE IF NOT EXISTS users (
@@ -55,8 +56,7 @@ const schemaSql = `
     created_at TEXT NOT NULL,
     last_seen_at TEXT NOT NULL,
     expires_at TEXT NOT NULL,
-    FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE,
-    FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE SET NULL
+    FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
   );
 
   CREATE INDEX IF NOT EXISTS auth_sessions_expires_at_idx
@@ -94,12 +94,14 @@ const schemaSql = `
     created_at TEXT NOT NULL,
     last_used_at TEXT NOT NULL,
     PRIMARY KEY (username, device_id),
-    FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE,
-    FOREIGN KEY (device_id) REFERENCES devices(id) ON DELETE CASCADE
+    FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
   );
 
   CREATE INDEX IF NOT EXISTS trusted_auth_devices_device_idx
     ON trusted_auth_devices(device_id);
+
+  CREATE INDEX IF NOT EXISTS devices_id_idx
+    ON devices(id);
 
   CREATE INDEX IF NOT EXISTS users_updated_at_idx
     ON users(updated_at);
@@ -615,6 +617,243 @@ async function migrateArgon2AesCurrentOnly(db: NotesDb): Promise<void> {
   }
 }
 
+async function accountScopedDevicePrimaryKeyExists(
+  db: NotesDb
+): Promise<boolean> {
+  if (!(await tableExists(db, 'devices'))) return false;
+  const rows = await all(db, 'PRAGMA table_info(devices)');
+  const primaryKeyColumns = rows
+    .filter((row) => Number(row.pk ?? 0) > 0)
+    .sort((left, right) => Number(left.pk) - Number(right.pk))
+    .map((row) => String(row.name));
+  return (
+    primaryKeyColumns.length === 2 &&
+    primaryKeyColumns[0] === 'owner_username' &&
+    primaryKeyColumns[1] === 'id'
+  );
+}
+
+async function accountScopedTrustedDeviceForeignKeyExists(
+  db: NotesDb
+): Promise<boolean> {
+  if (!(await tableExists(db, 'trusted_auth_devices'))) return false;
+  const rows = await all(db, 'PRAGMA foreign_key_list(trusted_auth_devices)');
+  return (
+    rows.some(
+      (row) =>
+        row.table === 'devices' &&
+        row.from === 'username' &&
+        row.to === 'owner_username'
+    ) &&
+    rows.some(
+      (row) =>
+        row.table === 'devices' &&
+        row.from === 'device_id' &&
+        row.to === 'id' &&
+        String(row.on_delete).toUpperCase() === 'CASCADE'
+    )
+  );
+}
+
+async function migrateAccountScopedDevices(db: NotesDb): Promise<void> {
+  if (
+    (await accountScopedDevicePrimaryKeyExists(db)) &&
+    (await accountScopedTrustedDeviceForeignKeyExists(db))
+  ) {
+    return;
+  }
+
+  const owner = defaultDataOwner();
+  await run(db, 'PRAGMA foreign_keys = OFF');
+  try {
+    await exec(
+      db,
+      `BEGIN;
+
+       CREATE TABLE devices_account_scoped (
+         id TEXT NOT NULL,
+         owner_username TEXT NOT NULL DEFAULT 'legacy-token',
+         name TEXT NOT NULL,
+         last_seen_at TEXT NOT NULL,
+         PRIMARY KEY (owner_username, id)
+       );
+
+       INSERT INTO devices_account_scoped (
+         id, owner_username, name, last_seen_at
+       )
+       SELECT id,
+              COALESCE(NULLIF(owner_username, ''), ${sqlString(owner)}),
+              name,
+              last_seen_at
+       FROM devices
+       WHERE id IS NOT NULL AND id <> ''
+       ON CONFLICT(owner_username, id) DO UPDATE SET
+         name = excluded.name,
+         last_seen_at = excluded.last_seen_at;
+
+       INSERT INTO devices_account_scoped (
+         id, owner_username, name, last_seen_at
+       )
+       SELECT auth_sessions.device_id,
+              auth_sessions.username,
+              CASE
+                WHEN devices.owner_username = auth_sessions.username
+                  THEN devices.name
+                ELSE auth_sessions.device_id
+              END,
+              auth_sessions.last_seen_at
+       FROM auth_sessions
+       LEFT JOIN devices
+         ON devices.id = auth_sessions.device_id
+       WHERE auth_sessions.device_id IS NOT NULL
+         AND auth_sessions.device_id <> ''
+       ON CONFLICT(owner_username, id) DO UPDATE SET
+         last_seen_at = CASE
+           WHEN excluded.last_seen_at > devices_account_scoped.last_seen_at
+             THEN excluded.last_seen_at
+           ELSE devices_account_scoped.last_seen_at
+         END;
+
+       INSERT INTO devices_account_scoped (
+         id, owner_username, name, last_seen_at
+       )
+       SELECT trusted_auth_devices.device_id,
+              trusted_auth_devices.username,
+              CASE
+                WHEN devices.owner_username = trusted_auth_devices.username
+                  THEN devices.name
+                ELSE trusted_auth_devices.device_id
+              END,
+              trusted_auth_devices.last_used_at
+       FROM trusted_auth_devices
+       LEFT JOIN devices
+         ON devices.id = trusted_auth_devices.device_id
+       WHERE trusted_auth_devices.device_id IS NOT NULL
+         AND trusted_auth_devices.device_id <> ''
+       ON CONFLICT(owner_username, id) DO UPDATE SET
+         last_seen_at = CASE
+           WHEN excluded.last_seen_at > devices_account_scoped.last_seen_at
+             THEN excluded.last_seen_at
+           ELSE devices_account_scoped.last_seen_at
+         END;
+
+       INSERT INTO devices_account_scoped (
+         id, owner_username, name, last_seen_at
+       )
+       SELECT device_id, owner_username, device_id, MAX(updated_at)
+       FROM notes
+       WHERE device_id IS NOT NULL AND device_id <> ''
+       GROUP BY owner_username, device_id
+       ON CONFLICT(owner_username, id) DO UPDATE SET
+         last_seen_at = CASE
+           WHEN excluded.last_seen_at > devices_account_scoped.last_seen_at
+             THEN excluded.last_seen_at
+           ELSE devices_account_scoped.last_seen_at
+         END;
+
+       INSERT INTO devices_account_scoped (
+         id, owner_username, name, last_seen_at
+       )
+       SELECT device_id, owner_username, device_id, MAX(updated_at)
+       FROM notebooks
+       WHERE device_id IS NOT NULL AND device_id <> ''
+       GROUP BY owner_username, device_id
+       ON CONFLICT(owner_username, id) DO UPDATE SET
+         last_seen_at = CASE
+           WHEN excluded.last_seen_at > devices_account_scoped.last_seen_at
+             THEN excluded.last_seen_at
+           ELSE devices_account_scoped.last_seen_at
+         END;
+
+       INSERT INTO devices_account_scoped (
+         id, owner_username, name, last_seen_at
+       )
+       SELECT entity_id, owner_username, entity_id, MAX(updated_at)
+       FROM entity_changes
+       WHERE entity_type = 'device'
+         AND operation = 'upsert'
+         AND entity_id IS NOT NULL
+         AND entity_id <> ''
+       GROUP BY owner_username, entity_id
+       ON CONFLICT(owner_username, id) DO UPDATE SET
+         last_seen_at = CASE
+           WHEN excluded.last_seen_at > devices_account_scoped.last_seen_at
+             THEN excluded.last_seen_at
+           ELSE devices_account_scoped.last_seen_at
+         END;
+
+       CREATE TABLE auth_sessions_account_scoped (
+         token_hash TEXT PRIMARY KEY,
+         username TEXT NOT NULL,
+         device_id TEXT,
+         created_at TEXT NOT NULL,
+         last_seen_at TEXT NOT NULL,
+         expires_at TEXT NOT NULL,
+         FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
+       );
+
+       INSERT INTO auth_sessions_account_scoped (
+         token_hash, username, device_id, created_at, last_seen_at, expires_at
+       )
+       SELECT token_hash, username, device_id, created_at, last_seen_at, expires_at
+       FROM auth_sessions;
+
+       CREATE TABLE trusted_auth_devices_account_scoped (
+         username TEXT NOT NULL,
+         device_id TEXT NOT NULL,
+         secret_hash TEXT,
+         created_at TEXT NOT NULL,
+         last_used_at TEXT NOT NULL,
+         PRIMARY KEY (username, device_id),
+         FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE,
+         FOREIGN KEY (username, device_id)
+           REFERENCES devices_account_scoped(owner_username, id)
+           ON DELETE CASCADE
+       );
+
+       INSERT INTO trusted_auth_devices_account_scoped (
+         username, device_id, secret_hash, created_at, last_used_at
+       )
+       SELECT username, device_id, secret_hash, created_at, last_used_at
+       FROM trusted_auth_devices
+       WHERE device_id IS NOT NULL
+         AND device_id <> '';
+
+       DROP TABLE trusted_auth_devices;
+       DROP TABLE auth_sessions;
+       DROP TABLE devices;
+
+       ALTER TABLE devices_account_scoped RENAME TO devices;
+       ALTER TABLE auth_sessions_account_scoped RENAME TO auth_sessions;
+       ALTER TABLE trusted_auth_devices_account_scoped
+         RENAME TO trusted_auth_devices;
+
+       CREATE INDEX IF NOT EXISTS devices_id_idx
+         ON devices(id);
+       CREATE INDEX IF NOT EXISTS devices_owner_id_idx
+         ON devices(owner_username, id);
+       CREATE INDEX IF NOT EXISTS auth_sessions_expires_at_idx
+         ON auth_sessions(expires_at);
+       CREATE INDEX IF NOT EXISTS trusted_auth_devices_device_idx
+         ON trusted_auth_devices(device_id);
+
+       COMMIT;`
+    );
+
+    const violations = await all(db, 'PRAGMA foreign_key_check');
+    if (violations.length > 0) {
+      throw new Error(
+        'Account-scoped device migration failed foreign key check'
+      );
+    }
+  } catch (error) {
+    await run(db, 'ROLLBACK').catch(() => undefined);
+    throw error;
+  } finally {
+    await run(db, 'PRAGMA foreign_keys = ON');
+  }
+}
+
 export interface ServerMigration {
   version: number;
   name: string;
@@ -856,6 +1095,13 @@ export const SERVER_MIGRATIONS: ServerMigration[] = [
            ON notebooks(owner_username, deleted_at, id);`
       );
     }
+  },
+  {
+    version: 16,
+    name: 'account-scoped-device-primary-key',
+    rollback:
+      'Restore from the pre-upgrade backup. This migration rebuilds device, session, and trusted-device tables so browser device ids are isolated per account.',
+    up: migrateAccountScopedDevices
   }
 ];
 

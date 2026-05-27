@@ -113,11 +113,36 @@ api.onError((error, c) => {
   return c.json({ error: 'Internal server error' }, 500);
 });
 
+function mergeVaryHeader(existing: string | null, additions: string[]): string {
+  if (existing?.trim() === '*') return existing;
+  const values = new Map<string, string>();
+  for (const value of existing?.split(',') ?? []) {
+    const trimmed = value.trim();
+    if (trimmed) values.set(trimmed.toLowerCase(), trimmed);
+  }
+  for (const addition of additions) {
+    values.set(addition.toLowerCase(), addition);
+  }
+  return [...values.values()].join(', ');
+}
+
+function applyNoStoreApiHeaders(response: Response): void {
+  response.headers.set('cache-control', 'no-store, private');
+  response.headers.set(
+    'vary',
+    mergeVaryHeader(response.headers.get('vary'), ['Authorization', 'Cookie'])
+  );
+}
+
 api.use('*', async (c, next) => {
   setRuntimeEnv(c.env);
   const originError = rejectCrossOriginMutation(c);
-  if (originError) return originError;
+  if (originError) {
+    applyNoStoreApiHeaders(originError);
+    return originError;
+  }
   await next();
+  applyNoStoreApiHeaders(c.res);
 });
 
 const LOGIN_ATTEMPT_WINDOW_MS = 60_000;

@@ -16,6 +16,10 @@ describe('security headers', () => {
 
     expect(csp).toContain("default-src 'self'");
     expect(csp).toContain("script-src 'self' 'nonce-test-nonce'");
+    expect(csp).toContain("style-src 'self'");
+    expect(csp).toContain("style-src-elem 'self'");
+    expect(csp).toContain("style-src-attr 'unsafe-inline'");
+    expect(csp).not.toContain("style-src 'self' 'unsafe-inline'");
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).toContain('upgrade-insecure-requests');
     expect(csp).not.toContain("'unsafe-eval'");
@@ -44,6 +48,7 @@ describe('security headers', () => {
 
     expect(csp).toContain('ws://localhost:*');
     expect(csp).toContain("'unsafe-eval'");
+    expect(csp).toContain("style-src-elem 'self' 'unsafe-inline'");
     expect(csp).not.toContain('upgrade-insecure-requests');
   });
 

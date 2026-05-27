@@ -30,6 +30,26 @@ import {
 const PUSH_BATCH_SIZE = 20;
 const PULL_BATCH_SIZE = 1000;
 const LAST_PUSHED_DEVICE_SIGNATURE_KEY = 'lastPushedDeviceSignature';
+const SYNC_LOCK_NAME = 'author-sync';
+const SYNC_LOCK_STORAGE_KEY = 'author-sync-lock-v1';
+const SYNC_LOCK_TTL_MS = 60_000;
+const SYNC_LOCK_RETRY_MS = 250;
+const SYNC_LOCK_WAIT_MS = 60_000;
+
+type LockManagerLike = {
+  request<T>(
+    name: string,
+    options: { mode: 'exclusive' },
+    callback: () => Promise<T>
+  ): Promise<T>;
+};
+
+type SyncLease = {
+  owner: string;
+  expiresAt: number;
+};
+
+let inProcessSyncLock: Promise<unknown> | null = null;
 
 export type SyncProgress =
   | { phase: 'preparing' }
@@ -174,6 +194,13 @@ export {
 } from './api-client';
 
 export async function runSync(
+  token: string,
+  onProgress?: SyncProgressCallback
+): Promise<{ pushed: number; pulled: number; conflicts: number }> {
+  return withSyncLock(() => runSyncUnlocked(token, onProgress));
+}
+
+async function runSyncUnlocked(
   token: string,
   onProgress?: SyncProgressCallback
 ): Promise<{ pushed: number; pulled: number; conflicts: number }> {
@@ -413,6 +440,132 @@ export async function runSync(
     pulled,
     conflicts
   };
+}
+
+async function withSyncLock<T>(operation: () => Promise<T>): Promise<T> {
+  const locks = navigatorLocks();
+  if (locks) {
+    return locks.request(SYNC_LOCK_NAME, { mode: 'exclusive' }, operation);
+  }
+
+  return withStorageSyncLease(operation);
+}
+
+function navigatorLocks(): LockManagerLike | null {
+  const locks = (
+    globalThis.navigator as { locks?: LockManagerLike } | undefined
+  )?.locks;
+  return locks && typeof locks.request === 'function' ? locks : null;
+}
+
+async function withStorageSyncLease<T>(
+  operation: () => Promise<T>
+): Promise<T> {
+  const storage = storageSafe();
+  if (!storage) return withInProcessSyncLock(operation);
+
+  const owner = syncLeaseOwner();
+  const waitUntil = Date.now() + SYNC_LOCK_WAIT_MS;
+  while (!tryAcquireSyncLease(storage, owner)) {
+    if (Date.now() >= waitUntil) {
+      throw new Error('Sync is already running in another tab');
+    }
+    await delay(SYNC_LOCK_RETRY_MS);
+  }
+
+  const heartbeat = setInterval(
+    () => {
+      refreshSyncLease(storage, owner);
+    },
+    Math.max(1_000, Math.floor(SYNC_LOCK_TTL_MS / 3))
+  );
+
+  try {
+    return await operation();
+  } finally {
+    clearInterval(heartbeat);
+    releaseSyncLease(storage, owner);
+  }
+}
+
+async function withInProcessSyncLock<T>(
+  operation: () => Promise<T>
+): Promise<T> {
+  while (inProcessSyncLock) {
+    await inProcessSyncLock.catch(() => undefined);
+  }
+
+  const run = operation();
+  const lockedRun = run.finally(() => {
+    if (inProcessSyncLock === lockedRun) inProcessSyncLock = null;
+  });
+  inProcessSyncLock = lockedRun;
+  return run;
+}
+
+function tryAcquireSyncLease(storage: Storage, owner: string): boolean {
+  const now = Date.now();
+  const current = parseSyncLease(storage.getItem(SYNC_LOCK_STORAGE_KEY));
+  if (current && current.owner !== owner && current.expiresAt > now) {
+    return false;
+  }
+
+  storage.setItem(
+    SYNC_LOCK_STORAGE_KEY,
+    JSON.stringify({ owner, expiresAt: now + SYNC_LOCK_TTL_MS })
+  );
+  return (
+    parseSyncLease(storage.getItem(SYNC_LOCK_STORAGE_KEY))?.owner === owner
+  );
+}
+
+function refreshSyncLease(storage: Storage, owner: string): void {
+  const current = parseSyncLease(storage.getItem(SYNC_LOCK_STORAGE_KEY));
+  if (current?.owner !== owner) return;
+  storage.setItem(
+    SYNC_LOCK_STORAGE_KEY,
+    JSON.stringify({ owner, expiresAt: Date.now() + SYNC_LOCK_TTL_MS })
+  );
+}
+
+function releaseSyncLease(storage: Storage, owner: string): void {
+  const current = parseSyncLease(storage.getItem(SYNC_LOCK_STORAGE_KEY));
+  if (current?.owner === owner) storage.removeItem(SYNC_LOCK_STORAGE_KEY);
+}
+
+function parseSyncLease(value: string | null): SyncLease | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as Partial<SyncLease>;
+    if (
+      typeof parsed.owner !== 'string' ||
+      typeof parsed.expiresAt !== 'number' ||
+      !Number.isFinite(parsed.expiresAt)
+    ) {
+      return null;
+    }
+    return { owner: parsed.owner, expiresAt: parsed.expiresAt };
+  } catch {
+    return null;
+  }
+}
+
+function storageSafe(): Storage | null {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function syncLeaseOwner(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}:${Math.random()}`;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 export async function login(

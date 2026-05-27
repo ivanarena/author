@@ -125,6 +125,21 @@ function mockFetch(...responses: Response[]) {
   return fetchMock;
 }
 
+function replaceNavigator(value: unknown): () => void {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value
+  });
+  return () => {
+    if (descriptor) {
+      Object.defineProperty(globalThis, 'navigator', descriptor);
+      return;
+    }
+    delete (globalThis as { navigator?: unknown }).navigator;
+  };
+}
+
 function mockSyncMeta(values: Record<string, string | undefined>) {
   vi.mocked(localDb.syncMeta.get).mockImplementation((async (key: unknown) => {
     const value = values[String(key)];
@@ -166,6 +181,49 @@ describe('client sync orchestration', () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(ensureLocalNotesEncrypted).not.toHaveBeenCalled();
+  });
+
+  it('uses a browser-wide Web Lock when the API is available', async () => {
+    const requestLock = vi.fn(
+      async (
+        _name: string,
+        _options: { mode: 'exclusive' },
+        callback: () => Promise<unknown>
+      ) => callback()
+    );
+    const restoreNavigator = replaceNavigator({
+      locks: {
+        request: requestLock
+      }
+    });
+    mockFetch(
+      jsonResponse({
+        notes: [],
+        notebooks: [],
+        devices: [],
+        deletedNoteIds: [],
+        deletedNotebookIds: [],
+        deletedDeviceIds: [],
+        serverTime: '2026-05-01T10:11:00.000Z',
+        serverRevision: 42
+      })
+    );
+
+    try {
+      await expect(runSync('session-token')).resolves.toEqual({
+        pushed: 0,
+        pulled: 0,
+        conflicts: 0
+      });
+    } finally {
+      restoreNavigator();
+    }
+
+    expect(requestLock).toHaveBeenCalledWith(
+      'author-sync',
+      { mode: 'exclusive' },
+      expect.any(Function)
+    );
   });
 
   it('pushes pending local changes, stores conflicts, then merges a pull', async () => {

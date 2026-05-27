@@ -10,6 +10,7 @@ import type {
 } from '@author/api-types';
 import {
   NOTE_RETENTION_DAYS,
+  VERSION_SNAPSHOT_RETENTION_DAYS,
   type Device,
   type Note,
   type Notebook
@@ -45,6 +46,12 @@ export interface EntityTombstone {
 
 export interface PushChangesOptions {
   allowTombstoneOverwrite?: boolean;
+}
+
+export interface VersionSnapshotPruneResponse {
+  deletedNoteSnapshots: number;
+  deletedNotebookSnapshots: number;
+  cutoff: string;
 }
 
 type PullOptions = {
@@ -1692,13 +1699,14 @@ export async function cleanupTrash(
     ownerUsername: asString(row.owner_username) || LEGACY_OWNER_USERNAME,
     notebook: toNotebook(row)
   }));
+  const cleanupTime = now.toISOString();
 
   await withWriteTransaction(db, async (tx) => {
     for (const { note, ownerUsername: owner } of oldNotes) {
-      await saveNoteSnapshot(tx, note, 'cleanup', undefined, owner);
+      await saveNoteSnapshot(tx, note, 'cleanup', cleanupTime, owner);
     }
     for (const { notebook, ownerUsername: owner } of oldNotebooks) {
-      await saveNotebookSnapshot(tx, notebook, 'cleanup', undefined, owner);
+      await saveNotebookSnapshot(tx, notebook, 'cleanup', cleanupTime, owner);
     }
 
     await runSql(
@@ -1712,7 +1720,7 @@ export async function cleanupTrash(
         owner,
         'note',
         note.id,
-        new Date().toISOString(),
+        cleanupTime,
         note.deviceId,
         nextVersionAfter(note.version)
       );
@@ -1729,7 +1737,7 @@ export async function cleanupTrash(
         owner,
         'notebook',
         notebook.id,
-        new Date().toISOString(),
+        cleanupTime,
         notebook.deviceId,
         nextVersionAfter(notebook.version)
       );
@@ -1742,11 +1750,65 @@ export async function cleanupTrash(
         owner
       );
     }
+
+    await pruneVersionSnapshotsInTransaction(tx, now, ownerUsername);
   });
 
   return {
     deletedNotes: oldNotes.length,
     deletedNotebooks: oldNotebooks.length,
+    cutoff
+  };
+}
+
+export async function pruneVersionSnapshots(
+  db: NotesDb,
+  now = new Date(),
+  ownerUsername?: string
+): Promise<VersionSnapshotPruneResponse> {
+  let result: VersionSnapshotPruneResponse = {
+    deletedNoteSnapshots: 0,
+    deletedNotebookSnapshots: 0,
+    cutoff: retentionCutoff(now, VERSION_SNAPSHOT_RETENTION_DAYS)
+  };
+  await withWriteTransaction(db, async (tx) => {
+    result = await pruneVersionSnapshotsInTransaction(tx, now, ownerUsername);
+  });
+  return result;
+}
+
+async function pruneVersionSnapshotsInTransaction(
+  db: NotesExecutor,
+  now: Date,
+  ownerUsername?: string
+): Promise<VersionSnapshotPruneResponse> {
+  const cutoff = retentionCutoff(now, VERSION_SNAPSHOT_RETENTION_DAYS);
+  const ownerFilter = ownerUsername ? ' AND owner_username = ?' : '';
+  const ownerArgs = ownerUsername ? [ownerUsername] : [];
+  const noteCount = await queryOne(
+    db,
+    `SELECT count(*) AS count FROM note_versions WHERE saved_at < ?${ownerFilter}`,
+    [cutoff, ...ownerArgs]
+  );
+  const notebookCount = await queryOne(
+    db,
+    `SELECT count(*) AS count FROM notebook_versions WHERE saved_at < ?${ownerFilter}`,
+    [cutoff, ...ownerArgs]
+  );
+  await runSql(
+    db,
+    `DELETE FROM note_versions WHERE saved_at < ?${ownerFilter}`,
+    [cutoff, ...ownerArgs]
+  );
+  await runSql(
+    db,
+    `DELETE FROM notebook_versions WHERE saved_at < ?${ownerFilter}`,
+    [cutoff, ...ownerArgs]
+  );
+
+  return {
+    deletedNoteSnapshots: Number(noteCount?.count ?? 0),
+    deletedNotebookSnapshots: Number(notebookCount?.count ?? 0),
     cutoff
   };
 }

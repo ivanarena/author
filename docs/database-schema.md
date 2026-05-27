@@ -39,7 +39,10 @@ Tables:
 - `note_versions`
 - `notebook_versions`
 
-`note_versions` and `notebook_versions` keep snapshots for accepted pushes, conflicts, and cleanup. This gives v1 a recovery path without building a full audit UI.
+`note_versions` and `notebook_versions` keep snapshots for accepted pushes,
+conflicts, and cleanup. This gives v1 a recovery path without building a full
+audit UI. Snapshots older than 365 days are pruned by cleanup so long-lived
+sync accounts do not accumulate unbounded version rows.
 
 Notes store `title` and `body` as `enc:v3` encrypted text envelopes after the client has
 opened them once or synced with key material available. Notebooks store `name` as the same
@@ -100,7 +103,10 @@ every push.
 
 Moving a note to Trash sets `trashedAt` and keeps the row syncable. Cleanup permanently removes notes whose `trashedAt` is older than 90 days, after writing a final snapshot and an `entity_tombstones` row. Tombstones let stale offline clients receive `deleted_remotely` conflicts instead of recreating cleaned-up rows.
 
-The server starts a cleanup scheduler unless `NOTES_CLEANUP_ENABLED=false`. It runs on startup by default and then every `NOTES_CLEANUP_INTERVAL_MINUTES`.
+The server starts a cleanup scheduler unless `NOTES_CLEANUP_ENABLED=false`. It
+runs on startup by default and then every `NOTES_CLEANUP_INTERVAL_MINUTES`.
+Cleanup also prunes version snapshots older than 365 days, scoped to the same
+account when cleanup is invoked for a signed-in user.
 
 ## Migrations
 

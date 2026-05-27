@@ -47,3 +47,4 @@ export interface NotebookSnapshot extends Notebook {
 }
 
 export const NOTE_RETENTION_DAYS = 90;
+export const VERSION_SNAPSHOT_RETENTION_DAYS = 365;

@@ -1102,6 +1102,21 @@ export const SERVER_MIGRATIONS: ServerMigration[] = [
     rollback:
       'Restore from the pre-upgrade backup. This migration rebuilds device, session, and trusted-device tables so browser device ids are isolated per account.',
     up: migrateAccountScopedDevices
+  },
+  {
+    version: 17,
+    name: 'version-snapshot-retention-indexes',
+    rollback:
+      'Restore from the pre-upgrade backup or drop note_versions_owner_saved_at_idx and notebook_versions_owner_saved_at_idx.',
+    up: async (db) => {
+      await exec(
+        db,
+        `CREATE INDEX IF NOT EXISTS note_versions_owner_saved_at_idx
+           ON note_versions(owner_username, saved_at);
+         CREATE INDEX IF NOT EXISTS notebook_versions_owner_saved_at_idx
+           ON notebook_versions(owner_username, saved_at);`
+      );
+    }
   }
 ];
 

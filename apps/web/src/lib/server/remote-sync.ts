@@ -23,6 +23,7 @@ import {
   getNotebooksByIds,
   pullMirrorChangesSinceRevision,
   pushChanges,
+  pruneVersionSnapshots,
   setSyncMeta,
   upsertDevice
 } from './repository';
@@ -821,6 +822,7 @@ export async function syncDatabases(
   local: NotesDb,
   remote: NotesDb
 ): Promise<void> {
+  const now = new Date();
   await pruneOrphanedAuthUserData(remote);
   await syncOneWay(remote, local, 'mirror.remote.revision', {
     copyUsers: true,
@@ -831,6 +833,8 @@ export async function syncDatabases(
     copyUsers: true,
     pruneMissingUsers: true
   });
+  await pruneVersionSnapshots(local, now);
+  await pruneVersionSnapshots(remote, now);
 }
 
 export async function syncRemoteDatabase(local: NotesDb): Promise<void> {

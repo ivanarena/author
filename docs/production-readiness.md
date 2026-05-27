@@ -83,6 +83,9 @@ releases, set the `ANDROID_RELEASE_*` variables documented in
 - If 2FA is enabled, keep `NOTES_SERVER_SECRET` with restore credentials and
   still treat database files, mirrors, and backups as sensitive auth material.
 - Review `/api/health` and authenticated `/api/metrics` after deploy.
+- Verify the web app opens once while online, then reloads while offline. The
+  service worker caches the app shell and static assets after first load, while
+  API requests remain network-only.
 - Keep the staging Turso database and `author-remote-test` seeded account
   separate from production, and run remote staging smoke after deploy-relevant
   sync, auth, encryption, or Cloudflare workflow changes.

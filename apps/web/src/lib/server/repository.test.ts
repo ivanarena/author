@@ -15,7 +15,7 @@ import {
   sessionFromToken,
   trustAuthDevice
 } from './auth';
-import { openMemoryDatabase, run as runSql } from './db';
+import { all as queryAll, openMemoryDatabase, run as runSql } from './db';
 import {
   cleanupTrash,
   currentRevision,
@@ -34,6 +34,70 @@ import {
   upsertDevice
 } from './repository';
 import { syncDatabases, syncRemoteDatabase } from './remote-sync';
+
+async function insertNoteSnapshot(
+  db: Awaited<ReturnType<typeof openMemoryDatabase>>,
+  {
+    noteId,
+    ownerUsername,
+    savedAt
+  }: { noteId: string; ownerUsername: string; savedAt: string }
+): Promise<void> {
+  await runSql(
+    db,
+    `INSERT INTO note_versions (
+       note_id, owner_username, title, body, title_hash, body_hash, notebook_ids, notebook_id, created_at, updated_at,
+       deleted_at, trashed_at, device_id, version, saved_at, reason
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      noteId,
+      ownerUsername,
+      fixtureNote.title,
+      fixtureNote.body,
+      fixtureNote.titleHash ?? null,
+      fixtureNote.bodyHash ?? null,
+      JSON.stringify(fixtureNote.notebookIds),
+      fixtureNote.notebookId,
+      fixtureNote.createdAt,
+      fixtureNote.updatedAt,
+      fixtureNote.deletedAt,
+      fixtureNote.trashedAt,
+      fixtureNote.deviceId,
+      fixtureNote.version,
+      savedAt,
+      'push'
+    ]
+  );
+}
+
+async function insertNotebookSnapshot(
+  db: Awaited<ReturnType<typeof openMemoryDatabase>>,
+  {
+    notebookId,
+    ownerUsername,
+    savedAt
+  }: { notebookId: string; ownerUsername: string; savedAt: string }
+): Promise<void> {
+  await runSql(
+    db,
+    `INSERT INTO notebook_versions (
+       notebook_id, owner_username, name, name_hash, created_at, updated_at, deleted_at, device_id, version, saved_at, reason
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      notebookId,
+      ownerUsername,
+      fixtureNotebook.name,
+      fixtureNotebook.nameHash ?? null,
+      fixtureNotebook.createdAt,
+      fixtureNotebook.updatedAt,
+      fixtureNotebook.deletedAt,
+      fixtureNotebook.deviceId,
+      fixtureNotebook.version,
+      savedAt,
+      'push'
+    ]
+  );
+}
 
 describe('server repository', () => {
   it('accepts new notebook and note pushes, then pulls them', async () => {
@@ -722,6 +786,80 @@ describe('server repository', () => {
 
       expect(pulled.deletedNoteIds).toEqual([fixtureNote.id]);
       expect(pulled.notes).toHaveLength(0);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('prunes stale version snapshots during cleanup without crossing owners', async () => {
+    const db = await openMemoryDatabase();
+    try {
+      await insertNoteSnapshot(db, {
+        noteId: 'alice-old-note',
+        ownerUsername: 'alice',
+        savedAt: '2025-05-26T23:59:59.000Z'
+      });
+      await insertNoteSnapshot(db, {
+        noteId: 'alice-recent-note',
+        ownerUsername: 'alice',
+        savedAt: '2025-05-27T00:00:00.000Z'
+      });
+      await insertNoteSnapshot(db, {
+        noteId: 'bob-old-note',
+        ownerUsername: 'bob',
+        savedAt: '2025-05-26T23:59:59.000Z'
+      });
+      await insertNotebookSnapshot(db, {
+        notebookId: 'alice-old-notebook',
+        ownerUsername: 'alice',
+        savedAt: '2025-05-26T23:59:59.000Z'
+      });
+      await insertNotebookSnapshot(db, {
+        notebookId: 'alice-recent-notebook',
+        ownerUsername: 'alice',
+        savedAt: '2025-05-27T00:00:00.000Z'
+      });
+      await insertNotebookSnapshot(db, {
+        notebookId: 'bob-old-notebook',
+        ownerUsername: 'bob',
+        savedAt: '2025-05-26T23:59:59.000Z'
+      });
+
+      await cleanupTrash(db, new Date('2026-05-27T00:00:00.000Z'), 'alice');
+
+      const noteSnapshots = await queryAll(
+        db,
+        `SELECT owner_username, note_id
+         FROM note_versions
+         ORDER BY owner_username, note_id`
+      );
+      expect(noteSnapshots).toEqual([
+        expect.objectContaining({
+          owner_username: 'alice',
+          note_id: 'alice-recent-note'
+        }),
+        expect.objectContaining({
+          owner_username: 'bob',
+          note_id: 'bob-old-note'
+        })
+      ]);
+
+      const notebookSnapshots = await queryAll(
+        db,
+        `SELECT owner_username, notebook_id
+         FROM notebook_versions
+         ORDER BY owner_username, notebook_id`
+      );
+      expect(notebookSnapshots).toEqual([
+        expect.objectContaining({
+          owner_username: 'alice',
+          notebook_id: 'alice-recent-notebook'
+        }),
+        expect.objectContaining({
+          owner_username: 'bob',
+          notebook_id: 'bob-old-notebook'
+        })
+      ]);
     } finally {
       db.close();
     }

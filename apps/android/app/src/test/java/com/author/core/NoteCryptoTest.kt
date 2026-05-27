@@ -5,6 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 class NoteCryptoTest {
@@ -24,6 +25,18 @@ class NoteCryptoTest {
   }
 
   @Test
+  fun rejectsCurrentEncryptedTextThatCannotBeDecrypted() {
+    val encrypted = crypto.encryptText("private text", "test-key", "note:note-1:title")
+
+    assertThrowsEncryptionDecryptFailure {
+      crypto.decryptText(encrypted, "test-key", "note:note-2:title")
+    }
+    assertThrowsEncryptionDecryptFailure {
+      crypto.decryptText(encrypted, "other-key", "note:note-1:title")
+    }
+  }
+
+  @Test
   fun encryptsPrefixedNoteFieldsInsteadOfPreservingSpoofedEnvelopes() {
     val prefixed =
       note("note-1", title = "enc:v3:dGl0bGU:ZmFrZQ", body = "enc:v3:Ym9keQ:ZmFrZQ")
@@ -40,13 +53,28 @@ class NoteCryptoTest {
   }
 
   @Test
+  fun refusesToRepublishCurrentNoteCiphertextWithWrongKey() {
+    val encrypted =
+      crypto.encryptNoteFields(note("note-1", "Launch notes", "Private body"), "old-key")
+
+    assertThrowsEncryptionDecryptFailure { crypto.encryptNoteFields(encrypted, "new-key") }
+  }
+
+  @Test
   fun bindsNotebookNameEnvelopesToNotebookId() {
     val notebook = notebook("notebook-1", "Ideas")
     val encrypted = crypto.encryptNotebookFields(notebook, "sync-key")
     val moved = notebook("notebook-2", encrypted.name)
 
     assertEquals(notebook.name, crypto.decryptNotebookFields(encrypted, "sync-key").name)
-    assertEquals(encrypted.name, crypto.decryptNotebookFields(moved, "sync-key").name)
+    assertThrowsEncryptionDecryptFailure { crypto.decryptNotebookFields(moved, "sync-key") }
+  }
+
+  @Test
+  fun refusesToRepublishCurrentNotebookCiphertextWithWrongKey() {
+    val encrypted = crypto.encryptNotebookFields(notebook("notebook-1", "Ideas"), "old-key")
+
+    assertThrowsEncryptionDecryptFailure { crypto.encryptNotebookFields(encrypted, "new-key") }
   }
 
   @Test
@@ -130,6 +158,15 @@ class NoteCryptoTest {
       lastSyncedVersion = 0,
       lastSyncedAt = null,
     )
+}
+
+private fun assertThrowsEncryptionDecryptFailure(block: () -> Unit) {
+  try {
+    block()
+    fail("Expected encryption decrypt failure")
+  } catch (error: IllegalStateException) {
+    assertEquals(ENCRYPTION_DECRYPT_FAILED_MESSAGE, error.message)
+  }
 }
 
 private class FakeSharedPreferences : SharedPreferences {

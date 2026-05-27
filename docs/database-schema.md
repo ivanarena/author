@@ -59,7 +59,8 @@ to the authenticated account. Legacy token data is stored under `legacy-token`.
 Password-derived client encryption keys use Argon2id-only material, and runtime clients do not
 keep pre-Argon2 or pre-`enc:v3` compatibility paths. Older installs must migrate through a release
 that republishes data as `enc:v3` before running this version. Current clients fail closed when
-they see older local or remote note envelopes, rather than rewriting old ciphertext as plaintext.
+they see older local or remote note envelopes, or when current envelopes cannot be authenticated
+with the active key material and field context, rather than rewriting ciphertext as plaintext.
 Server-side account password verifiers are Argon2id SCRAM-style
 `argon2id-scram-sha256:v1` records. The browser or Android client runs Argon2id
 and sends a challenge-bound proof; the server stores only the random salt,

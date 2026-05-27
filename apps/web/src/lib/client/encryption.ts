@@ -7,6 +7,8 @@ export const ENCRYPTION_KEY_MATERIAL_STORAGE_KEY =
   'author-encryption-key-material-v1';
 export const ENCRYPTION_UPGRADE_REQUIRED_MESSAGE =
   'This workspace uses an older encryption format. Open it with the migration-capable release first, then return to this version.';
+export const ENCRYPTION_DECRYPT_FAILED_MESSAGE =
+  'Encrypted note data cannot be decrypted with the active key material. Sign in again before syncing or changing this workspace.';
 
 const HASH_V2_PREFIX = 'hash:v2:';
 const LOCAL_KEY_MATERIAL_PREFIX = 'local:v2:';
@@ -266,7 +268,7 @@ export async function decryptText(
     }
   }
 
-  return value;
+  throw new Error(ENCRYPTION_DECRYPT_FAILED_MESSAGE);
 }
 
 export async function encryptNoteFields<T extends Note>(
@@ -367,12 +369,7 @@ async function decryptNotebookName<T extends Notebook>(
   keyMaterial: string
 ): Promise<string> {
   const currentContext = notebookNameContext(notebook);
-  if (
-    await canDecryptEncryptedText(notebook.name, keyMaterial, currentContext)
-  ) {
-    return decryptText(notebook.name, keyMaterial, currentContext);
-  }
-  return notebook.name;
+  return decryptText(notebook.name, keyMaterial, currentContext);
 }
 
 export async function decryptNotebookFields<T extends Notebook>(

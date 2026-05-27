@@ -278,16 +278,18 @@ export function shouldTrustProxyHeaders(): boolean {
   return envValue('NOTES_TRUST_PROXY_HEADERS') === 'true';
 }
 
-export function isCleanupSchedulerEnabled(): boolean {
-  return envValue('NOTES_CLEANUP_ENABLED') === 'true';
+export function isCleanupSchedulerEnabled(env?: RuntimeEnv | null): boolean {
+  return envValue('NOTES_CLEANUP_ENABLED', env) === 'true';
 }
 
-export function shouldRunCleanupOnStart(): boolean {
-  return envValue('NOTES_CLEANUP_RUN_ON_START') !== 'false';
+export function shouldRunCleanupOnStart(env?: RuntimeEnv | null): boolean {
+  return envValue('NOTES_CLEANUP_RUN_ON_START', env) !== 'false';
 }
 
-export function getCleanupIntervalMs(): number {
-  const minutes = Number(envValue('NOTES_CLEANUP_INTERVAL_MINUTES') ?? '1440');
+export function getCleanupIntervalMs(env?: RuntimeEnv | null): number {
+  const minutes = Number(
+    envValue('NOTES_CLEANUP_INTERVAL_MINUTES', env) ?? '1440'
+  );
   const safeMinutes = Number.isFinite(minutes) && minutes > 0 ? minutes : 1440;
   return safeMinutes * 60 * 1000;
 }

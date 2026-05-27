@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Note, Notebook } from '@author/schema';
 import {
   ENCRYPTION_KEY_MATERIAL_STORAGE_KEY,
+  ENCRYPTION_DECRYPT_FAILED_MESSAGE,
   assertSupportedEncryptionKeyMaterial,
   canDecryptEncryptedText,
   clearStoredEncryptionKeyMaterial,
@@ -104,7 +105,10 @@ describe('client note encryption', () => {
     ).resolves.toBe('private text');
     await expect(
       decryptText(encrypted, 'test-key', 'note:note-2:title')
-    ).resolves.toBe(encrypted);
+    ).rejects.toThrow(ENCRYPTION_DECRYPT_FAILED_MESSAGE);
+    await expect(
+      decryptText(encrypted, 'other-key', 'note:note-1:title')
+    ).rejects.toThrow(ENCRYPTION_DECRYPT_FAILED_MESSAGE);
   });
 
   it('encrypts literal text that only imitates an encryption prefix', async () => {
@@ -162,6 +166,14 @@ describe('client note encryption', () => {
     });
   });
 
+  it('refuses to republish current note ciphertext with the wrong key', async () => {
+    const encrypted = await encryptNoteFields(note, 'old-key');
+
+    await expect(encryptNoteFields(encrypted, 'new-key')).rejects.toThrow(
+      ENCRYPTION_DECRYPT_FAILED_MESSAGE
+    );
+  });
+
   it('encrypts notebook names with deterministic hashes for duplicate checks', async () => {
     const first = await encryptNotebookFields(notebook, 'sync-key');
     const second = await encryptNotebookFields(
@@ -198,11 +210,17 @@ describe('client note encryption', () => {
     ).resolves.toMatchObject({
       name: notebook.name
     });
-    await expect(
-      decryptNotebookFields(moved, 'sync-key')
-    ).resolves.toMatchObject({
-      name: encrypted.name
-    });
+    await expect(decryptNotebookFields(moved, 'sync-key')).rejects.toThrow(
+      ENCRYPTION_DECRYPT_FAILED_MESSAGE
+    );
+  });
+
+  it('refuses to republish current notebook ciphertext with the wrong key', async () => {
+    const encrypted = await encryptNotebookFields(notebook, 'old-key');
+
+    await expect(encryptNotebookFields(encrypted, 'new-key')).rejects.toThrow(
+      ENCRYPTION_DECRYPT_FAILED_MESSAGE
+    );
   });
 
   it('reencrypts existing notes when the active key changes', async () => {
@@ -220,8 +238,8 @@ describe('client note encryption', () => {
       title: note.title,
       body: note.body
     });
-    expect(await decryptText(nextEncrypted.body, 'old-key')).toBe(
-      nextEncrypted.body
+    await expect(decryptText(nextEncrypted.body, 'old-key')).rejects.toThrow(
+      ENCRYPTION_DECRYPT_FAILED_MESSAGE
     );
   });
 

@@ -43,7 +43,9 @@ Password-derived note key material is Argon2id-only `password:v4` material. Runt
 not keep pre-Argon2 or pre-`enc:v3` compatibility paths; older installs must migrate through a
 release that can republish data as `enc:v3` before running this version. If a current client sees
 older note envelopes or old password key material, it stops instead of rewriting that ciphertext as
-literal text. Sync-capable browser key material is persisted on the signed-in device so users can
+literal text. Current `enc:v3` envelopes also fail closed when the active key material or field
+context cannot authenticate them, which prevents ciphertext from being republished as note text.
+Sync-capable browser key material is persisted on the signed-in device so users can
 keep working offline and survive normal browser restarts without a password prompt; unsigned
 local-only browsers generate random local key material in `localStorage` so offline drafts still
 work without an account. This avoids storing note plaintext remotely by default, but Author is

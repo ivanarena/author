@@ -11,11 +11,14 @@
   "observability": {
     "enabled": true
   },
+  "triggers": {
+    "crons": ["17 3 * * *"]
+  },
   "vars": {
     "NODE_ENV": "production",
     "NOTES_DB_PROVIDER": "turso",
     "NOTES_REMOTE_SYNC_ENABLED": "false",
-    "NOTES_CLEANUP_ENABLED": "false",
+    "NOTES_CLEANUP_ENABLED": "true",
     "NOTES_TRUST_PROXY_HEADERS": "false",
     "NOTES_LOGIN_USERNAME": "owner"
   }

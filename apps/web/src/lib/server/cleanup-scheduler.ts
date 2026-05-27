@@ -1,11 +1,13 @@
 import {
   getCleanupIntervalMs,
+  getRemoteDatabaseConfig,
   isCleanupSchedulerEnabled,
   isTursoPrimaryDatabase,
   shouldSyncRemoteDatabase,
-  shouldRunCleanupOnStart
+  shouldRunCleanupOnStart,
+  type RuntimeEnv
 } from './config';
-import { openDatabase, type NotesDb } from './db';
+import { openConfiguredDatabase, openDatabase, type NotesDb } from './db';
 import { cleanupTrash } from './repository';
 import { syncRemoteDatabase } from './remote-sync';
 
@@ -14,19 +16,42 @@ declare global {
   var __authorCleanupRunning: boolean | undefined;
 }
 
-export async function runScheduledTrashCleanup(): Promise<void> {
+async function openCleanupDatabase(
+  env?: RuntimeEnv | null
+): Promise<{ db: NotesDb; shouldMirrorRemote: boolean }> {
+  if (!isTursoPrimaryDatabase(env)) {
+    return {
+      db: await openDatabase(),
+      shouldMirrorRemote: shouldSyncRemoteDatabase(env)
+    };
+  }
+
+  const config = getRemoteDatabaseConfig(env);
+  if (!config) {
+    throw new Error('Turso primary database is not configured');
+  }
+  return {
+    db: await openConfiguredDatabase(config),
+    shouldMirrorRemote: false
+  };
+}
+
+export async function runScheduledTrashCleanup(
+  env?: RuntimeEnv | null
+): Promise<void> {
   if (globalThis.__authorCleanupRunning) return;
 
   globalThis.__authorCleanupRunning = true;
   let db: NotesDb | null = null;
   try {
-    db = await openDatabase();
+    const cleanupDb = await openCleanupDatabase(env);
+    db = cleanupDb.db;
     const result = await cleanupTrash(db);
     if (result.deletedNotes || result.deletedNotebooks) {
       console.info(
         `Trash cleanup deleted ${result.deletedNotes} notes and ${result.deletedNotebooks} notebooks older than ${result.cutoff}`
       );
-      if (shouldSyncRemoteDatabase()) {
+      if (cleanupDb.shouldMirrorRemote) {
         await syncRemoteDatabase(db);
       }
     }

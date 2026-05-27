@@ -29,6 +29,8 @@ private const val AUTH_CLIENT_KEY_LABEL = "Client Key"
 private const val AUTH_SERVER_KEY_LABEL = "Server Key"
 const val ENCRYPTION_UPGRADE_REQUIRED_MESSAGE =
   "This workspace uses an older encryption format. Open it with the migration-capable release first, then return to this version."
+const val ENCRYPTION_DECRYPT_FAILED_MESSAGE =
+  "Encrypted note data cannot be decrypted with the active key material. Sign in again before syncing or changing this workspace."
 
 data class AuthKdfParams(
   val algorithm: String = "argon2id",
@@ -337,7 +339,7 @@ class NoteCrypto(
           .getOrNull()
       if (decrypted != null) return decrypted
     }
-    return value
+    throw IllegalStateException(ENCRYPTION_DECRYPT_FAILED_MESSAGE)
   }
 
   fun encryptNoteFields(
@@ -413,10 +415,7 @@ class NoteCrypto(
 
   private fun decryptNotebookName(notebook: LocalNotebook, keyMaterial: String): String {
     val currentContext = notebookNameContext(notebook)
-    if (canDecryptEncryptedText(notebook.name, keyMaterial, currentContext)) {
-      return decryptText(notebook.name, keyMaterial, currentContext)
-    }
-    return notebook.name
+    return decryptText(notebook.name, keyMaterial, currentContext)
   }
 
   fun decryptNotebookFields(

@@ -153,7 +153,7 @@ cd apps/web
 aube run cf:secrets
 ```
 
-`apps/web/wrangler.jsonc` sets `NOTES_DB_PROVIDER=turso`, so Cloudflare Workers use Turso directly as the primary database. The app initializes the Turso schema on first API access, using the same idempotent schema/migration code as local SQLite. Password authentication uses a client-side Argon2id challenge/proof verifier, so Worker login and signup requests do not run Argon2 and can stay inside the free plan CPU budget without weakening the password KDF.
+`apps/web/wrangler.jsonc` sets `NOTES_DB_PROVIDER=turso`, so Cloudflare Workers use Turso directly as the primary database. The app initializes the Turso schema on first API access, using the same idempotent schema/migration code as local SQLite. The Worker build wraps SvelteKit's generated `fetch` handler with a Cloudflare Cron `scheduled` handler, so the default `NOTES_CLEANUP_ENABLED=true` setting runs trash cleanup directly against Turso once a day. Password authentication uses a client-side Argon2id challenge/proof verifier, so Worker login and signup requests do not run Argon2 and can stay inside the free plan CPU budget without weakening the password KDF.
 `cf:secrets` reads the ignored repo-root `.env` and uploads only Worker runtime
 keys with `wrangler secret bulk`; it never prints secret values. In
 non-interactive shells, set `CLOUDFLARE_API_TOKEN` first or run
@@ -427,7 +427,7 @@ Scheduled local backups are written as standalone `.sqlite` files under `NOTES_B
 
 ## Cleanup Schedule
 
-Trash cleanup runs inside the server process. By default it runs once shortly after startup and then every 1440 minutes.
+Trash cleanup runs inside the server process. By default, self-hosted Node runs once shortly after startup and then every 1440 minutes. Cloudflare Workers use the Cron trigger in `apps/web/wrangler.jsonc` to run the same cleanup path once a day against the Turso primary database.
 When remote mirroring is enabled, successful cleanup runs immediately trigger a remote database sync so hard-delete tombstones are not left only in local SQLite.
 
 Set `NOTES_CLEANUP_ENABLED=false` if you prefer an external cron job:

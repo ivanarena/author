@@ -78,6 +78,8 @@ releases, set the `ANDROID_RELEASE_*` variables documented in
   restored file with `aube -F @author/web run db:check`.
 - Confirm scheduled SQLite backups are enabled for self-hosted Node
   deployments, and that `NOTES_BACKUP_DIR` is on storage you retain.
+- Confirm Cloudflare deploys keep the Worker Cron trigger enabled so Turso
+  primary trash cleanup runs without manual API calls.
 - If 2FA is enabled, keep `NOTES_SERVER_SECRET` with restore credentials and
   still treat database files, mirrors, and backups as sensitive auth material.
 - Review `/api/health` and authenticated `/api/metrics` after deploy.

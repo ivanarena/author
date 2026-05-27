@@ -14,7 +14,6 @@ import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.author.core.LocalNote
-import com.author.core.NotesDatabase
 import com.author.core.NotesRepository
 import com.author.ui.app.AuthorApp
 import com.author.ui.state.NotesController
@@ -50,10 +49,11 @@ class AuthorAppInstrumentedTest {
   fun editorDraftPersistsAndAppearsInNotesList() {
     val title = "Android UI draft"
     val body = "Saved through Compose"
+    val repository = NotesRepository(context)
 
     compose.setContent {
       val scope = rememberCoroutineScope()
-      val controller = remember { NotesController(NotesRepository(context), scope) }
+      val controller = remember { NotesController(repository, scope) }
 
       LaunchedEffect(Unit) { controller.initialize() }
       AuthorApp(controller = controller, onExport = {}, onImport = {})
@@ -63,21 +63,17 @@ class AuthorAppInstrumentedTest {
     compose.onNodeWithTag("note-body-field").assertIsDisplayed().performTextInput(body)
     compose.mainClock.advanceTimeBy(SAVE_DELAY_ADVANCE_MS)
     compose.waitForIdle()
-    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) { savedDraft(title)?.body == body }
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      savedDraft(repository, title)?.body == body
+    }
 
     compose.onNodeWithContentDescription("Notes").performClick()
     compose.onNodeWithText(title).assertIsDisplayed()
     compose.onNodeWithText(body).assertIsDisplayed()
   }
 
-  private fun savedDraft(title: String): LocalNote? {
-    val db = NotesDatabase(context)
-    try {
-      return db.allNotes().firstOrNull { it.title == title }
-    } finally {
-      db.close()
-    }
-  }
+  private fun savedDraft(repository: NotesRepository, title: String): LocalNote? =
+    repository.loadWorkspaceSnapshot().notes.firstOrNull { it.title == title }
 
   private fun resetWorkspace() {
     context.deleteDatabase("author.db")

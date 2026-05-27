@@ -1,9 +1,9 @@
 import { tick } from 'svelte';
 import type { LocalConflict, LocalNote, LocalNotebook } from '$lib/client/db';
 import { createBlankNote, updateNoteContent } from '$lib/client/store';
-import { pushEditorHistory, sameEditorSnapshot } from './editor-history';
-import type { NotesFilterId } from './notes-controller-models';
-import type { ContextMenuState, EditorSnapshot } from './ui-types';
+import { pushEditorHistory, sameEditorSnapshot } from '../editor-history';
+import type { NotesFilterId } from '../models';
+import type { ContextMenuState, EditorSnapshot } from '../ui-types';
 
 const EMPTY_NOTEBOOK_FILTERS = new Set<NotesFilterId>([
   'all',

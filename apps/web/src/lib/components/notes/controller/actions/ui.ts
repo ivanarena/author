@@ -1,6 +1,6 @@
 import { setTheme, type ResolvedTheme } from '$lib/client/store';
 import type { NoteGroupBy, NoteSort } from '$lib/client/view-model';
-import type { SettingsSection, Theme } from './notes-controller-models';
+import type { SettingsSection, Theme } from '../models';
 import {
   nextEditorZoom,
   setStoredCompactView,
@@ -11,7 +11,7 @@ import {
   setStoredGroup,
   setStoredSort,
   type EditorFont
-} from './page-preferences';
+} from '../page-preferences';
 
 export interface NotesUiActionController {
   accountMenuCloseTimer: ReturnType<typeof setTimeout> | null;

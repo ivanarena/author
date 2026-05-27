@@ -12,8 +12,8 @@
   import type {
     SettingsModalModel,
     Theme
-  } from '../notes-page-controller.svelte.js';
-  import type { EditorFont } from '../page-preferences';
+  } from '../controller/page-controller.svelte.js';
+  import type { EditorFont } from '../controller/page-preferences';
 
   let { model }: { model: SettingsModalModel } = $props();
   let fontMenuOpen = $state(false);

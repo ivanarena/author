@@ -1,4 +1,4 @@
-package com.author.ui
+package com.author.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -56,6 +56,9 @@ import com.author.core.noteDisplayTitle
 import com.author.core.noteNotebookIds
 import com.author.core.notePreview
 import com.author.core.relativeAge
+import com.author.ui.common.*
+import com.author.ui.state.*
+import com.author.ui.theme.*
 
 @Composable
 internal fun NoteListPanel(controller: NotesController, modifier: Modifier = Modifier) {

@@ -21,7 +21,7 @@
   import { formatListDate, notePreview } from '$lib/client/view-model';
   import type { NoteGroupBy, NoteSort } from '$lib/client/view-model';
   import NotebookLinkMenu from './NotebookLinkMenu.svelte';
-  import type { NoteListPanelModel } from './notes-page-controller.svelte.js';
+  import type { NoteListPanelModel } from './controller/page-controller.svelte.js';
 
   let { model }: { model: NoteListPanelModel } = $props();
   let sortMenuOpen = $state(false);

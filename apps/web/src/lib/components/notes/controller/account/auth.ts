@@ -13,7 +13,7 @@ import {
 } from '$lib/client/store';
 import { logout } from '$lib/client/api-client';
 import { login, signup } from '$lib/client/sync';
-import type { AuthMode } from '../notes-controller-models';
+import type { AuthMode } from '../models';
 import {
   MIN_PASSWORD_LENGTH,
   type NotesAccountActionController

@@ -51,7 +51,7 @@ import {
   formatSyncPassDetail,
   formatSyncPassTime,
   metadataRowsForNote
-} from './notes-controller-copy';
+} from './copy';
 import type {
   AppNotification,
   ArchiveOperation,
@@ -68,7 +68,7 @@ import type {
   SettingsModalModel,
   SettingsSection,
   Theme
-} from './notes-controller-models';
+} from './models';
 import {
   EDITOR_FONT_OPTIONS,
   getEditorFontCss,
@@ -90,12 +90,12 @@ import {
   zoomPercent as formatZoomPercent
 } from './page-preferences';
 import type { ContextMenuState, EditorSnapshot } from './ui-types';
-import * as accountActions from './notes-account-actions';
-import * as archiveActions from './notes-archive-actions';
-import * as editorActions from './notes-editor-actions';
-import * as libraryActions from './notes-library-actions';
-import * as syncActions from './notes-sync-actions';
-import * as uiActions from './notes-ui-actions';
+import * as accountActions from './actions/account';
+import * as archiveActions from './actions/archive';
+import * as editorActions from './actions/editor';
+import * as libraryActions from './actions/library';
+import * as syncActions from './actions/sync';
+import * as uiActions from './actions/ui';
 
 export type {
   AppNotification,
@@ -115,7 +115,7 @@ export type {
   SettingsModalModel,
   SettingsSection,
   Theme
-} from './notes-controller-models';
+} from './models';
 
 const AUTO_SYNC_DELAY_MS = 600;
 const SYNC_RETRY_DELAY_MS = 12_000;

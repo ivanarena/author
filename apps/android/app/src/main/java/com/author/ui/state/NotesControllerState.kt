@@ -1,4 +1,4 @@
-package com.author.ui
+package com.author.ui.state
 
 import com.author.core.LocalNote
 import com.author.core.countNotesByNotebook

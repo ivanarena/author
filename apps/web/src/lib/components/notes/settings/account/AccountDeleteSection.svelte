@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Trash2, X } from '@lucide/svelte';
-  import type { SettingsModalModel } from '../../notes-page-controller.svelte.js';
+  import type { SettingsModalModel } from '../../controller/page-controller.svelte.js';
   import PasswordField from './PasswordField.svelte';
 
   let { model }: { model: SettingsModalModel } = $props();

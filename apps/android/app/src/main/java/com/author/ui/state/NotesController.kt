@@ -1,4 +1,4 @@
-package com.author.ui
+package com.author.ui.state
 
 import android.content.ContentResolver
 import android.net.Uri
@@ -28,6 +28,8 @@ import com.author.core.formatDateTime
 import com.author.core.normalizedNotebookName
 import com.author.core.noteNotebookIds
 import com.author.core.readBoundedUtf8
+import com.author.ui.app.AppNotification
+import com.author.ui.theme.resolveThemeChoice
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job

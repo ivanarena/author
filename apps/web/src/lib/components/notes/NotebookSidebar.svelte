@@ -9,7 +9,7 @@
     Trash2,
     X
   } from '@lucide/svelte';
-  import type { NotebookSidebarModel } from './notes-page-controller.svelte.js';
+  import type { NotebookSidebarModel } from './controller/page-controller.svelte.js';
 
   let { model }: { model: NotebookSidebarModel } = $props();
 </script>

@@ -6,8 +6,8 @@
   import NavigationDock from '$lib/components/notes/NavigationDock.svelte';
   import NotificationStack from '$lib/components/notes/NotificationStack.svelte';
   import SettingsModal from '$lib/components/notes/SettingsModal.svelte';
-  import { createNotesPageController } from '$lib/components/notes/notes-page-controller.svelte.js';
-  import '$lib/components/notes/notes-page.css';
+  import { createNotesPageController } from '$lib/components/notes/controller/page-controller.svelte.js';
+  import '$lib/components/notes/styles/page.css';
 
   const controller = createNotesPageController();
 </script>

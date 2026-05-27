@@ -1,4 +1,4 @@
-package com.author.ui
+package com.author.ui.app
 
 data class AppNotification(
   val id: String,

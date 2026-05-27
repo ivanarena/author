@@ -10,7 +10,7 @@ import {
   renameNotebook,
   restoreNote
 } from '$lib/client/store';
-import type { NotesFilterId } from './notes-controller-models';
+import type { NotesFilterId } from '../models';
 
 export interface NotesLibraryActionController {
   deletingNotebookId: string | null;

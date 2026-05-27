@@ -1,4 +1,4 @@
-package com.author.ui
+package com.author.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -47,6 +47,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.author.core.LocalNote
 import com.author.core.formatDateTime
+import com.author.ui.common.*
+import com.author.ui.state.*
+import com.author.ui.theme.*
 
 @Composable
 internal fun EditorPage(controller: NotesController) {

@@ -1,4 +1,4 @@
-package com.author.ui
+package com.author.ui.screens
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
@@ -72,6 +72,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.author.BuildConfig
 import com.author.core.formatDateTime
+import com.author.ui.common.*
+import com.author.ui.state.*
+import com.author.ui.theme.*
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter

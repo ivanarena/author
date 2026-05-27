@@ -1,4 +1,4 @@
-package com.author.ui
+package com.author.ui.app
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
@@ -16,6 +16,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.author.ui.screens.*
+import com.author.ui.state.NotesController
+import com.author.ui.theme.*
 
 @Composable
 internal fun AuthorApp(controller: NotesController, onExport: () -> Unit, onImport: () -> Unit) {

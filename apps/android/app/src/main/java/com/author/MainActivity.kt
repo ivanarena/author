@@ -13,8 +13,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import com.author.core.NotesRepository
-import com.author.ui.AuthorApp
-import com.author.ui.NotesController
+import com.author.ui.app.AuthorApp
+import com.author.ui.state.NotesController
 
 class MainActivity : ComponentActivity() {
   private lateinit var controller: NotesController

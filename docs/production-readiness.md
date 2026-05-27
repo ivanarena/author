@@ -97,9 +97,10 @@ releases, set the `ANDROID_RELEASE_*` variables documented in
 - Prefer shared contracts in `packages/schema`, `packages/api-types`, and
   `packages/sync-spec` over duplicating request or sync shapes.
 - Keep notes UI presentation contracts in
-  `apps/web/src/lib/components/notes/notes-controller-models.ts` and shared
-  controller copy/metadata helpers in `notes-controller-copy.ts`; avoid adding
-  new display-only types or text formatting to the page controller.
+  `apps/web/src/lib/components/notes/controller/models.ts` and shared
+  controller copy/metadata helpers in
+  `apps/web/src/lib/components/notes/controller/copy.ts`; avoid adding new
+  display-only types or text formatting to the page controller.
 - Keep generated caches out of git (`node_modules`, `.svelte-kit`, `.gradle`,
   `.kotlin`, `build`, `coverage`, `test-results`, `.data`).
 - Treat very large modules as refactor candidates when changing nearby behavior.

@@ -1,4 +1,4 @@
-package com.author.ui
+package com.author.ui.theme
 
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.TweenSpec

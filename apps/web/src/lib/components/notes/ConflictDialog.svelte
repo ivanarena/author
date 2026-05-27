@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ConflictDialogModel } from './notes-page-controller.svelte.js';
+  import type { ConflictDialogModel } from './controller/page-controller.svelte.js';
 
   let { model }: { model: ConflictDialogModel } = $props();
 </script>

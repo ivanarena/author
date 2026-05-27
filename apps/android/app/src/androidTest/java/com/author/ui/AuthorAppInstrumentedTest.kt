@@ -16,6 +16,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.author.core.LocalNote
 import com.author.core.NotesDatabase
 import com.author.core.NotesRepository
+import com.author.ui.app.AuthorApp
+import com.author.ui.state.NotesController
 import org.junit.After
 import org.junit.Before
 import org.junit.Rule

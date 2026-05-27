@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Check, Pencil, UserRound, X } from '@lucide/svelte';
-  import type { SettingsModalModel } from '../../notes-page-controller.svelte.js';
+  import type { SettingsModalModel } from '../../controller/page-controller.svelte.js';
 
   let { model }: { model: SettingsModalModel } = $props();
 </script>

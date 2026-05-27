@@ -1,4 +1,4 @@
-package com.author.ui
+package com.author.ui.app
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -37,6 +37,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.author.core.LocalConflict
+import com.author.ui.common.*
+import com.author.ui.state.NotesController
 
 @Composable
 internal fun LoginDialog(controller: NotesController) {

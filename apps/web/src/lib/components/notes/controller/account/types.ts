@@ -1,7 +1,7 @@
 import type { TrustedAuthDevice } from '@author/api-types';
 import type { Device } from '@author/schema';
 import type { SyncProgress } from '$lib/client/sync';
-import type { AppNotification, AuthMode } from '../notes-controller-models';
+import type { AppNotification, AuthMode } from '../models';
 
 export const MIN_PASSWORD_LENGTH = 12;
 

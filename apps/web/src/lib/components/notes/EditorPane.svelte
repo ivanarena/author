@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Redo2, Undo2, ZoomIn, ZoomOut } from '@lucide/svelte';
-  import type { EditorPaneModel } from './notes-page-controller.svelte.js';
+  import type { EditorPaneModel } from './controller/page-controller.svelte.js';
 
   let { model }: { model: EditorPaneModel } = $props();
 </script>

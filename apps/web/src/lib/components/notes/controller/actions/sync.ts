@@ -17,11 +17,8 @@ import {
   setStoredSession
 } from '$lib/client/store';
 import { runSync, type SyncProgress } from '$lib/client/sync';
-import { syncProgressCopy } from './notes-controller-copy';
-import type {
-  AppNotification,
-  ConflictChoice
-} from './notes-controller-models';
+import { syncProgressCopy } from '../copy';
+import type { AppNotification, ConflictChoice } from '../models';
 
 interface LastSyncPass {
   completedAt: string | null;

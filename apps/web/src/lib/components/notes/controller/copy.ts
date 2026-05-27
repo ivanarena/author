@@ -1,7 +1,7 @@
 import type { LocalNote } from '$lib/client/db';
 import { countWords } from '$lib/client/view-model';
 import type { SyncProgress } from '$lib/client/sync';
-import type { MetadataRow } from './notes-controller-models';
+import type { MetadataRow } from './models';
 
 export function formatSyncPassTime(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {

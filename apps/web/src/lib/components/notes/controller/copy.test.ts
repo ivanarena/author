@@ -7,7 +7,7 @@ import {
   formatSyncPassTime,
   metadataRowsForNote,
   syncProgressCopy
-} from './notes-controller-copy';
+} from './copy';
 
 function note(overrides: Partial<LocalNote> = {}): LocalNote {
   return {

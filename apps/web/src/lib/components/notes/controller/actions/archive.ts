@@ -8,7 +8,7 @@ import type {
   AppNotification,
   ArchiveOperation,
   ImportBanner
-} from './notes-controller-models';
+} from '../models';
 
 export interface NotesArchiveActionController {
   archiveOperation: ArchiveOperation | null;

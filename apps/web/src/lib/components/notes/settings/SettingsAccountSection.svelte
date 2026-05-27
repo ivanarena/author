@@ -1,6 +1,6 @@
 <script lang="ts">
   import { UserRound } from '@lucide/svelte';
-  import type { SettingsModalModel } from '../notes-page-controller.svelte.js';
+  import type { SettingsModalModel } from '../controller/page-controller.svelte.js';
   import AccountDeleteSection from './account/AccountDeleteSection.svelte';
   import AccountPasswordSection from './account/AccountPasswordSection.svelte';
   import AccountProfileSection from './account/AccountProfileSection.svelte';

@@ -1,4 +1,4 @@
-package com.author.ui
+package com.author.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -38,6 +38,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.author.core.LocalNotebook
+import com.author.ui.common.*
+import com.author.ui.state.*
+import com.author.ui.theme.*
 
 @Composable
 internal fun NotebookSidebar(

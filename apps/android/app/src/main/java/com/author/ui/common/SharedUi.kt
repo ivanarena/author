@@ -1,4 +1,4 @@
-package com.author.ui
+package com.author.ui.common
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -54,6 +54,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.author.ui.theme.*
 
 internal object AppTextSize {
   val Debug = 11.sp

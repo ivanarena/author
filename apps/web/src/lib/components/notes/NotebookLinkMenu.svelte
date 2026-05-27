@@ -2,7 +2,7 @@
   import { Check, FolderSymlink, Inbox, Notebook } from '@lucide/svelte';
   import type { LocalNote, LocalNotebook } from '$lib/client/db';
   import { noteNotebookIds } from '$lib/client/note-utils';
-  import type { NotebookAssignmentCallback } from './ui-types';
+  import type { NotebookAssignmentCallback } from './controller/ui-types';
 
   let {
     note,

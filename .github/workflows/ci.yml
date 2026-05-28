@@ -116,7 +116,7 @@ jobs:
           java-version: 21
           cache: gradle
 
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4.0.1
 
       - name: Format check
         run: ./gradlew spotlessCheck
@@ -158,7 +158,7 @@ jobs:
           java-version: 21
           cache: gradle
 
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4.0.1
 
       - name: Enable KVM
         run: |
@@ -167,7 +167,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Android connected tests
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@v2.37.0
         with:
           api-level: 35
           arch: x86_64

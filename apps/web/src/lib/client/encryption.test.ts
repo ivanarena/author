@@ -8,6 +8,7 @@ import {
   canDecryptEncryptedText,
   clearStoredEncryptionKeyMaterial,
   commitEncryptionKeyMaterial,
+  createRecoveryBundle,
   decryptNotebookFields,
   decryptNoteFields,
   decryptText,
@@ -22,7 +23,12 @@ import {
   isEncryptedText,
   isUnsupportedEncryptedText,
   keyMaterialFromPassword,
+  keyringMaterialFromWrapped,
+  migratePasswordMaterialToAccountKeyring,
+  prepareNewAccountKeyring,
   reencryptNoteFields,
+  restoreKeyringFromRecoveryKit,
+  rewrapKeyringForPassword,
   setEncryptionKeyMaterialStorageMode
 } from './encryption';
 
@@ -78,6 +84,52 @@ class MemoryStorage {
   setItem(key: string, value: string): void {
     this.values.set(key, String(value));
   }
+}
+
+const encoder = new TextEncoder();
+
+function base64UrlEncode(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString('base64url');
+}
+
+function bufferSource(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+}
+
+async function legacyV3EncryptText(
+  value: string,
+  keyMaterial: string,
+  context = 'text'
+): Promise<string> {
+  const iv = new Uint8Array(12);
+  crypto.getRandomValues(iv);
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    encoder.encode(`author:encryption:v3:${keyMaterial}`)
+  );
+  const key = await crypto.subtle.importKey(
+    'raw',
+    digest,
+    { name: 'AES-GCM' },
+    false,
+    ['encrypt', 'decrypt']
+  );
+  const ciphertext = await crypto.subtle.encrypt(
+    {
+      name: 'AES-GCM',
+      iv: bufferSource(iv),
+      additionalData: bufferSource(
+        encoder.encode(`author:encrypted-field:v3:${context}`)
+      )
+    },
+    key,
+    encoder.encode(value)
+  );
+  return `enc:v3:${base64UrlEncode(iv)}:${base64UrlEncode(
+    new Uint8Array(ciphertext)
+  )}`;
 }
 
 afterEach(() => {
@@ -252,7 +304,7 @@ describe('client note encryption', () => {
 
     const material = getEncryptionKeyMaterial();
 
-    expect(material).toMatch(/^local:v2:/);
+    expect(material).toMatch(/^keyring:v1:/);
     expect(storage.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY)).toBe(material);
     expect(hasStoredEncryptionKeyMaterial()).toBe(false);
   });
@@ -292,10 +344,87 @@ describe('client note encryption', () => {
 
     session.clear();
     expect(hasStoredEncryptionKeyMaterial()).toBe(false);
-    expect(getEncryptionKeyMaterial()).toMatch(/^local:v2:/);
+    expect(getEncryptionKeyMaterial()).toMatch(/^keyring:v1:/);
     expect(storage.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY)).toMatch(
-      /^local:v2:/
+      /^keyring:v1:/
     );
+  });
+
+  it('unwraps account keyrings and rewraps them without changing note keys', async () => {
+    const prepared = await prepareNewAccountKeyring('Owner', 'test-password');
+    const unwrapped = await keyringMaterialFromWrapped(
+      prepared.e2eeKeyring,
+      'owner',
+      'test-password'
+    );
+    const encrypted = await encryptNoteFields(note, unwrapped);
+
+    expect(unwrapped).toBe(prepared.keyMaterial);
+    await expect(
+      decryptNoteFields(encrypted, prepared.keyMaterial)
+    ).resolves.toMatchObject({
+      title: note.title,
+      body: note.body
+    });
+
+    const rewrapped = await rewrapKeyringForPassword(
+      prepared.keyMaterial,
+      'owner',
+      'new-password',
+      prepared.e2eeKeyring
+    );
+    await expect(
+      keyringMaterialFromWrapped(rewrapped, 'owner', 'new-password')
+    ).resolves.toBe(prepared.keyMaterial);
+    await expect(
+      keyringMaterialFromWrapped(rewrapped, 'owner', 'test-password')
+    ).rejects.toThrow(ENCRYPTION_DECRYPT_FAILED_MESSAGE);
+  });
+
+  it('restores keyring material from a recovery kit and code', async () => {
+    const prepared = await prepareNewAccountKeyring('Owner', 'test-password');
+    const bundle = await createRecoveryBundle(
+      prepared.e2eeKeyring,
+      prepared.keyMaterial
+    );
+
+    expect(bundle.recoveryCode).toMatch(/^author-recovery-v1-/);
+    expect(bundle.e2eeKeyring).toContain('"recoveryWrap"');
+    await expect(
+      restoreKeyringFromRecoveryKit(bundle.recoveryKit, bundle.recoveryCode)
+    ).resolves.toBe(prepared.keyMaterial);
+    await expect(
+      restoreKeyringFromRecoveryKit(bundle.recoveryKit, 'wrong-code')
+    ).rejects.toThrow('Invalid recovery code');
+  });
+
+  it('migrates legacy password-encrypted v3 envelopes into account keyrings', async () => {
+    const passwordMaterial = await keyMaterialFromPassword(
+      'Owner',
+      'test-password'
+    );
+    const legacy = await legacyV3EncryptText(
+      'legacy body',
+      passwordMaterial,
+      'note:note-1:body'
+    );
+    const migrated = await migratePasswordMaterialToAccountKeyring(
+      'Owner',
+      passwordMaterial
+    );
+
+    await expect(
+      decryptText(legacy, migrated.keyMaterial, 'note:note-1:body')
+    ).resolves.toBe('legacy body');
+
+    const upgradedNote = await encryptNoteFields(
+      { ...note, body: legacy },
+      migrated.keyMaterial
+    );
+    expect(upgradedNote.body).toMatch(/^enc:v4:/);
+    await expect(
+      decryptText(upgradedNote.body, migrated.keyMaterial, 'note:note-1:body')
+    ).resolves.toBe('legacy body');
   });
 
   it('moves existing sync key material when the browser storage mode changes', async () => {

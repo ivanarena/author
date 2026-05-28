@@ -1,6 +1,10 @@
 import {
   commitEncryptionKeyMaterial,
-  prepareEncryptionPassword
+  createRecoveryBundle,
+  getEncryptionKeyMaterial,
+  recoveryKitFileName,
+  recoveryKitText,
+  rewrapKeyringForPassword
 } from '$lib/client/encryption';
 import {
   clearSyncError,
@@ -14,8 +18,9 @@ import {
   changePassword,
   disableTotp,
   enableTotp,
-  logout,
-  setupTotp
+  loadAccount,
+  setupTotp,
+  updateAccount
 } from '$lib/client/api-client';
 import { runSync } from '$lib/client/sync';
 import {
@@ -45,6 +50,38 @@ export function cancelAccountPasswordEdit(
   controller.newPasswordValue = '';
   controller.confirmPasswordValue = '';
   controller.accountError = '';
+}
+
+export async function downloadRecoveryKit(
+  controller: NotesAccountActionController
+): Promise<void> {
+  const session = getStoredSession();
+  if (!session || controller.isAccountBusy) return;
+  controller.isAccountBusy = true;
+  controller.accountError = '';
+  controller.accountMessage = '';
+  try {
+    const account = await loadAccount(session.token);
+    const bundle = await createRecoveryBundle(account.e2eeKeyring);
+    if (bundle.e2eeKeyring) {
+      await updateAccount(session.token, { e2eeKeyring: bundle.e2eeKeyring });
+    }
+    controller.downloadBlob(
+      new Blob([recoveryKitText(bundle.recoveryKit)], {
+        type: 'application/json'
+      }),
+      recoveryKitFileName()
+    );
+    controller.accountRecoveryCodeValue = bundle.recoveryCode;
+    controller.accountMessage = 'Recovery kit downloaded. Save the code.';
+    controller.notify('success', 'Recovery kit downloaded', 'Save the code.');
+  } catch (error) {
+    controller.accountError =
+      error instanceof Error ? error.message : 'Could not create recovery kit';
+    controller.notify('error', 'Recovery kit failed', controller.accountError);
+  } finally {
+    controller.isAccountBusy = false;
+  }
 }
 
 export async function changeAccountPassword(
@@ -80,29 +117,28 @@ export async function changeAccountPassword(
   controller.accountMessage = '';
   let passwordChanged = false;
   try {
-    const encryption = await prepareEncryptionPassword(
+    const currentMaterial = getEncryptionKeyMaterial();
+    const account = await loadAccount(token);
+    const e2eeKeyring = await rewrapKeyringForPassword(
+      currentMaterial,
       username,
-      controller.newPasswordValue
+      controller.newPasswordValue,
+      account.e2eeKeyring
     );
-    await preflightReencryptLocalNotes(
-      encryption.previousMaterial,
-      encryption.nextMaterial
-    );
+    await preflightReencryptLocalNotes(currentMaterial, currentMaterial);
     const response = await changePassword(token, {
       currentPassword: controller.currentPasswordValue,
-      newPassword: controller.newPasswordValue
+      newPassword: controller.newPasswordValue,
+      e2eeKeyring
     });
     passwordChanged = true;
     if (!response.session) {
       throw new Error(
-        'Password changed, but Author could not create a session to sync the re-encrypted notes.'
+        'Password changed, but Author could not create a replacement session.'
       );
     }
-    await reencryptLocalNotes(
-      encryption.previousMaterial,
-      encryption.nextMaterial
-    );
-    commitEncryptionKeyMaterial(encryption.nextMaterial);
+    await reencryptLocalNotes(currentMaterial, currentMaterial);
+    commitEncryptionKeyMaterial(currentMaterial);
     setStoredSession({
       token: response.session.token,
       user: response.user,
@@ -135,25 +171,18 @@ export async function changeAccountPassword(
     await recordLastSyncPass(controller.lastSyncPass);
     await controller.refresh();
     await controller.refreshRemoteSyncStatus(response.session.token);
-    await logout(response.session.token).catch(() => undefined);
-    controller.clearSensitiveWorkspace();
-    controller.clearLocalSession({
-      accountMessage: 'Password changed. Sign in again to unlock notes.',
-      clearEncryptionKeyMaterial: true,
-      openLogin: true,
-      syncMessage: 'Sign in to unlock and sync'
-    });
-    controller.loginUsernameValue = response.user.username;
+    controller.accountMessage = 'Password changed';
+    controller.syncMessage = 'Local changes saved';
     controller.notify(
       'success',
       'Password changed',
-      'Sign in again to unlock notes.'
+      'Your encrypted notes stayed on the same data key.'
     );
   } catch (error) {
     const detail =
       error instanceof Error ? error.message : 'Could not change password';
     controller.accountError = passwordChanged
-      ? `Password changed, but Author could not finish syncing re-encrypted notes. ${detail}`
+      ? `Password changed, but Author could not finish syncing. ${detail}`
       : detail;
     controller.notify(
       'error',

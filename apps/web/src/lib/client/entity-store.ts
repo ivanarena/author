@@ -35,7 +35,7 @@ import {
 import { getOrCreateDevice, newId, nowIso } from './local-state';
 
 const ENCRYPTION_AUDIT_META_KEY = 'localEncryptionAuditVersion';
-const ENCRYPTION_AUDIT_VERSION = 'argon2-aes:v6';
+const ENCRYPTION_AUDIT_VERSION = 'keyring-aes:v7';
 
 const LOCAL_WORKSPACE_OWNER_KEY = 'localWorkspaceOwner';
 

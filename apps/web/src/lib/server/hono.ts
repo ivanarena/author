@@ -35,6 +35,7 @@ import {
   createAuthSession,
   createSessionAuthChallenge,
   createUserAccount,
+  getUserE2eeKeyring,
   disableUserTotp,
   enableUserTotp,
   generateTotpSecret,
@@ -405,6 +406,9 @@ async function accountResponse(
 ): Promise<AccountResponse> {
   return {
     user,
+    e2eeKeyring: session.legacy
+      ? null
+      : await getUserE2eeKeyring(db, user.username),
     trustedDevices: session.legacy
       ? []
       : await listTrustedAuthDevices(db, user.username, session.deviceId),
@@ -1558,7 +1562,8 @@ api.post(API_PATHS.authLogin, async (c) => {
       user,
       device: body.device,
       expiresAt: session.expiresAt,
-      serverProof
+      serverProof,
+      e2eeKeyring: await getUserE2eeKeyring(db, user.username)
     } satisfies AuthLoginResponse);
   } finally {
     db.close();
@@ -1582,7 +1587,8 @@ api.post(API_PATHS.authSignup, async (c) => {
     typeof body.passwordVerifier !== 'object' ||
     (body?.deviceTrustSecret !== undefined &&
       body.deviceTrustSecret !== null &&
-      typeof body.deviceTrustSecret !== 'string')
+      typeof body.deviceTrustSecret !== 'string') ||
+    (body?.e2eeKeyring !== undefined && !isNullableString(body.e2eeKeyring))
   ) {
     return c.json({ error: 'Invalid signup payload' }, 400);
   }
@@ -1635,7 +1641,8 @@ api.post(API_PATHS.authSignup, async (c) => {
         body.username,
         body.email,
         body.passwordVerifier,
-        body.displayName
+        body.displayName,
+        body.e2eeKeyring
       );
       if (!user) {
         await recordFailedAuthAttempt(db, attemptKey);
@@ -1658,7 +1665,8 @@ api.post(API_PATHS.authSignup, async (c) => {
         token: session.token,
         user,
         device: body.device,
-        expiresAt: session.expiresAt
+        expiresAt: session.expiresAt,
+        e2eeKeyring: await getUserE2eeKeyring(db, user.username)
       } satisfies AuthLoginResponse);
     } catch (error) {
       return c.json(
@@ -1705,7 +1713,8 @@ api.post(API_PATHS.authSignup, async (c) => {
       body.username,
       body.email,
       body.passwordVerifier,
-      body.displayName
+      body.displayName,
+      body.e2eeKeyring
     );
     if (!createdUser) {
       await recordFailedAuthAttempt(remote, attemptKey);
@@ -1758,7 +1767,8 @@ api.post(API_PATHS.authSignup, async (c) => {
       token: session.token,
       user,
       device: body.device,
-      expiresAt: session.expiresAt
+      expiresAt: session.expiresAt,
+      e2eeKeyring: await getUserE2eeKeyring(db, user.username)
     } satisfies AuthLoginResponse);
   } catch (error) {
     return c.json(
@@ -1828,19 +1838,25 @@ api.patch(API_PATHS.account, async (c) => {
     const body = parsed.body ?? {};
     if (
       (body.displayName !== undefined && !isNullableString(body.displayName)) ||
-      (body.email !== undefined && !isNullableString(body.email))
+      (body.email !== undefined && !isNullableString(body.email)) ||
+      (body.e2eeKeyring !== undefined && !isNullableString(body.e2eeKeyring))
     ) {
       return c.json({ error: 'Invalid account payload' }, 400);
     }
+    const keyringOnlyUpdate =
+      body.e2eeKeyring !== undefined &&
+      body.displayName === undefined &&
+      body.email === undefined;
     const remoteConfig = remoteMirrorConfig(c);
     if (!remoteConfig) {
-      if (isTursoPrimary(c)) {
+      if (isTursoPrimary(c) || keyringOnlyUpdate) {
         try {
           const user = await updateUserProfile(
             db,
             session.user.username,
             body.displayName,
-            body.email
+            body.email,
+            body.e2eeKeyring
           );
           return c.json(await accountResponse(db, session, user));
         } catch (error) {
@@ -1868,7 +1884,8 @@ api.patch(API_PATHS.account, async (c) => {
           remote,
           session.user.username,
           body.displayName,
-          body.email
+          body.email,
+          body.e2eeKeyring
         );
       } catch (error) {
         const mapped = accountUpdateError(error);
@@ -1877,6 +1894,15 @@ api.patch(API_PATHS.account, async (c) => {
       }
     } finally {
       remote.close();
+    }
+
+    if (
+      !(await mirrorRemoteUserForLocalSession(remoteConfig, db, user.username))
+    ) {
+      return c.json(
+        { error: 'Profile saved remotely, but local offline setup failed' },
+        503
+      );
     }
 
     if (!(await syncRemoteBestEffort(db, c.env))) {
@@ -1912,7 +1938,8 @@ api.post(API_PATHS.accountPassword, async (c) => {
       !body?.proof ||
       typeof body.proof !== 'object' ||
       !body.newPasswordVerifier ||
-      typeof body.newPasswordVerifier !== 'object'
+      typeof body.newPasswordVerifier !== 'object' ||
+      (body.e2eeKeyring !== undefined && !isNullableString(body.e2eeKeyring))
     ) {
       return c.json({ error: 'Invalid password payload' }, 400);
     }
@@ -1934,7 +1961,8 @@ api.post(API_PATHS.accountPassword, async (c) => {
             db,
             session.user.username,
             body.proof,
-            body.newPasswordVerifier
+            body.newPasswordVerifier,
+            body.e2eeKeyring
           );
         } catch (error) {
           return c.json(
@@ -1985,7 +2013,8 @@ api.post(API_PATHS.accountPassword, async (c) => {
         remote,
         session.user.username,
         body.proof,
-        body.newPasswordVerifier
+        body.newPasswordVerifier,
+        body.e2eeKeyring
       );
     } catch (error) {
       return c.json(
@@ -2005,6 +2034,14 @@ api.post(API_PATHS.accountPassword, async (c) => {
     await clearFailedAuthAttempts(db, rateLimit.key);
 
     if (!(await syncRemoteBestEffort(db, c.env))) {
+      return c.json(
+        { error: 'Password changed remotely, but local offline setup failed' },
+        503
+      );
+    }
+    if (
+      !(await mirrorRemoteUserForLocalSession(remoteConfig, db, user.username))
+    ) {
       return c.json(
         { error: 'Password changed remotely, but local offline setup failed' },
         503

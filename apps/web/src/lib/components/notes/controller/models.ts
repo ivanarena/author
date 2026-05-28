@@ -140,6 +140,7 @@ export interface NavigationDockModel
   accountTrustedDevices: TrustedAuthDevice[];
   accountMessage: string;
   accountError: string;
+  accountRecoveryCodeValue: string;
   accountProfileEditing: boolean;
   accountPasswordEditing: boolean;
   accountTotpEditing: boolean;
@@ -173,6 +174,7 @@ export interface NavigationDockModel
   syncNow: () => void | Promise<void>;
   saveAccountProfile: () => void | Promise<void>;
   changeAccountPassword: () => void | Promise<void>;
+  downloadRecoveryKit: () => void | Promise<void>;
   saveAccountTotp: () => void | Promise<void>;
   saveDeviceName: () => void | Promise<void>;
   setEncryptionKeyStorageMode: (mode: EncryptionKeyMaterialStorageMode) => void;
@@ -231,6 +233,7 @@ export interface SettingsModalModel {
   accountTrustedDevices: TrustedAuthDevice[];
   accountMessage: string;
   accountError: string;
+  accountRecoveryCodeValue: string;
   accountProfileEditing: boolean;
   accountPasswordEditing: boolean;
   accountTotpEditing: boolean;
@@ -298,6 +301,7 @@ export interface SettingsModalModel {
   syncNow: () => void | Promise<void>;
   saveAccountProfile: () => void | Promise<void>;
   changeAccountPassword: () => void | Promise<void>;
+  downloadRecoveryKit: () => void | Promise<void>;
   saveAccountTotp: () => void | Promise<void>;
   saveDeviceName: () => void | Promise<void>;
   setEncryptionKeyStorageMode: (mode: EncryptionKeyMaterialStorageMode) => void;

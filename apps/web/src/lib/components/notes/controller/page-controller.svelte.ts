@@ -165,6 +165,7 @@ export class NotesPageController
   accountTrustedDevices = $state<TrustedAuthDevice[]>([]);
   accountMessage = $state('');
   accountError = $state('');
+  accountRecoveryCodeValue = $state('');
   accountProfileEditing = $state(false);
   accountPasswordEditing = $state(false);
   accountTotpEditing = $state(false);
@@ -927,6 +928,10 @@ export class NotesPageController
     await accountActions.changeAccountPassword(this);
   };
 
+  downloadRecoveryKit = async () => {
+    await accountActions.downloadRecoveryKit(this);
+  };
+
   saveAccountTotp = async () => {
     await accountActions.saveAccountTotp(this);
   };
@@ -1251,6 +1256,7 @@ export class NotesPageController
     this.accountTrustedDevices = [];
     this.accountMessage = accountMessage;
     this.accountError = '';
+    this.accountRecoveryCodeValue = '';
     this.accountProfileEditing = false;
     this.accountPasswordEditing = false;
     this.accountTotpEditing = false;

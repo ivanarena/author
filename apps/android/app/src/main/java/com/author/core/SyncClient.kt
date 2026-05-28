@@ -102,6 +102,7 @@ class SyncClient(private val baseUrlProvider: () -> String) {
     username: String,
     email: String,
     verifier: PasswordVerifier,
+    e2eeKeyring: String?,
     device: Device,
     deviceTrustSecret: String,
   ): LoginResponse {
@@ -110,6 +111,7 @@ class SyncClient(private val baseUrlProvider: () -> String) {
         .put("username", username)
         .put("email", email)
         .put("passwordVerifier", passwordVerifierToJson(verifier))
+        .putNullable("e2eeKeyring", e2eeKeyring)
         .put("device", deviceToJson(device))
         .put("deviceTrustSecret", deviceTrustSecret)
     return parseLoginResponse(requestJson("/api/auth/signup", "POST", body = body))
@@ -174,15 +176,22 @@ class SyncClient(private val baseUrlProvider: () -> String) {
     return parseAccountResponse(requestJson("/api/account", "PATCH", token = token, body = body))
   }
 
+  fun updateE2eeKeyring(token: String, e2eeKeyring: String): AccountResponse {
+    val body = JSONObject().put("e2eeKeyring", e2eeKeyring)
+    return parseAccountResponse(requestJson("/api/account", "PATCH", token = token, body = body))
+  }
+
   fun changePassword(
     token: String,
     proof: AuthProof,
     newVerifier: PasswordVerifier,
+    e2eeKeyring: String?,
   ): AccountResponse {
     val body =
       JSONObject()
         .put("proof", authProofToJson(proof))
         .put("newPasswordVerifier", passwordVerifierToJson(newVerifier))
+        .putNullable("e2eeKeyring", e2eeKeyring)
     return parseAccountResponse(
       requestJson("/api/account/password", "POST", token = token, body = body)
     )
@@ -301,6 +310,9 @@ data class LoginResponse(
   val device: Device,
   val expiresAt: String?,
   val serverProof: String?,
+  val e2eeKeyring: String?,
+  val encryptionKeyMaterial: String? = null,
+  val recoveryCode: String? = null,
 )
 
 private fun parseLoginResponse(json: JSONObject): LoginResponse {
@@ -311,6 +323,7 @@ private fun parseLoginResponse(json: JSONObject): LoginResponse {
     device = deviceFromJson(json.getJSONObject("device")),
     expiresAt = json.optNullableString("expiresAt"),
     serverProof = json.optNullableString("serverProof"),
+    e2eeKeyring = json.optNullableString("e2eeKeyring"),
   )
 }
 
@@ -389,4 +402,5 @@ private fun parseAccountResponse(json: JSONObject): AccountResponse =
           expiresAt = session.optNullableString("expiresAt"),
         )
       },
+    e2eeKeyring = json.optNullableString("e2eeKeyring"),
   )

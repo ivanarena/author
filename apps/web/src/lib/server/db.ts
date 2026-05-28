@@ -41,9 +41,10 @@ const schemaSql = `
     username TEXT PRIMARY KEY,
     email TEXT,
     display_name TEXT,
-    password_hash TEXT NOT NULL,
-    password_salt TEXT NOT NULL,
-    totp_secret TEXT,
+	    password_hash TEXT NOT NULL,
+	    password_salt TEXT NOT NULL,
+	    e2ee_keyring TEXT,
+	    totp_secret TEXT,
     totp_enabled_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -1116,6 +1117,17 @@ export const SERVER_MIGRATIONS: ServerMigration[] = [
          CREATE INDEX IF NOT EXISTS notebook_versions_owner_saved_at_idx
            ON notebook_versions(owner_username, saved_at);`
       );
+    }
+  },
+  {
+    version: 18,
+    name: 'account-e2ee-keyrings',
+    rollback:
+      'Restore from the pre-upgrade backup or leave e2ee_keyring unused; clients can recreate it after password sign-in.',
+    up: async (db) => {
+      if (!(await hasColumn(db, 'users', 'e2ee_keyring'))) {
+        await run(db, 'ALTER TABLE users ADD COLUMN e2ee_keyring TEXT');
+      }
     }
   }
 ];

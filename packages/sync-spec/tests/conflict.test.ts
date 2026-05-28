@@ -107,8 +107,8 @@ describe('sync conflict rules', () => {
   it('compares encrypted note hashes and notebook id fallbacks', () => {
     const encryptedLocal: Note = {
       ...baseNote,
-      title: 'enc:v3:local-title',
-      body: 'enc:v3:local-body',
+      title: 'enc:v4:key-a:local-title',
+      body: 'enc:v4:key-a:local-body',
       titleHash: 'title-hash',
       bodyHash: 'body-hash',
       notebookIds: [],
@@ -116,8 +116,8 @@ describe('sync conflict rules', () => {
     };
     const sameEncryptedRemote: Note = {
       ...encryptedLocal,
-      title: 'enc:v3:remote-title',
-      body: 'enc:v3:remote-body',
+      title: 'enc:v4:key-a:remote-title',
+      body: 'enc:v4:key-a:remote-body',
       notebookIds: ['notebook-1'],
       notebookId: 'notebook-1'
     };
@@ -147,14 +147,14 @@ describe('sync conflict rules', () => {
     ).toBe(true);
     expect(
       recordsDiffer(
-        { ...baseNotebook, name: 'enc:v3:a', nameHash: 'hash:v2:same' },
-        { ...baseNotebook, name: 'enc:v3:b', nameHash: 'hash:v2:same' }
+        { ...baseNotebook, name: 'enc:v4:key-a:a', nameHash: 'hash:v3:same' },
+        { ...baseNotebook, name: 'enc:v4:key-a:b', nameHash: 'hash:v3:same' }
       )
     ).toBe(false);
     expect(
       recordsDiffer(
-        { ...baseNotebook, name: 'enc:v3:a', nameHash: 'hash:v2:same' },
-        { ...baseNotebook, name: 'enc:v3:b', nameHash: 'hash:v2:other' }
+        { ...baseNotebook, name: 'enc:v4:key-a:a', nameHash: 'hash:v3:same' },
+        { ...baseNotebook, name: 'enc:v4:key-a:b', nameHash: 'hash:v3:other' }
       )
     ).toBe(true);
     expect(

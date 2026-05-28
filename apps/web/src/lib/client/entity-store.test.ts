@@ -258,7 +258,7 @@ describe('local note encryption sync state', () => {
   it('skips the local encryption scan after a clean audit', async () => {
     vi.mocked(localDb.syncMeta.get).mockResolvedValue({
       key: 'localEncryptionAuditVersion',
-      value: 'argon2-aes:v6'
+      value: 'keyring-aes:v7'
     });
 
     await ensureLocalNotesEncrypted();

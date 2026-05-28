@@ -1,6 +1,11 @@
 package com.author.core
 
 import android.content.SharedPreferences
+import java.nio.charset.StandardCharsets.UTF_8
+import java.security.MessageDigest
+import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -86,6 +91,49 @@ class NoteCryptoTest {
   }
 
   @Test
+  fun unwrapsAccountKeyringsAndRewrapsThemWithoutChangingNoteKeys() {
+    val prepared = crypto.prepareNewAccountKeyring("Owner", "test-password")
+    val material = crypto.keyringMaterialFromWrapped(prepared.e2eeKeyring, "owner", "test-password")
+    val encrypted = crypto.encryptNoteFields(note("note-1", "Title", "Body"), material)
+
+    assertEquals(prepared.keyMaterial, material)
+    assertEquals("Body", crypto.decryptNoteFields(encrypted, prepared.keyMaterial).body)
+
+    val rewrapped =
+      crypto.rewrapKeyringForPassword(
+        prepared.keyMaterial,
+        "owner",
+        "new-password",
+        prepared.e2eeKeyring,
+      )
+    assertEquals(
+      prepared.keyMaterial,
+      crypto.keyringMaterialFromWrapped(rewrapped, "owner", "new-password"),
+    )
+    assertThrowsEncryptionDecryptFailure {
+      crypto.keyringMaterialFromWrapped(rewrapped, "owner", "test-password")
+    }
+  }
+
+  @Test
+  fun migratesLegacyPasswordEncryptedV3EnvelopesIntoAccountKeyrings() {
+    val passwordMaterial = crypto.keyMaterialFromPassword("Owner", "test-password")
+    val legacy = legacyV3EncryptText("Legacy body", passwordMaterial, "note:note-1:body")
+    val migrated = crypto.migratePasswordMaterialToAccountKeyring("Owner", passwordMaterial)
+
+    assertEquals(
+      "Legacy body",
+      crypto.decryptText(legacy, migrated.keyMaterial, "note:note-1:body"),
+    )
+    val upgraded = crypto.encryptNoteFields(note("note-1", "Title", legacy), migrated.keyMaterial)
+    assertTrue(upgraded.body.startsWith("enc:v4:"))
+    assertEquals(
+      "Legacy body",
+      crypto.decryptText(upgraded.body, migrated.keyMaterial, "note:note-1:body"),
+    )
+  }
+
+  @Test
   fun derivesArgon2idScramPasswordProofs() {
     val verifier = crypto.passwordVerifierFromPassword("test-password")
     val challenge =
@@ -158,6 +206,18 @@ class NoteCryptoTest {
       lastSyncedVersion = 0,
       lastSyncedAt = null,
     )
+}
+
+private fun legacyV3EncryptText(value: String, keyMaterial: String, context: String): String {
+  val iv = ByteArray(12)
+  java.security.SecureRandom().nextBytes(iv)
+  val digest =
+    MessageDigest.getInstance("SHA-256")
+      .digest("author:encryption:v3:$keyMaterial".toByteArray(UTF_8))
+  val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+  cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(digest, "AES"), GCMParameterSpec(128, iv))
+  cipher.updateAAD("author:encrypted-field:v3:$context".toByteArray(UTF_8))
+  return "enc:v3:${base64UrlEncode(iv)}:${base64UrlEncode(cipher.doFinal(value.toByteArray(UTF_8)))}"
 }
 
 private fun assertThrowsEncryptionDecryptFailure(block: () -> Unit) {

@@ -87,6 +87,7 @@ export interface AuthSignupRequest {
   username: string;
   email: string;
   passwordVerifier?: PasswordVerifier | null;
+  e2eeKeyring?: string | null;
   /** @deprecated Client convenience only. Runtime API requests use passwordVerifier. */
   password?: string;
   /** @deprecated Display names are accepted only for older clients. */
@@ -121,6 +122,7 @@ export interface AuthLoginResponse {
   device: Device;
   expiresAt: string;
   serverProof?: string | null;
+  e2eeKeyring?: string | null;
 }
 
 export interface AuthValidateResponse {
@@ -134,11 +136,13 @@ export interface AccountUpdateRequest {
   /** @deprecated Display names are accepted only for older clients. */
   displayName?: string | null;
   email?: string | null;
+  e2eeKeyring?: string | null;
 }
 
 export interface PasswordChangeRequest {
   proof?: AuthProof | null;
   newPasswordVerifier?: PasswordVerifier | null;
+  e2eeKeyring?: string | null;
   /** @deprecated Client convenience only. Runtime API requests use proof. */
   currentPassword?: string;
   /** @deprecated Client convenience only. Runtime API requests use newPasswordVerifier. */
@@ -155,6 +159,7 @@ export interface AccountResponse {
   user: AuthUser;
   trustedDevices: TrustedAuthDevice[];
   session?: AccountSession;
+  e2eeKeyring?: string | null;
 }
 
 export interface TotpSetupResponse {

@@ -314,6 +314,24 @@ export function createApiClient(options: ApiClientOptions = {}) {
       );
     },
 
+    async updateE2eeKeyring(
+      token: string,
+      e2eeKeyring: string
+    ): Promise<AccountResponse> {
+      return await requestJson<AccountResponse>(
+        API_PATHS.account,
+        {
+          method: 'PATCH',
+          headers: {
+            ...authHeaders(token),
+            'content-type': 'application/json'
+          },
+          body: JSON.stringify({ e2eeKeyring } satisfies AccountUpdateRequest)
+        },
+        'Account failed'
+      );
+    },
+
     async changePassword(
       token: string,
       body: PasswordChangeRequest
@@ -341,7 +359,8 @@ export function createApiClient(options: ApiClientOptions = {}) {
         token,
         {
           proof: material.proof,
-          newPasswordVerifier: await passwordVerifierFromPassword(newPassword)
+          newPasswordVerifier: await passwordVerifierFromPassword(newPassword),
+          e2eeKeyring: body.e2eeKeyring
         },
         'Account failed'
       );
@@ -506,6 +525,7 @@ export const loginWithDevice = apiClient.loginWithDevice;
 export const signupWithDevice = apiClient.signupWithDevice;
 export const loadAccount = apiClient.loadAccount;
 export const updateAccount = apiClient.updateAccount;
+export const updateE2eeKeyring = apiClient.updateE2eeKeyring;
 export const changePassword = apiClient.changePassword;
 export const setupTotp = apiClient.setupTotp;
 export const enableTotp = apiClient.enableTotp;

@@ -27,6 +27,7 @@ export interface NotesAccountActionController {
   accountTrustedDevices: TrustedAuthDevice[];
   accountMessage: string;
   accountError: string;
+  accountRecoveryCodeValue: string;
   accountProfileEditing: boolean;
   accountPasswordEditing: boolean;
   accountTotpEditing: boolean;
@@ -67,6 +68,7 @@ export interface NotesAccountActionController {
 
   clearLocalSession: (options?: ClearLocalSessionOptions) => void;
   clearSensitiveWorkspace: () => void;
+  downloadBlob: (blob: Blob, fileName: string) => void;
   flushPendingSave: () => Promise<void>;
   notify: (
     kind: AppNotification['kind'],

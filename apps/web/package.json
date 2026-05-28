@@ -26,6 +26,7 @@
     "mock:browser": "tsx scripts/prefill-browser.ts",
     "cleanup": "tsx scripts/cleanup-trash.ts",
     "cleanup:current-only": "tsx scripts/cleanup-current-only-blockers.ts",
+    "e2ee:recover": "tsx scripts/recover-e2ee-keyring.ts",
     "prepare": "command -v svelte-kit >/dev/null 2>&1 && svelte-kit sync || true"
   },
   "dependencies": {

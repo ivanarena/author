@@ -1,7 +1,7 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
 
-  const updated = 'May 21, 2026';
+  const updated = 'May 28, 2026';
 </script>
 
 <svelte:head>
@@ -21,9 +21,9 @@
     <h2>Encrypted content</h2>
     <p>
       Note titles, note bodies, and notebook names are encrypted on your device
-      before sync using Argon2id key material derived from your login password.
-      Author does not add a recovery key or a separate encryption passphrase, so
-      the same simple login flow unlocks synced content on your own devices.
+      before sync using a local account keyring. The server stores only an
+      encrypted keyring wrapper that can be unlocked by your password-derived
+      key material or by a recovery kit and recovery code you save separately.
       This is an encrypted-sync design for routine storage, not a hardened
       zero-knowledge or zero-trust service.
     </p>
@@ -43,8 +43,9 @@
     <h2>Account data</h2>
     <p>
       Account records include your username, legacy display name if one already
-      exists, password verifier data, sessions, and device labels needed to
-      operate login and sync. Passwords are not stored in plaintext.
+      exists, password verifier data, encrypted keyring wrappers, sessions, and
+      device labels needed to operate login and sync. Passwords and recovery
+      codes are not stored in plaintext.
     </p>
   </section>
 
@@ -63,10 +64,11 @@
     <h2>Controls</h2>
     <p>
       You can export Markdown, change your password, sign out, or delete your
-      account from Settings. If you forget the account password, encrypted note
-      content is not recoverable through the current app flow. Deleted synced
-      content is retained only as needed for trash cleanup and conflict-safe
-      sync.
+      account from Settings. You can also download an E2EE recovery kit; keep
+      that kit and its recovery code separate from each other. If you lose both
+      password access and recovery material, encrypted note content may not be
+      recoverable. Deleted synced content is retained only as needed for trash
+      cleanup and conflict-safe sync.
     </p>
   </section>
 </main>

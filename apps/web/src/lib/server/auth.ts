@@ -49,6 +49,7 @@ const TOTP_PERIOD_SECONDS = 30;
 const TOTP_DIGITS = 6;
 const SESSION_TOUCH_INTERVAL_MS = 60_000;
 const DEVICE_TRUST_SECRET_MIN_LENGTH = 32;
+const E2EE_KEYRING_MAX_BYTES = 64 * 1024;
 const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,62}[a-z0-9]$|^[a-z0-9]$/;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -60,6 +61,7 @@ type UserRow = {
   display_name: string | null;
   password_hash: string;
   password_salt: string;
+  e2ee_keyring: string | null;
   totp_secret: string | null;
   totp_enabled_at: string | null;
 };
@@ -300,6 +302,18 @@ function cleanDisplayName(
   const trimmed = displayName?.trim();
   if (!trimmed) return null;
   return trimmed.slice(0, 80);
+}
+
+function cleanE2eeKeyring(value: string | null | undefined): string | null {
+  if (value === undefined || value === null) return null;
+  const trimmed = value.trim();
+  if (
+    !trimmed ||
+    textEncoder.encode(trimmed).byteLength > E2EE_KEYRING_MAX_BYTES
+  ) {
+    throw new Error('Invalid encrypted keyring');
+  }
+  return trimmed;
 }
 
 function base32Encode(bytes: Uint8Array): string {
@@ -576,6 +590,7 @@ async function getUserRow(
   const row = await get(
     db,
     `SELECT username, email, display_name, password_hash, password_salt,
+            e2ee_keyring,
             totp_secret, totp_enabled_at
      FROM users
      WHERE username = ?`,
@@ -591,6 +606,7 @@ async function getUserRowByEmail(
   const row = await get(
     db,
     `SELECT username, email, display_name, password_hash, password_salt,
+            e2ee_keyring,
             totp_secret, totp_enabled_at
      FROM users
      WHERE email = ?`,
@@ -627,6 +643,14 @@ function rowToAuthUser(row: UserRow): AuthUser {
     displayName: row.display_name,
     twoFactorEnabled: Boolean(row.totp_secret && row.totp_enabled_at)
   };
+}
+
+export async function getUserE2eeKeyring(
+  db: NotesExecutor,
+  username: string
+): Promise<string | null> {
+  const row = await getUserRow(db, requireUsername(username));
+  return row?.e2ee_keyring ?? null;
 }
 
 function authCredentialsChanged(
@@ -911,11 +935,14 @@ export async function setUserPassword(
 export async function setUserPasswordVerifier(
   db: NotesExecutor,
   username: string,
-  verifier: PasswordVerifier
+  verifier: PasswordVerifier,
+  e2eeKeyring?: string | null
 ): Promise<AuthUser> {
   const normalized = requireUsername(username);
   const now = new Date().toISOString();
   const passwordHash = passwordHashFromVerifier(verifier);
+  const nextE2eeKeyring =
+    e2eeKeyring === undefined ? null : cleanE2eeKeyring(e2eeKeyring);
 
   await run(db, 'DELETE FROM auth_sessions WHERE username = ?', [normalized]);
   await run(db, 'DELETE FROM trusted_auth_devices WHERE username = ?', [
@@ -924,19 +951,21 @@ export async function setUserPasswordVerifier(
   await run(
     db,
     `INSERT INTO users (
-       username, email, display_name, password_hash, password_salt,
-       totp_secret, totp_enabled_at, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(username) DO UPDATE SET
-       password_hash = excluded.password_hash,
-       password_salt = excluded.password_salt,
-       updated_at = excluded.updated_at`,
+	       username, email, display_name, password_hash, password_salt,
+	       e2ee_keyring, totp_secret, totp_enabled_at, created_at, updated_at
+	     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	     ON CONFLICT(username) DO UPDATE SET
+	       password_hash = excluded.password_hash,
+	       password_salt = excluded.password_salt,
+	       e2ee_keyring = COALESCE(excluded.e2ee_keyring, users.e2ee_keyring),
+	       updated_at = excluded.updated_at`,
     [
       normalized,
       null,
       null,
       passwordHash.hash,
       passwordHash.salt,
+      nextE2eeKeyring,
       null,
       null,
       now,
@@ -957,7 +986,8 @@ export async function createUserAccount(
   username: string,
   email: string,
   verifier: PasswordVerifier,
-  displayName: string | null | undefined
+  displayName: string | null | undefined,
+  e2eeKeyring?: string | null
 ): Promise<AuthUser | null> {
   const normalized = requireUsername(username);
   const normalizedEmail = requireEmail(email);
@@ -971,19 +1001,21 @@ export async function createUserAccount(
   const now = new Date().toISOString();
   const passwordHash = passwordHashFromVerifier(verifier);
   const nextDisplayName = cleanDisplayName(displayName);
+  const nextE2eeKeyring = cleanE2eeKeyring(e2eeKeyring);
 
   await run(
     db,
     `INSERT INTO users (
        username, email, display_name, password_hash, password_salt,
-       totp_secret, totp_enabled_at, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       e2ee_keyring, totp_secret, totp_enabled_at, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       normalized,
       normalizedEmail,
       nextDisplayName,
       passwordHash.hash,
       passwordHash.salt,
+      nextE2eeKeyring,
       null,
       null,
       now,
@@ -1022,15 +1054,16 @@ export async function mirrorUserForLocalSession(
   await run(
     target,
     `INSERT INTO users (
-       username, email, display_name, password_hash, password_salt,
-       totp_secret, totp_enabled_at, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(username) DO UPDATE SET
-       email = excluded.email,
-       display_name = excluded.display_name,
-       password_hash = excluded.password_hash,
-       password_salt = excluded.password_salt,
-       totp_secret = excluded.totp_secret,
+	       username, email, display_name, password_hash, password_salt,
+	       e2ee_keyring, totp_secret, totp_enabled_at, created_at, updated_at
+	     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	     ON CONFLICT(username) DO UPDATE SET
+	       email = excluded.email,
+	       display_name = excluded.display_name,
+	       password_hash = excluded.password_hash,
+	       password_salt = excluded.password_salt,
+	       e2ee_keyring = excluded.e2ee_keyring,
+	       totp_secret = excluded.totp_secret,
        totp_enabled_at = excluded.totp_enabled_at,
        updated_at = excluded.updated_at`,
     [
@@ -1039,6 +1072,7 @@ export async function mirrorUserForLocalSession(
       sourceUser.display_name,
       sourceUser.password_hash,
       sourceUser.password_salt,
+      sourceUser.e2ee_keyring,
       sourceUser.totp_secret,
       sourceUser.totp_enabled_at,
       now,
@@ -1313,27 +1347,41 @@ export async function updateUserProfile(
   db: NotesExecutor,
   username: string,
   displayName: string | null | undefined,
-  email?: string | null | undefined
+  email?: string | null | undefined,
+  e2eeKeyring?: string | null | undefined
 ): Promise<AuthUser> {
   const normalized = requireUsername(username);
-  const nextDisplayName = cleanDisplayName(displayName);
+  const nextDisplayName =
+    displayName === undefined ? undefined : cleanDisplayName(displayName);
   const nextEmail =
     email === undefined
       ? undefined
       : email === null
         ? null
         : requireEmail(email);
+  const nextE2eeKeyring =
+    e2eeKeyring === undefined ? undefined : cleanE2eeKeyring(e2eeKeyring);
+  const updates: string[] = [];
+  const args: (string | null)[] = [];
   if (nextEmail !== undefined) {
+    updates.push('email = ?');
+    args.push(nextEmail);
+  }
+  if (nextDisplayName !== undefined) {
+    updates.push('display_name = ?');
+    args.push(nextDisplayName);
+  }
+  if (nextE2eeKeyring !== undefined) {
+    updates.push('e2ee_keyring = ?');
+    args.push(nextE2eeKeyring);
+  }
+  if (updates.length > 0) {
+    updates.push('updated_at = ?');
+    args.push(new Date().toISOString(), normalized);
     await run(
       db,
-      'UPDATE users SET email = ?, display_name = ?, updated_at = ? WHERE username = ?',
-      [nextEmail, nextDisplayName, new Date().toISOString(), normalized]
-    );
-  } else {
-    await run(
-      db,
-      'UPDATE users SET display_name = ?, updated_at = ? WHERE username = ?',
-      [nextDisplayName, new Date().toISOString(), normalized]
+      `UPDATE users SET ${updates.join(', ')} WHERE username = ?`,
+      args
     );
   }
   const row = await getUserRow(db, normalized);
@@ -1345,12 +1393,13 @@ export async function changeUserPassword(
   db: NotesExecutor,
   username: string,
   proof: AuthProof | null | undefined,
-  newVerifier: PasswordVerifier | null | undefined
+  newVerifier: PasswordVerifier | null | undefined,
+  e2eeKeyring?: string | null
 ): Promise<AuthUser | null> {
   const normalized = requireUsername(username);
   const row = await verifyUserProof(db, normalized, proof, 'password_change');
   if (!row || !newVerifier) return null;
-  await setUserPasswordVerifier(db, normalized, newVerifier);
+  await setUserPasswordVerifier(db, normalized, newVerifier, e2eeKeyring);
   const updated = await getUserRow(db, normalized);
   return updated ? rowToAuthUser(updated) : null;
 }

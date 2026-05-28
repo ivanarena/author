@@ -207,8 +207,8 @@ describe('server repository', () => {
           {
             record: {
               ...fixtureNotebook,
-              name: 'enc:v3:first',
-              nameHash: 'hash:v2:notebook-name'
+              name: 'enc:v4:key-a:first',
+              nameHash: 'hash:v3:notebook-name'
             },
             baseVersion: 0
           }
@@ -223,8 +223,8 @@ describe('server repository', () => {
             record: {
               ...fixtureNotebook,
               id: 'fixture-notebook-copy',
-              name: 'enc:v3:second',
-              nameHash: 'hash:v2:notebook-name',
+              name: 'enc:v4:key-a:second',
+              nameHash: 'hash:v3:notebook-name',
               updatedAt: '2026-01-01T01:00:00.000Z',
               deviceId: 'device-b',
               syncStatus: 'pending'

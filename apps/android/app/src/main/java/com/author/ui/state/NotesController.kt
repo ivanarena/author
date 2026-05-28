@@ -835,6 +835,7 @@ class NotesController(private val repository: NotesRepository, private val scope
             response.user.username,
             password,
             adoptionPreviousUsername,
+            response.encryptionKeyMaterial,
           )
         } else {
           repository.adoptWithStoredKey(response.user.username, adoptionPreviousUsername)

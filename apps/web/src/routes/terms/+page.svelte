@@ -1,7 +1,7 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
 
-  const updated = 'May 21, 2026';
+  const updated = 'May 28, 2026';
 </script>
 
 <svelte:head>
@@ -19,9 +19,9 @@
     <p>
       You keep ownership of the notes and notebooks you create. You are
       responsible for the content you store and for remembering the account
-      password that unlocks encrypted data. There is no recovery key in this
-      simple-login encryption model, and Author is not offered as a hardened
-      zero-knowledge or zero-trust service.
+      password that unlocks encrypted data. If you create an E2EE recovery kit,
+      you are responsible for storing the kit and recovery code separately.
+      Author is not offered as a hardened zero-knowledge or zero-trust service.
     </p>
   </section>
 
@@ -47,9 +47,9 @@
     <h2>Account controls</h2>
     <p>
       Settings includes profile edits, password changes, Markdown export, sign
-      out, and account deletion. Account deletion removes the synced account
-      data controlled by this service, but independent backups or exported files
-      you created remain your responsibility.
+      out, recovery kit download, and account deletion. Account deletion removes
+      the synced account data controlled by this service, but independent
+      backups or exported files you created remain your responsibility.
     </p>
   </section>
 

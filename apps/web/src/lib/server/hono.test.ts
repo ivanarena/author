@@ -677,7 +677,8 @@ describe('Hono API', () => {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(
           await signupBody('new-user', 'new@example.com', 'new-user-password', {
-            displayName: 'New User'
+            displayName: 'New User',
+            e2eeKeyring: 'wrapped-keyring-v1'
           })
         )
       })
@@ -685,7 +686,8 @@ describe('Hono API', () => {
     expect(signup.status).toBe(200);
     await expect(signup.json()).resolves.toMatchObject({
       token: expect.any(String),
-      user: { username: 'new-user', displayName: 'New User' }
+      user: { username: 'new-user', displayName: 'New User' },
+      e2eeKeyring: 'wrapped-keyring-v1'
     });
 
     const remote = await openConfiguredDatabase({
@@ -694,13 +696,14 @@ describe('Hono API', () => {
     });
     try {
       const user = await remote.execute({
-        sql: 'SELECT username, email, display_name FROM users WHERE username = ?',
+        sql: 'SELECT username, email, display_name, e2ee_keyring FROM users WHERE username = ?',
         args: ['new-user']
       });
       expect(user.rows[0]).toMatchObject({
         username: 'new-user',
         email: 'new@example.com',
-        display_name: 'New User'
+        display_name: 'New User',
+        e2ee_keyring: 'wrapped-keyring-v1'
       });
     } finally {
       remote.close();
@@ -1265,6 +1268,47 @@ describe('Hono API', () => {
     expect(profile.status).toBe(401);
   });
 
+  it('persists keyring-only account repair without remote sync', async () => {
+    const token = await loginToken();
+
+    const keyring = await api.fetch(
+      new Request('http://localhost/api/account', {
+        method: 'PATCH',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({ e2eeKeyring: 'wrapped-local-keyring-v1' })
+      })
+    );
+    expect(keyring.status).toBe(200);
+    await expect(keyring.json()).resolves.toMatchObject({
+      user: { username: 'owner' },
+      e2eeKeyring: 'wrapped-local-keyring-v1'
+    });
+
+    const profile = await api.fetch(
+      new Request('http://localhost/api/account', {
+        method: 'PATCH',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({ displayName: 'Local only' })
+      })
+    );
+    expect(profile.status).toBe(503);
+    await expect(profile.json()).resolves.toMatchObject({
+      error: 'Account updates require remote access'
+    });
+
+    const login = await loginResponse();
+    expect(login.status).toBe(200);
+    await expect(login.json()).resolves.toMatchObject({
+      e2eeKeyring: 'wrapped-local-keyring-v1'
+    });
+  });
+
   it('returns clear account errors for invalid or duplicate emails', async () => {
     const remotePath = join(tempDir, 'account-email-errors.sqlite');
     process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
@@ -1350,6 +1394,22 @@ describe('Hono API', () => {
       user: { username: 'owner', displayName: 'Iv' }
     });
 
+    const keyring = await api.fetch(
+      new Request('http://localhost/api/account', {
+        method: 'PATCH',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({ e2eeKeyring: 'wrapped-keyring-v1' })
+      })
+    );
+    expect(keyring.status).toBe(200);
+    await expect(keyring.json()).resolves.toMatchObject({
+      user: { username: 'owner', displayName: 'Iv' },
+      e2eeKeyring: 'wrapped-keyring-v1'
+    });
+
     const logout = await post('/api/auth/logout', {}, token);
     expect(logout.status).toBe(200);
     const loggedOut = await api.fetch(
@@ -1377,15 +1437,20 @@ describe('Hono API', () => {
       {
         proof: await passwordProof(token, 'test-password', 'password_change'),
         newPasswordVerifier:
-          await passwordVerifierFromPassword('new-test-password')
+          await passwordVerifierFromPassword('new-test-password'),
+        e2eeKeyring: 'wrapped-keyring-v2'
       },
       token
     );
     expect(password.status).toBe(200);
     const passwordBody = (await password.json()) as {
       session?: { token: string; expiresAt: string };
+      e2eeKeyring?: string | null;
     };
     expect(passwordBody.session?.token).toEqual(expect.any(String));
+    expect(passwordBody).toMatchObject({
+      e2eeKeyring: 'wrapped-keyring-v2'
+    });
     const oldTokenValidate = await api.fetch(
       new Request('http://localhost/api/auth/validate', {
         headers: { authorization: `Bearer ${token}` }
@@ -1398,9 +1463,11 @@ describe('Hono API', () => {
       })
     );
     expect(replacementValidate.status).toBe(200);
-    await expect(loginToken('owner', 'new-test-password')).resolves.toEqual(
-      expect.any(String)
-    );
+    const newLogin = await loginResponse('owner', 'new-test-password');
+    await expect(newLogin.json()).resolves.toMatchObject({
+      token: expect.any(String),
+      e2eeKeyring: 'wrapped-keyring-v2'
+    });
 
     const remoteWithData = await openConfiguredDatabase({
       provider: 'turso',

@@ -28,23 +28,31 @@ accepting a batch. A limit failure returns an explicit sync error and does not
 drop local pending records; clients can retry after deleting/exporting data or
 after the operator adjusts the configured budget.
 `baseVersion` is the last remote version the client successfully synced. New local entities use `0`.
-For notes, clients encrypt `title` and `body` into `enc:v3` string envelopes before storage
+For notes, clients encrypt `title` and `body` into `enc:v4` string envelopes before storage
 and push, then decrypt them after pull. Notebook names use the same envelope format before
-storage and push. A value is preserved as encrypted only when its envelope is structurally valid
-and decrypts with the active key material for that exact field context; literal text that merely
-imitates an `enc:v3` envelope is encrypted again as normal plaintext. Encryption uses random
-AES-GCM IVs with field-specific additional authenticated data, so a title envelope cannot be
-silently moved into a body or another note field, and a notebook name envelope cannot be
-silently moved to another notebook. Stable HMAC field hashes (`titleHash`,
-`bodyHash`, and `nameHash`) let sync compare encrypted fields and check duplicate notebook names
-without reusing nonces or exposing plaintext names. Sync metadata and notebook assignment remain
-plain so versioning and relationship repair stay small.
-Password-derived note key material is Argon2id-only `password:v4` material. Runtime clients do
-not keep pre-Argon2 or pre-`enc:v3` compatibility paths; older installs must migrate through a
-release that can republish data as `enc:v3` before running this version. If a current client sees
-older note envelopes or old password key material, it stops instead of rewriting that ciphertext as
-literal text. Current `enc:v3` envelopes also fail closed when the active key material or field
-context cannot authenticate them, which prevents ciphertext from being republished as note text.
+storage and push. The v4 envelope carries a data-key id, random AES-GCM IV, ciphertext, and
+field-specific additional authenticated data, so a title envelope cannot be silently moved into a
+body or another note field, and a notebook name envelope cannot be silently moved to another
+notebook. A value is preserved as encrypted only when its envelope is structurally valid and
+decrypts with the active key material for that exact field context; literal text that merely
+imitates an envelope is encrypted again as normal plaintext.
+
+Sync-capable accounts use a local `keyring:v1` material blob. The active random 256-bit data key
+encrypts note fields, while the server stores only an `e2eeKeyring` JSON wrapper: the keyring
+encrypted by password-derived `password:v4` material and, when available, by a recovery code.
+Password changes rewrap this keyring and do not rewrite note ciphertext. Existing `enc:v3`
+password-encrypted fields remain readable through legacy key material recorded during migration
+and are republished as `enc:v4` when touched by the current clients. Stable HMAC field hashes
+(`titleHash`, `bodyHash`, and `nameHash`, currently `hash:v3`) let sync compare encrypted fields
+and check duplicate notebook names without reusing nonces or exposing plaintext names. Sync
+metadata and notebook assignment remain plain so versioning and relationship repair stay small.
+
+Runtime clients do not keep pre-Argon2 or pre-`enc:v3` compatibility paths; older installs must
+migrate through a release that can republish data as at least `enc:v3` before running this
+version. If a current client sees older note envelopes or old password key material, it stops
+instead of rewriting that ciphertext as literal text. Current envelopes also fail closed when the
+active key material or field context cannot authenticate them, which prevents ciphertext from
+being republished as note text.
 Sync-capable browser key material is stored on the signed-in browser by default
 so users can keep working offline and survive normal browser restarts without a
 password prompt. The account settings for the current browser can switch that
@@ -63,10 +71,10 @@ Browsers with an old session token but no stored encryption key material must si
 syncing encrypted notes.
 
 When an account password changes, the server returns a replacement session for the same device.
-The client re-encrypts local notes and notebooks with the new password-derived material, syncs
-those rotated ciphertexts with the replacement session, and only then clears the local session and
-key material. If that final sync fails, the replacement session and new key material remain on the
-device so the user can retry instead of stranding remote notes under the old key.
+The client rewraps the E2EE keyring with the new password verifier, preserves the note data key,
+and syncs with the replacement session. If that final sync fails, the replacement session and
+unchanged key material remain on the device so the user can retry instead of stranding remote
+notes under a different key.
 
 For self-hosted local SQLite with an optional Turso mirror, note reads, pulls, pushes, and trash
 cleanup use the local primary immediately and queue mirror convergence in the background. Account

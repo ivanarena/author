@@ -151,15 +151,24 @@ export async function submitLoginMenu(
       await logout(session.token).catch(() => undefined);
       throw error;
     }
-    const encryption = hasPassword
-      ? await prepareEncryptionPassword(session.user.username, password)
-      : (() => {
-          const previousMaterial = getEncryptionKeyMaterial();
-          return {
-            previousMaterial,
-            nextMaterial: previousMaterial
-          };
-        })();
+    const encryption = session.encryptionKeyMaterial
+      ? {
+          previousMaterial: getEncryptionKeyMaterial(),
+          nextMaterial: session.encryptionKeyMaterial
+        }
+      : hasPassword
+        ? await prepareEncryptionPassword(
+            session.user.username,
+            password,
+            session.e2eeKeyring
+          )
+        : (() => {
+            const previousMaterial = getEncryptionKeyMaterial();
+            return {
+              previousMaterial,
+              nextMaterial: previousMaterial
+            };
+          })();
     await adoptLocalWorkspaceForAccount({
       username: session.user.username,
       fallbackOwnerUsername: workspaceCleared ? null : previousUsername,
@@ -188,8 +197,11 @@ export async function submitLoginMenu(
     ];
     controller.deviceOtpLoginAvailable = hasStoredEncryptionKeyMaterial();
     controller.accountError = '';
+    controller.accountRecoveryCodeValue = session.recoveryCode ?? '';
     controller.accountMessage =
-      controller.authMode === 'signup' ? 'Account created' : 'Signed in';
+      controller.authMode === 'signup'
+        ? 'Account created. Save the recovery code.'
+        : 'Signed in';
     controller.loginOpen = false;
     controller.authMode = 'signin';
     controller.loginUsernameValue = session.user.username;

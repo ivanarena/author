@@ -20,6 +20,7 @@ Already in place:
 - Encrypted note titles, bodies, and notebook names before sync.
 - Argon2id password-derived key material and SCRAM-style account proofs.
 - AES-GCM envelopes with field-specific additional authenticated data.
+- Account data-key keyrings with password wrapping and recovery-kit wrapping.
 - Stable HMAC field hashes for encrypted-field comparison.
 - Base-version sync conflicts and cursor-stable pull revisions.
 - Web, Node, Cloudflare, Docker, and Android release checks in CI.
@@ -32,8 +33,8 @@ Remaining limitations:
 - Some sync metadata remains plaintext: ids, timestamps, versions, device ids,
   notebook assignments, and deletion markers.
 - There is no independent crypto/security audit.
-- There is no recovery key, key transparency log, reproducible signed web app,
-  or native desktop app.
+- There is no key transparency log, reproducible signed web app, or native
+  desktop app.
 - Operational production readiness still requires real staging credentials,
   backup restore drills, image scan review, and signed release handling.
 
@@ -61,9 +62,10 @@ Acceptance:
 
 Goal: improve privacy claims without overstating the browser threat model.
 
-- Write a protocol-level crypto specification before changing envelope formats.
-- Add a recovery-key design only if it preserves local-first use and has a
-  migration path for existing users.
+- Keep the protocol-level crypto specification current before changing envelope
+  formats again.
+- Keep recovery-key tooling additive: recovery wraps must preserve local-first
+  use and must not require rewriting note data in place.
 - Prefer additive key records over rewriting note data in place.
 - Evaluate a signed native desktop client or reproducible static web bundle for
   users who need stronger guarantees than mutable hosted JavaScript.
@@ -78,6 +80,8 @@ Acceptance:
 - Threat model documents distinguish encrypted sync from hardened E2EE.
 - New crypto formats have migration tests on web and Android.
 - Old clients fail closed instead of corrupting encrypted data.
+- Password changes rewrap the keyring and recovery tests prove the same data
+  key is restored.
 
 ## Phase 3: Reliability and Recovery
 

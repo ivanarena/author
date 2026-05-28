@@ -44,7 +44,7 @@ conflicts, and cleanup. This gives v1 a recovery path without building a full
 audit UI. Snapshots older than 365 days are pruned by cleanup so long-lived
 sync accounts do not accumulate unbounded version rows.
 
-Notes store `title` and `body` as `enc:v3` encrypted text envelopes after the client has
+Notes store `title` and `body` as `enc:v4` encrypted text envelopes after the client has
 opened them once or synced with key material available. Notebooks store `name` as the same
 envelope format. `title_hash`, `body_hash`, and `name_hash` store stable keyed HMAC hashes for
 sync comparison and duplicate notebook checks while the encrypted text uses random IVs and
@@ -59,9 +59,15 @@ records, and session metadata. Notes, notebooks, entity changes, tombstones,
 and version snapshots also include `owner_username` so sync results are scoped
 to the authenticated account. Legacy token data is stored under `legacy-token`.
 
-Password-derived client encryption keys use Argon2id-only material, and runtime clients do not
-keep pre-Argon2 or pre-`enc:v3` compatibility paths. Older installs must migrate through a release
-that republishes data as `enc:v3` before running this version. Current clients fail closed when
+Account E2EE keyrings are stored in `users.e2ee_keyring` as client-produced JSON. The server treats
+this value as opaque ciphertext: it contains the account data-key keyring wrapped by
+password-derived `password:v4` material and, when the user generated one, a recovery-code wrap. The server
+does not store plaintext note keys or recovery codes. Existing `enc:v3` password-encrypted fields
+remain migration-readable by current clients and are republished as `enc:v4` with key ids.
+
+Password-derived client wrapping keys use Argon2id-only material, and runtime clients do not keep
+pre-Argon2 or pre-`enc:v3` compatibility paths. Older installs must migrate through a release that
+republishes data as at least `enc:v3` before running this version. Current clients fail closed when
 they see older local or remote note envelopes, or when current envelopes cannot be authenticated
 with the active key material and field context, rather than rewriting ciphertext as plaintext.
 Server-side account password verifiers are Argon2id SCRAM-style

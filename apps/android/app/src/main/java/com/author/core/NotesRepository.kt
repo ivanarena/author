@@ -34,7 +34,7 @@ private const val EDITOR_LINE_HEIGHT_KEY = "author-editor-line-height"
 private const val API_BASE_URL_KEY = "author-api-base-url"
 private const val LOCAL_WORKSPACE_OWNER_KEY = "localWorkspaceOwner"
 private const val ENCRYPTION_AUDIT_VERSION_KEY = "localEncryptionAuditVersion"
-private const val ENCRYPTION_AUDIT_VERSION = "argon2-aes:v6"
+private const val ENCRYPTION_AUDIT_VERSION = "keyring-aes:v7"
 private const val LAST_SYNC_ERROR_AT_KEY = "lastSyncErrorAt"
 private const val LAST_SYNC_ERROR_SOURCE_KEY = "lastSyncErrorSource"
 private const val LAST_SYNC_ERROR_MESSAGE_KEY = "lastSyncErrorMessage"
@@ -580,35 +580,63 @@ class NotesRepository(context: Context) {
       }
 
       val challenge = syncClient.authChallenge(username, "login")
-      if (challenge.mode == "bootstrap") {
-        syncClient.loginBootstrap(
-          username,
-          password,
-          crypto.passwordVerifierFromPassword(password),
-          totpCode,
-          device,
-          deviceTrustSecret,
-        )
-      } else {
-        val proof = crypto.authProofFromPassword(password, challenge)
-        val response =
-          syncClient.loginWithProof(username, proof.proof, totpCode, device, deviceTrustSecret)
-        check(crypto.verifyAuthServerProof(proof.expectedServerProof, response.serverProof)) {
-          "Login proof failed"
+      val response =
+        if (challenge.mode == "bootstrap") {
+          syncClient.loginBootstrap(
+            username,
+            password,
+            crypto.passwordVerifierFromPassword(password),
+            totpCode,
+            device,
+            deviceTrustSecret,
+          )
+        } else {
+          val proof = crypto.authProofFromPassword(password, challenge)
+          val proofResponse =
+            syncClient.loginWithProof(username, proof.proof, totpCode, device, deviceTrustSecret)
+          check(
+            crypto.verifyAuthServerProof(proof.expectedServerProof, proofResponse.serverProof)
+          ) {
+            "Login proof failed"
+          }
+          proofResponse
         }
-        response
+
+      response.e2eeKeyring?.let {
+        return@withContext response.copy(
+          encryptionKeyMaterial =
+            crypto.keyringMaterialFromWrapped(it, response.user.username, password)
+        )
       }
+
+      val passwordMaterial = crypto.keyMaterialFromPassword(response.user.username, password)
+      val migrated =
+        crypto.migratePasswordMaterialToAccountKeyring(response.user.username, passwordMaterial)
+      syncClient.updateE2eeKeyring(response.token, migrated.e2eeKeyring)
+      response.copy(
+        encryptionKeyMaterial = migrated.keyMaterial,
+        e2eeKeyring = migrated.e2eeKeyring,
+        recoveryCode = migrated.recoveryCode,
+      )
     }
 
   suspend fun signup(username: String, email: String, password: String): LoginResponse =
     withContext(Dispatchers.IO) {
-      syncClient.signup(
-        username,
-        email,
-        crypto.passwordVerifierFromPassword(password),
-        getOrCreateDevice(),
-        getOrCreateDeviceTrustSecret(),
-      )
+      val keyring = crypto.prepareNewAccountKeyring(username, password)
+      syncClient
+        .signup(
+          username,
+          email,
+          crypto.passwordVerifierFromPassword(password),
+          keyring.e2eeKeyring,
+          getOrCreateDevice(),
+          getOrCreateDeviceTrustSecret(),
+        )
+        .copy(
+          encryptionKeyMaterial = keyring.keyMaterial,
+          e2eeKeyring = keyring.e2eeKeyring,
+          recoveryCode = keyring.recoveryCode,
+        )
     }
 
   suspend fun assertLocalWorkspaceCanUseAccount(username: String, previousUsername: String?) =
@@ -628,10 +656,13 @@ class NotesRepository(context: Context) {
     username: String,
     password: String,
     previousUsername: String?,
+    nextMaterialOverride: String? = null,
   ) =
     withContext(Dispatchers.IO) {
       assertLocalWorkspaceCanUseAccountInternal(username, previousUsername)
-      val (previous, next) = crypto.prepareEncryptionPassword(username, password)
+      val previous = crypto.getEncryptionKeyMaterial()
+      val next =
+        nextMaterialOverride ?: crypto.prepareEncryptionPassword(username, password, null).second
       reencryptLocalNotesInternal(previous, next)
       crypto.commitEncryptionKeyMaterial(next)
       rememberLocalWorkspaceAccount(username)
@@ -676,8 +707,11 @@ class NotesRepository(context: Context) {
     withContext(Dispatchers.IO) {
       val username =
         requireStoredSessionUsernameForSensitiveOperation(getStoredSession(), "changing password")
-      val (previous, next) = crypto.prepareEncryptionPassword(username, newPassword)
-      preflightReencryptLocalNotesInternal(previous, next)
+      val current = crypto.getEncryptionKeyMaterial()
+      val account = syncClient.loadAccount(token)
+      val e2eeKeyring =
+        crypto.rewrapKeyringForPassword(current, username, newPassword, account.e2eeKeyring)
+      preflightReencryptLocalNotesInternal(current, current)
       val challenge = syncClient.authChallenge(null, "password_change", token)
       val proof = crypto.authProofFromPassword(currentPassword, challenge)
       val response =
@@ -685,14 +719,15 @@ class NotesRepository(context: Context) {
           token,
           proof.proof,
           crypto.passwordVerifierFromPassword(newPassword),
+          e2eeKeyring,
         )
       val replacementSession =
         response.session
           ?: throw IllegalStateException(
             "Password changed, but Author could not create a session to sync encrypted notes"
           )
-      reencryptLocalNotesInternal(previous, next)
-      crypto.commitEncryptionKeyMaterial(next)
+      reencryptLocalNotesInternal(current, current)
+      crypto.commitEncryptionKeyMaterial(current)
       setStoredSession(
         StoredSession(replacementSession.token, response.user, replacementSession.expiresAt)
       )
@@ -700,7 +735,7 @@ class NotesRepository(context: Context) {
         runSync(replacementSession.token)
       } catch (error: Throwable) {
         throw IllegalStateException(
-          "Password changed, but Author could not finish syncing re-encrypted notes: ${error.message ?: "Sync failed"}",
+          "Password changed, but Author could not finish syncing: ${error.message ?: "Sync failed"}",
           error,
         )
       }

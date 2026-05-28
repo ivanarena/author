@@ -216,8 +216,8 @@ Run the smoke test manually from GitHub Actions after adding the secrets. The
 same workflow also runs weekly; scheduled runs fail when required staging
 secrets are missing unless `AUTHOR_REMOTE_STAGING_ALLOW_SKIP=true` is set as a
 repository variable. The workflow deploys the staging Worker with staging
-secrets, seeds the remote test account with current Argon2id credentials and
-`enc:v3` AES-GCM note data, then verifies login, session validation, encrypted
+secrets, seeds the remote test account with current Argon2id credentials,
+wrapped E2EE keyring material, and `enc:v4` AES-GCM note data, then verifies login, session validation, encrypted
 pull/push, stale-write conflicts, and cleanup.
 
 For local operator checks:
@@ -437,7 +437,7 @@ Set `NOTES_CLEANUP_ENABLED=false` if you prefer an external cron job:
 aube -F @author/web run cleanup
 ```
 
-For the current-only AES/Argon2 proof release line, use the explicit cleanup
+For the current-only AES/keyring/Argon2 proof release line, use the explicit cleanup
 task when a database still contains pre-`enc:v3` note envelopes or account
 verifiers that are not `argon2id-scram-sha256:v1`. It writes backups first,
 tombstones active unsupported notes and notebooks, purges unsupported version

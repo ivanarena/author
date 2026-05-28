@@ -29,6 +29,19 @@ supply-chain alerts as release blockers, switch browser key storage to
 session-only for higher-risk browsers, and prefer Android or another local
 client for stronger protection against mutable web code.
 
+Account E2EE uses a client-side keyring. The database stores only the wrapped
+`users.e2ee_keyring` value, not plaintext note keys or recovery codes. Tell
+users to download a fresh recovery kit after signup, after password changes, and
+after any suspected local-key loss. The kit and its recovery code must be stored
+separately; losing both the password unwrap and recovery material can make
+encrypted notes unrecoverable even when the account database is intact.
+For recovery drills or operator-assisted repair, the web package includes
+`aube -F @author/web run e2ee:recover`. Provide
+`AUTHOR_RECOVERY_KIT_PATH`, `AUTHOR_RECOVERY_CODE`,
+`AUTHOR_RECOVERY_USERNAME`, and `AUTHOR_RECOVERY_NEW_PASSWORD`; the script
+prints SQL to update `users.e2ee_keyring` for that account, or JSON when
+`AUTHOR_RECOVERY_OUTPUT=json`.
+
 ## Instances
 
 Run one app process per SQLite database. The local write queue and remote mirror queue are in-process. Multiple containers against the same SQLite file are not supported.

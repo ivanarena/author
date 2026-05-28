@@ -4,6 +4,7 @@
   import AccountDeleteSection from './account/AccountDeleteSection.svelte';
   import AccountPasswordSection from './account/AccountPasswordSection.svelte';
   import AccountProfileSection from './account/AccountProfileSection.svelte';
+  import AccountRecoverySection from './account/AccountRecoverySection.svelte';
   import AccountSignedOutSection from './account/AccountSignedOutSection.svelte';
   import AccountStatusMessage from './account/AccountStatusMessage.svelte';
   import AccountTotpSection from './account/AccountTotpSection.svelte';
@@ -23,6 +24,7 @@
   <CurrentDeviceSection {model} />
   <TrustedDevicesSection {model} />
   <AccountPasswordSection {model} />
+  <AccountRecoverySection {model} />
   <AccountTotpSection {model} />
   <AccountDeleteSection {model} />
   <AccountStatusMessage {model} />

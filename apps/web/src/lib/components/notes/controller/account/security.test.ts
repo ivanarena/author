@@ -4,20 +4,33 @@ import type { NotesAccountActionController } from './types';
 const mocks = vi.hoisted(() => ({
   changePasswordRequest: vi.fn(),
   clearSyncError: vi.fn(),
+  commitEncryptionKeyMaterial: vi.fn(),
+  createRecoveryBundle: vi.fn(),
+  getEncryptionKeyMaterial: vi.fn(),
   getStoredSession: vi.fn(),
+  loadAccount: vi.fn(),
   logout: vi.fn(),
   prepareEncryptionPassword: vi.fn(),
   preflightReencryptLocalNotes: vi.fn(),
   recordLastSyncPass: vi.fn(),
+  recoveryKitFileName: vi.fn(),
+  recoveryKitText: vi.fn(),
   reencryptLocalNotes: vi.fn(),
+  rewrapKeyringForPassword: vi.fn(),
   runSync: vi.fn(),
   setStoredSession: vi.fn(),
-  setupTotp: vi.fn()
+  setupTotp: vi.fn(),
+  updateAccount: vi.fn()
 }));
 
 vi.mock('$lib/client/encryption', () => ({
-  commitEncryptionKeyMaterial: vi.fn(),
-  prepareEncryptionPassword: mocks.prepareEncryptionPassword
+  commitEncryptionKeyMaterial: mocks.commitEncryptionKeyMaterial,
+  createRecoveryBundle: mocks.createRecoveryBundle,
+  getEncryptionKeyMaterial: mocks.getEncryptionKeyMaterial,
+  prepareEncryptionPassword: mocks.prepareEncryptionPassword,
+  recoveryKitFileName: mocks.recoveryKitFileName,
+  recoveryKitText: mocks.recoveryKitText,
+  rewrapKeyringForPassword: mocks.rewrapKeyringForPassword
 }));
 
 vi.mock('$lib/client/store', () => ({
@@ -33,15 +46,17 @@ vi.mock('$lib/client/api-client', () => ({
   changePassword: mocks.changePasswordRequest,
   disableTotp: vi.fn(),
   enableTotp: vi.fn(),
+  loadAccount: mocks.loadAccount,
   logout: mocks.logout,
-  setupTotp: mocks.setupTotp
+  setupTotp: mocks.setupTotp,
+  updateAccount: mocks.updateAccount
 }));
 
 vi.mock('$lib/client/sync', () => ({
   runSync: mocks.runSync
 }));
 
-import { changeAccountPassword } from './security';
+import { changeAccountPassword, downloadRecoveryKit } from './security';
 
 function controller(
   overrides: Partial<NotesAccountActionController> = {}
@@ -53,6 +68,7 @@ function controller(
     accountError: '',
     accountMenuOpen: false,
     accountMessage: '',
+    accountRecoveryCodeValue: '',
     accountPasswordEditing: false,
     accountProfileEditing: false,
     accountTotpCodeValue: '',
@@ -68,6 +84,7 @@ function controller(
     currentDeviceName: '',
     currentPasswordValue: '',
     deletePasswordValue: '',
+    downloadBlob: vi.fn(),
     deviceNameEditing: false,
     deviceNameError: '',
     deviceNameValue: '',
@@ -115,6 +132,27 @@ describe('account security actions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getStoredSession.mockReturnValue(null);
+    mocks.getEncryptionKeyMaterial.mockReturnValue('keyring-material');
+    mocks.loadAccount.mockResolvedValue({ e2eeKeyring: 'old-wrapped' });
+    mocks.rewrapKeyringForPassword.mockResolvedValue('new-wrapped');
+    mocks.changePasswordRequest.mockResolvedValue({
+      user: {
+        username: 'owner',
+        email: null,
+        displayName: null,
+        twoFactorEnabled: false
+      },
+      trustedDevices: [],
+      session: { token: 'next-token', expiresAt: '2026-05-28T12:00:00.000Z' }
+    });
+    mocks.runSync.mockResolvedValue({ pushed: 0, pulled: 0, conflicts: 0 });
+    mocks.createRecoveryBundle.mockResolvedValue({
+      recoveryCode: 'author-recovery-v1-code',
+      recoveryKit: { type: 'author-recovery-kit' },
+      e2eeKeyring: 'wrapped-with-recovery'
+    });
+    mocks.recoveryKitText.mockReturnValue('kit-json');
+    mocks.recoveryKitFileName.mockReturnValue('author-recovery-kit.json');
   });
 
   it('does not rotate password-derived note keys without a session username', async () => {
@@ -139,5 +177,78 @@ describe('account security actions', () => {
     expect(model.accountError).toBe('Sign in again before changing password');
     expect(mocks.prepareEncryptionPassword).not.toHaveBeenCalled();
     expect(mocks.changePasswordRequest).not.toHaveBeenCalled();
+  });
+
+  it('rewraps the account keyring instead of rotating note content on password change', async () => {
+    mocks.getStoredSession.mockReturnValue({
+      token: 'session-token',
+      user: {
+        username: 'owner',
+        email: null,
+        displayName: null,
+        twoFactorEnabled: false
+      },
+      expiresAt: null
+    });
+    const model = controller({
+      currentPasswordValue: 'current-password',
+      newPasswordValue: 'new-password-123',
+      confirmPasswordValue: 'new-password-123'
+    });
+
+    await changeAccountPassword(model);
+
+    expect(mocks.rewrapKeyringForPassword).toHaveBeenCalledWith(
+      'keyring-material',
+      'owner',
+      'new-password-123',
+      'old-wrapped'
+    );
+    expect(mocks.preflightReencryptLocalNotes).toHaveBeenCalledWith(
+      'keyring-material',
+      'keyring-material'
+    );
+    expect(mocks.changePasswordRequest).toHaveBeenCalledWith('session-token', {
+      currentPassword: 'current-password',
+      newPassword: 'new-password-123',
+      e2eeKeyring: 'new-wrapped'
+    });
+    expect(mocks.reencryptLocalNotes).toHaveBeenCalledWith(
+      'keyring-material',
+      'keyring-material'
+    );
+    expect(mocks.commitEncryptionKeyMaterial).toHaveBeenCalledWith(
+      'keyring-material'
+    );
+    expect(mocks.logout).not.toHaveBeenCalled();
+    expect(model.clearLocalSession).not.toHaveBeenCalled();
+    expect(model.accountMessage).toBe('Password changed');
+  });
+
+  it('downloads a recovery kit and persists its recovery wrap', async () => {
+    mocks.getStoredSession.mockReturnValue({
+      token: 'session-token',
+      user: {
+        username: 'owner',
+        email: null,
+        displayName: null,
+        twoFactorEnabled: false
+      },
+      expiresAt: null
+    });
+    const downloadBlob = vi.fn();
+    const model = controller({ downloadBlob });
+
+    await downloadRecoveryKit(model);
+
+    expect(mocks.createRecoveryBundle).toHaveBeenCalledWith('old-wrapped');
+    expect(mocks.updateAccount).toHaveBeenCalledWith('session-token', {
+      e2eeKeyring: 'wrapped-with-recovery'
+    });
+    expect(downloadBlob).toHaveBeenCalledWith(
+      expect.any(Blob),
+      'author-recovery-kit.json'
+    );
+    expect(model.accountRecoveryCodeValue).toBe('author-recovery-v1-code');
   });
 });

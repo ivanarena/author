@@ -10,10 +10,18 @@ import {
   loginWithDevice,
   pullSyncChanges,
   pushSyncChanges,
-  signupWithDevice
+  signupWithDevice,
+  updateE2eeKeyring
 } from './api-client';
 import { localDb, type LocalNote, type LocalNotebook } from './db';
-import { hasStoredEncryptionKeyMaterial } from './encryption';
+import {
+  hasStoredEncryptionKeyMaterial,
+  keyMaterialFromPassword,
+  keyringMaterialFromWrapped,
+  migratePasswordMaterialToAccountKeyring,
+  prepareNewAccountKeyring,
+  type E2eeRecoveryKit
+} from './encryption';
 import {
   absorbSameDevicePushConflict,
   ensureLocalNotesEncrypted,
@@ -67,6 +75,12 @@ export type SyncProgress =
     };
 
 export type SyncProgressCallback = (progress: SyncProgress) => void;
+
+export type E2eeAuthLoginResponse = AuthLoginResponse & {
+  encryptionKeyMaterial?: string;
+  recoveryCode?: string;
+  recoveryKit?: E2eeRecoveryKit;
+};
 
 function safeBaseVersion(record: {
   lastSyncedVersion?: number | null;
@@ -572,29 +586,66 @@ export async function login(
   username: string,
   password: string | null,
   totpCode: string | null = null
-): Promise<AuthLoginResponse> {
+): Promise<E2eeAuthLoginResponse> {
   const device = await getOrCreateDevice();
-  return await loginWithDevice({
+  const response = await loginWithDevice({
     username,
     password,
     totpCode,
     device,
     deviceTrustSecret: getOrCreateDeviceTrustSecret()
   });
+  if (!password?.trim()) return response;
+  if (response.e2eeKeyring) {
+    return {
+      ...response,
+      encryptionKeyMaterial: await keyringMaterialFromWrapped(
+        response.e2eeKeyring,
+        response.user.username,
+        password
+      )
+    };
+  }
+
+  const passwordMaterial = await keyMaterialFromPassword(
+    response.user.username,
+    password
+  );
+  const migrated = await migratePasswordMaterialToAccountKeyring(
+    response.user.username,
+    passwordMaterial
+  );
+  await updateE2eeKeyring(response.token, migrated.e2eeKeyring);
+  return {
+    ...response,
+    e2eeKeyring: migrated.e2eeKeyring,
+    encryptionKeyMaterial: migrated.keyMaterial,
+    recoveryCode: migrated.recoveryCode,
+    recoveryKit: migrated.recoveryKit
+  };
 }
 
 export async function signup(
   username: string,
   email: string,
   password: string
-): Promise<AuthLoginResponse> {
+): Promise<E2eeAuthLoginResponse> {
   const device = await getOrCreateDevice();
+  const keyring = await prepareNewAccountKeyring(username, password);
   const body: AuthSignupRequest = {
     username,
     email,
     password,
+    e2eeKeyring: keyring.e2eeKeyring,
     device,
     deviceTrustSecret: getOrCreateDeviceTrustSecret()
   };
-  return await signupWithDevice(body);
+  const response = await signupWithDevice(body);
+  return {
+    ...response,
+    e2eeKeyring: keyring.e2eeKeyring,
+    encryptionKeyMaterial: keyring.keyMaterial,
+    recoveryCode: keyring.recoveryCode,
+    recoveryKit: keyring.recoveryKit
+  };
 }

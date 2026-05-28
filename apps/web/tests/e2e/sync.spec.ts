@@ -6,7 +6,9 @@ import {
   ENCRYPTION_KEY_MATERIAL_STORAGE_KEY,
   encryptNoteFields,
   isEncryptedText,
-  keyMaterialFromPassword
+  keyMaterialFromPassword,
+  keyringMaterialFromWrapped,
+  migratePasswordMaterialToAccountKeyring
 } from '../../src/lib/client/encryption';
 import {
   authProofFromPassword,
@@ -167,7 +169,33 @@ async function loginForToken(request: APIRequestContext): Promise<string> {
     data: loginBody
   });
   expect(response.ok()).toBe(true);
-  const body = (await response.json()) as { token: string };
+  const body = (await response.json()) as {
+    token: string;
+    e2eeKeyring?: string | null;
+  };
+  if (body.e2eeKeyring) {
+    e2eKeyMaterial = await keyringMaterialFromWrapped(
+      body.e2eeKeyring,
+      loginUsername,
+      loginPassword
+    );
+    return body.token;
+  }
+
+  const passwordMaterial = await keyMaterialFromPassword(
+    loginUsername,
+    loginPassword
+  );
+  const migrated = await migratePasswordMaterialToAccountKeyring(
+    loginUsername,
+    passwordMaterial
+  );
+  const keyringUpdate = await request.patch('/api/account', {
+    headers: { authorization: `Bearer ${body.token}` },
+    data: { e2eeKeyring: migrated.e2eeKeyring }
+  });
+  expect(keyringUpdate.ok()).toBe(true);
+  e2eKeyMaterial = migrated.keyMaterial;
   return body.token;
 }
 
@@ -246,10 +274,6 @@ async function waitForDraftEditorReady(page: Page) {
 test.beforeEach(async ({ page, request }, testInfo) => {
   if (!testsWithoutRemoteTokenSetup.has(testInfo.title)) {
     token = await loginForToken(request);
-    e2eKeyMaterial = await keyMaterialFromPassword(
-      loginUsername,
-      loginPassword
-    );
   }
 
   if (testsWithoutPreloadedSession.has(testInfo.title)) {

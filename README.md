@@ -3,7 +3,7 @@
 [![CI](../../actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
 [![Docker](../../actions/workflows/docker.yml/badge.svg)](../../actions/workflows/docker.yml)
 ![Node 24+](https://img.shields.io/badge/node-%3E%3D24-5FA04E)
-![Aube 1.8](https://img.shields.io/badge/package_manager-aube%201.8-111827)
+![Aube 1.16](https://img.shields.io/badge/package_manager-aube%201.16-111827)
 ![Code style: Prettier](https://img.shields.io/badge/code_style-prettier-F7B93E)
 ![Lint: ESLint](https://img.shields.io/badge/lint-eslint-4B32C3)
 ![Coverage: Vitest](https://img.shields.io/badge/coverage-vitest-6E9F18)
@@ -19,7 +19,7 @@ Install Node.js 24 or newer and Aube first. The recommended path is `mise`:
 ```sh
 curl https://mise.run | sh
 mise use -g node@24
-mise use -g aube@1.8.0
+mise use -g aube@1.16.0
 aube --version
 ```
 

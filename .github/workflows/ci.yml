@@ -17,7 +17,7 @@ concurrency:
 
 env:
   ACTIONLINT_VERSION: v1.7.12
-  AUBE_VERSION: 1.8.0
+  AUBE_VERSION: 1.16.0
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
@@ -26,9 +26,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6.0.2
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v6.4.0
         with:
           go-version: stable
           cache: false
@@ -41,9 +41,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6.0.2
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v6.4.0
         with:
           node-version: 24
 
@@ -85,7 +85,7 @@ jobs:
         run: npx -y "@endevco/aube@${AUBE_VERSION}" run test:coverage
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
           name: coverage-report
@@ -113,9 +113,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6.0.2
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v5.2.0
         with:
           distribution: temurin
           java-version: 21
@@ -142,7 +142,7 @@ jobs:
           AUTHOR_API_URL: https://author.example.invalid
 
       - name: Upload Android reports
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7.0.1
         if: failure()
         with:
           name: android-reports
@@ -156,9 +156,9 @@ jobs:
     needs: android
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6.0.2
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v5.2.0
         with:
           distribution: temurin
           java-version: 21
@@ -181,7 +181,7 @@ jobs:
           script: cd apps/android && ./gradlew :app:connectedDebugAndroidTest
 
       - name: Upload connected test reports
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7.0.1
         if: failure()
         with:
           name: android-connected-reports

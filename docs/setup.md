@@ -12,7 +12,7 @@ Recommended tool install:
 ```sh
 curl https://mise.run | sh
 mise use -g node@24
-mise use -g aube@1.8.0
+mise use -g aube@1.16.0
 ```
 
 For fish:
@@ -21,7 +21,7 @@ For fish:
 curl https://mise.run/fish | sh
 exec fish
 mise use -g node@24
-mise use -g aube@1.8.0
+mise use -g aube@1.16.0
 aube --version
 ```
 
@@ -246,7 +246,7 @@ In the Worker dashboard, go to `Settings > Build` and set:
 
 ```text
 Root directory: /
-Build command: npx -y @endevco/aube@1.8.0 install --frozen-lockfile && npx -y @endevco/aube@1.8.0 run cf:build
+Build command: npx -y @endevco/aube@1.16.0 install --frozen-lockfile && npx -y @endevco/aube@1.16.0 run cf:build
 Deploy command: ./apps/web/node_modules/.bin/wrangler deploy --config apps/web/wrangler.jsonc
 Non-production branch deploy command: ./apps/web/node_modules/.bin/wrangler versions upload --config apps/web/wrangler.jsonc
 ```

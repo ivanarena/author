@@ -2,7 +2,7 @@
   "name": "author",
   "private": true,
   "type": "module",
-  "packageManager": "aube@1.8.0",
+  "packageManager": "aube@1.16.0",
   "pnpm": {
     "overrides": {
       "brace-expansion": "5.0.6"
@@ -44,15 +44,15 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@vitest/coverage-v8": "^4.1.6",
-    "eslint": "^10.2.1",
-    "eslint-plugin-svelte": "^3.17.1",
-    "globals": "^17.5.0",
-    "lint-staged": "^16.4.0",
+    "@vitest/coverage-v8": "^4.1.7",
+    "eslint": "^10.4.0",
+    "eslint-plugin-svelte": "^3.18.0",
+    "globals": "^17.6.0",
+    "lint-staged": "^17.0.5",
     "prettier": "^3.8.3",
-    "prettier-plugin-svelte": "^3.5.1",
-    "svelte": "^5.55.7",
-    "typescript-eslint": "^8.59.1"
+    "prettier-plugin-svelte": "^4.0.1",
+    "svelte": "^5.55.10",
+    "typescript-eslint": "^8.60.0"
   },
   "lint-staged": {
     "*.{js,ts,svelte,css,json,jsonc,md,yml,yaml,html}": [

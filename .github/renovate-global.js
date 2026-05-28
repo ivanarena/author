@@ -3,5 +3,5 @@ module.exports = {
   repositories: [process.env.GITHUB_REPOSITORY],
   onboarding: false,
   requireConfig: 'optional',
-  allowedPostUpgradeCommands: ['^npx -y @endevco/aube@1\\.8\\.0 install$']
+  allowedPostUpgradeCommands: ['^npx -y @endevco/aube@1\\.16\\.0 install$']
 };

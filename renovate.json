@@ -10,7 +10,7 @@
   "rebaseWhen": "conflicted",
   "ignorePaths": ["**/node_modules/**"],
   "postUpgradeTasks": {
-    "commands": ["npx -y @endevco/aube@1.8.0 install"],
+    "commands": ["npx -y @endevco/aube@1.16.0 install"],
     "fileFilters": ["aube-lock.yaml"],
     "executionMode": "branch"
   },
@@ -20,8 +20,10 @@
       "description": "Update the Aube package manager version used by this repo.",
       "managerFilePatterns": [
         "/(^|/)package\\.json$/",
+        "/^README\\.md$/",
         "/^Dockerfile$/",
         "/^docs/package-manager\\.md$/",
+        "/^docs/setup\\.md$/",
         "/^\\.github/workflows/.*\\.yml$/"
       ],
       "matchStrings": [

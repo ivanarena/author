@@ -2,7 +2,7 @@ FROM node:24-slim AS builder
 
 WORKDIR /app
 
-RUN npm install -g @endevco/aube@1.8.0
+RUN npm install -g @endevco/aube@1.16.0
 RUN aube config set enableGlobalVirtualStore false --location project
 
 COPY package.json aube-workspace.yaml aube-lock.yaml ./
@@ -28,7 +28,7 @@ FROM node:24-alpine
 
 WORKDIR /app
 
-RUN npm install -g @endevco/aube@1.8.0
+RUN npm install -g @endevco/aube@1.16.0
 RUN aube config set enableGlobalVirtualStore false --location project
 
 COPY package.json aube-workspace.yaml aube-lock.yaml ./

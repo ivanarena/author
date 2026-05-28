@@ -39,7 +39,8 @@ For recovery drills or operator-assisted repair, the web package includes
 `aube -F @author/web run e2ee:recover`. Provide
 `AUTHOR_RECOVERY_KIT_PATH`, `AUTHOR_RECOVERY_CODE`,
 `AUTHOR_RECOVERY_USERNAME`, and `AUTHOR_RECOVERY_NEW_PASSWORD`; the script
-prints SQL to update `users.e2ee_keyring` for that account, or JSON when
+prints SQL to reset that account's password verifier, revoke active
+sessions/trusted-device login, and update `users.e2ee_keyring`, or JSON when
 `AUTHOR_RECOVERY_OUTPUT=json`.
 
 ## Instances

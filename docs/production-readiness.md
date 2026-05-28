@@ -125,6 +125,8 @@ releases, set the `ANDROID_RELEASE_*` variables documented in
 - Verify account E2EE recovery before launch: signup returns a wrapped keyring,
   password change rewraps that keyring without rotating note ciphertext, and a
   downloaded recovery kit plus recovery code restores the same key material.
+  Operator recovery drills should also confirm `e2ee:recover` resets the
+  password verifier and revokes existing sessions/trusted-device login.
 - Keep exactly one app process pointed at each local SQLite database.
 - Treat Docker image scan failures as release blockers. The CI workflow scans
   before publishing, then uploads a SARIF artifact for review.

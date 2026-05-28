@@ -175,12 +175,6 @@ class NoteCrypto(
     securePrefs.remove(KEY_MATERIAL_KEY)
   }
 
-  fun rememberEncryptionPassword(username: String, password: String): Pair<String, String> {
-    val rotation = prepareEncryptionPassword(username, password)
-    commitEncryptionKeyMaterial(rotation.second)
-    return rotation
-  }
-
   fun prepareEncryptionPassword(
     username: String,
     password: String,

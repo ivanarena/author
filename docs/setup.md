@@ -448,6 +448,18 @@ migrations:
 aube -F @author/web run cleanup:current-only -- --target=both --apply
 ```
 
+To repair an account from an E2EE recovery kit, set
+`AUTHOR_RECOVERY_KIT_PATH`, `AUTHOR_RECOVERY_CODE`,
+`AUTHOR_RECOVERY_USERNAME`, and `AUTHOR_RECOVERY_NEW_PASSWORD`, then run:
+
+```sh
+aube -F @author/web run e2ee:recover
+```
+
+The script prints SQL that resets the account password verifier, revokes active
+sessions and trusted-device login, and stores a password-wrapped replacement
+`e2ee_keyring`.
+
 ## Development
 
 ```sh

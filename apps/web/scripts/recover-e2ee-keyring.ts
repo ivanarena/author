@@ -5,6 +5,11 @@ import {
   rewrapKeyringForPassword,
   type E2eeRecoveryKit
 } from '../src/lib/client/encryption';
+import {
+  AUTH_PROOF_ALGORITHM,
+  authKdfParamsString,
+  passwordVerifierFromPassword
+} from '../src/lib/shared/auth-proof';
 
 function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -29,12 +34,19 @@ const e2eeKeyring = await rewrapKeyringForPassword(
   username,
   newPassword
 );
+const verifier = await passwordVerifierFromPassword(newPassword);
+const passwordHash = `${AUTH_PROOF_ALGORITHM}:v1:${authKdfParamsString(
+  verifier.params
+)}:${verifier.storedKey}:${verifier.serverKey}`;
+const passwordSalt = verifier.salt;
 
 if (output === 'json') {
   console.log(
     JSON.stringify(
       {
         username,
+        passwordHash,
+        passwordSalt,
         e2eeKeyring,
         recoveryKit: JSON.parse(recoveryKitText(kit))
       },
@@ -46,11 +58,15 @@ if (output === 'json') {
   console.log(
     [
       'BEGIN;',
-      `UPDATE users SET e2ee_keyring = ${sqlString(
-        e2eeKeyring
-      )}, updated_at = CURRENT_TIMESTAMP WHERE username = ${sqlString(
+      `DELETE FROM auth_sessions WHERE username = ${sqlString(username)};`,
+      `DELETE FROM trusted_auth_devices WHERE username = ${sqlString(
         username
       )};`,
+      `UPDATE users SET password_hash = ${sqlString(
+        passwordHash
+      )}, password_salt = ${sqlString(passwordSalt)}, e2ee_keyring = ${sqlString(
+        e2eeKeyring
+      )}, updated_at = CURRENT_TIMESTAMP WHERE username = ${sqlString(username)};`,
       'COMMIT;'
     ].join('\n')
   );

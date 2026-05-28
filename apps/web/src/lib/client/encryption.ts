@@ -398,20 +398,6 @@ export async function rewrapKeyringForPassword(
   );
 }
 
-export async function rememberEncryptionPassword(
-  username: string,
-  password: string,
-  e2eeKeyring?: string | null
-): Promise<{ previousMaterial: string; nextMaterial: string }> {
-  const rotation = await prepareEncryptionPassword(
-    username,
-    password,
-    e2eeKeyring
-  );
-  commitEncryptionKeyMaterial(rotation.nextMaterial);
-  return rotation;
-}
-
 export async function prepareEncryptionPassword(
   username: string,
   password: string,

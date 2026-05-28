@@ -219,6 +219,47 @@
   white-space: nowrap;
 }
 
+.settings-toggle-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 11px 12px;
+  color: var(--text);
+}
+
+.settings-toggle-row input {
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  accent-color: var(--accent);
+}
+
+.settings-toggle-row > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settings-toggle-row strong,
+.settings-toggle-row small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+
+.settings-toggle-row strong {
+  font-size: 13px;
+}
+
+.settings-toggle-row small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .sync-overview-card small {
   color: var(--muted);
   font-size: 12px;

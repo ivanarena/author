@@ -90,6 +90,7 @@ import {
 } from './remote-sync';
 import { checkRecordLimits } from './record-limits';
 import { isSecureRequest } from './security-headers';
+import { databaseBackupSnapshot } from './backup-scheduler';
 
 type ApiBindings = RuntimeEnv;
 
@@ -97,20 +98,45 @@ type ApiContext = Context<{ Bindings: ApiBindings }>;
 
 export const api = new Hono<{ Bindings: ApiBindings }>();
 
+const REQUEST_DURATION_BUCKETS_SECONDS = [
+  0.005, 0.025, 0.1, 0.5, 1, 2.5, 5, 10
+] as const;
+
+type ApiMetricEntry = {
+  count: number;
+  errors: number;
+  durationSum: number;
+  durationBuckets: number[];
+};
+
+const apiMetrics = new Map<string, ApiMetricEntry>();
+
 api.onError((error, c) => {
   const message = error instanceof Error ? error.message : '';
   if (message === 'Turso primary database is not configured') {
-    return c.json({ error: 'Server database is not configured' }, 503);
+    const response = c.json(
+      { error: 'Server database is not configured' },
+      503
+    );
+    applyNoStoreApiHeaders(response);
+    return response;
   }
   if (
     message.includes('NOTES_SERVER_SECRET') ||
     message.includes('NOTES_LOGIN_PASSWORD')
   ) {
-    return c.json({ error: 'Server authentication is not configured' }, 503);
+    const response = c.json(
+      { error: 'Server authentication is not configured' },
+      503
+    );
+    applyNoStoreApiHeaders(response);
+    return response;
   }
 
   console.error('API request failed:', message || error);
-  return c.json({ error: 'Internal server error' }, 500);
+  const response = c.json({ error: 'Internal server error' }, 500);
+  applyNoStoreApiHeaders(response);
+  return response;
 });
 
 function mergeVaryHeader(existing: string | null, additions: string[]): string {
@@ -134,15 +160,76 @@ function applyNoStoreApiHeaders(response: Response): void {
   );
 }
 
+function metricLabelValue(value: string): string {
+  return value.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
+}
+
+function apiMetricKey(method: string, path: string): string {
+  return `${method.toUpperCase()} ${path}`;
+}
+
+function apiMetricEntry(method: string, path: string): ApiMetricEntry {
+  const key = apiMetricKey(method, path);
+  const existing = apiMetrics.get(key);
+  if (existing) return existing;
+  const created = {
+    count: 0,
+    errors: 0,
+    durationSum: 0,
+    durationBuckets: REQUEST_DURATION_BUCKETS_SECONDS.map(() => 0)
+  };
+  apiMetrics.set(key, created);
+  return created;
+}
+
+function observeApiRequest(
+  method: string,
+  path: string,
+  status: number,
+  durationSeconds: number
+): void {
+  const entry = apiMetricEntry(method, path);
+  entry.count += 1;
+  if (status >= 500) entry.errors += 1;
+  entry.durationSum += durationSeconds;
+  for (const [index, bucket] of REQUEST_DURATION_BUCKETS_SECONDS.entries()) {
+    if (durationSeconds <= bucket) entry.durationBuckets[index] += 1;
+  }
+}
+
 api.use('*', async (c, next) => {
   setRuntimeEnv(c.env);
+  const started = performance.now();
+  const path = new URL(c.req.url).pathname;
   const originError = rejectCrossOriginMutation(c);
   if (originError) {
     applyNoStoreApiHeaders(originError);
+    observeApiRequest(
+      c.req.method,
+      path,
+      originError.status,
+      (performance.now() - started) / 1000
+    );
     return originError;
   }
-  await next();
-  applyNoStoreApiHeaders(c.res);
+  try {
+    await next();
+    applyNoStoreApiHeaders(c.res);
+    observeApiRequest(
+      c.req.method,
+      path,
+      c.res.status,
+      (performance.now() - started) / 1000
+    );
+  } catch (error) {
+    observeApiRequest(
+      c.req.method,
+      path,
+      500,
+      (performance.now() - started) / 1000
+    );
+    throw error;
+  }
 });
 
 const LOGIN_ATTEMPT_WINDOW_MS = 60_000;
@@ -360,6 +447,7 @@ export async function resetHonoStateForTests(): Promise<void> {
   }
   remoteSyncFailureCount = 0;
   loginAttempts.clear();
+  apiMetrics.clear();
   setRemoteSyncState('synced', {
     pendingSince: null,
     lastError: null
@@ -811,9 +899,44 @@ function unixTimestampSeconds(value: string | null): number {
   return Number.isFinite(timestamp) ? Math.floor(timestamp / 1000) : 0;
 }
 
+function apiMetricsLines(): string[] {
+  const lines = [
+    '# HELP author_http_requests_total API requests by method and path.',
+    '# TYPE author_http_requests_total counter',
+    '# HELP author_http_request_errors_total API requests that returned 5xx responses.',
+    '# TYPE author_http_request_errors_total counter',
+    '# HELP author_http_request_duration_seconds API request duration histogram.',
+    '# TYPE author_http_request_duration_seconds histogram'
+  ];
+  for (const [key, entry] of apiMetrics) {
+    const separator = key.indexOf(' ');
+    const method = key.slice(0, separator);
+    const path = key.slice(separator + 1);
+    const labels = `method="${metricLabelValue(method)}",path="${metricLabelValue(path)}"`;
+    lines.push(`author_http_requests_total{${labels}} ${entry.count}`);
+    lines.push(`author_http_request_errors_total{${labels}} ${entry.errors}`);
+    for (const [index, bucket] of REQUEST_DURATION_BUCKETS_SECONDS.entries()) {
+      lines.push(
+        `author_http_request_duration_seconds_bucket{${labels},le="${bucket}"} ${entry.durationBuckets[index]}`
+      );
+    }
+    lines.push(
+      `author_http_request_duration_seconds_bucket{${labels},le="+Inf"} ${entry.count}`
+    );
+    lines.push(
+      `author_http_request_duration_seconds_sum{${labels}} ${entry.durationSum.toFixed(6)}`
+    );
+    lines.push(
+      `author_http_request_duration_seconds_count{${labels}} ${entry.count}`
+    );
+  }
+  return lines;
+}
+
 function metricsBody(c?: ApiContext): string {
   const remote = remoteSyncSnapshot(c);
   const state = remote.state;
+  const backup = databaseBackupSnapshot();
   return [
     '# HELP author_up App process liveness.',
     '# TYPE author_up gauge',
@@ -846,7 +969,26 @@ function metricsBody(c?: ApiContext): string {
     metricLine(
       'author_remote_sync_pending',
       state === 'queued' || state === 'syncing' ? 1 : 0
-    )
+    ),
+    '# HELP author_database_backup_enabled Whether scheduled local SQLite backups are enabled.',
+    '# TYPE author_database_backup_enabled gauge',
+    metricLine('author_database_backup_enabled', backup.enabled ? 1 : 0),
+    '# HELP author_database_backup_running Whether a scheduled database backup is running.',
+    '# TYPE author_database_backup_running gauge',
+    metricLine('author_database_backup_running', backup.running ? 1 : 0),
+    '# HELP author_database_backup_last_success_timestamp_seconds Last successful scheduled backup timestamp.',
+    '# TYPE author_database_backup_last_success_timestamp_seconds gauge',
+    metricLine(
+      'author_database_backup_last_success_timestamp_seconds',
+      unixTimestampSeconds(backup.lastSuccessAt)
+    ),
+    '# HELP author_database_backup_last_failure_timestamp_seconds Last failed scheduled backup timestamp.',
+    '# TYPE author_database_backup_last_failure_timestamp_seconds gauge',
+    metricLine(
+      'author_database_backup_last_failure_timestamp_seconds',
+      unixTimestampSeconds(backup.lastFailureAt)
+    ),
+    ...apiMetricsLines()
   ].join('\n');
 }
 

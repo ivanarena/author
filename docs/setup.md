@@ -57,7 +57,7 @@ NOTES_BACKUP_INTERVAL_MINUTES=1440
 NOTES_BACKUP_RETENTION_COUNT=14
 ```
 
-`NOTES_LOGIN_USERNAME` and `NOTES_LOGIN_PASSWORD` bootstrap the first local user if it does not already exist. After login, the server returns a random session token in an HttpOnly cookie and in the JSON response for the current app session; browsers keep only account metadata in local storage.
+`NOTES_LOGIN_USERNAME` and `NOTES_LOGIN_PASSWORD` bootstrap the first local user if it does not already exist. After login, the server returns a random session token in an HttpOnly cookie and in the JSON response for the current app session; browsers keep only account metadata in local storage. Signed-in browsers keep encrypted-note key material locally by default for offline restarts, and the account settings can switch the current browser to session-only key storage.
 `NOTES_SERVER_SECRET` encrypts server-side auth secrets such as TOTP seeds at rest. Set it to a long random value and keep it stable across deploys, backups, and restores. Production runtime fails closed for TOTP seed encryption when this value is missing.
 When 2FA is enabled, a browser or Android install that has already completed a password login can request a new session with username plus TOTP code. The device must still have its local trusted-login secret and local encryption key material for encrypted note sync.
 New account and bootstrap passwords must be at least 12 characters. In production, there is no fallback password; set `NOTES_LOGIN_PASSWORD` or create a user before expecting browser login to work.
@@ -213,8 +213,9 @@ Add these GitHub secrets for the `Remote Staging Smoke` workflow:
 - `STAGING_NOTES_AUTH_SESSION_DAYS` and `STAGING_NOTES_METRICS_TOKEN`: optional staging runtime values.
 
 Run the smoke test manually from GitHub Actions after adding the secrets. The
-same workflow also runs weekly; scheduled runs skip cleanly until the required
-staging secrets exist. The workflow deploys the staging Worker with staging
+same workflow also runs weekly; scheduled runs fail when required staging
+secrets are missing unless `AUTHOR_REMOTE_STAGING_ALLOW_SKIP=true` is set as a
+repository variable. The workflow deploys the staging Worker with staging
 secrets, seeds the remote test account with current Argon2id credentials and
 `enc:v3` AES-GCM note data, then verifies login, session validation, encrypted
 pull/push, stale-write conflicts, and cleanup.
@@ -400,7 +401,7 @@ Set `NOTES_TRUST_PROXY_HEADERS=true` only when the proxy strips untrusted incomi
 ## Health and Metrics
 
 - `/api/health` returns JSON liveness.
-- `/api/metrics` returns Prometheus text for process uptime and remote-sync state. It requires a signed-in session by default. For Prometheus, set `NOTES_METRICS_TOKEN` and send it as `x-author-metrics-token` or a bearer token. Set `NOTES_METRICS_PUBLIC=true` only on a trusted private network.
+- `/api/metrics` returns Prometheus text for process uptime, HTTP request counts/errors/duration buckets, scheduled backup status, and remote-sync state. It requires a signed-in session by default. For Prometheus, set `NOTES_METRICS_TOKEN` and send it as `x-author-metrics-token` or a bearer token. Set `NOTES_METRICS_PUBLIC=true` only on a trusted private network.
 
 Ship container stdout/stderr to your host logs. Remote sync failures and cleanup failures are logged without secrets; use the in-app sync debug panel for the last client-side sync error.
 

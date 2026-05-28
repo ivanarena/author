@@ -1,10 +1,12 @@
 package com.author.core
 
 import android.content.Context
+import android.database.sqlite.SQLiteDatabase
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -38,6 +40,37 @@ class NotesDatabaseInstrumentedTest {
       assertEquals(2, db.pendingSyncCount())
     } finally {
       db.close()
+    }
+  }
+
+  @Test
+  fun encryptsTheDatabaseFileAtRest() {
+    val db = NotesDatabase(context)
+    try {
+      db.putDevice(Device("device-1", "Android test"))
+    } finally {
+      db.close()
+    }
+
+    val plaintext = runCatching {
+      SQLiteDatabase.openDatabase(
+        context.getDatabasePath("author.db").absolutePath,
+        null,
+        SQLiteDatabase.OPEN_READONLY,
+      )
+    }
+    val opened = plaintext.getOrNull()
+    try {
+      if (opened != null) {
+        val query = runCatching {
+          opened.rawQuery("SELECT count(*) FROM devices", null).use { it.moveToFirst() }
+        }
+        if (query.isSuccess) {
+          fail("Android SQLite opened the encrypted Author database without SQLCipher")
+        }
+      }
+    } finally {
+      opened?.close()
     }
   }
 

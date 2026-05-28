@@ -3,11 +3,31 @@ package com.author.core
 import android.content.ContentValues
 import android.content.Context
 import android.database.Cursor
-import android.database.sqlite.SQLiteDatabase
-import android.database.sqlite.SQLiteOpenHelper
+import java.io.File
+import java.security.SecureRandom
+import net.zetetic.database.sqlcipher.SQLiteDatabase
+import net.zetetic.database.sqlcipher.SQLiteOpenHelper
 import org.json.JSONArray
 
-class NotesDatabase(context: Context) : SQLiteOpenHelper(context, "author.db", null, 2) {
+private const val DATABASE_NAME = "author.db"
+private const val DATABASE_VERSION = 2
+private const val DATABASE_KEY_PREF = "author-database-key-material-v1"
+
+class NotesDatabase(
+  context: Context,
+  securePrefs: SecurePreferenceStore = defaultSecurePreferences(context),
+) :
+  SQLiteOpenHelper(
+    context.applicationContext,
+    DATABASE_NAME,
+    prepareDatabase(context.applicationContext, securePrefs),
+    null,
+    DATABASE_VERSION,
+    0,
+    null,
+    null,
+    false,
+  ) {
   override fun onCreate(db: SQLiteDatabase) {
     db.execSQL(
       """
@@ -217,6 +237,98 @@ class NotesDatabase(context: Context) : SQLiteOpenHelper(context, "author.db", n
 
   fun pendingSyncCount(): Int = pendingNotes().size + pendingNotebooks().size
 }
+
+private fun defaultSecurePreferences(context: Context): SecurePreferenceStore =
+  SecurePreferenceStore(
+    context.applicationContext.getSharedPreferences("author", Context.MODE_PRIVATE)
+  )
+
+private fun prepareDatabase(context: Context, securePrefs: SecurePreferenceStore): String {
+  System.loadLibrary("sqlcipher")
+  val password = databasePassword(securePrefs)
+  migratePlaintextDatabaseIfNeeded(context, password)
+  return password
+}
+
+private fun databasePassword(securePrefs: SecurePreferenceStore): String {
+  securePrefs
+    .getString(DATABASE_KEY_PREF)
+    ?.takeIf { it.isNotBlank() }
+    ?.let {
+      return it
+    }
+  val key = ByteArray(32)
+  SecureRandom().nextBytes(key)
+  return base64UrlEncode(key).also { securePrefs.putString(DATABASE_KEY_PREF, it) }
+}
+
+private fun migratePlaintextDatabaseIfNeeded(context: Context, password: String) {
+  val dbFile = context.getDatabasePath(DATABASE_NAME)
+  if (!dbFile.exists() || canOpenEncryptedDatabase(dbFile, password)) return
+
+  val tempFile = File(dbFile.parentFile, "${dbFile.name}.sqlcipher-migrating")
+  val backupFile = File(dbFile.parentFile, "${dbFile.name}.plaintext-backup")
+  tempFile.delete()
+  backupFile.delete()
+
+  var source: SQLiteDatabase? = null
+  try {
+    source =
+      SQLiteDatabase.openDatabase(
+        dbFile.absolutePath,
+        "",
+        null,
+        SQLiteDatabase.OPEN_READWRITE,
+        null,
+      )
+    source.rawQuery("PRAGMA wal_checkpoint(FULL)", emptyArray<String>()).use {}
+    source.rawExecSQL(
+      "ATTACH DATABASE ${sqlString(tempFile.absolutePath)} AS encrypted KEY ${sqlString(password)}"
+    )
+    source.rawQuery("SELECT sqlcipher_export('encrypted')", emptyArray<String>()).use {}
+    source.rawExecSQL("PRAGMA encrypted.user_version = $DATABASE_VERSION")
+    source.rawExecSQL("DETACH DATABASE encrypted")
+  } finally {
+    source?.close()
+  }
+
+  if (!dbFile.renameTo(backupFile)) {
+    tempFile.delete()
+    throw IllegalStateException("Could not prepare encrypted Android database")
+  }
+  if (!tempFile.renameTo(dbFile)) {
+    backupFile.renameTo(dbFile)
+    tempFile.delete()
+    throw IllegalStateException("Could not install encrypted Android database")
+  }
+  deleteDatabaseSidecars(dbFile)
+  backupFile.delete()
+}
+
+private fun canOpenEncryptedDatabase(dbFile: File, password: String): Boolean {
+  var db: SQLiteDatabase? = null
+  return runCatching {
+      db =
+        SQLiteDatabase.openDatabase(
+          dbFile.absolutePath,
+          password,
+          null,
+          SQLiteDatabase.OPEN_READONLY,
+          null,
+        )
+      db.rawQuery("SELECT count(*) FROM sqlite_master", emptyArray<String>()).use {}
+    }
+    .also { db?.close() }
+    .isSuccess
+}
+
+private fun deleteDatabaseSidecars(dbFile: File) {
+  listOf("-journal", "-shm", "-wal").forEach { suffix ->
+    File("${dbFile.absolutePath}$suffix").delete()
+  }
+}
+
+private fun sqlString(value: String): String = "'${value.replace("'", "''")}'"
 
 data class RawConflict(
   val id: String,

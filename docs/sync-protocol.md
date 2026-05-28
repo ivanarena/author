@@ -45,12 +45,16 @@ release that can republish data as `enc:v3` before running this version. If a cu
 older note envelopes or old password key material, it stops instead of rewriting that ciphertext as
 literal text. Current `enc:v3` envelopes also fail closed when the active key material or field
 context cannot authenticate them, which prevents ciphertext from being republished as note text.
-Sync-capable browser key material is persisted on the signed-in device so users can
-keep working offline and survive normal browser restarts without a password prompt; unsigned
-local-only browsers generate random local key material in `localStorage` so offline drafts still
-work without an account. This avoids storing note plaintext remotely by default, but Author is
-intentionally not a hardened zero-knowledge system: account recovery and offline usability are
-allowed to take priority over making every server or browser compromise unrecoverable.
+Sync-capable browser key material is stored on the signed-in browser by default
+so users can keep working offline and survive normal browser restarts without a
+password prompt. The account settings for the current browser can switch that
+material to session-only storage; after a browser restart the user must sign in
+again before encrypted notes can sync or decrypt. Unsigned local-only browsers
+generate random local key material in `localStorage` so offline drafts still work
+without an account. This avoids storing note plaintext remotely by default, but
+Author is intentionally not a hardened zero-knowledge system: account recovery
+and offline usability are allowed to take priority over making every server or
+browser compromise unrecoverable.
 Account authentication also runs Argon2id on the client, using a separate
 SCRAM-style challenge/proof verifier from the note encryption key material.
 This keeps Worker request CPU low and avoids sending raw passwords to the API,

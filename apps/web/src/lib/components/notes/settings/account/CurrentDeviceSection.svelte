@@ -72,4 +72,23 @@
       </button>
     </div>
   {/if}
+  <label class="settings-toggle-row">
+    <input
+      type="checkbox"
+      checked={model.encryptionKeyStorageMode === 'persistent'}
+      disabled={model.isAccountBusy}
+      onchange={(event) =>
+        model.setEncryptionKeyStorageMode(
+          event.currentTarget.checked ? 'persistent' : 'session'
+        )}
+    />
+    <span>
+      <strong>Keep sync key after browser restart</strong>
+      <small>
+        {model.encryptionKeyStorageMode === 'persistent'
+          ? 'Offline restart stays unlocked on this browser'
+          : 'Restart requires sign-in before sync'}
+      </small>
+    </span>
+  </label>
 </div>

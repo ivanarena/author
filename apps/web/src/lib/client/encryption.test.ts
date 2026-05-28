@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Note, Notebook } from '@author/schema';
 import {
   ENCRYPTION_KEY_MATERIAL_STORAGE_KEY,
+  ENCRYPTION_KEY_MATERIAL_STORAGE_MODE_KEY,
   ENCRYPTION_DECRYPT_FAILED_MESSAGE,
   assertSupportedEncryptionKeyMaterial,
   canDecryptEncryptedText,
@@ -13,6 +14,7 @@ import {
   encryptNotebookFields,
   encryptNoteFields,
   encryptText,
+  getEncryptionKeyMaterialStorageMode,
   getEncryptionKeyMaterial,
   hasStoredEncryptionKeyMaterial,
   isCurrentEncryptedText,
@@ -20,7 +22,8 @@ import {
   isEncryptedText,
   isUnsupportedEncryptedText,
   keyMaterialFromPassword,
-  reencryptNoteFields
+  reencryptNoteFields,
+  setEncryptionKeyMaterialStorageMode
 } from './encryption';
 
 const note: Note = {
@@ -270,6 +273,50 @@ describe('client note encryption', () => {
     clearStoredEncryptionKeyMaterial();
     expect(hasStoredEncryptionKeyMaterial()).toBe(false);
     expect(session.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY)).toBeNull();
+  });
+
+  it('can keep sync key material session-only on hardened browsers', async () => {
+    const storage = new MemoryStorage();
+    const session = new MemoryStorage();
+    vi.stubGlobal('localStorage', storage);
+    vi.stubGlobal('sessionStorage', session);
+    const material = await keyMaterialFromPassword('Owner', 'test-password');
+
+    setEncryptionKeyMaterialStorageMode('session');
+    commitEncryptionKeyMaterial(material);
+
+    expect(getEncryptionKeyMaterialStorageMode()).toBe('session');
+    expect(storage.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY)).toBeNull();
+    expect(session.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY)).toBe(material);
+    expect(hasStoredEncryptionKeyMaterial()).toBe(true);
+
+    session.clear();
+    expect(hasStoredEncryptionKeyMaterial()).toBe(false);
+    expect(getEncryptionKeyMaterial()).toMatch(/^local:v2:/);
+    expect(storage.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY)).toMatch(
+      /^local:v2:/
+    );
+  });
+
+  it('moves existing sync key material when the browser storage mode changes', async () => {
+    const storage = new MemoryStorage();
+    const session = new MemoryStorage();
+    vi.stubGlobal('localStorage', storage);
+    vi.stubGlobal('sessionStorage', session);
+    const material = await keyMaterialFromPassword('Owner', 'test-password');
+
+    commitEncryptionKeyMaterial(material);
+    setEncryptionKeyMaterialStorageMode('session');
+
+    expect(storage.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_MODE_KEY)).toBe(
+      'session'
+    );
+    expect(storage.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY)).toBeNull();
+    expect(session.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY)).toBe(material);
+
+    setEncryptionKeyMaterialStorageMode('persistent');
+    expect(storage.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY)).toBe(material);
+    expect(session.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY)).toBe(material);
   });
 
   it('derives Argon2id-only password key material', async () => {

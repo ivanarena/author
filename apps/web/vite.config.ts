@@ -85,10 +85,10 @@ export default defineConfig(({ mode }) => {
           'src/lib/components/**/*.css'
         ],
         thresholds: {
-          statements: 62,
-          branches: 53,
-          functions: 65,
-          lines: 64
+          statements: 64,
+          branches: 55,
+          functions: 72,
+          lines: 65
         }
       }
     }

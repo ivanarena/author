@@ -5,10 +5,14 @@ import { normalizeNotebookName } from './note-utils';
 export const ENCRYPTION_PREFIX = 'enc:v3:';
 export const ENCRYPTION_KEY_MATERIAL_STORAGE_KEY =
   'author-encryption-key-material-v1';
+export const ENCRYPTION_KEY_MATERIAL_STORAGE_MODE_KEY =
+  'author-encryption-key-material-mode-v1';
 export const ENCRYPTION_UPGRADE_REQUIRED_MESSAGE =
   'This workspace uses an older encryption format. Open it with the migration-capable release first, then return to this version.';
 export const ENCRYPTION_DECRYPT_FAILED_MESSAGE =
   'Encrypted note data cannot be decrypted with the active key material. Sign in again before syncing or changing this workspace.';
+
+export type EncryptionKeyMaterialStorageMode = 'persistent' | 'session';
 
 const HASH_V2_PREFIX = 'hash:v2:';
 const LOCAL_KEY_MATERIAL_PREFIX = 'local:v2:';
@@ -119,13 +123,16 @@ async function canDecryptEnvelopeWithMaterial(
 export function getEncryptionKeyMaterial(): string {
   const currentStorage = storage();
   const currentSessionStorage = sessionStorageSafe();
+  const mode = getEncryptionKeyMaterialStorageMode();
   const sessionMaterial = currentSessionStorage?.getItem(
     ENCRYPTION_KEY_MATERIAL_STORAGE_KEY
   );
   if (sessionMaterial) return sessionMaterial;
 
   const stored = currentStorage?.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY);
-  if (stored) {
+  if (stored && mode === 'session' && isSyncKeyMaterial(stored)) {
+    currentStorage?.removeItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY);
+  } else if (stored) {
     return stored;
   }
   if (currentStorage) {
@@ -136,6 +143,45 @@ export function getEncryptionKeyMaterial(): string {
 
   volatileKeyMaterial ??= generateLocalKeyMaterial();
   return volatileKeyMaterial;
+}
+
+export function getEncryptionKeyMaterialStorageMode(): EncryptionKeyMaterialStorageMode {
+  return storage()?.getItem(ENCRYPTION_KEY_MATERIAL_STORAGE_MODE_KEY) ===
+    'session'
+    ? 'session'
+    : 'persistent';
+}
+
+export function setEncryptionKeyMaterialStorageMode(
+  mode: EncryptionKeyMaterialStorageMode
+): void {
+  const currentStorage = storage();
+  const currentSessionStorage = sessionStorageSafe();
+  currentStorage?.setItem(ENCRYPTION_KEY_MATERIAL_STORAGE_MODE_KEY, mode);
+
+  const sessionMaterial = currentSessionStorage?.getItem(
+    ENCRYPTION_KEY_MATERIAL_STORAGE_KEY
+  );
+  const persistentMaterial = currentStorage?.getItem(
+    ENCRYPTION_KEY_MATERIAL_STORAGE_KEY
+  );
+  const activeMaterial = sessionMaterial ?? persistentMaterial;
+  if (!activeMaterial || !isSyncKeyMaterial(activeMaterial)) return;
+
+  if (mode === 'session') {
+    currentSessionStorage?.setItem(
+      ENCRYPTION_KEY_MATERIAL_STORAGE_KEY,
+      activeMaterial
+    );
+    currentStorage?.removeItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY);
+    return;
+  }
+
+  currentStorage?.setItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY, activeMaterial);
+  currentSessionStorage?.setItem(
+    ENCRYPTION_KEY_MATERIAL_STORAGE_KEY,
+    activeMaterial
+  );
 }
 
 export function hasStoredEncryptionKeyMaterial(): boolean {
@@ -209,7 +255,11 @@ export async function prepareEncryptionPassword(
 
 export function commitEncryptionKeyMaterial(keyMaterial: string): void {
   if (isSyncKeyMaterial(keyMaterial)) {
-    storage()?.setItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY, keyMaterial);
+    if (getEncryptionKeyMaterialStorageMode() === 'persistent') {
+      storage()?.setItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY, keyMaterial);
+    } else {
+      storage()?.removeItem(ENCRYPTION_KEY_MATERIAL_STORAGE_KEY);
+    }
     sessionStorageSafe()?.setItem(
       ENCRYPTION_KEY_MATERIAL_STORAGE_KEY,
       keyMaterial

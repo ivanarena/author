@@ -37,7 +37,9 @@ aube run cf:deploy
 ```
 
 For the separate staging Worker/Turso pair, run the `Remote Staging Smoke`
-workflow or run locally with staging credentials:
+workflow or run locally with staging credentials. Scheduled staging smoke fails
+when required secrets are missing unless the repository variable
+`AUTHOR_REMOTE_STAGING_ALLOW_SKIP=true` is set explicitly.
 
 ```sh
 aube run remote:test:seed
@@ -82,7 +84,8 @@ releases, set the `ANDROID_RELEASE_*` variables documented in
   primary trash cleanup runs without manual API calls.
 - If 2FA is enabled, keep `NOTES_SERVER_SECRET` with restore credentials and
   still treat database files, mirrors, and backups as sensitive auth material.
-- Review `/api/health` and authenticated `/api/metrics` after deploy.
+- Review `/api/health` and authenticated `/api/metrics` after deploy,
+  including HTTP error/latency buckets, backup freshness, and remote-sync state.
 - Verify the web app opens once while online, then reloads while offline. The
   service worker caches the app shell and static assets after first load, while
   API requests remain network-only.
@@ -92,7 +95,8 @@ releases, set the `ANDROID_RELEASE_*` variables documented in
 - Treat the browser threat model honestly: client-side Argon2 proofs keep
   Workers CPU low and avoid raw-password API requests, but XSS or a malicious
   deployed web bundle can still read passwords, local key material, and
-  decrypted notes.
+  decrypted notes. Use session-only browser key storage on devices where restart
+  unlock should require an explicit sign-in.
 - Keep exactly one app process pointed at each local SQLite database.
 - Treat Docker image scan failures as release blockers. The CI workflow scans
   before publishing, then uploads a SARIF artifact for review.
@@ -114,8 +118,7 @@ releases, set the `ANDROID_RELEASE_*` variables documented in
 - Treat very large modules as refactor candidates when changing nearby behavior.
   Current hotspots are the web notes page controller, server repository, Hono
   API module, and Android notes repository/controller.
-- Crypto and Android storage hardening remain versioned migration work, not
-  formatting work. If the threat model expands beyond encrypted note fields and
-  disabled Android backups, plan an explicit content-key/KDF migration and
-  evaluate SQLCipher or equivalent full-database encryption for Android
-  metadata defense in depth.
+- Android stores the local notes database through SQLCipher with the database
+  key held in Android Keystore-backed secure preferences. Crypto hardening
+  beyond that, such as content-key rotation or hardware-bound unlock policy,
+  remains versioned migration work rather than formatting work.

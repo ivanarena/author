@@ -293,7 +293,13 @@ describe('Hono API', () => {
       })
     );
     expect(authorizedMetrics.status).toBe(200);
-    await expect(authorizedMetrics.text()).resolves.toContain('author_up 1');
+    const metricsBody = await authorizedMetrics.text();
+    expect(metricsBody).toContain('author_up 1');
+    expect(metricsBody).toContain('author_http_requests_total');
+    expect(metricsBody).toContain(
+      'author_http_request_duration_seconds_bucket'
+    );
+    expect(metricsBody).toContain('author_database_backup_enabled');
 
     const pull = await post('/api/sync/pull', { since: null }, 'bad-token');
     expect(pull.status).toBe(401);
@@ -377,7 +383,9 @@ describe('Hono API', () => {
       })
     );
     expect(authorized.status).toBe(200);
-    await expect(authorized.text()).resolves.toContain('author_up 1');
+    const metricsBody = await authorized.text();
+    expect(metricsBody).toContain('author_up 1');
+    expect(metricsBody).toContain('author_http_request_errors_total');
   });
 
   it('sets an HttpOnly auth cookie and accepts cookie-backed sessions', async () => {

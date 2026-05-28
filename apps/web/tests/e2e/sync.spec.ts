@@ -1,5 +1,6 @@
 import type { APIRequestContext, Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 import {
   decryptNoteFields,
   ENCRYPTION_KEY_MATERIAL_STORAGE_KEY,
@@ -651,7 +652,7 @@ test('keeps local drafts when signing in and then syncs them remote', async ({
   await page.getByLabel('Note body').fill(bodyText);
   await expectBrowserStoredEncryptedNote(page, titleText, bodyText);
 
-  await page.getByRole('button', { name: 'Profile and settings' }).click();
+  await openProfileMenu(page);
   await page.getByRole('menuitem', { name: 'Sign in to sync' }).click();
   const loginDialog = page.getByRole('dialog', { name: 'Sign in' });
   await loginDialog.getByLabel('Username').fill(loginUsername);
@@ -676,7 +677,7 @@ test('keeps local drafts when signing in and then syncs them remote', async ({
 
 test('exports Markdown without closing settings', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Profile and settings' }).click();
+  await openProfileMenu(page);
   await page.getByRole('menuitem', { name: 'Settings' }).click();
   await page.getByRole('button', { name: 'Data' }).click();
   await expect(page.getByText('Markdown', { exact: true })).toBeVisible();
@@ -871,4 +872,39 @@ test('persists in browser IndexedDB, syncs, and shows stale-edit conflicts', asy
       { timeout: 15_000 }
     )
     .toBe('Local browser version');
+});
+
+test('has no serious app-shell accessibility violations @a11y', async ({
+  page
+}) => {
+  await page.goto('/');
+  await waitForDraftEditorReady(page);
+
+  const results = await new AxeBuilder({ page }).include('body').analyze();
+  const violations = results.violations.filter((violation) =>
+    ['critical', 'serious'].includes(violation.impact ?? '')
+  );
+
+  expect(
+    violations.map((violation) => ({
+      id: violation.id,
+      impact: violation.impact,
+      nodes: violation.nodes.map((node) => node.target)
+    }))
+  ).toEqual([]);
+});
+
+test('keeps the editor usable on a narrow mobile viewport @mobile', async ({
+  page
+}) => {
+  await page.goto('/');
+  await waitForDraftEditorReady(page);
+
+  const titleText = `Mobile viewport note ${Date.now()}`;
+  const bodyText = 'Written on the narrow browser project';
+
+  await page.getByLabel('Note title').fill(titleText);
+  await page.getByLabel('Note body').fill(bodyText);
+  await expect(page.getByLabel('Note body')).toHaveValue(bodyText);
+  await expectBrowserStoredEncryptedNote(page, titleText, bodyText);
 });

@@ -2,7 +2,12 @@ import { onMount, tick } from 'svelte';
 import type { Device } from '@author/schema';
 import type { RemoteSyncState, TrustedAuthDevice } from '@author/api-types';
 import type { LocalConflict, LocalNote, LocalNotebook } from '$lib/client/db';
-import { hasStoredEncryptionKeyMaterial } from '$lib/client/encryption';
+import {
+  getEncryptionKeyMaterialStorageMode,
+  hasStoredEncryptionKeyMaterial,
+  setEncryptionKeyMaterialStorageMode,
+  type EncryptionKeyMaterialStorageMode
+} from '$lib/client/encryption';
 import {
   clearDebugLog,
   debugLogUpdatedEventName,
@@ -172,6 +177,8 @@ export class NotesPageController
   deviceNameEditing = $state(false);
   deviceNameValue = $state('');
   deviceNameError = $state('');
+  encryptionKeyStorageMode =
+    $state<EncryptionKeyMaterialStorageMode>('persistent');
   currentPasswordValue = $state('');
   newPasswordValue = $state('');
   confirmPasswordValue = $state('');
@@ -866,6 +873,16 @@ export class NotesPageController
     await accountActions.saveDeviceName(this);
   };
 
+  setEncryptionKeyStorageMode = (mode: EncryptionKeyMaterialStorageMode) => {
+    setEncryptionKeyMaterialStorageMode(mode);
+    this.encryptionKeyStorageMode = getEncryptionKeyMaterialStorageMode();
+    this.deviceOtpLoginAvailable = hasStoredEncryptionKeyMaterial();
+    this.accountMessage =
+      mode === 'session'
+        ? 'Sync key will be forgotten when this browser session ends.'
+        : 'Sync key will stay on this browser for offline restarts.';
+  };
+
   startAccountPasswordEdit = () => {
     accountActions.startAccountPasswordEdit(this);
   };
@@ -964,6 +981,7 @@ export class NotesPageController
       );
       this.loginUsernameValue = getLoginHint();
       this.deviceOtpLoginAvailable = hasStoredEncryptionKeyMaterial();
+      this.encryptionKeyStorageMode = getEncryptionKeyMaterialStorageMode();
       await this.refreshPublicConfig();
       if (storedSession?.token && !hasStoredEncryptionKeyMaterial()) {
         recordDebugLog({

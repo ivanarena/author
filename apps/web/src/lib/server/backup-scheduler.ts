@@ -13,6 +13,9 @@ import { openDatabase, type NotesDb } from './db';
 declare global {
   var __authorDatabaseBackupScheduler: NodeJS.Timeout | undefined;
   var __authorDatabaseBackupRunning: boolean | undefined;
+  var __authorDatabaseBackupLastSuccessAt: string | undefined;
+  var __authorDatabaseBackupLastFailureAt: string | undefined;
+  var __authorDatabaseBackupLastPath: string | undefined;
 }
 
 function sqlString(value: string): string {
@@ -102,9 +105,12 @@ export async function runScheduledDatabaseBackup(
       getDatabaseBackupRetentionCount()
     );
     console.info(`Database backup written to ${backupPath}`);
+    globalThis.__authorDatabaseBackupLastSuccessAt = now.toISOString();
+    globalThis.__authorDatabaseBackupLastPath = backupPath;
     return backupPath;
   } catch (error) {
     console.error('Database backup failed', error);
+    globalThis.__authorDatabaseBackupLastFailureAt = now.toISOString();
     return null;
   } finally {
     db?.close();
@@ -132,4 +138,18 @@ export function startDatabaseBackupScheduler(): void {
     void runScheduledDatabaseBackup();
   }, intervalMs);
   globalThis.__authorDatabaseBackupScheduler.unref?.();
+}
+
+export function databaseBackupSnapshot(): {
+  enabled: boolean;
+  running: boolean;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+} {
+  return {
+    enabled: isDatabaseBackupSchedulerEnabled() && !isTursoPrimaryDatabase(),
+    running: Boolean(globalThis.__authorDatabaseBackupRunning),
+    lastSuccessAt: globalThis.__authorDatabaseBackupLastSuccessAt ?? null,
+    lastFailureAt: globalThis.__authorDatabaseBackupLastFailureAt ?? null
+  };
 }

@@ -35,6 +35,7 @@ jobs:
           STAGING_NOTES_LOGIN_PASSWORD: ${{ secrets.STAGING_NOTES_LOGIN_PASSWORD }}
           STAGING_NOTES_SERVER_SECRET: ${{ secrets.STAGING_NOTES_SERVER_SECRET }}
           AUTHOR_REMOTE_TEST_PASSWORD: ${{ secrets.AUTHOR_REMOTE_TEST_PASSWORD }}
+          AUTHOR_REMOTE_STAGING_ALLOW_SKIP: ${{ vars.AUTHOR_REMOTE_STAGING_ALLOW_SKIP }}
         run: |
           node <<'NODE'
           const fs = require('node:fs');
@@ -55,12 +56,15 @@ jobs:
           if (missing.length > 0) {
             output.write('configured=false\n');
             const message = `Missing staging secrets: ${missing.join(', ')}`;
-            if (process.env.GITHUB_EVENT_NAME === 'workflow_dispatch') {
-              console.error(message);
-              process.exit(1);
+            const allowSkip =
+              process.env.GITHUB_EVENT_NAME === 'schedule' &&
+              process.env.AUTHOR_REMOTE_STAGING_ALLOW_SKIP === 'true';
+            if (allowSkip) {
+              console.log(`${message}. Skipping scheduled remote staging smoke by explicit opt-in.`);
+              process.exit(0);
             }
-            console.log(`${message}. Skipping scheduled remote staging smoke.`);
-            process.exit(0);
+            console.error(message);
+            process.exit(1);
           }
           output.write('configured=true\n');
           NODE

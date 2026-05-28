@@ -25,7 +25,8 @@ offline password guessing after a database leak. It does not make the web app
 immune to JavaScript compromise: XSS, a malicious deployed bundle, or a
 compromised origin can still read passwords, local encryption key material, and
 decrypted note content. Keep the CSP strict, avoid third-party scripts, treat
-supply-chain alerts as release blockers, and prefer Android or another local
+supply-chain alerts as release blockers, switch browser key storage to
+session-only for higher-risk browsers, and prefer Android or another local
 client for stronger protection against mutable web code.
 
 ## Instances
@@ -39,7 +40,7 @@ typing and local maintenance are not blocked by Turso/network latency.
 ## Monitoring
 
 - `/api/health`: liveness JSON.
-- `/api/metrics`: Prometheus text for uptime and remote-sync state. It is authenticated by default; set `NOTES_METRICS_TOKEN` for scrapers, or `NOTES_METRICS_PUBLIC=true` only on a private trusted network.
+- `/api/metrics`: Prometheus text for uptime, HTTP request counts/errors/duration buckets, scheduled backup status, and remote-sync state. It is authenticated by default; set `NOTES_METRICS_TOKEN` for scrapers, or `NOTES_METRICS_PUBLIC=true` only on a private trusted network.
 - Logs: stdout/stderr. Warnings include remote mirror failures and scheduler failures, without Turso tokens or session tokens.
 
 ## Turso Usage Guard

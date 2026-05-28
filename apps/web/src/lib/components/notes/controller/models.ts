@@ -1,5 +1,6 @@
 import type { RemoteSyncState, TrustedAuthDevice } from '@author/api-types';
 import type { LocalConflict, LocalNote, LocalNotebook } from '$lib/client/db';
+import type { EncryptionKeyMaterialStorageMode } from '$lib/client/encryption';
 import type { ResolvedTheme, StoredTheme } from '$lib/client/local-state';
 import type {
   NoteGroup,
@@ -155,6 +156,7 @@ export interface NavigationDockModel
   deviceNameEditing: boolean;
   deviceNameValue: string;
   deviceNameError: string;
+  encryptionKeyStorageMode: EncryptionKeyMaterialStorageMode;
   isAccountBusy: boolean;
   isSyncing: boolean;
   isArchiveBusy: boolean;
@@ -173,6 +175,7 @@ export interface NavigationDockModel
   changeAccountPassword: () => void | Promise<void>;
   saveAccountTotp: () => void | Promise<void>;
   saveDeviceName: () => void | Promise<void>;
+  setEncryptionKeyStorageMode: (mode: EncryptionKeyMaterialStorageMode) => void;
   revokeTrustedDevice: (deviceId: string) => void | Promise<void>;
   logoutAccount: () => void | Promise<void>;
   deleteAccount: () => void | Promise<void>;
@@ -244,6 +247,7 @@ export interface SettingsModalModel {
   deviceNameEditing: boolean;
   deviceNameValue: string;
   deviceNameError: string;
+  encryptionKeyStorageMode: EncryptionKeyMaterialStorageMode;
   isAccountBusy: boolean;
   isSyncing: boolean;
   isImporting: boolean;
@@ -296,6 +300,7 @@ export interface SettingsModalModel {
   changeAccountPassword: () => void | Promise<void>;
   saveAccountTotp: () => void | Promise<void>;
   saveDeviceName: () => void | Promise<void>;
+  setEncryptionKeyStorageMode: (mode: EncryptionKeyMaterialStorageMode) => void;
   revokeTrustedDevice: (deviceId: string) => void | Promise<void>;
   logoutAccount: () => void | Promise<void>;
   deleteAccount: () => void | Promise<void>;

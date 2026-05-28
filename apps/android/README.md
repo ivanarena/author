@@ -36,8 +36,10 @@ The emulator starts with a visible window and no boot animation. Set
 `~/.android/avd`.
 
 The app is implemented with Kotlin and Jetpack Compose. Local changes are saved
-first in the on-device SQLite database, then pushed/pulled through the same sync
-protocol as the web app.
+first in an on-device SQLCipher database, then pushed/pulled through the same
+sync protocol as the web app. The database key is generated locally and stored
+through Android Keystore-backed secure preferences; note fields remain encrypted
+for sync before leaving the device.
 
 ## Release Validation
 

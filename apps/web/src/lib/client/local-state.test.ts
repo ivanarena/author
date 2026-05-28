@@ -172,6 +172,21 @@ describe('local browser state', () => {
     });
   });
 
+  it('fails closed when token state exists without account identity metadata', () => {
+    setStoredSession({
+      token: 'session-token',
+      user: {
+        username: '  ',
+        email: null,
+        displayName: null,
+        twoFactorEnabled: false
+      },
+      expiresAt: null
+    });
+
+    expect(getStoredSession()).toBeNull();
+  });
+
   it('can explicitly clear stored encryption key material', () => {
     clearStoredSession({ clearEncryptionKeyMaterial: true });
 

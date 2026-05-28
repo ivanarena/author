@@ -50,8 +50,14 @@ export function cancelAccountPasswordEdit(
 export async function changeAccountPassword(
   controller: NotesAccountActionController
 ): Promise<void> {
-  const token = getStoredSession()?.token ?? null;
-  if (!token || controller.isAccountBusy) return;
+  const session = getStoredSession();
+  if (!session || controller.isAccountBusy) return;
+  const token = session.token;
+  const username = session.user.username.trim();
+  if (!username) {
+    controller.accountError = 'Sign in again before changing password';
+    return;
+  }
   if (!controller.currentPasswordValue.trim()) {
     controller.accountError = 'Current password required';
     return;
@@ -75,7 +81,7 @@ export async function changeAccountPassword(
   let passwordChanged = false;
   try {
     const encryption = await prepareEncryptionPassword(
-      controller.accountUsername,
+      username,
       controller.newPasswordValue
     );
     await preflightReencryptLocalNotes(

@@ -139,11 +139,13 @@ class NotesRepository(context: Context) {
 
   fun getStoredSession(): StoredSession? {
     val token = securePrefs.getString(TOKEN_KEY) ?: return null
+    val username = prefs.getString(USERNAME_KEY, null)?.trim().orEmpty()
+    if (username.isEmpty()) return null
     return StoredSession(
       token = token,
       user =
         AuthUser(
-          username = prefs.getString(USERNAME_KEY, "") ?: "",
+          username = username,
           email = prefs.getString(EMAIL_KEY, null),
           displayName = prefs.getString(DISPLAY_NAME_KEY, null),
           twoFactorEnabled = prefs.getBoolean(TWO_FACTOR_KEY, false),
@@ -672,8 +674,9 @@ class NotesRepository(context: Context) {
     newPassword: String,
   ): AccountResponse =
     withContext(Dispatchers.IO) {
-      val (previous, next) =
-        crypto.prepareEncryptionPassword(getStoredSession()?.user?.username ?: "", newPassword)
+      val username =
+        requireStoredSessionUsernameForSensitiveOperation(getStoredSession(), "changing password")
+      val (previous, next) = crypto.prepareEncryptionPassword(username, newPassword)
       preflightReencryptLocalNotesInternal(previous, next)
       val challenge = syncClient.authChallenge(null, "password_change", token)
       val proof = crypto.authProofFromPassword(currentPassword, challenge)
@@ -1879,3 +1882,12 @@ private fun SharedPreferences.Editor.putNullableString(
   key: String,
   value: String?,
 ): SharedPreferences.Editor = if (value == null) remove(key) else putString(key, value)
+
+internal fun requireStoredSessionUsernameForSensitiveOperation(
+  session: StoredSession?,
+  operation: String,
+): String {
+  val username = session?.user?.username?.trim().orEmpty()
+  require(username.isNotEmpty()) { "Sign in again before $operation" }
+  return username
+}

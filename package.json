@@ -30,6 +30,8 @@
     "test:coverage": "aube -F @author/sync-spec run test:coverage && aube -F @author/web run test:coverage",
     "test:e2e": "aube -F @author/web run test:e2e",
     "deps:check": "aube check",
+    "android:verify": "cd apps/android && ./gradlew spotlessCheck :app:compileDebugKotlin :app:testDebugUnitTest :app:assembleDebug :app:lintDebug",
+    "release:verify": "aube run deps:check && aube run quality && aube audit --prod && aube audit --audit-level high && aube deprecations --transitive --exit-code && aube run test:coverage && aube run test:e2e && aube -F @author/web run build && aube -F @author/web run cf:build && aube run android:verify",
     "seed": "aube -F @author/web run seed",
     "remote:test:seed": "aube -F @author/web run remote:test:seed",
     "remote:test": "aube -F @author/web run remote:test",

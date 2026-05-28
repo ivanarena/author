@@ -150,11 +150,13 @@ export function clearToken(): void {
 export function getStoredSession(): StoredSession | null {
   const token = getToken();
   if (!token) return null;
+  const username = getUsername()?.trim();
+  if (!username) return null;
 
   return {
     token,
     user: {
-      username: getUsername() ?? '',
+      username,
       email: getEmail(),
       displayName: getDisplayName(),
       twoFactorEnabled: getTwoFactorEnabled()

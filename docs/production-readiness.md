@@ -9,6 +9,16 @@ Android APK. The focused setup details stay in `docs/setup.md`,
 Run these from the repo root:
 
 ```sh
+aube run release:verify
+```
+
+That command runs the main local release gate: dependency graph check, format,
+lint, Svelte typecheck, production and high-severity audits, deprecation check,
+sync-spec and web coverage, browser e2e, Node and Cloudflare builds, and Android
+format/compile/unit/debug/lint checks. For targeted troubleshooting, the same
+gate expands to:
+
+```sh
 aube run deps:check
 aube run quality
 aube audit --prod
@@ -19,8 +29,11 @@ aube run test:coverage
 aube run test:e2e
 aube -F @author/web run build
 aube -F @author/web run cf:build
-docker build .
+aube run android:verify
 ```
+
+For Docker releases, also run `docker build .` and review the image scan results
+from CI before publishing.
 
 If Playwright has not been used on the machine before, install Chromium first:
 
@@ -102,6 +115,21 @@ releases, set the `ANDROID_RELEASE_*` variables documented in
   before publishing, then uploads a SARIF artifact for review.
 - Verify Android update notifications with a manifest URL or release URL before
   distributing a sideloaded APK.
+
+## External Assurance
+
+For a public service or competitor-grade release, green local checks are not
+enough. Treat these as release blockers outside the repo:
+
+- Run the Cloudflare/Turso staging smoke against isolated staging credentials.
+- Restore a fresh backup into a separate environment and run `db:check` before
+  upgrading production.
+- Build and scan the Docker image, then review the uploaded Trivy SARIF before
+  publishing.
+- Keep release images signed with Cosign and Android APKs signed with protected
+  release keys.
+- Commission an independent security review before claiming hardened
+  zero-knowledge security, audited crypto, or enterprise-grade assurance.
 
 ## Code Health
 

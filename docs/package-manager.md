@@ -40,6 +40,7 @@ aube -F @author/web run dev
 aube -F @author/web run build
 aube -F @author/web run check
 aube run test
+aube run release:verify
 ```
 
 ## Build Scripts

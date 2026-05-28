@@ -24,6 +24,7 @@ jobs:
   workflow-lint:
     name: Workflow lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
 
@@ -38,6 +39,7 @@ jobs:
   web:
     name: Web
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
 
@@ -94,9 +96,11 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
         working-directory: apps/web
+        timeout-minutes: 15
 
       - name: Browser sync tests
         run: npx -y "@endevco/aube@${AUBE_VERSION}" -F @author/web run test:e2e
+        timeout-minutes: 15
 
       - name: Production build
         run: npx -y "@endevco/aube@${AUBE_VERSION}" run build
@@ -107,6 +111,7 @@ jobs:
   android:
     name: Android
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
 
@@ -149,6 +154,7 @@ jobs:
     name: Android Connected
     runs-on: ubuntu-latest
     needs: android
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
 

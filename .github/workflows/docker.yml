@@ -21,6 +21,7 @@ jobs:
   scan:
     name: Scan image
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     if: >-
       ${{
         github.event_name == 'pull_request' ||
@@ -87,6 +88,7 @@ jobs:
     name: Publish signed image
     runs-on: ubuntu-latest
     needs: scan
+    timeout-minutes: 35
     if: >-
       ${{
         github.event_name == 'workflow_run' &&

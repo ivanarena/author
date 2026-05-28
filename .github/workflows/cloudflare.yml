@@ -25,6 +25,7 @@ jobs:
   deploy:
     name: Deploy Worker
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: >-
       ${{
         (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||

@@ -22,6 +22,7 @@ jobs:
   signed-apk:
     name: Signed APK
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v5
         with:

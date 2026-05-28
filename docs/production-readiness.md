@@ -32,8 +32,20 @@ aube -F @author/web run cf:build
 aube run android:verify
 ```
 
-For Docker releases, also run `docker build .` and review the image scan results
-from CI before publishing.
+For release-candidate builds from a local workstation, also run:
+
+```sh
+aube run release:verify:local
+aube run docker:verify
+```
+
+For deployments with staging credentials, run:
+
+```sh
+aube run staging:verify
+```
+
+Review the Docker image scan results from CI before publishing.
 
 If Playwright has not been used on the machine before, install Chromium first:
 

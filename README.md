@@ -63,6 +63,7 @@ Use `docs/production-readiness.md` as the release checklist for web, API,
 Docker, and Android. It centralizes the commands and deployment requirements;
 the focused setup and operations details remain in `docs/setup.md` and
 `docs/operations.md`.
+The longer product/security hardening path lives in `docs/upgrade-plan.md`.
 
 ## Self-Hosting
 

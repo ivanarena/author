@@ -5,6 +5,8 @@ import {
   localDb,
   type LocalConflict,
   type LocalNote,
+  type LocalNoteSnapshot,
+  type LocalNoteSnapshotReason,
   type LocalNotebook
 } from './db';
 import {
@@ -46,6 +48,7 @@ const ENCRYPTION_AUDIT_VERSION = 'keyring-aes:v7';
 
 const LOCAL_WORKSPACE_OWNER_KEY = 'localWorkspaceOwner';
 const LAST_PULL_CURSOR_RESET_KEY = 'lastPullCursorResetAt';
+const MAX_LOCAL_NOTE_SNAPSHOTS_PER_NOTE = 50;
 const VALID_SYNC_STATUSES = new Set([
   'synced',
   'pending',
@@ -238,10 +241,16 @@ export async function updateNoteContent(
   const note = await localDb.notes.get(noteId);
   if (!note || note.deletedAt) return null;
 
+  const plainNote = await decryptNoteFields(note);
+  const trimmedTitle = title.trim();
+  if (plainNote.title === trimmedTitle && plainNote.body === body) {
+    return plainNote;
+  }
+
   const device = await getOrCreateDevice();
   const updated: LocalNote = {
     ...note,
-    title: title.trim(),
+    title: trimmedTitle,
     body,
     updatedAt: nowIso(),
     deviceId: device.id,
@@ -249,6 +258,7 @@ export async function updateNoteContent(
     syncStatus: 'pending'
   };
 
+  await recordLocalNoteSnapshot(note, 'edit');
   await localDb.notes.put(await encryptNoteFields(updated));
   return updated;
 }
@@ -294,6 +304,7 @@ export async function moveNoteToTrash(noteId: string): Promise<void> {
 
   const device = await getOrCreateDevice();
   const now = nowIso();
+  await recordLocalNoteSnapshot(note, 'trash');
   await localDb.notes.put({
     ...note,
     trashedAt: now,
@@ -310,6 +321,7 @@ export async function restoreNote(noteId: string): Promise<void> {
 
   const device = await getOrCreateDevice();
   const now = nowIso();
+  await recordLocalNoteSnapshot(note, 'restore');
   await localDb.notes.put({
     ...note,
     trashedAt: null,
@@ -324,6 +336,7 @@ export async function deleteNotePermanently(noteId: string): Promise<void> {
   const note = await localDb.notes.get(noteId);
   if (!note || note.deletedAt) return;
 
+  await deleteLocalNoteSnapshots(noteId);
   if (isLocalOnlyRecord(note)) {
     await localDb.notes.delete(noteId);
     return;
@@ -340,6 +353,89 @@ export async function deleteNotePermanently(noteId: string): Promise<void> {
     version: note.version + 1,
     syncStatus: 'pending'
   });
+}
+
+export async function loadNoteSnapshots(
+  noteId: string,
+  limit = 20
+): Promise<LocalNoteSnapshot[]> {
+  const snapshots = await localDb.noteSnapshots
+    .where('id')
+    .equals(noteId)
+    .toArray();
+  const sorted = sortLocalNoteSnapshots(snapshots).slice(0, limit);
+  return Promise.all(sorted.map((snapshot) => decryptNoteFields(snapshot)));
+}
+
+export async function restoreLatestNoteSnapshot(
+  noteId: string
+): Promise<LocalNote | null> {
+  const note = await localDb.notes.get(noteId);
+  if (!note || note.deletedAt || note.trashedAt) return null;
+
+  const [snapshot] = await loadNoteSnapshots(noteId, 1);
+  if (!snapshot) return null;
+
+  const device = await getOrCreateDevice();
+  const now = nowIso();
+  const updated: LocalNote = {
+    ...note,
+    title: snapshot.title,
+    body: snapshot.body,
+    updatedAt: now,
+    deviceId: device.id,
+    version: note.version + 1,
+    syncStatus: 'pending'
+  };
+
+  await recordLocalNoteSnapshot(note, 'restore');
+  await localDb.notes.put(await encryptNoteFields(updated));
+  return updated;
+}
+
+async function recordLocalNoteSnapshot(
+  note: LocalNote,
+  reason: LocalNoteSnapshotReason
+): Promise<void> {
+  if (note.deletedAt) return;
+
+  const savedAt = nowIso();
+  const snapshot: LocalNoteSnapshot = {
+    ...note,
+    snapshotId: newId(),
+    savedAt,
+    reason
+  };
+  await localDb.noteSnapshots.put(await encryptNoteFields(snapshot));
+  await pruneLocalNoteSnapshots(note.id);
+}
+
+async function pruneLocalNoteSnapshots(noteId: string): Promise<void> {
+  const snapshots = await localDb.noteSnapshots
+    .where('id')
+    .equals(noteId)
+    .toArray();
+  const expired = sortLocalNoteSnapshots(snapshots).slice(
+    MAX_LOCAL_NOTE_SNAPSHOTS_PER_NOTE
+  );
+  if (!expired.length) return;
+  await localDb.noteSnapshots.bulkDelete(
+    expired.map((snapshot) => snapshot.snapshotId)
+  );
+}
+
+async function deleteLocalNoteSnapshots(noteId: string): Promise<void> {
+  await localDb.noteSnapshots.where('id').equals(noteId).delete();
+}
+
+function sortLocalNoteSnapshots(
+  snapshots: LocalNoteSnapshot[]
+): LocalNoteSnapshot[] {
+  return [...snapshots].sort(
+    (a, b) =>
+      b.savedAt.localeCompare(a.savedAt) ||
+      b.snapshotId.localeCompare(a.snapshotId)
+  );
 }
 
 export interface LastSyncPass {
@@ -498,6 +594,7 @@ export async function loadRepairDiagnostics(): Promise<RepairDiagnostics> {
   const [
     notes,
     notebooks,
+    noteSnapshots,
     conflicts,
     lastPulledRevision,
     lastPulledAt,
@@ -507,6 +604,7 @@ export async function loadRepairDiagnostics(): Promise<RepairDiagnostics> {
   ] = await Promise.all([
     localDb.notes.toArray(),
     localDb.notebooks.toArray(),
+    localDb.noteSnapshots.toArray(),
     localDb.conflicts.toArray(),
     localDb.syncMeta.get('lastPulledRevision'),
     localDb.syncMeta.get('lastPulledAt'),
@@ -518,7 +616,8 @@ export async function loadRepairDiagnostics(): Promise<RepairDiagnostics> {
   const storedSession = getStoredSession();
   const hasKeyMaterial = hasStoredEncryptionKeyMaterial();
   const hasLocalRecords =
-    notes.length + notebooks.length + conflicts.length > 0;
+    notes.length + notebooks.length + noteSnapshots.length + conflicts.length >
+    0;
   const pendingCount =
     notes.filter((note) => note.syncStatus === 'pending').length +
     notebooks.filter((notebook) => notebook.syncStatus === 'pending').length;
@@ -554,7 +653,7 @@ export async function loadRepairDiagnostics(): Promise<RepairDiagnostics> {
         ? 'ok'
         : 'warning',
       encryptionAudit?.value === ENCRYPTION_AUDIT_VERSION
-        ? 'Stored notes, notebooks, and conflicts have passed the current local encryption audit.'
+        ? 'Stored notes, notebooks, recovery snapshots, and conflicts have passed the current local encryption audit.'
         : !hasLocalRecords
           ? 'No local note records need an encryption audit yet.'
           : hasKeyMaterial
@@ -730,21 +829,24 @@ function invalidNotebookLinks(note: LocalNote): boolean {
 }
 
 export async function localWorkspaceHasUserData(): Promise<boolean> {
-  const [notes, notebooks, conflicts] = await Promise.all([
+  const [notes, notebooks, noteSnapshots, conflicts] = await Promise.all([
     localDb.notes.count(),
     localDb.notebooks.count(),
+    localDb.noteSnapshots.count(),
     localDb.conflicts.count()
   ]);
-  return notes + notebooks + conflicts > 0;
+  return notes + notebooks + noteSnapshots + conflicts > 0;
 }
 
 async function localWorkspaceHasUnsyncedUserData(): Promise<boolean> {
-  const [notes, notebooks, conflicts] = await Promise.all([
+  const [notes, notebooks, noteSnapshots, conflicts] = await Promise.all([
     localDb.notes.toArray(),
     localDb.notebooks.toArray(),
+    localDb.noteSnapshots.toArray(),
     localDb.conflicts.toArray()
   ]);
   return (
+    noteSnapshots.length > 0 ||
     notes.some((note) => note.syncStatus !== 'synced') ||
     notebooks.some((notebook) => notebook.syncStatus !== 'synced') ||
     conflicts.some((conflict) => conflict.status !== 'resolved')
@@ -877,6 +979,45 @@ export async function ensureLocalNotesEncrypted(): Promise<void> {
     );
   }
 
+  const noteSnapshots = await localDb.noteSnapshots.toArray();
+  assertNotesDoNotNeedLegacyMigration(noteSnapshots);
+  const noteSnapshotEncryptionChecks = await Promise.all(
+    noteSnapshots.map(async (snapshot) => ({
+      snapshot,
+      titleDecrypts: await canDecryptEncryptedTextWithPrimaryMaterial(
+        snapshot.title,
+        undefined,
+        `note:${snapshot.id}:title`
+      ),
+      bodyDecrypts: await canDecryptEncryptedTextWithPrimaryMaterial(
+        snapshot.body,
+        undefined,
+        `note:${snapshot.id}:body`
+      )
+    }))
+  );
+  const noteSnapshotsNeedingEncryption = noteSnapshotEncryptionChecks
+    .filter(
+      ({ snapshot, titleDecrypts, bodyDecrypts }) =>
+        !isCurrentEncryptedText(snapshot.title) ||
+        !titleDecrypts ||
+        !isCurrentEncryptedText(snapshot.body) ||
+        !bodyDecrypts ||
+        !isCurrentFieldHash(snapshot.titleHash) ||
+        !isCurrentFieldHash(snapshot.bodyHash)
+    )
+    .map(({ snapshot }) => snapshot);
+  if (noteSnapshotsNeedingEncryption.length) {
+    await saveNoteSnapshotEncryptionChanges(
+      await Promise.all(
+        noteSnapshotsNeedingEncryption.map(async (snapshot) => ({
+          before: snapshot,
+          after: await encryptNoteFields(await decryptNoteFields(snapshot))
+        }))
+      )
+    );
+  }
+
   const notebooks = await localDb.notebooks.toArray();
   assertNotebooksDoNotNeedLegacyMigration(notebooks);
   const notebookEncryptionChecks = await Promise.all(
@@ -932,6 +1073,22 @@ export async function reencryptLocalNotes(
     );
   }
 
+  const noteSnapshots = await localDb.noteSnapshots.toArray();
+  if (noteSnapshots.length) {
+    await saveNoteSnapshotEncryptionChanges(
+      await Promise.all(
+        noteSnapshots.map(async (snapshot) => ({
+          before: snapshot,
+          after: await reencryptNoteFields(
+            snapshot,
+            previousMaterial,
+            nextMaterial
+          )
+        }))
+      )
+    );
+  }
+
   const notebooks = await localDb.notebooks.toArray();
   if (notebooks.length) {
     await saveNotebookEncryptionChanges(
@@ -958,14 +1115,20 @@ export async function preflightReencryptLocalNotes(
 ): Promise<void> {
   if (previousMaterial === nextMaterial) return;
 
-  const [notes, notebooks, conflicts] = await Promise.all([
+  const [notes, noteSnapshots, notebooks, conflicts] = await Promise.all([
     localDb.notes.toArray(),
+    localDb.noteSnapshots.toArray(),
     localDb.notebooks.toArray(),
     localDb.conflicts.toArray()
   ]);
   await Promise.all(
     notes.map((note) =>
       reencryptNoteFields(note, previousMaterial, nextMaterial)
+    )
+  );
+  await Promise.all(
+    noteSnapshots.map((snapshot) =>
+      reencryptNoteFields(snapshot, previousMaterial, nextMaterial)
     )
   );
   await Promise.all(
@@ -995,10 +1158,7 @@ async function markEncryptionAuditCurrent(): Promise<void> {
   });
 }
 
-function noteEncryptedFieldsChanged(
-  before: LocalNote,
-  after: LocalNote
-): boolean {
+function noteEncryptedFieldsChanged(before: Note, after: Note): boolean {
   return (
     before.title !== after.title ||
     before.body !== after.body ||
@@ -1037,6 +1197,17 @@ async function saveNoteEncryptionChanges(
           : 'pending'
     }))
   );
+}
+
+async function saveNoteSnapshotEncryptionChanges(
+  changes: Array<{ before: LocalNoteSnapshot; after: LocalNoteSnapshot }>
+): Promise<void> {
+  const changed = changes.filter(({ before, after }) =>
+    noteEncryptedFieldsChanged(before, after)
+  );
+  if (!changed.length) return;
+
+  await localDb.noteSnapshots.bulkPut(changed.map(({ after }) => after));
 }
 
 async function saveNotebookEncryptionChanges(
@@ -1116,7 +1287,7 @@ function assertSupportedEncryptedText(value: string): void {
   }
 }
 
-function assertNotesDoNotNeedLegacyMigration(notes: LocalNote[]): void {
+function assertNotesDoNotNeedLegacyMigration(notes: Note[]): void {
   for (const note of notes) {
     assertSupportedEncryptedText(note.title);
     assertSupportedEncryptedText(note.body);

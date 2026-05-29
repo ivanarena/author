@@ -48,6 +48,8 @@ Already in place:
   encryption audits, invalid pull cursors, conflicts, and local sync metadata.
 - Local pull-cursor reset that forces a revision-0 recovery pull without
   deleting pending records.
+- Encrypted local note snapshots before edits and Trash/restore transitions,
+  with a restore-previous-version action for the current note.
 - Remote notebook delete/remap handling that avoids orphaned note assignments.
 - Password-change interruption handling that preserves the replacement session
   and records diagnostics when final sync fails.
@@ -141,8 +143,8 @@ Required:
   editor, archive, library, sync, and account flows.
 - Keep pending local records through failed sync, failed password rotation,
   failed imports, remote mirror errors, and cursor reset recovery.
-- Surface note/version history as plain-text recovery, not rich-text history or
-  collaboration state.
+- Keep local note/version history as plain-text recovery, not rich-text history
+  or collaboration state.
 - Keep Markdown/frontmatter import/export portable and covered.
 
 Acceptance:
@@ -153,6 +155,8 @@ Acceptance:
 - Sync paused by import/export resumes without dropping pending changes.
 - Conflict choices keep local, remote, newer/older, and duplicate-both behavior
   explicit.
+- Restore Previous Version recovers the newest encrypted local snapshot as a
+  pending note edit and never revives permanently deleted note history.
 
 ### P1: Tighten Security Claims And Assurance
 
@@ -235,7 +239,7 @@ Allowed:
 
 - Better keyboard navigation, focus behavior, search responsiveness, empty
   states, typography controls, and accessible labels.
-- Plain-text note recovery/history.
+- Browsable plain-text note history beyond the current latest-snapshot restore.
 - Small settings improvements that reduce support burden.
 
 Not allowed without a product-direction change:

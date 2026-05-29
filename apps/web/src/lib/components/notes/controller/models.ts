@@ -353,6 +353,7 @@ export interface ContextMenuModel {
   contextDeleteNotebook: NotebookCallback;
   contextTrashNote: NoteCallback;
   contextRestoreNote: NoteCallback;
+  contextRestorePreviousNoteVersion: NoteCallback;
   contextDeleteNotePermanently: NoteCallback;
   contextNoteMetadataRows: (note: LocalNote) => MetadataRow[];
   contextAssignNotebookForNote: NotebookAssignmentCallback;

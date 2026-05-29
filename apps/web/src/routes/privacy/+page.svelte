@@ -1,7 +1,7 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
 
-  const updated = 'May 28, 2026';
+  const updated = 'May 29, 2026';
 </script>
 
 <svelte:head>
@@ -36,6 +36,16 @@
       work: record ids, notebook assignments, device ids, timestamps, versions,
       sync state, deletion markers, and stable encrypted-name hashes used for
       conflict and duplicate checks.
+    </p>
+  </section>
+
+  <section>
+    <h2>Local recovery snapshots</h2>
+    <p>
+      The browser can keep encrypted local note snapshots before edits and Trash
+      or restore actions so you can restore a previous version on that device.
+      These snapshots stay in the local browser database, are not synced as
+      separate records, and are removed when a note is permanently deleted.
     </p>
   </section>
 

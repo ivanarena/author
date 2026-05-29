@@ -7,8 +7,8 @@ but it is not designed or marketed as a hardened zero-knowledge system.
 ## Security Claims
 
 Current supported claim: Author encrypts synced note fields and account keyrings
-on the client, supports recovery-kit and operator recovery flows, and keeps
-sync conflict handling explicit.
+on the client, supports recovery-kit, operator recovery, and encrypted local
+previous-version recovery flows, and keeps sync conflict handling explicit.
 
 Claims that are not supported yet: independently audited crypto, hardened
 zero-knowledge security, enterprise-grade E2EE assurance, reproducible signed

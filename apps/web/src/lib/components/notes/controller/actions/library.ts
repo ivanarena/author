@@ -8,6 +8,7 @@ import {
   moveNoteToTrash,
   notebookNameExists,
   renameNotebook,
+  restoreLatestNoteSnapshot,
   restoreNote
 } from '$lib/client/store';
 import type { NotesFilterId } from '../models';
@@ -39,6 +40,11 @@ export interface NotesLibraryActionController {
   flushPendingSave: () => Promise<void>;
   localNotebookNameExists: (name: string, excludeId?: string) => boolean;
   newNote: () => Promise<void>;
+  notify?: (
+    kind: 'success' | 'error' | 'info',
+    title: string,
+    message?: string
+  ) => void;
   refresh: () => Promise<void>;
   selectNote: (note: LocalNote) => Promise<void>;
 }
@@ -420,6 +426,36 @@ export async function restoreNoteFromRow(
     (candidate) => candidate.id === note.id
   );
   if (restored) await controller.selectNote(restored);
+}
+
+export async function restorePreviousNoteVersion(
+  controller: NotesLibraryActionController,
+  note: LocalNote
+): Promise<void> {
+  if (note.trashedAt) return;
+  await controller.flushPendingSave();
+  const restored = await restoreLatestNoteSnapshot(note.id);
+  if (!restored) {
+    controller.notify?.(
+      'info',
+      'No previous version',
+      'No local note history is available for this note yet.'
+    );
+    return;
+  }
+
+  await controller.refresh();
+  const current =
+    controller.notes.find((candidate) => candidate.id === restored.id) ??
+    restored;
+  if (controller.selectedNote?.id === note.id) {
+    await controller.selectNote(current);
+  }
+  controller.notify?.(
+    'success',
+    'Previous version restored',
+    'The restored text is saved locally and queued for sync.'
+  );
 }
 
 export async function deleteNotePermanentlyFromRow(

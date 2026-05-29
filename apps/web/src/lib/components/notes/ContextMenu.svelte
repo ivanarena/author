@@ -3,6 +3,7 @@
     ArchiveRestore,
     Check,
     FolderPlus,
+    History,
     Pencil,
     Trash2,
     X
@@ -198,6 +199,16 @@
           </button>
         {/if}
       </div>
+      <button
+        role="menuitem"
+        onclick={(event) => {
+          event.stopPropagation();
+          void model.contextRestorePreviousNoteVersion(contextNote);
+        }}
+      >
+        <History size={14} strokeWidth={1.8} />
+        <span>Restore previous version</span>
+      </button>
       <button
         class="danger"
         role="menuitem"

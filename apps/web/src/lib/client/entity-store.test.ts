@@ -1,14 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LocalConflict, LocalNote } from './db';
+import type { LocalConflict, LocalNote, LocalNoteSnapshot } from './db';
 import {
   adoptLocalWorkspaceForAccount,
   assertLocalWorkspaceCanUseAccount,
   deleteNotePermanently,
   ensureLocalNotesEncrypted,
+  loadNoteSnapshots,
   loadRepairDiagnostics,
   prepareLocalWorkspaceForAccount,
   reencryptLocalNotes,
-  resetPullCursorRecovery
+  resetPullCursorRecovery,
+  restoreLatestNoteSnapshot,
+  updateNoteContent
 } from './entity-store';
 import { clearLocalWorkspace, localDb } from './db';
 import {
@@ -35,6 +38,20 @@ vi.mock('./db', () => ({
       delete: vi.fn(),
       toArray: vi.fn(),
       bulkPut: vi.fn()
+    },
+    noteSnapshots: {
+      count: vi.fn(),
+      get: vi.fn(),
+      put: vi.fn(),
+      toArray: vi.fn(),
+      bulkPut: vi.fn(),
+      bulkDelete: vi.fn(),
+      where: vi.fn(() => ({
+        equals: vi.fn(() => ({
+          toArray: vi.fn(async () => []),
+          delete: vi.fn(async () => undefined)
+        }))
+      }))
     },
     notebooks: {
       count: vi.fn(),
@@ -111,6 +128,18 @@ const note: LocalNote = {
   lastSyncedAt: null
 };
 
+function mockNoteSnapshotQuery(snapshots: LocalNoteSnapshot[]) {
+  const query = {
+    toArray: vi.fn(async () => snapshots),
+    delete: vi.fn(async () => undefined)
+  };
+  const equals = vi.fn(() => query);
+  vi.mocked(localDb.noteSnapshots.where).mockReturnValue({
+    equals
+  } as never);
+  return { equals, query };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(encryptNoteFields).mockImplementation(
@@ -145,6 +174,17 @@ beforeEach(() => {
   vi.mocked(localDb.notes.get).mockResolvedValue(note);
   vi.mocked(localDb.notes.put).mockResolvedValue('note-1');
   vi.mocked(localDb.notes.delete).mockResolvedValue(undefined);
+  vi.mocked(localDb.noteSnapshots.count).mockResolvedValue(0);
+  vi.mocked(localDb.noteSnapshots.toArray).mockResolvedValue([]);
+  vi.mocked(localDb.noteSnapshots.put).mockResolvedValue('snapshot-1');
+  vi.mocked(localDb.noteSnapshots.bulkPut).mockResolvedValue('snapshot-1');
+  vi.mocked(localDb.noteSnapshots.bulkDelete).mockResolvedValue(undefined);
+  vi.mocked(localDb.noteSnapshots.where).mockReturnValue({
+    equals: vi.fn(() => ({
+      toArray: vi.fn(async () => []),
+      delete: vi.fn(async () => undefined)
+    }))
+  } as never);
   vi.mocked(localDb.syncMeta.get).mockResolvedValue(undefined);
   vi.mocked(localDb.syncMeta.put).mockResolvedValue('localWorkspaceOwner');
   vi.mocked(localDb.syncMeta.bulkPut).mockResolvedValue('lastPulledRevision');
@@ -480,6 +520,112 @@ describe('local note encryption sync state', () => {
         })
       })
     ]);
+  });
+});
+
+describe('local note recovery snapshots', () => {
+  it('stores the previous encrypted note before saving changed text', async () => {
+    await updateNoteContent(note.id, 'Updated title', 'Updated body');
+
+    expect(localDb.noteSnapshots.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: note.id,
+        snapshotId: 'test-id',
+        title: note.title,
+        body: note.body,
+        savedAt: '2026-05-06T12:00:00.000Z',
+        reason: 'edit'
+      })
+    );
+    expect(localDb.notes.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: note.id,
+        title: 'Updated title',
+        body: 'Updated body',
+        version: note.version + 1,
+        syncStatus: 'pending'
+      })
+    );
+  });
+
+  it('skips save and snapshot writes when note text is unchanged', async () => {
+    await expect(
+      updateNoteContent(note.id, note.title, note.body)
+    ).resolves.toMatchObject({
+      id: note.id,
+      title: note.title,
+      body: note.body
+    });
+
+    expect(localDb.noteSnapshots.put).not.toHaveBeenCalled();
+    expect(localDb.notes.put).not.toHaveBeenCalled();
+  });
+
+  it('loads snapshots newest first and decrypts them for recovery display', async () => {
+    const older = {
+      ...note,
+      snapshotId: 'older',
+      savedAt: '2026-05-06T10:00:00.000Z',
+      reason: 'edit' as const
+    };
+    const newer = {
+      ...note,
+      title: 'Newer',
+      snapshotId: 'newer',
+      savedAt: '2026-05-06T11:00:00.000Z',
+      reason: 'trash' as const
+    };
+    mockNoteSnapshotQuery([older, newer]);
+
+    await expect(loadNoteSnapshots(note.id)).resolves.toMatchObject([
+      { snapshotId: 'newer', title: 'Newer' },
+      { snapshotId: 'older', title: note.title }
+    ]);
+  });
+
+  it('restores the latest snapshot as a pending local note change', async () => {
+    const snapshot = {
+      ...note,
+      title: 'Recovered title',
+      body: 'Recovered body',
+      snapshotId: 'snapshot-1',
+      savedAt: '2026-05-06T11:00:00.000Z',
+      reason: 'edit' as const
+    };
+    mockNoteSnapshotQuery([snapshot]);
+
+    await expect(restoreLatestNoteSnapshot(note.id)).resolves.toMatchObject({
+      id: note.id,
+      title: 'Recovered title',
+      body: 'Recovered body',
+      version: note.version + 1,
+      syncStatus: 'pending'
+    });
+
+    expect(localDb.noteSnapshots.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: note.id,
+        title: note.title,
+        body: note.body,
+        reason: 'restore'
+      })
+    );
+    expect(localDb.notes.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Recovered title',
+        body: 'Recovered body',
+        syncStatus: 'pending'
+      })
+    );
+  });
+
+  it('drops local history when permanently deleting a note', async () => {
+    const { query } = mockNoteSnapshotQuery([]);
+
+    await deleteNotePermanently(note.id);
+
+    expect(query.delete).toHaveBeenCalled();
+    expect(localDb.notes.delete).toHaveBeenCalledWith(note.id);
   });
 });
 

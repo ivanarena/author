@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   moveNoteToTrash: vi.fn(),
   notebookNameExists: vi.fn(),
   renameNotebook: vi.fn(),
+  restoreLatestNoteSnapshot: vi.fn(),
   restoreNote: vi.fn()
 }));
 
@@ -22,6 +23,7 @@ vi.mock('$lib/client/store', () => ({
   moveNoteToTrash: mocks.moveNoteToTrash,
   notebookNameExists: mocks.notebookNameExists,
   renameNotebook: mocks.renameNotebook,
+  restoreLatestNoteSnapshot: mocks.restoreLatestNoteSnapshot,
   restoreNote: mocks.restoreNote
 }));
 
@@ -33,6 +35,7 @@ import {
   contextCreateNotebookForNote,
   deleteNotePermanentlyFromRow,
   deleteSelectedNotesPermanently,
+  restorePreviousNoteVersion,
   restoreSelectedNotes,
   selectedNotesHaveNotebook,
   submitNewNotebookMenu,
@@ -108,6 +111,7 @@ function controller(
     flushPendingSave: vi.fn(),
     localNotebookNameExists: vi.fn(() => false),
     newNote: vi.fn(),
+    notify: vi.fn(),
     refresh: vi.fn(),
     selectNote: vi.fn(),
     ...overrides
@@ -132,6 +136,7 @@ describe('library actions', () => {
     mocks.moveNoteToTrash.mockResolvedValue(undefined);
     mocks.notebookNameExists.mockResolvedValue(false);
     mocks.renameNotebook.mockResolvedValue(notebook({ name: 'Renamed' }));
+    mocks.restoreLatestNoteSnapshot.mockResolvedValue(null);
     mocks.restoreNote.mockResolvedValue(undefined);
   });
 
@@ -350,5 +355,46 @@ describe('library actions', () => {
       trashed
     );
     expect(mocks.deleteNotePermanently).toHaveBeenCalledWith('trashed');
+  });
+
+  it('restores the latest local note snapshot from the row context', async () => {
+    const selected = note({ id: 'note-1', title: 'Current' });
+    const restored = note({
+      id: 'note-1',
+      title: 'Previous',
+      syncStatus: 'pending'
+    });
+    mocks.restoreLatestNoteSnapshot.mockResolvedValueOnce(restored);
+    const model = controller({
+      selectedNote: selected,
+      notes: [restored]
+    });
+
+    await restorePreviousNoteVersion(model, selected);
+
+    expect(model.flushPendingSave).toHaveBeenCalled();
+    expect(mocks.restoreLatestNoteSnapshot).toHaveBeenCalledWith('note-1');
+    expect(model.refresh).toHaveBeenCalled();
+    expect(model.selectNote).toHaveBeenCalledWith(restored);
+    expect(model.notify).toHaveBeenCalledWith(
+      'success',
+      'Previous version restored',
+      'The restored text is saved locally and queued for sync.'
+    );
+  });
+
+  it('reports when a note has no local snapshot to restore', async () => {
+    const selected = note({ id: 'note-1' });
+    const model = controller({ selectedNote: selected });
+
+    await restorePreviousNoteVersion(model, selected);
+
+    expect(mocks.restoreLatestNoteSnapshot).toHaveBeenCalledWith('note-1');
+    expect(model.selectNote).not.toHaveBeenCalled();
+    expect(model.notify).toHaveBeenCalledWith(
+      'info',
+      'No previous version',
+      'No local note history is available for this note yet.'
+    );
   });
 });

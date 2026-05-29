@@ -1,7 +1,7 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
 
-  const updated = 'May 28, 2026';
+  const updated = 'May 29, 2026';
 </script>
 
 <svelte:head>

@@ -8,6 +8,7 @@ Tables:
 
 - `notes`
 - `notebooks`
+- `noteSnapshots`
 - `devices`
 - `syncMeta`
 - `conflicts`
@@ -18,6 +19,12 @@ Local notes and notebooks include the shared schema fields plus:
 - `lastSyncedAt`
 
 Those fields are local-only and provide the base version used during sync.
+
+`noteSnapshots` stores local-only encrypted note snapshots before text edits,
+Trash moves, and restore-from-history actions. Snapshots use the same note
+field envelope context as the source note, are pruned to the newest 50
+snapshots per note, and are deleted when a note is permanently deleted. They do
+not sync or become API contract fields.
 
 ## Server SQLite/libSQL
 

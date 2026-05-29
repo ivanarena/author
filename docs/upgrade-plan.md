@@ -57,7 +57,8 @@ Required:
 - Keep repair diagnostics current for stale local metadata, missing encryption
   material, denormalized notebook assignments, conflicts, and cursor reset
   recovery.
-- Add note/version history only as plain-text recovery.
+- Keep local note/version history as plain-text recovery, not rich-text history
+  or collaboration state.
 - Keep Markdown/frontmatter import/export portable and tested.
 
 Acceptance:
@@ -67,6 +68,8 @@ Acceptance:
 - Sync queued during import/export resumes instead of dropping pending records.
 - Conflict resolution remains explicit across web, server, shared tests, and
   Android.
+- Restore Previous Version recovers the newest encrypted local snapshot as a
+  pending note edit and never revives permanently deleted note history.
 
 ## Phase 2: E2EE Hardening
 
@@ -147,7 +150,7 @@ Allowed:
 
 - Improve keyboard navigation, focus behavior, quick search, search speed,
   empty-state clarity, typography controls, and accessible labels.
-- Add plain-text note history/recovery.
+- Add browsable plain-text history beyond the current latest-snapshot restore.
 - Polish settings where it reduces support burden.
 
 Avoid unless product direction changes explicitly:

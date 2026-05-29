@@ -831,6 +831,11 @@ export class NotesPageController
     await this.restoreNoteFromRow(note);
   };
 
+  contextRestorePreviousNoteVersion = async (note: LocalNote) => {
+    this.closeContextMenu();
+    await libraryActions.restorePreviousNoteVersion(this, note);
+  };
+
   contextDeleteNotePermanently = async (note: LocalNote) => {
     this.closeContextMenu();
     await this.deleteNotePermanentlyFromRow(note);
@@ -1442,7 +1447,7 @@ export class NotesPageController
     const height =
       menu.type === 'notebook'
         ? 84
-        : Math.min(360, 142 + Math.max(1, this.notebooks.length) * 40);
+        : Math.min(400, 182 + Math.max(1, this.notebooks.length) * 40);
     return {
       ...menu,
       x: Math.min(menu.x, window.innerWidth - width - 8),

@@ -483,3 +483,4 @@ GitHub Actions includes:
 
 - `.github/workflows/ci.yml`: install, check, unit tests, coverage, Playwright browser sync tests, Android debug/release validation, connected Android tests, build.
 - `.github/workflows/docker.yml`: build and publish a GHCR image on pushes to `main`, attach SBOM/provenance, run Trivy scanning, and keylessly sign pushed images. Pull requests build and scan without publishing.
+- `.github/workflows/security.yml`: run OpenSSF Scorecard and CodeQL on pushes, pull requests, weekly schedule, and manual dispatch.

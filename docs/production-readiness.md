@@ -22,6 +22,8 @@ pull-cursor reset path on web and Android, which helps operators recover from
 stale local sync state without touching note data. Competitor-grade security
 claims require the external assurance items below, especially an independent
 security review.
+The no-cost security gates in this repo reduce routine release risk, but they
+are not a substitute for a third-party audit.
 
 ## Web and API
 
@@ -58,6 +60,9 @@ aube run release:verify:local
 aube run docker:verify
 ```
 
+`docker:verify` builds the image and runs a local Trivy scan for high and
+critical OS/library vulnerabilities.
+
 When an Android emulator or device is available, use the connected release gate
 instead of the local gate:
 
@@ -75,6 +80,8 @@ Review the Docker image scan results from CI before publishing.
 GitHub Android release builds require successful `CI`, `Docker`, and
 `Cloudflare Deploy` workflow runs for the exact release commit before a signed
 APK can be attached to a release.
+The separate `Security` workflow runs free OpenSSF Scorecard and CodeQL checks;
+review new findings before publishing public releases.
 
 If Playwright has not been used on the machine before, install Chromium first:
 
@@ -163,6 +170,8 @@ releases, set the `ANDROID_RELEASE_*` variables documented in
 - Keep exactly one app process pointed at each local SQLite database.
 - Treat Docker image scan failures as release blockers. The CI workflow scans
   before publishing, then uploads a SARIF artifact for review.
+- Treat new CodeQL alerts and serious OpenSSF Scorecard regressions as release
+  blockers unless they are documented false positives or accepted risks.
 - Verify Android update notifications with a manifest URL or release URL before
   distributing a sideloaded APK.
 
@@ -176,6 +185,8 @@ enough. Treat these as release blockers outside the repo:
   upgrading production.
 - Build and scan the Docker image, then review the uploaded Trivy SARIF before
   publishing.
+- Review the free CodeQL and OpenSSF Scorecard workflow results for the release
+  commit.
 - Keep release images signed with Cosign and Android APKs signed with protected
   release keys.
 - Verify the GitHub release commit has successful CI, Docker image scan, and
@@ -184,6 +195,19 @@ enough. Treat these as release blockers outside the repo:
   candidates, especially after sync, encryption, database, or auth changes.
 - Commission an independent security review before claiming hardened
   zero-knowledge security, audited crypto, or enterprise-grade assurance.
+
+## No-Cost Assurance
+
+These checks are free and should be kept green, but they only approximate
+external review:
+
+- GitHub Actions are pinned to full commit SHAs and kept current by Renovate.
+- CodeQL scans JavaScript/TypeScript and Kotlin paths.
+- OpenSSF Scorecard watches for supply-chain and repository-security regressions.
+- Trivy scans Docker images locally and in CI.
+- Staging smoke can run against free/low-cost Cloudflare and Turso staging
+  resources as long as they remain isolated from production.
+- Backup restore drills can run locally against copied SQLite/Turso exports.
 
 ## Code Health
 

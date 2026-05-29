@@ -33,7 +33,7 @@
     "android:verify": "cd apps/android && ./gradlew spotlessCheck :app:compileDebugKotlin :app:testDebugUnitTest :app:assembleDebug :app:lintDebug",
     "android:verify:connected": "cd apps/android && ./gradlew :app:connectedDebugAndroidTest",
     "android:verify:release": "cd apps/android && AUTHOR_API_URL=\"${AUTHOR_API_URL:-https://author.example.invalid}\" ./gradlew :app:lintRelease :app:assembleRelease",
-    "docker:verify": "docker build .",
+    "docker:verify": "bash scripts/docker-verify.sh",
     "release:verify": "aube run deps:check && aube run quality && aube audit --prod && aube audit --audit-level high && aube deprecations --transitive --exit-code && aube run test:coverage && aube run test:e2e && aube -F @author/web run build && aube -F @author/web run cf:build && aube run android:verify",
     "release:verify:local": "aube run release:verify && aube run android:verify:release",
     "release:verify:connected": "aube run release:verify:local && aube run android:verify:connected",

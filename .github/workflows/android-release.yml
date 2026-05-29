@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
           fetch-depth: 0
@@ -67,13 +67,13 @@ jobs:
           require_successful_workflow "Docker"
           require_successful_workflow "Cloudflare Deploy"
 
-      - uses: actions/setup-java@v5.2.0
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
           distribution: temurin
           java-version: 21
           cache: gradle
 
-      - uses: android-actions/setup-android@v4.0.1
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
 
       - name: Validate release configuration
         env:
@@ -149,7 +149,7 @@ jobs:
           echo "asset_name=$(basename "$asset_path")" >> "$GITHUB_OUTPUT"
 
       - name: Upload signed APK artifact
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.asset.outputs.asset_name }}
           path: ${{ steps.asset.outputs.asset_path }}

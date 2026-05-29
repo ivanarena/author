@@ -42,3 +42,7 @@ and whether the issue affects web, server, Android, or sync.
 - Keep `NOTES_SERVER_SECRET` stable and private across restores.
 - Back up and restore-test SQLite/libSQL data before upgrades.
 - Keep exactly one self-hosted Node process pointed at a local SQLite file.
+- Review CodeQL, OpenSSF Scorecard, dependency audit, deprecation, and Trivy
+  findings before releases.
+- Keep GitHub Actions pinned to full commit SHAs; Renovate tracks the readable
+  version comments.

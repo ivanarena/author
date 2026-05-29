@@ -17,6 +17,16 @@
   "customManagers": [
     {
       "customType": "regex",
+      "description": "Update GitHub Actions that are pinned to immutable SHAs with a readable version comment.",
+      "managerFilePatterns": ["/^\\.github/workflows/.*\\.ya?ml$/"],
+      "matchStrings": [
+        "uses:\\s+(?<depName>[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+)(?:/[a-zA-Z0-9_.-]+)?@(?<currentDigest>[a-f0-9]{40})\\s+#\\s*(?<currentValue>v?\\d+(?:\\.\\d+){0,2})"
+      ],
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver-coerced"
+    },
+    {
+      "customType": "regex",
       "description": "Update the Aube package manager version used by this repo.",
       "managerFilePatterns": [
         "/(^|/)package\\.json$/",

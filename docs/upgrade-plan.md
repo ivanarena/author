@@ -33,6 +33,10 @@ Already in place:
   records sync diagnostics when the final post-change sync fails on web and
   Android.
 - Web, Node, Cloudflare, Docker, and Android release checks in CI.
+- GitHub Actions are pinned to immutable commit SHAs with Renovate-managed
+  version comments.
+- Free CodeQL and OpenSSF Scorecard workflows run alongside the main release
+  gates.
 - A local `aube run release:verify` gate.
 - Signed APK releases require green CI, Docker scan, and Cloudflare deploy runs
   for the exact release commit.
@@ -49,7 +53,8 @@ Remaining limitations:
 - There is no key transparency log, reproducible signed web app, or native
   desktop app.
 - Operational production readiness still requires real staging credentials,
-  backup restore drills, image scan review, and signed release handling.
+  backup restore drills, image scan review, signed release handling, and review
+  of the free CodeQL/OpenSSF findings.
 
 ## Phase 1: Release Discipline
 
@@ -61,6 +66,8 @@ Goal: make every release candidate repeatable and boring.
 - Use `aube run release:verify:connected` for release candidates when an
   Android emulator or physical device is available.
 - Use `aube run docker:verify` before publishing a container.
+- Review CodeQL, OpenSSF Scorecard, dependency audit, deprecation, and Trivy
+  findings before releases.
 - Use `aube run staging:verify` only with isolated staging credentials.
 - Keep Docker scan failures, dependency audit failures, and deprecations as
   release blockers.
@@ -75,6 +82,7 @@ Acceptance:
 - Staging smoke passes against non-production data.
 - A restored backup passes `db:check`.
 - Docker scan artifacts are reviewed.
+- CodeQL and OpenSSF Scorecard findings are reviewed or explicitly accepted.
 - GitHub release automation rejects commits without green CI, Docker, and
   Cloudflare Deploy runs.
 

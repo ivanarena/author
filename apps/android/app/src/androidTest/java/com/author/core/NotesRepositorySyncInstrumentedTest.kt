@@ -42,7 +42,7 @@ class NotesRepositorySyncInstrumentedTest {
     repository = NotesRepository(context)
     repository.rememberPasswordAndAdopt(TEST_USERNAME, TEST_PASSWORD, previousUsername = null)
     crypto = NoteCrypto(prefs, SecurePreferenceStore(prefs))
-    keyMaterial = crypto.keyMaterialFromPassword(TEST_USERNAME, TEST_PASSWORD)
+    keyMaterial = crypto.getEncryptionKeyMaterial()
   }
 
   @After

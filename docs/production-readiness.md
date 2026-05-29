@@ -57,7 +57,8 @@ Already in place:
 - GitHub Actions pinned to immutable SHAs, with Renovate-managed version
   comments.
 - CodeQL, OpenSSF Scorecard, Trivy image scanning, SBOM/provenance generation,
-  and Cosign image signing.
+  and Cosign image signing. CodeQL and Scorecard upload SARIF artifacts for
+  private-repo review even when GitHub code scanning is not enabled.
 - Signed Android release automation that requires green CI, Docker, and
   Cloudflare Deploy runs for the exact release commit.
 
@@ -115,7 +116,8 @@ Required external blockers:
 - Restore a fresh SQLite or Turso backup into a separate environment and run
   `aube -F @author/web run db:check`.
 - Review the Trivy SARIF uploaded by CI for the release commit.
-- Review CodeQL and OpenSSF Scorecard results for the release commit.
+- Review CodeQL and OpenSSF Scorecard SARIF artifacts, or code-scanning alerts
+  if code scanning is enabled, for the release commit.
 - Verify the release commit has successful `CI`, `Docker`, and
   `Cloudflare Deploy` workflow runs before publishing release notes.
 - Verify Cosign-signed container images and protected Android release keys.

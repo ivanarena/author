@@ -22,8 +22,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
+      actions: read
+      checks: read
       contents: read
+      issues: read
+      pull-requests: read
       security-events: write
+      statuses: read
       id-token: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -35,7 +40,7 @@ jobs:
         with:
           results_file: scorecard-results.sarif
           results_format: sarif
-          publish_results: true
+          publish_results: false
 
       - name: Upload Scorecard SARIF
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -73,3 +78,14 @@ jobs:
 
       - name: Analyze
         uses: github/codeql-action/analyze@dc73d59c2d7bd4f8194098a91219eeee6d8a1719 # v4
+        with:
+          upload: never
+          output: codeql-results
+          upload-database: false
+
+      - name: Upload CodeQL SARIF
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always() && hashFiles('codeql-results/**/*.sarif') != ''
+        with:
+          name: codeql-${{ matrix.language }}-results
+          path: codeql-results/**/*.sarif

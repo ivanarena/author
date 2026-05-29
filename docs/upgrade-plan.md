@@ -32,8 +32,8 @@ Required:
   tag and `versionCode` must increase from the previous Android release.
 - Keep formatting scoped to source files so ignored runtime caches do not break
   local verification.
-- Review dependency audit, deprecation, Trivy, CodeQL, and OpenSSF Scorecard
-  findings before releases.
+- Review dependency audit, deprecation, Trivy, CodeQL SARIF, and OpenSSF
+  Scorecard SARIF findings before releases.
 - Restore a fresh backup and run `db:check` before production upgrades.
 - Publish release notes only after CI, Docker, and Cloudflare Deploy are green
   for the exact release commit.
@@ -45,7 +45,7 @@ Acceptance:
 - Connected Android smoke passes when release hardware is available.
 - Staging smoke passes against non-production data.
 - A restored backup passes `db:check`.
-- Docker scan artifacts and security workflow findings are reviewed.
+- Docker scan artifacts and security workflow SARIF artifacts are reviewed.
 
 ## Phase 1: Data Safety And Recovery
 

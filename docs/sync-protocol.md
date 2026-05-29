@@ -74,7 +74,7 @@ When an account password changes, the server returns a replacement session for t
 The client rewraps the E2EE keyring with the new password verifier, preserves the note data key,
 and syncs with the replacement session. If that final sync fails, the replacement session and
 unchanged key material remain on the device so the user can retry instead of stranding remote
-notes under a different key.
+notes under a different key. Clients record that interrupted final sync in local diagnostics.
 
 For self-hosted local SQLite with an optional Turso mirror, note reads, pulls, pushes, and trash
 cleanup use the local primary immediately and queue mirror convergence in the background. Account

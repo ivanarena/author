@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   prepareEncryptionPassword: vi.fn(),
   preflightReencryptLocalNotes: vi.fn(),
   recordLastSyncPass: vi.fn(),
+  recordSyncError: vi.fn(),
   recoveryKitFileName: vi.fn(),
   recoveryKitText: vi.fn(),
   reencryptLocalNotes: vi.fn(),
@@ -39,6 +40,7 @@ vi.mock('$lib/client/store', () => ({
   preflightReencryptLocalNotes: mocks.preflightReencryptLocalNotes,
   reencryptLocalNotes: mocks.reencryptLocalNotes,
   recordLastSyncPass: mocks.recordLastSyncPass,
+  recordSyncError: mocks.recordSyncError,
   setStoredSession: mocks.setStoredSession
 }));
 
@@ -223,6 +225,53 @@ describe('account security actions', () => {
     expect(mocks.logout).not.toHaveBeenCalled();
     expect(model.clearLocalSession).not.toHaveBeenCalled();
     expect(model.accountMessage).toBe('Password changed');
+  });
+
+  it('keeps the replacement session and records diagnostics when password-change sync fails', async () => {
+    mocks.getStoredSession.mockReturnValue({
+      token: 'session-token',
+      user: {
+        username: 'owner',
+        email: null,
+        displayName: null,
+        twoFactorEnabled: false
+      },
+      expiresAt: null
+    });
+    const syncError = new Error('network down');
+    mocks.runSync.mockRejectedValueOnce(syncError);
+    const model = controller({
+      currentPasswordValue: 'current-password',
+      newPasswordValue: 'new-password-123',
+      confirmPasswordValue: 'new-password-123'
+    });
+
+    await changeAccountPassword(model);
+
+    expect(mocks.setStoredSession).toHaveBeenCalledWith({
+      token: 'next-token',
+      user: {
+        username: 'owner',
+        email: null,
+        displayName: null,
+        twoFactorEnabled: false
+      },
+      expiresAt: '2026-05-28T12:00:00.000Z'
+    });
+    expect(mocks.commitEncryptionKeyMaterial).toHaveBeenCalledWith(
+      'keyring-material'
+    );
+    expect(mocks.recordSyncError).toHaveBeenCalledWith(
+      syncError,
+      'Password change sync'
+    );
+    expect(model.hasToken).toBe(true);
+    expect(model.accountPasswordEditing).toBe(false);
+    expect(model.syncMessage).toBe('Password changed; sync retry needed');
+    expect(model.accountError).toBe(
+      'Password changed, but Author could not finish syncing. network down'
+    );
+    expect(model.clearLocalSession).not.toHaveBeenCalled();
   });
 
   it('downloads a recovery kit and persists its recovery wrap', async () => {

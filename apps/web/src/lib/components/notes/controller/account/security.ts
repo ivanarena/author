@@ -12,6 +12,7 @@ import {
   preflightReencryptLocalNotes,
   reencryptLocalNotes,
   recordLastSyncPass,
+  recordSyncError,
   setStoredSession
 } from '$lib/client/store';
 import {
@@ -181,6 +182,10 @@ export async function changeAccountPassword(
   } catch (error) {
     const detail =
       error instanceof Error ? error.message : 'Could not change password';
+    if (passwordChanged) {
+      await recordSyncError(error, 'Password change sync');
+      controller.syncMessage = 'Password changed; sync retry needed';
+    }
     controller.accountError = passwordChanged
       ? `Password changed, but Author could not finish syncing. ${detail}`
       : detail;

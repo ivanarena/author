@@ -38,6 +38,9 @@ jobs:
             exit 1
           fi
 
+      - name: Validate Android release version
+        run: bash scripts/validate-android-release-version.sh "$RELEASE_TAG"
+
       - name: Require green release gates
         env:
           GH_TOKEN: ${{ github.token }}

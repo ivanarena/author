@@ -88,6 +88,8 @@ Required:
 - Keep `aube run release:verify:connected` green whenever an emulator or device
   is available.
 - Keep `aube run docker:verify` green before publishing a container.
+- Keep Android `versionName` aligned with the release tag and `versionCode`
+  strictly newer than the previous Android release.
 - Keep format checks scoped to source files so ignored caches such as Trivy,
   Playwright, Gradle, SQLite, and `.data` never break release verification.
 - Treat dependency audit failures, deprecations, Docker scan failures, release
@@ -96,6 +98,8 @@ Required:
 Acceptance:
 
 - Local release verification passes on a normal developer machine.
+- The Android release version check rejects stale build metadata before tags are
+  published.
 - Docker image scan reports zero high/critical OS or library findings.
 - Connected Android instrumentation passes on release-candidate changes that
   touch Android, sync, storage, auth, encryption, or shared contracts.
@@ -259,6 +263,7 @@ Run from the repo root unless noted:
 
 ```sh
 aube run deps:check
+aube run release:version:check
 aube run quality
 aube audit --prod
 aube audit --audit-level high

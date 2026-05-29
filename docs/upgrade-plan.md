@@ -25,6 +25,10 @@ Already in place:
 - Base-version sync conflicts and cursor-stable pull revisions.
 - Web, Node, Cloudflare, Docker, and Android release checks in CI.
 - A local `aube run release:verify` gate.
+- Signed APK releases require green CI, Docker scan, and Cloudflare deploy runs
+  for the exact release commit.
+- A connected Android release gate exists for emulator/device-backed smoke
+  checks when release hardware is available.
 
 Remaining limitations:
 
@@ -45,18 +49,25 @@ Goal: make every release candidate repeatable and boring.
 - Use `aube run release:verify` for the default local gate.
 - Use `aube run release:verify:local` before release candidates to include
   Android release lint/build validation with an HTTPS API URL.
+- Use `aube run release:verify:connected` for release candidates when an
+  Android emulator or physical device is available.
 - Use `aube run docker:verify` before publishing a container.
 - Use `aube run staging:verify` only with isolated staging credentials.
 - Keep Docker scan failures, dependency audit failures, and deprecations as
   release blockers.
 - Restore a fresh backup and run `db:check` before production upgrades.
+- Publish releases only after CI, Docker, and Cloudflare Deploy are green for
+  the exact release commit.
 
 Acceptance:
 
 - The release candidate passes local gates.
+- Connected Android smoke passes when an emulator or device is available.
 - Staging smoke passes against non-production data.
 - A restored backup passes `db:check`.
 - Docker scan artifacts are reviewed.
+- GitHub release automation rejects commits without green CI, Docker, and
+  Cloudflare Deploy runs.
 
 ## Phase 2: E2EE Hardening
 
@@ -74,6 +85,9 @@ Goal: improve privacy claims without overstating the browser threat model.
   conflict repair or trash cleanup unsafe.
 - Commission an external security review before claiming hardened
   zero-knowledge, audited crypto, or competitor-grade E2EE.
+- Define the next crypto upgrade as a versioned migration with Android and web
+  fixtures before changing envelope algorithms, metadata binding, or recovery
+  records.
 
 Acceptance:
 

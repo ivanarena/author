@@ -4,6 +4,18 @@ Author is an offline-first personal notes app. It encrypts note fields before
 sync so routine server storage does not need plaintext note titles or bodies,
 but it is not designed or marketed as a hardened zero-knowledge system.
 
+## Security Claims
+
+Current supported claim: Author encrypts synced note fields and account keyrings
+on the client, supports recovery-kit and operator recovery flows, and keeps
+sync conflict handling explicit.
+
+Claims that are not supported yet: independently audited crypto, hardened
+zero-knowledge security, enterprise-grade E2EE assurance, reproducible signed
+web delivery, or protection from malicious deployed web JavaScript. Those claims
+require third-party review and release-distribution hardening beyond the current
+repository checks.
+
 ## Reporting
 
 Please report security issues privately to the project maintainer instead of

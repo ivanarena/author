@@ -4,6 +4,22 @@ Use this page as the pre-release gate for the web app, API, Docker image, and
 Android APK. The focused setup details stay in `docs/setup.md`,
 `docs/operations.md`, and `apps/android/README.md`.
 
+## Competitive Position
+
+Author's production story is intentionally narrow: plain-text writing first,
+offline local writes first, encrypted sync fields, explicit sync conflicts,
+self-hostable Node/SQLite, Cloudflare/Turso hosting, Android parity, and a
+small codebase that operators can audit and run themselves. That is the product
+edge against heavier note suites: less surface area, no collaboration state, no
+block editor, and no server dependency in the writing loop.
+
+Do not market Author as audited zero-knowledge E2EE yet. Standard Notes,
+Obsidian Sync, Notesnook, and Joplin all publish E2EE/security documentation,
+and Standard Notes and Obsidian publish third-party audit claims or reports.
+Author can honestly claim encrypted sync with recovery tooling and a documented
+browser threat model. Competitor-grade security claims require the external
+assurance items below, especially an independent security review.
+
 ## Web and API
 
 Run these from the repo root:
@@ -39,6 +55,13 @@ aube run release:verify:local
 aube run docker:verify
 ```
 
+When an Android emulator or device is available, use the connected release gate
+instead of the local gate:
+
+```sh
+aube run release:verify:connected
+```
+
 For deployments with staging credentials, run:
 
 ```sh
@@ -46,6 +69,9 @@ aube run staging:verify
 ```
 
 Review the Docker image scan results from CI before publishing.
+GitHub Android release builds require successful `CI`, `Docker`, and
+`Cloudflare Deploy` workflow runs for the exact release commit before a signed
+APK can be attached to a release.
 
 If Playwright has not been used on the machine before, install Chromium first:
 
@@ -145,6 +171,10 @@ enough. Treat these as release blockers outside the repo:
   publishing.
 - Keep release images signed with Cosign and Android APKs signed with protected
   release keys.
+- Verify the GitHub release commit has successful CI, Docker image scan, and
+  Cloudflare deploy runs before publishing release notes.
+- Run connected Android smoke on an emulator or physical device for release
+  candidates, especially after sync, encryption, database, or auth changes.
 - Commission an independent security review before claiming hardened
   zero-knowledge security, audited crypto, or enterprise-grade assurance.
 

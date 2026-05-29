@@ -12,6 +12,7 @@ on:
       - published
 
 permissions:
+  actions: read
   contents: write
 
 env:
@@ -36,6 +37,35 @@ jobs:
             echo "::error::Android release APKs can only be built from commits on main."
             exit 1
           fi
+
+      - name: Require green release gates
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release_sha="$(git rev-parse HEAD)"
+
+          require_successful_workflow() {
+            workflow_name="$1"
+            run_url="$(
+              gh run list \
+                --workflow "$workflow_name" \
+                --commit "$release_sha" \
+                --limit 20 \
+                --json status,conclusion,url,createdAt \
+                --jq 'map(select(.status == "completed" and .conclusion == "success")) | sort_by(.createdAt) | reverse | .[0].url // ""'
+            )"
+
+            if [ -z "$run_url" ]; then
+              echo "::error::No successful ${workflow_name} workflow run found for ${release_sha}."
+              exit 1
+            fi
+
+            echo "${workflow_name} gate passed: ${run_url}"
+          }
+
+          require_successful_workflow "CI"
+          require_successful_workflow "Docker"
+          require_successful_workflow "Cloudflare Deploy"
 
       - uses: actions/setup-java@v5.2.0
         with:

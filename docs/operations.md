@@ -50,6 +50,10 @@ If the self-hosted local database and remote mirror contain different edits for 
 Note reads, sync pulls, sync pushes, and trash cleanup do not wait for the
 remote mirror. They update the local primary and queue the mirror worker so
 typing and local maintenance are not blocked by Turso/network latency.
+Client Sync settings include local repair diagnostics on web and Android. A pull
+cursor reset is local recovery tooling only: it sets the next pull to revision
+`0`, clears the legacy timestamp cursor, and leaves pending notes/notebooks in
+place so conflicts remain explicit.
 
 ## Monitoring
 

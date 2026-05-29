@@ -17,8 +17,11 @@ Do not market Author as audited zero-knowledge E2EE yet. Standard Notes,
 Obsidian Sync, Notesnook, and Joplin all publish E2EE/security documentation,
 and Standard Notes and Obsidian publish third-party audit claims or reports.
 Author can honestly claim encrypted sync with recovery tooling and a documented
-browser threat model. Competitor-grade security claims require the external
-assurance items below, especially an independent security review.
+browser threat model. The app now also exposes local repair diagnostics and a
+pull-cursor reset path on web and Android, which helps operators recover from
+stale local sync state without touching note data. Competitor-grade security
+claims require the external assurance items below, especially an independent
+security review.
 
 ## Web and API
 
@@ -153,6 +156,10 @@ releases, set the `ANDROID_RELEASE_*` variables documented in
   downloaded recovery kit plus recovery code restores the same key material.
   Operator recovery drills should also confirm `e2ee:recover` resets the
   password verifier and revokes existing sessions/trusted-device login.
+- Open Sync settings on web and Android before release candidates and verify
+  repair diagnostics report expected local state. Use reset pull cursor only for
+  recovery drills or stale-cursor incidents; it must not remove pending local
+  changes.
 - Keep exactly one app process pointed at each local SQLite database.
 - Treat Docker image scan failures as release blockers. The CI workflow scans
   before publishing, then uploads a SARIF artifact for review.

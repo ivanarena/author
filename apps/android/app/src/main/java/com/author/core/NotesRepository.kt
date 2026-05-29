@@ -40,9 +40,11 @@ private const val LAST_SYNC_ERROR_SOURCE_KEY = "lastSyncErrorSource"
 private const val LAST_SYNC_ERROR_MESSAGE_KEY = "lastSyncErrorMessage"
 private const val LAST_SYNC_ERROR_STACK_KEY = "lastSyncErrorStack"
 private const val LAST_PUSHED_DEVICE_SIGNATURE_KEY = "lastPushedDeviceSignature"
+private const val LAST_PULL_CURSOR_RESET_KEY = "lastPullCursorResetAt"
 private const val PUSH_BATCH_SIZE = 20
 private const val PULL_BATCH_SIZE = 1000
 private val syncMutex = Mutex()
+private val VALID_SYNC_STATUSES = setOf("synced", "pending", "conflict", "deleted")
 private val THEMES =
   setOf(
     "system",
@@ -489,6 +491,23 @@ class NotesRepository(context: Context) {
     DebugLogStore.clear(appContext)
   }
 
+  suspend fun loadRepairDiagnostics(): RepairDiagnostics =
+    withContext(Dispatchers.IO) { loadRepairDiagnosticsInternal() }
+
+  suspend fun resetPullCursorRecovery() =
+    withContext(Dispatchers.IO) {
+      val resetAt = nowIso()
+      db.putMeta("lastPulledRevision", "0")
+      db.putMeta(LAST_PULL_CURSOR_RESET_KEY, resetAt)
+      db.deleteMeta("lastPulledAt")
+      recordDebugLog(
+        "warn",
+        "Sync",
+        "Pull cursor reset for recovery",
+        "The next sync will request remote changes from revision 0.",
+      )
+    }
+
   fun enqueueUpdateCheck() {
     UpdateCheckWorker.checkNow(appContext)
   }
@@ -890,6 +909,12 @@ class NotesRepository(context: Context) {
           val response = syncClient.pullSyncChanges(token, lastPulledAt, cursor, PULL_BATCH_SIZE)
           if (response.serverRevision < cursor && !resetPullCursor) {
             resetPullCursor = true
+            recordDebugLog(
+              "warn",
+              "Sync",
+              "Remote revision moved behind local cursor",
+              "localCursor=$cursor, serverRevision=${response.serverRevision}",
+            )
             cursor = 0L
             lastPulledAt = null
             db.putMeta("lastPulledRevision", "0")
@@ -1110,6 +1135,190 @@ class NotesRepository(context: Context) {
       lastErrorMessage = if (message.isBlank()) "" else "$prefix$message",
       lastErrorStack = db.getMeta(LAST_SYNC_ERROR_STACK_KEY).orEmpty(),
     )
+  }
+
+  private fun loadRepairDiagnosticsInternal(): RepairDiagnostics {
+    val checkedAt = nowIso()
+    val notes = db.allNotes()
+    val notebooks = db.allNotebooks()
+    val conflicts = db.rawConflicts()
+    val revisionRaw = db.getMeta("lastPulledRevision")
+    val revisionValue = revisionRaw?.toLongOrNull() ?: 0L
+    val revisionValid = revisionRaw == null || revisionRaw.toLongOrNull()?.let { it >= 0 } == true
+    val lastPulledAt = db.getMeta("lastPulledAt")?.takeIf { it.isNotBlank() }
+    val lastCursorReset = db.getMeta(LAST_PULL_CURSOR_RESET_KEY)?.takeIf { it.isNotBlank() }
+    val encryptionAudit = db.getMeta(ENCRYPTION_AUDIT_VERSION_KEY)
+    val workspaceOwner = db.getMeta(LOCAL_WORKSPACE_OWNER_KEY)
+    val hasSession = getStoredSession() != null
+    val hasKeyMaterial = hasStoredEncryptionKeyMaterial()
+    val hasLocalRecords = notes.isNotEmpty() || notebooks.isNotEmpty() || conflicts.isNotEmpty()
+    val pendingCount =
+      notes.count { it.syncStatus == "pending" } + notebooks.count { it.syncStatus == "pending" }
+    val pendingConflictCount = conflicts.count { it.status == "pending" }
+    val canResetPullCursor =
+      !lastPulledAt.isNullOrBlank() || (revisionRaw != null && revisionRaw != "0") || !revisionValid
+
+    val entries =
+      listOf(
+        repairDiagnosticEntry(
+          "Encryption key material",
+          if (hasSession && !hasKeyMaterial) "error" else "ok",
+          when {
+            hasSession && !hasKeyMaterial ->
+              "A signed-in device has no note key material. Sign in again before syncing encrypted notes."
+            hasKeyMaterial -> "Key material is available for local encryption checks and sync."
+            else ->
+              "No account session is stored on this device; local-only writing remains available."
+          },
+        ),
+        repairDiagnosticEntry(
+          "Encryption audit",
+          if (encryptionAudit == ENCRYPTION_AUDIT_VERSION || !hasLocalRecords) "ok" else "warning",
+          when {
+            encryptionAudit == ENCRYPTION_AUDIT_VERSION ->
+              "Stored notes, notebooks, and conflicts have passed the current local encryption audit."
+            !hasLocalRecords -> "No local note records need an encryption audit yet."
+            hasKeyMaterial ->
+              "The next startup or sync will scan encrypted local records and repair current envelopes where possible."
+            else -> "The local encryption audit is pending until key material is available."
+          },
+        ),
+        repairDiagnosticEntry(
+          "Pull cursor",
+          if (revisionValid && !(lastPulledAt != null && revisionValue == 0L)) "ok" else "warning",
+          pullCursorDiagnosticDetail(
+            revisionRaw,
+            revisionValid,
+            revisionValue,
+            lastPulledAt,
+            lastCursorReset,
+          ),
+        ),
+        repairDiagnosticEntry(
+          "Pending local changes",
+          "ok",
+          if (pendingCount == 1) {
+            "1 local change is queued; local writes stay available while offline."
+          } else {
+            "$pendingCount local changes are queued; local writes stay available while offline."
+          },
+        ),
+        repairDiagnosticEntry(
+          "Pending conflicts",
+          if (pendingConflictCount > 0) "warning" else "ok",
+          when (pendingConflictCount) {
+            0 -> "No unresolved sync conflicts are stored locally."
+            1 ->
+              "1 explicit conflict is waiting for a choice; no side will be overwritten silently."
+            else ->
+              "$pendingConflictCount explicit conflicts are waiting for choices; no side will be overwritten silently."
+          },
+        ),
+        repairDiagnosticEntry(
+          "Local sync metadata",
+          if (invalidLocalSyncRecordCount(notes, notebooks) > 0) "warning" else "ok",
+          localSyncMetadataDetail(notes, notebooks),
+        ),
+        repairDiagnosticEntry(
+          "Notebook links",
+          if (invalidNotebookLinkCount(notes) > 0) "warning" else "ok",
+          notebookLinksDetail(notes),
+        ),
+        repairDiagnosticEntry(
+          "Workspace owner",
+          "ok",
+          if (workspaceOwner.isNullOrBlank()) {
+            "Local workspace is not bound to a remote account yet."
+          } else {
+            "Local workspace is bound to $workspaceOwner."
+          },
+        ),
+      )
+
+    return RepairDiagnostics(
+      checkedAt = checkedAt,
+      issueCount = entries.count { it.status != "ok" },
+      canResetPullCursor = canResetPullCursor,
+      entries = entries,
+    )
+  }
+
+  private fun repairDiagnosticEntry(label: String, status: String, detail: String) =
+    RepairDiagnosticEntry(label, status, detail)
+
+  private fun pullCursorDiagnosticDetail(
+    revisionRaw: String?,
+    revisionValid: Boolean,
+    revisionValue: Long,
+    lastPulledAt: String?,
+    lastCursorReset: String?,
+  ): String {
+    if (!revisionValid) {
+      return "The stored pull cursor is invalid; reset it before the next recovery sync."
+    }
+    if (lastPulledAt != null && revisionValue == 0L) {
+      return "A legacy timestamp cursor is present without a revision cursor; reset it to force a revision-0 recovery pull."
+    }
+    val cursor = revisionRaw ?: "none"
+    val resetCopy = lastCursorReset?.let { " Last reset at $it." }.orEmpty()
+    return "Cursor revision $cursor is ready for stable incremental pulls.$resetCopy"
+  }
+
+  private fun invalidLocalSyncRecordCount(
+    notes: List<LocalNote>,
+    notebooks: List<LocalNotebook>,
+  ): Int =
+    notes.count { invalidLocalSyncRecord(it) } + notebooks.count { invalidLocalSyncRecord(it) }
+
+  private fun invalidLocalSyncRecord(record: LocalNote): Boolean =
+    invalidLocalSyncRecord(record.version, record.lastSyncedVersion, record.syncStatus)
+
+  private fun invalidLocalSyncRecord(record: LocalNotebook): Boolean =
+    invalidLocalSyncRecord(record.version, record.lastSyncedVersion, record.syncStatus)
+
+  private fun invalidLocalSyncRecord(
+    version: Int,
+    lastSyncedVersion: Int,
+    syncStatus: String,
+  ): Boolean {
+    if (syncStatus !in VALID_SYNC_STATUSES) return true
+    if (version < 0 || lastSyncedVersion < 0) return true
+    if (syncStatus == "pending" && lastSyncedVersion > 0 && version <= lastSyncedVersion) {
+      return true
+    }
+    return syncStatus == "synced" && version < lastSyncedVersion
+  }
+
+  private fun localSyncMetadataDetail(
+    notes: List<LocalNote>,
+    notebooks: List<LocalNotebook>,
+  ): String {
+    val count = invalidLocalSyncRecordCount(notes, notebooks)
+    return if (count == 0) {
+      "Record versions, base versions, and sync states are internally consistent."
+    } else {
+      "$count records have inconsistent local sync metadata; export before manual repair."
+    }
+  }
+
+  private fun invalidNotebookLinkCount(notes: List<LocalNote>): Int =
+    notes.count { note ->
+      val rawIds =
+        if (note.notebookIds.isNotEmpty()) note.notebookIds.filter { it.isNotBlank() }
+        else note.notebookId?.let { listOf(it) } ?: emptyList()
+      val normalizedIds = rawIds.distinct()
+      rawIds.size != normalizedIds.size ||
+        note.notebookId != primaryNotebookId(normalizedIds) ||
+        noteNotebookIds(note) != normalizedIds
+    }
+
+  private fun notebookLinksDetail(notes: List<LocalNote>): String {
+    val count = invalidNotebookLinkCount(notes)
+    return if (count == 0) {
+      "Note notebook assignments are normalized for sync."
+    } else {
+      "$count notes have denormalized notebook assignments."
+    }
   }
 
   private fun recordLastSyncPass(result: SyncRunResult) {

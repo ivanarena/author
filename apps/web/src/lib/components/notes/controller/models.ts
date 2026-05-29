@@ -100,6 +100,7 @@ export interface NoteListPanelModel {
   noteSort: NoteSort;
   noteGroup: NoteGroupBy;
   searchValue: string;
+  searchInput: HTMLInputElement | null;
   currentTime: Date;
   syncIndicator: SyncIndicator;
   newNote: () => void | Promise<void>;
@@ -294,9 +295,15 @@ export interface SettingsModalModel {
   syncDebugTitle: string;
   syncDebugDetail: string;
   syncDebugLog: string;
+  repairDiagnosticsTitle: string;
+  repairDiagnosticsDetail: string;
+  repairDiagnosticsLog: string;
+  canResetPullCursor: boolean;
   appDebugTitle: string;
   appDebugDetail: string;
   appDebugLog: string;
+  refreshRepairDiagnostics: () => void | Promise<void>;
+  resetPullCursorRecovery: () => void | Promise<void>;
   clearAppDebugLog: () => void;
   syncNow: () => void | Promise<void>;
   saveAccountProfile: () => void | Promise<void>;

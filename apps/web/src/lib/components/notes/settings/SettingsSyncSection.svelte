@@ -1,8 +1,13 @@
 <script lang="ts">
-  import { Cloud, LogIn, RefreshCw, Trash2 } from '@lucide/svelte';
+  import { onMount } from 'svelte';
+  import { Cloud, LogIn, RefreshCw, RotateCcw, Trash2 } from '@lucide/svelte';
   import type { SettingsModalModel } from '../controller/page-controller.svelte.js';
 
   let { model }: { model: SettingsModalModel } = $props();
+
+  onMount(() => {
+    void model.refreshRepairDiagnostics();
+  });
 </script>
 
 <header class="settings-panel-header">
@@ -60,6 +65,28 @@
     <span>Troubleshooting</span>
   </div>
   <div class="sync-overview">
+    <div class="sync-overview-card wide sync-debug-card">
+      <span>Repair diagnostics</span>
+      <strong>{model.repairDiagnosticsTitle}</strong>
+      <small>{model.repairDiagnosticsDetail}</small>
+      <textarea
+        class="sync-debug-log"
+        aria-label="Repair diagnostics log"
+        readonly
+        value={model.repairDiagnosticsLog}
+      ></textarea>
+      {#if model.canResetPullCursor}
+        <button
+          class="settings-debug-clear"
+          type="button"
+          disabled={model.isSyncing}
+          onclick={model.resetPullCursorRecovery}
+        >
+          <RotateCcw size={14} strokeWidth={1.8} />
+          <span>Reset pull cursor</span>
+        </button>
+      {/if}
+    </div>
     <div class="sync-overview-card wide sync-debug-card">
       <span>Last sync error</span>
       <strong>{model.syncDebugTitle}</strong>

@@ -97,6 +97,25 @@ pulls stay cursor-stable:
 
 The response includes changed notes, notebooks, known devices, hard-delete IDs, `hasMore`, the server time to store as the next `lastPulledAt`, and the server revision to store as the next `lastPulledRevision`. When `hasMore` is true, `serverRevision` is the page cursor, not the end of all available changes.
 
+## Local Recovery Diagnostics
+
+Web and Android clients expose local repair diagnostics in Sync settings. The
+diagnostics are intentionally local-only and do not upload note contents,
+tokens, key material, or database rows. They check for:
+
+- a signed-in session without encryption key material,
+- an incomplete local encryption audit,
+- stale or invalid pull cursor metadata,
+- queued local changes and explicit conflicts,
+- inconsistent local record versions/sync states, and
+- denormalized notebook assignments.
+
+If a pull cursor is stale or invalid, the user can reset it locally. Resetting
+sets `lastPulledRevision` to `0`, clears `lastPulledAt`, records
+`lastPullCursorResetAt`, and leaves notes/notebooks untouched. The next sync
+then performs a revision-0 recovery pull and still preserves pending local
+records and explicit conflicts.
+
 ## Ownership
 
 Server-side notes, notebooks, device rows, tombstones, and revision changes are scoped to the authenticated username. The server stores device metadata under `(owner_username, device_id)` so shared browser device ids do not merge labels, sessions, or trusted-login state across accounts. Legacy bearer-token sync uses the `legacy-token` owner.

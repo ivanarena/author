@@ -92,6 +92,15 @@ data class SyncDebugInfo(
   val lastErrorStack: String,
 )
 
+data class RepairDiagnosticEntry(val label: String, val status: String, val detail: String)
+
+data class RepairDiagnostics(
+  val checkedAt: String,
+  val issueCount: Int,
+  val canResetPullCursor: Boolean,
+  val entries: List<RepairDiagnosticEntry>,
+)
+
 data class DebugLogEntry(
   val id: String,
   val at: String,

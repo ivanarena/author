@@ -22,6 +22,7 @@ import {
   prepareNewAccountKeyring,
   type E2eeRecoveryKit
 } from './encryption';
+import { recordDebugLog } from './debug-log';
 import {
   absorbSameDevicePushConflict,
   ensureLocalNotesEncrypted,
@@ -399,6 +400,15 @@ async function runSyncUnlocked(
     const pullResponse = await pullSyncChanges(token, pullPayload);
     if (pullResponse.serverRevision < pullCursor && !resetPullCursor) {
       resetPullCursor = true;
+      recordDebugLog({
+        level: 'warn',
+        source: 'Sync',
+        message: 'Remote revision moved behind local cursor',
+        detail: {
+          localCursor: pullCursor,
+          serverRevision: pullResponse.serverRevision
+        }
+      });
       pullCursor = 0;
       lastPulledAt = null;
       await localDb.syncMeta.put({ key: 'lastPulledRevision', value: '0' });

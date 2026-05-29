@@ -1,4 +1,5 @@
 import type { LocalNote } from '$lib/client/db';
+import type { RepairDiagnostics } from '$lib/client/entity-store';
 import { countWords } from '$lib/client/view-model';
 import type { SyncProgress } from '$lib/client/sync';
 import type { MetadataRow } from './models';
@@ -45,6 +46,18 @@ export function formatSyncDebugLog(debug: {
   ]
     .filter(Boolean)
     .join('\n');
+}
+
+export function formatRepairDiagnosticsLog(
+  diagnostics: RepairDiagnostics | null
+): string {
+  if (!diagnostics) return 'Repair diagnostics have not run yet.';
+  return diagnostics.entries
+    .map(
+      (entry) =>
+        `[${entry.status.toUpperCase()}] ${entry.label}\n${entry.detail}`
+    )
+    .join('\n\n');
 }
 
 function pluralizeSyncCount(value: number, singular: string): string {

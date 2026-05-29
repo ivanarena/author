@@ -23,6 +23,10 @@ Already in place:
 - Account data-key keyrings with password wrapping and recovery-kit wrapping.
 - Stable HMAC field hashes for encrypted-field comparison.
 - Base-version sync conflicts and cursor-stable pull revisions.
+- Web and Android repair diagnostics for missing encryption material, stale
+  encryption audits, local sync metadata, conflicts, and pull cursor recovery.
+- Local pull-cursor reset tooling that forces a revision-0 recovery pull without
+  touching local notes.
 - Web, Node, Cloudflare, Docker, and Android release checks in CI.
 - A local `aube run release:verify` gate.
 - Signed APK releases require green CI, Docker scan, and Cloudflare deploy runs
@@ -103,8 +107,8 @@ Goal: make data-loss paths observable and recoverable.
 
 - Expand conflict tests for notebook delete/remap cases and password-change sync
   interruption cases.
-- Add repair diagnostics for stale local metadata, missing encryption material,
-  and cursor reset recovery.
+- Keep repair diagnostics current for stale local metadata, missing encryption
+  material, and cursor reset recovery.
 - Keep note/version history visible enough for users to recover from mistakes
   without adding rich-text history semantics.
 - Keep import/export tests focused on Markdown/frontmatter portability.
@@ -115,12 +119,16 @@ Acceptance:
   mirror errors.
 - Recovery behavior is tested in web and Android suites when shared contracts
   change.
+  Web diagnostics and cursor-reset behavior have focused unit coverage; Android
+  parity is verified through the debug compile/unit/lint release gate until the
+  next connected-device smoke pass is available.
 
 ## Phase 4: Writing Experience
 
 Goal: make the app feel better without adding conceptual weight.
 
 - Improve keyboard navigation and focus behavior.
+- Keep quick search focus available without changing the editor-first surface.
 - Improve search speed and empty-state clarity.
 - Keep typography controls small and predictable.
 - Add note history/recovery only as plain-text versions.

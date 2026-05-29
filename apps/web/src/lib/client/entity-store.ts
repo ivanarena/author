@@ -20,6 +20,7 @@ import {
   decryptNotebookFields,
   encryptNoteFields,
   encryptNotebookFields,
+  hasStoredEncryptionKeyMaterial,
   isCurrentEncryptedText,
   isCurrentFieldHash,
   isUnsupportedEncryptedText,
@@ -27,17 +28,45 @@ import {
   reencryptNoteFields,
   reencryptNotebookFields
 } from './encryption';
+import { recordDebugLog } from './debug-log';
 import {
   normalizeNotebookName,
   noteNotebookIds,
   primaryNotebookId
 } from './note-utils';
-import { getOrCreateDevice, newId, nowIso } from './local-state';
+import {
+  getOrCreateDevice,
+  getStoredSession,
+  newId,
+  nowIso
+} from './local-state';
 
 const ENCRYPTION_AUDIT_META_KEY = 'localEncryptionAuditVersion';
 const ENCRYPTION_AUDIT_VERSION = 'keyring-aes:v7';
 
 const LOCAL_WORKSPACE_OWNER_KEY = 'localWorkspaceOwner';
+const LAST_PULL_CURSOR_RESET_KEY = 'lastPullCursorResetAt';
+const VALID_SYNC_STATUSES = new Set([
+  'synced',
+  'pending',
+  'conflict',
+  'deleted'
+]);
+
+export type RepairDiagnosticStatus = 'ok' | 'warning' | 'error';
+
+export interface RepairDiagnosticEntry {
+  label: string;
+  status: RepairDiagnosticStatus;
+  detail: string;
+}
+
+export interface RepairDiagnostics {
+  checkedAt: string;
+  issueCount: number;
+  canResetPullCursor: boolean;
+  entries: RepairDiagnosticEntry[];
+}
 
 function normalizeAccountUsername(username: string): string {
   return username.trim().toLowerCase();
@@ -462,6 +491,242 @@ export async function loadPendingSyncCount(): Promise<number> {
     localDb.notebooks.where('syncStatus').equals('pending').count()
   ]);
   return notes + notebooks;
+}
+
+export async function loadRepairDiagnostics(): Promise<RepairDiagnostics> {
+  const checkedAt = nowIso();
+  const [
+    notes,
+    notebooks,
+    conflicts,
+    lastPulledRevision,
+    lastPulledAt,
+    encryptionAudit,
+    workspaceOwner,
+    lastCursorReset
+  ] = await Promise.all([
+    localDb.notes.toArray(),
+    localDb.notebooks.toArray(),
+    localDb.conflicts.toArray(),
+    localDb.syncMeta.get('lastPulledRevision'),
+    localDb.syncMeta.get('lastPulledAt'),
+    localDb.syncMeta.get(ENCRYPTION_AUDIT_META_KEY),
+    localDb.syncMeta.get(LOCAL_WORKSPACE_OWNER_KEY),
+    localDb.syncMeta.get(LAST_PULL_CURSOR_RESET_KEY)
+  ]);
+  const entries: RepairDiagnosticEntry[] = [];
+  const storedSession = getStoredSession();
+  const hasKeyMaterial = hasStoredEncryptionKeyMaterial();
+  const hasLocalRecords =
+    notes.length + notebooks.length + conflicts.length > 0;
+  const pendingCount =
+    notes.filter((note) => note.syncStatus === 'pending').length +
+    notebooks.filter((notebook) => notebook.syncStatus === 'pending').length;
+  const pendingConflictCount = conflicts.filter(
+    (conflict) => conflict.status === 'pending'
+  ).length;
+  const revisionRaw = lastPulledRevision?.value;
+  const revisionValue =
+    revisionRaw === undefined || revisionRaw === '' ? 0 : Number(revisionRaw);
+  const revisionValid =
+    Number.isSafeInteger(revisionValue) && revisionValue >= 0;
+  const canResetPullCursor =
+    Boolean(lastPulledAt?.value) ||
+    (revisionRaw !== undefined && revisionRaw !== '0') ||
+    !revisionValid;
+
+  entries.push(
+    diagnosticEntry(
+      'Encryption key material',
+      storedSession && !hasKeyMaterial ? 'error' : 'ok',
+      storedSession && !hasKeyMaterial
+        ? 'A signed-in browser has no note key material. Sign in again before syncing encrypted notes.'
+        : hasKeyMaterial
+          ? 'Key material is available for local encryption checks and sync.'
+          : 'No account session is stored on this browser; local-only writing remains available.'
+    )
+  );
+
+  entries.push(
+    diagnosticEntry(
+      'Encryption audit',
+      encryptionAudit?.value === ENCRYPTION_AUDIT_VERSION || !hasLocalRecords
+        ? 'ok'
+        : 'warning',
+      encryptionAudit?.value === ENCRYPTION_AUDIT_VERSION
+        ? 'Stored notes, notebooks, and conflicts have passed the current local encryption audit.'
+        : !hasLocalRecords
+          ? 'No local note records need an encryption audit yet.'
+          : hasKeyMaterial
+            ? 'The next startup or sync will scan encrypted local records and repair current envelopes where possible.'
+            : 'The local encryption audit is pending until key material is available.'
+    )
+  );
+
+  entries.push(
+    diagnosticEntry(
+      'Pull cursor',
+      revisionValid && !(lastPulledAt?.value && revisionValue === 0)
+        ? 'ok'
+        : 'warning',
+      pullCursorDetail({
+        revisionRaw,
+        revisionValid,
+        revisionValue,
+        lastPulledAt: lastPulledAt?.value ?? null,
+        lastCursorReset: lastCursorReset?.value ?? null
+      })
+    )
+  );
+
+  entries.push(
+    diagnosticEntry(
+      'Pending local changes',
+      'ok',
+      pendingCount === 1
+        ? '1 local change is queued; local writes stay available while offline.'
+        : `${pendingCount} local changes are queued; local writes stay available while offline.`
+    )
+  );
+
+  entries.push(
+    diagnosticEntry(
+      'Pending conflicts',
+      pendingConflictCount > 0 ? 'warning' : 'ok',
+      pendingConflictCount === 0
+        ? 'No unresolved sync conflicts are stored locally.'
+        : pendingConflictCount === 1
+          ? '1 explicit conflict is waiting for a choice; no side will be overwritten silently.'
+          : `${pendingConflictCount} explicit conflicts are waiting for choices; no side will be overwritten silently.`
+    )
+  );
+
+  const invalidRecordCount =
+    notes.filter(invalidLocalSyncRecord).length +
+    notebooks.filter(invalidLocalSyncRecord).length;
+  entries.push(
+    diagnosticEntry(
+      'Local sync metadata',
+      invalidRecordCount > 0 ? 'warning' : 'ok',
+      invalidRecordCount === 0
+        ? 'Record versions, base versions, and sync states are internally consistent.'
+        : `${invalidRecordCount} records have inconsistent local sync metadata; export before manual repair.`
+    )
+  );
+
+  const notebookLinkIssueCount = notes.filter(invalidNotebookLinks).length;
+  entries.push(
+    diagnosticEntry(
+      'Notebook links',
+      notebookLinkIssueCount > 0 ? 'warning' : 'ok',
+      notebookLinkIssueCount === 0
+        ? 'Note notebook assignments are normalized for sync.'
+        : `${notebookLinkIssueCount} notes have denormalized notebook assignments.`
+    )
+  );
+
+  entries.push(
+    diagnosticEntry(
+      'Workspace owner',
+      'ok',
+      workspaceOwner?.value
+        ? `Local workspace is bound to ${workspaceOwner.value}.`
+        : 'Local workspace is not bound to a remote account yet.'
+    )
+  );
+
+  return {
+    checkedAt,
+    issueCount: entries.filter((entry) => entry.status !== 'ok').length,
+    canResetPullCursor,
+    entries
+  };
+}
+
+export async function resetPullCursorRecovery(): Promise<void> {
+  const resetAt = nowIso();
+  await localDb.syncMeta.bulkPut([
+    { key: 'lastPulledRevision', value: '0' },
+    { key: LAST_PULL_CURSOR_RESET_KEY, value: resetAt }
+  ]);
+  await localDb.syncMeta.delete('lastPulledAt');
+  recordDebugLog({
+    level: 'warn',
+    source: 'Sync',
+    message: 'Pull cursor reset for recovery',
+    detail: 'The next sync will request remote changes from revision 0.'
+  });
+}
+
+function diagnosticEntry(
+  label: string,
+  status: RepairDiagnosticStatus,
+  detail: string
+): RepairDiagnosticEntry {
+  return { label, status, detail };
+}
+
+function pullCursorDetail({
+  revisionRaw,
+  revisionValid,
+  revisionValue,
+  lastPulledAt,
+  lastCursorReset
+}: {
+  revisionRaw: string | undefined;
+  revisionValid: boolean;
+  revisionValue: number;
+  lastPulledAt: string | null;
+  lastCursorReset: string | null;
+}): string {
+  if (!revisionValid) {
+    return 'The stored pull cursor is invalid; reset it before the next recovery sync.';
+  }
+  if (lastPulledAt && revisionValue === 0) {
+    return 'A legacy timestamp cursor is present without a revision cursor; reset it to force a revision-0 recovery pull.';
+  }
+  const cursor = revisionRaw === undefined ? 'none' : String(revisionValue);
+  const resetCopy = lastCursorReset ? ` Last reset at ${lastCursorReset}.` : '';
+  return `Cursor revision ${cursor} is ready for stable incremental pulls.${resetCopy}`;
+}
+
+function invalidLocalSyncRecord(record: {
+  version: number;
+  lastSyncedVersion: number;
+  syncStatus: string;
+}): boolean {
+  if (!VALID_SYNC_STATUSES.has(record.syncStatus)) return true;
+  if (!Number.isSafeInteger(record.version) || record.version < 0) return true;
+  if (
+    !Number.isSafeInteger(record.lastSyncedVersion) ||
+    record.lastSyncedVersion < 0
+  ) {
+    return true;
+  }
+  if (
+    record.syncStatus === 'pending' &&
+    record.lastSyncedVersion > 0 &&
+    record.version <= record.lastSyncedVersion
+  ) {
+    return true;
+  }
+  return (
+    record.syncStatus === 'synced' && record.version < record.lastSyncedVersion
+  );
+}
+
+function invalidNotebookLinks(note: LocalNote): boolean {
+  const rawIds = Array.isArray(note.notebookIds)
+    ? note.notebookIds.filter(Boolean)
+    : note.notebookId
+      ? [note.notebookId]
+      : [];
+  const normalizedIds = [...new Set(rawIds)];
+  return (
+    rawIds.length !== normalizedIds.length ||
+    (note.notebookId ?? null) !== primaryNotebookId(normalizedIds) ||
+    noteNotebookIds(note).join('\0') !== normalizedIds.join('\0')
+  );
 }
 
 export async function localWorkspaceHasUserData(): Promise<boolean> {

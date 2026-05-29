@@ -107,6 +107,7 @@
       <input
         id="note-search"
         type="search"
+        bind:this={model.searchInput}
         bind:value={model.searchValue}
         autocomplete="off"
         placeholder="Search notes"

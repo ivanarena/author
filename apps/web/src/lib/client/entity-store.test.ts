@@ -5,21 +5,25 @@ import {
   assertLocalWorkspaceCanUseAccount,
   deleteNotePermanently,
   ensureLocalNotesEncrypted,
+  loadRepairDiagnostics,
   prepareLocalWorkspaceForAccount,
-  reencryptLocalNotes
+  reencryptLocalNotes,
+  resetPullCursorRecovery
 } from './entity-store';
 import { clearLocalWorkspace, localDb } from './db';
 import {
   assertSupportedEncryptionKeyMaterial,
   canDecryptEncryptedText,
   encryptNoteFields,
+  hasStoredEncryptionKeyMaterial,
   isCurrentEncryptedText,
   isCurrentFieldHash,
   isEncryptedText,
   isUnsupportedEncryptedText,
   reencryptNoteFields
 } from './encryption';
-import { getOrCreateDevice } from './local-state';
+import { getOrCreateDevice, getStoredSession } from './local-state';
+import { recordDebugLog } from './debug-log';
 
 vi.mock('./db', () => ({
   clearLocalWorkspace: vi.fn(),
@@ -44,7 +48,9 @@ vi.mock('./db', () => ({
     },
     syncMeta: {
       get: vi.fn(),
-      put: vi.fn()
+      put: vi.fn(),
+      bulkPut: vi.fn(),
+      delete: vi.fn()
     }
   }
 }));
@@ -59,6 +65,7 @@ vi.mock('./encryption', () => ({
   decryptNotebookFields: vi.fn(async (notebook) => notebook),
   encryptNoteFields: vi.fn(async (note) => note),
   encryptNotebookFields: vi.fn(async (notebook) => notebook),
+  hasStoredEncryptionKeyMaterial: vi.fn(() => true),
   isCurrentEncryptedText: vi.fn(() => true),
   isCurrentFieldHash: vi.fn(() => true),
   isEncryptedText: vi.fn(() => true),
@@ -78,8 +85,13 @@ vi.mock('./encryption', () => ({
 
 vi.mock('./local-state', () => ({
   getOrCreateDevice: vi.fn(),
+  getStoredSession: vi.fn(() => null),
   newId: vi.fn(() => 'test-id'),
   nowIso: vi.fn(() => '2026-05-06T12:00:00.000Z')
+}));
+
+vi.mock('./debug-log', () => ({
+  recordDebugLog: vi.fn()
 }));
 
 const note: LocalNote = {
@@ -112,6 +124,7 @@ beforeEach(() => {
   vi.mocked(isEncryptedText).mockReturnValue(true);
   vi.mocked(isUnsupportedEncryptedText).mockReturnValue(false);
   vi.mocked(canDecryptEncryptedText).mockResolvedValue(true);
+  vi.mocked(hasStoredEncryptionKeyMaterial).mockReturnValue(true);
   vi.mocked(reencryptNoteFields).mockImplementation(async (storedNote) => ({
     ...storedNote,
     title: 'reencrypted-title'
@@ -134,6 +147,10 @@ beforeEach(() => {
   vi.mocked(localDb.notes.delete).mockResolvedValue(undefined);
   vi.mocked(localDb.syncMeta.get).mockResolvedValue(undefined);
   vi.mocked(localDb.syncMeta.put).mockResolvedValue('localWorkspaceOwner');
+  vi.mocked(localDb.syncMeta.bulkPut).mockResolvedValue('lastPulledRevision');
+  vi.mocked(localDb.syncMeta.delete).mockResolvedValue(undefined);
+  vi.mocked(getStoredSession).mockReturnValue(null);
+  vi.mocked(recordDebugLog).mockReturnValue(undefined);
   vi.mocked(clearLocalWorkspace).mockResolvedValue(undefined);
 });
 
@@ -463,6 +480,83 @@ describe('local note encryption sync state', () => {
         })
       })
     ]);
+  });
+});
+
+describe('repair diagnostics', () => {
+  it('reports missing key material for a signed-in workspace', async () => {
+    vi.mocked(getStoredSession).mockReturnValue({
+      token: 'session-token',
+      user: {
+        username: 'alice',
+        email: null,
+        displayName: null,
+        twoFactorEnabled: false
+      },
+      expiresAt: null
+    });
+    vi.mocked(hasStoredEncryptionKeyMaterial).mockReturnValue(false);
+    vi.mocked(localDb.syncMeta.get).mockImplementation((async (
+      key: unknown
+    ) => {
+      const values: Record<string, string> = {
+        lastPulledRevision: '41',
+        lastPulledAt: '2026-05-06T10:00:00.000Z'
+      };
+      const value = values[String(key)];
+      return value === undefined ? undefined : { key: String(key), value };
+    }) as never);
+
+    const diagnostics = await loadRepairDiagnostics();
+
+    expect(diagnostics.canResetPullCursor).toBe(true);
+    expect(diagnostics.issueCount).toBeGreaterThan(0);
+    expect(diagnostics.entries).toContainEqual(
+      expect.objectContaining({
+        label: 'Encryption key material',
+        status: 'error'
+      })
+    );
+  });
+
+  it('returns clean diagnostics for healthy local sync state', async () => {
+    vi.mocked(localDb.notes.toArray).mockResolvedValue([
+      { ...note, syncStatus: 'synced', lastSyncedVersion: 1 }
+    ]);
+    vi.mocked(localDb.syncMeta.get).mockImplementation((async (
+      key: unknown
+    ) => {
+      const values: Record<string, string> = {
+        localEncryptionAuditVersion: 'keyring-aes:v7',
+        lastPulledRevision: '41',
+        localWorkspaceOwner: 'alice'
+      };
+      const value = values[String(key)];
+      return value === undefined ? undefined : { key: String(key), value };
+    }) as never);
+
+    await expect(loadRepairDiagnostics()).resolves.toMatchObject({
+      issueCount: 0,
+      canResetPullCursor: true
+    });
+  });
+
+  it('resets pull cursor recovery metadata without touching notes', async () => {
+    await resetPullCursorRecovery();
+
+    expect(localDb.syncMeta.bulkPut).toHaveBeenCalledWith([
+      { key: 'lastPulledRevision', value: '0' },
+      { key: 'lastPullCursorResetAt', value: '2026-05-06T12:00:00.000Z' }
+    ]);
+    expect(localDb.syncMeta.delete).toHaveBeenCalledWith('lastPulledAt');
+    expect(localDb.notes.bulkPut).not.toHaveBeenCalled();
+    expect(recordDebugLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        level: 'warn',
+        source: 'Sync',
+        message: 'Pull cursor reset for recovery'
+      })
+    );
   });
 });
 

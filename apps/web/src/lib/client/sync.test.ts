@@ -22,6 +22,7 @@ import {
 } from './store';
 import { hasStoredEncryptionKeyMaterial } from './encryption';
 import { localDb } from './db';
+import { recordDebugLog } from './debug-log';
 
 vi.mock('./encryption', () => ({
   hasStoredEncryptionKeyMaterial: vi.fn()
@@ -60,6 +61,10 @@ vi.mock('./db', () => ({
       delete: vi.fn()
     }
   }
+}));
+
+vi.mock('./debug-log', () => ({
+  recordDebugLog: vi.fn()
 }));
 
 const device = { id: 'device-local', name: 'Browser' };
@@ -794,6 +799,13 @@ describe('client sync orchestration', () => {
       value: '0'
     });
     expect(localDb.syncMeta.delete).toHaveBeenCalledWith('lastPulledAt');
+    expect(recordDebugLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        level: 'warn',
+        source: 'Sync',
+        message: 'Remote revision moved behind local cursor'
+      })
+    );
     expect(mergeRemoteChanges).toHaveBeenCalledWith(
       [remoteNote],
       [],

@@ -20,6 +20,7 @@ import com.author.core.LocalNote
 import com.author.core.LocalNotebook
 import com.author.core.MarkdownInputFile
 import com.author.core.NotesRepository
+import com.author.core.RepairDiagnostics
 import com.author.core.StoredSession
 import com.author.core.SyncProgress
 import com.author.core.SyncProgressPhase
@@ -166,6 +167,10 @@ class NotesController(private val repository: NotesRepository, private val scope
         formatSyncDebugLog(it.lastErrorAt, it.lastErrorMessage, it.lastErrorStack)
       } ?: "No sync errors recorded on this device."
     )
+  var repairDiagnosticsTitle by mutableStateOf(formatRepairDiagnosticsTitle(null))
+  var repairDiagnosticsDetail by mutableStateOf(formatRepairDiagnosticsDetail(null))
+  var repairDiagnosticsLog by mutableStateOf(formatRepairDiagnosticsLog(null))
+  var canResetPullCursor by mutableStateOf(false)
   var appDebugTitle by mutableStateOf(formatAppDebugTitle(initialWorkspace?.appDebugLogEntries))
   var appDebugDetail by mutableStateOf(formatAppDebugDetail(initialWorkspace?.appDebugLogEntries))
   var appDebugLog by
@@ -370,6 +375,45 @@ class NotesController(private val repository: NotesRepository, private val scope
     appDebugLog = DebugLogStore.format(emptyList())
   }
 
+  fun resetPullCursorRecovery() {
+    scope.launch {
+      try {
+        repository.resetPullCursorRecovery()
+        syncMessage = "Pull cursor reset"
+        refreshRepairDiagnosticsNow()
+        notify(
+          "success",
+          "Pull cursor reset",
+          "The next sync will verify remote changes from revision 0.",
+        )
+      } catch (error: Throwable) {
+        repository.recordDebugLog(
+          "error",
+          "Sync",
+          "Could not reset pull cursor",
+          error.stackTraceToString(),
+        )
+        notify("error", "Repair failed", error.message ?: "Could not reset pull cursor")
+      }
+    }
+  }
+
+  fun refreshRepairDiagnostics() {
+    scope.launch {
+      try {
+        refreshRepairDiagnosticsNow()
+      } catch (error: Throwable) {
+        repository.recordDebugLog(
+          "error",
+          "Database",
+          "Could not load repair diagnostics",
+          error.stackTraceToString(),
+        )
+        notify("error", "Diagnostics failed", error.message ?: "Could not load repair diagnostics")
+      }
+    }
+  }
+
   private fun formatSyncDebugLog(
     lastErrorAt: String?,
     lastErrorMessage: String,
@@ -397,6 +441,31 @@ class NotesController(private val repository: NotesRepository, private val scope
     } else {
       "${entries.size} entries saved locally"
     }
+
+  private fun formatRepairDiagnosticsTitle(diagnostics: RepairDiagnostics?): String =
+    when {
+      diagnostics == null -> "Not checked yet"
+      diagnostics.issueCount == 0 -> "No repair issues found"
+      diagnostics.issueCount == 1 -> "1 repair issue found"
+      else -> "${diagnostics.issueCount} repair issues found"
+    }
+
+  private fun formatRepairDiagnosticsDetail(diagnostics: RepairDiagnostics?): String =
+    diagnostics?.checkedAt?.let { "Last checked ${formatDateTime(it)}" }
+      ?: "Local sync, encryption, and recovery checks will appear here."
+
+  private fun formatRepairDiagnosticsLog(diagnostics: RepairDiagnostics?): String =
+    diagnostics?.entries?.joinToString("\n\n") {
+      "[${it.status.uppercase()}] ${it.label}\n${it.detail}"
+    } ?: "Repair diagnostics have not run yet."
+
+  private suspend fun refreshRepairDiagnosticsNow() {
+    val diagnostics = repository.loadRepairDiagnostics()
+    repairDiagnosticsTitle = formatRepairDiagnosticsTitle(diagnostics)
+    repairDiagnosticsDetail = formatRepairDiagnosticsDetail(diagnostics)
+    repairDiagnosticsLog = formatRepairDiagnosticsLog(diagnostics)
+    canResetPullCursor = diagnostics.canResetPullCursor
+  }
 
   private fun pluralizeSyncCount(value: Int, singular: String): String =
     "$value $singular${if (value == 1) "" else "s"}"

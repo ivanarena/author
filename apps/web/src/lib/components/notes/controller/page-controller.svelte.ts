@@ -29,12 +29,15 @@ import {
   loadNotebooks,
   loadPendingConflicts,
   loadPendingSyncCount,
+  loadRepairDiagnostics,
   loadSyncDebugInfo,
   loadTrash,
   getLoginHint,
   getStoredSession,
+  resetPullCursorRecovery as resetLocalPullCursorRecovery,
   setTheme,
   watchSystemTheme,
+  type RepairDiagnostics,
   type ResolvedTheme
 } from '$lib/client/store';
 import { loadConfig } from '$lib/client/api-client';
@@ -53,6 +56,7 @@ import {
 import {
   editorMetadataRowsForNote,
   formatSyncDebugLog,
+  formatRepairDiagnosticsLog,
   formatSyncPassDetail,
   formatSyncPassTime,
   metadataRowsForNote
@@ -236,10 +240,12 @@ export class NotesPageController
     lastErrorMessage: '',
     lastErrorStack: ''
   });
+  repairDiagnostics = $state<RepairDiagnostics | null>(null);
   appDebugLogEntries = $state<DebugLogEntry[]>([]);
 
   titleInput: HTMLInputElement | null = null;
   bodyTextarea: HTMLTextAreaElement | null = null;
+  searchInput: HTMLInputElement | null = null;
   importMarkdownInput: HTMLInputElement | null = null;
   settingsModal: HTMLElement | null = null;
   loginModal: HTMLElement | null = null;
@@ -335,6 +341,26 @@ export class NotesPageController
       'The most recent sync error will appear here.'
   );
   syncDebugLog = $derived(formatSyncDebugLog(this.syncDebugInfo));
+  repairDiagnosticsTitle = $derived(
+    this.repairDiagnostics
+      ? this.repairDiagnostics.issueCount === 0
+        ? 'No repair issues found'
+        : `${this.repairDiagnostics.issueCount} repair ${
+            this.repairDiagnostics.issueCount === 1 ? 'issue' : 'issues'
+          } found`
+      : 'Not checked yet'
+  );
+  repairDiagnosticsDetail = $derived(
+    this.repairDiagnostics
+      ? `Last checked ${formatSyncPassTime(this.repairDiagnostics.checkedAt)}`
+      : 'Local sync, encryption, and recovery checks will appear here.'
+  );
+  repairDiagnosticsLog = $derived(
+    formatRepairDiagnosticsLog(this.repairDiagnostics)
+  );
+  canResetPullCursor = $derived(
+    Boolean(this.repairDiagnostics?.canResetPullCursor)
+  );
   appDebugTitle = $derived(
     this.appDebugLogEntries.at(-1)?.at
       ? formatSyncPassTime(this.appDebugLogEntries.at(-1)?.at ?? '')
@@ -485,6 +511,19 @@ export class NotesPageController
 
     if (
       (event.metaKey || event.ctrlKey) &&
+      !event.altKey &&
+      !event.shiftKey &&
+      key === 'k' &&
+      !this.settingsOpen &&
+      !this.loginOpen
+    ) {
+      event.preventDefault();
+      void this.focusSearch();
+      return;
+    }
+
+    if (
+      (event.metaKey || event.ctrlKey) &&
       this.isEditorEventTarget(event.target)
     ) {
       if (key === 'z') {
@@ -617,6 +656,51 @@ export class NotesPageController
   clearAppDebugLog = () => {
     clearDebugLog();
     this.appDebugLogEntries = [];
+  };
+
+  refreshRepairDiagnostics = async () => {
+    try {
+      this.repairDiagnostics = await loadRepairDiagnostics();
+    } catch (error) {
+      recordDebugLog({
+        level: 'error',
+        source: 'Database',
+        message: 'Could not load repair diagnostics',
+        detail: error
+      });
+      this.notify(
+        'error',
+        'Diagnostics failed',
+        error instanceof Error
+          ? error.message
+          : 'Could not load repair diagnostics'
+      );
+    }
+  };
+
+  resetPullCursorRecovery = async () => {
+    try {
+      await resetLocalPullCursorRecovery();
+      this.syncMessage = 'Pull cursor reset';
+      await this.refreshRepairDiagnostics();
+      this.notify(
+        'success',
+        'Pull cursor reset',
+        'The next sync will verify remote changes from revision 0.'
+      );
+    } catch (error) {
+      recordDebugLog({
+        level: 'error',
+        source: 'Sync',
+        message: 'Could not reset pull cursor',
+        detail: error
+      });
+      this.notify(
+        'error',
+        'Repair failed',
+        error instanceof Error ? error.message : 'Could not reset pull cursor'
+      );
+    }
   };
 
   changeSort = (event: Event) => {
@@ -827,6 +911,9 @@ export class NotesPageController
 
   syncNow = async () => {
     await syncActions.syncNow(this);
+    if (this.settingsOpen && this.settingsSection === 'sync') {
+      await this.refreshRepairDiagnostics();
+    }
   };
 
   exportMarkdown = async () => {
@@ -1185,6 +1272,12 @@ export class NotesPageController
   private focusLoginModal = async () => {
     await tick();
     this.loginModal?.focus({ preventScroll: true });
+  };
+
+  private focusSearch = async () => {
+    await tick();
+    this.searchInput?.focus({ preventScroll: true });
+    this.searchInput?.select();
   };
 
   downloadBlob = (blob: Blob, fileName: string) => {

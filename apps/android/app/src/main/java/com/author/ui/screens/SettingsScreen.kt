@@ -50,6 +50,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -623,6 +624,8 @@ private fun DeleteAccountPanel(controller: NotesController) {
 
 @Composable
 private fun SyncSettings(controller: NotesController) {
+  LaunchedEffect(controller) { controller.refreshRepairDiagnostics() }
+
   Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
     SettingsChoiceGroup("Status") {
       SyncStatusTile(controller)
@@ -662,7 +665,13 @@ private fun SyncSettings(controller: NotesController) {
     }
 
     SettingsChoiceGroup("Troubleshooting") {
+      RepairDiagnosticsTile(controller)
       SyncDebugTile(controller)
+      if (controller.canResetPullCursor) {
+        ActionRow(Icons.Outlined.Refresh, "Reset pull cursor", enabled = !controller.isSyncing) {
+          controller.resetPullCursorRecovery()
+        }
+      }
       ActionRow(Icons.Outlined.Delete, "Clear diagnostic log") { controller.clearDebugLog() }
     }
 
@@ -743,6 +752,35 @@ private fun remoteDatabaseDetail(controller: NotesController): String =
       "Remote database configured on the API server; remote sync disabled"
     else -> "Configure remote database credentials on the API server"
   }
+
+@Composable
+private fun RepairDiagnosticsTile(controller: NotesController) {
+  GlassPanel(Modifier.fillMaxWidth()) {
+    Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+      Text(
+        "Repair diagnostics",
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+        fontSize = AppTextSize.Label,
+        fontWeight = FontWeight.SemiBold,
+      )
+      Text(controller.repairDiagnosticsTitle, fontWeight = FontWeight.SemiBold)
+      Text(
+        controller.repairDiagnosticsDetail,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+        fontSize = AppTextSize.Label,
+      )
+      SelectionContainer {
+        Text(
+          controller.repairDiagnosticsLog,
+          color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+          fontFamily = FontFamily.Monospace,
+          fontSize = AppTextSize.Debug,
+          lineHeight = 15.sp,
+        )
+      }
+    }
+  }
+}
 
 @Composable
 private fun SyncDebugTile(controller: NotesController) {

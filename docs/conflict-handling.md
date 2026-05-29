@@ -24,6 +24,11 @@ When the local version wins, the client stores it as a new pending edit based on
 For remote-delete conflicts, the tombstone version is the current remote version.
 After the user explicitly keeps the local version, the server may accept that
 pending record over the tombstone because the client is no longer stale.
+When a remote notebook tombstone wins, clients remove that notebook id from
+local note assignments and queue those note metadata changes instead of leaving
+orphaned notebook links. When both sides of a generic notebook conflict are
+duplicated, note assignments that pointed at the local notebook follow the new
+local copy.
 
 For duplicate notebook-name conflicts, the client does not resubmit the same rejected name. Keeping the existing remote notebook removes the local duplicate and remaps local note assignments to the existing notebook. Keeping the local notebook creates a renamed pending copy and remaps local note assignments to that copy.
 

@@ -17,6 +17,7 @@ import {
   markAcceptedChanges,
   mergeRemoteChanges,
   repairSameDevicePendingConflicts,
+  removeDeletedNotebookReferences,
   saveConflict,
   saveDevices
 } from './store';
@@ -39,6 +40,7 @@ vi.mock('./store', () => ({
   markAcceptedChanges: vi.fn(),
   mergeRemoteChanges: vi.fn(),
   repairSameDevicePendingConflicts: vi.fn(),
+  removeDeletedNotebookReferences: vi.fn(),
   saveConflict: vi.fn(),
   saveDevices: vi.fn()
 }));
@@ -157,13 +159,14 @@ beforeEach(() => {
   vi.mocked(hasStoredEncryptionKeyMaterial).mockReturnValue(true);
   vi.mocked(getOrCreateDevice).mockResolvedValue(device);
   vi.mocked(ensureLocalNotesEncrypted).mockResolvedValue(undefined);
-  vi.mocked(applyRemoteDeletes).mockResolvedValue(undefined);
+  vi.mocked(applyRemoteDeletes).mockResolvedValue({ deletedNotebookIds: [] });
   vi.mocked(absorbSameDevicePushConflict).mockResolvedValue(false);
   vi.mocked(markAcceptedChanges).mockResolvedValue(undefined);
   vi.mocked(saveConflict).mockResolvedValue(undefined);
   vi.mocked(saveDevices).mockResolvedValue(undefined);
   vi.mocked(mergeRemoteChanges).mockResolvedValue(undefined);
   vi.mocked(repairSameDevicePendingConflicts).mockResolvedValue(undefined);
+  vi.mocked(removeDeletedNotebookReferences).mockResolvedValue(undefined);
   mockSyncMeta({ lastPushedDeviceSignature: pushedDeviceSignature });
   vi.mocked(localDb.syncMeta.put).mockResolvedValue('lastPulledAt');
   vi.mocked(localDb.syncMeta.delete).mockResolvedValue(undefined);
@@ -300,6 +303,9 @@ describe('client sync orchestration', () => {
         serverRevision: 42
       })
     );
+    vi.mocked(applyRemoteDeletes).mockResolvedValueOnce({
+      deletedNotebookIds: ['old-notebook']
+    });
     const progress: SyncProgress[] = [];
 
     await expect(
@@ -369,6 +375,10 @@ describe('client sync orchestration', () => {
     expect(mergeRemoteChanges).toHaveBeenCalledWith(
       [remoteNote],
       [remoteNotebook],
+      '2026-05-01T10:11:00.000Z'
+    );
+    expect(removeDeletedNotebookReferences).toHaveBeenCalledWith(
+      ['old-notebook'],
       '2026-05-01T10:11:00.000Z'
     );
     expect(localDb.syncMeta.put).toHaveBeenCalledWith({

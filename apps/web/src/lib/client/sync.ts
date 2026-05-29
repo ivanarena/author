@@ -32,6 +32,7 @@ import {
   mergeRemoteChanges,
   applyRemoteDeletes,
   repairSameDevicePendingConflicts,
+  removeDeletedNotebookReferences,
   saveDevices,
   saveConflict
 } from './store';
@@ -422,7 +423,7 @@ async function runSyncUnlocked(
     );
 
     await saveDevices(pullResponse.devices);
-    await applyRemoteDeletes(
+    const appliedRemoteDeletes = await applyRemoteDeletes(
       pullResponse.deletedNoteIds,
       pullResponse.deletedNotebookIds,
       pullResponse.deletedDeviceIds
@@ -430,6 +431,10 @@ async function runSyncUnlocked(
     await mergeRemoteChanges(
       pullResponse.notes,
       pullResponse.notebooks,
+      pullResponse.serverTime
+    );
+    await removeDeletedNotebookReferences(
+      appliedRemoteDeletes.deletedNotebookIds,
       pullResponse.serverTime
     );
     await localDb.syncMeta.put({

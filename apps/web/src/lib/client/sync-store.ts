@@ -180,11 +180,14 @@ export async function applyRemoteDeletes(
   deletedNoteIds: string[] = [],
   deletedNotebookIds: string[] = [],
   deletedDeviceIds: string[] = []
-): Promise<void> {
+): Promise<{ deletedNotebookIds: string[] }> {
   const noteIds = [...new Set(deletedNoteIds)].filter(Boolean);
   const notebookIds = [...new Set(deletedNotebookIds)].filter(Boolean);
   const deviceIds = [...new Set(deletedDeviceIds)].filter(Boolean);
-  if (!noteIds.length && !notebookIds.length && !deviceIds.length) return;
+  const notebookIdsForReferenceCleanup: string[] = [];
+  if (!noteIds.length && !notebookIds.length && !deviceIds.length) {
+    return { deletedNotebookIds: [] };
+  }
 
   await localDb.transaction(
     'rw',
@@ -197,8 +200,14 @@ export async function applyRemoteDeletes(
 
       for (const id of notebookIds) {
         const notebook = await localDb.notebooks.get(id);
-        if (notebook && canApplyRemoteDelete(notebook)) {
+        if (!notebook) {
+          notebookIdsForReferenceCleanup.push(id);
+          continue;
+        }
+
+        if (canApplyRemoteDelete(notebook)) {
           await localDb.notebooks.delete(id);
+          notebookIdsForReferenceCleanup.push(id);
         }
       }
 
@@ -207,6 +216,20 @@ export async function applyRemoteDeletes(
       }
     }
   );
+
+  return { deletedNotebookIds: notebookIdsForReferenceCleanup };
+}
+
+export async function removeDeletedNotebookReferences(
+  deletedNotebookIds: string[],
+  updatedAt = nowIso()
+): Promise<void> {
+  const ids = [...new Set(deletedNotebookIds)].filter(Boolean);
+  if (!ids.length) return;
+  const device = await getOrCreateDevice();
+  for (const id of ids) {
+    await removeLocalNoteNotebookReferences(id, device, updatedAt);
+  }
 }
 
 export async function markAcceptedChanges(
@@ -548,6 +571,16 @@ export async function mergeRemoteChanges(
   for (const note of notes) {
     await mergeRemoteNote(note, syncedAt);
   }
+
+  const deletedNotebookIds: string[] = [];
+  for (const notebook of notebooks) {
+    if (!notebook.deletedAt) continue;
+    const local = await localDb.notebooks.get(notebook.id);
+    if (local?.deletedAt && canApplyRemoteDelete(local)) {
+      deletedNotebookIds.push(notebook.id);
+    }
+  }
+  await removeDeletedNotebookReferences(deletedNotebookIds, syncedAt);
 }
 
 export async function resolveConflict(
@@ -604,6 +637,7 @@ export async function resolveConflict(
     } else {
       const remote = conflict.remote.record as Notebook;
       const local = conflict.local.record as Notebook;
+      const copyId = newId();
       await localDb.notebooks.put(
         await encryptNotebookFields({
           ...remote,
@@ -615,7 +649,7 @@ export async function resolveConflict(
       await localDb.notebooks.put({
         ...(await encryptNotebookFields({
           ...local,
-          id: newId(),
+          id: copyId,
           name: `${local.name} copy`,
           createdAt: now,
           updatedAt: now,
@@ -626,6 +660,7 @@ export async function resolveConflict(
           lastSyncedAt: null
         }))
       });
+      await remapLocalNoteNotebookReferences(local.id, copyId, device, now);
     }
   } else {
     if (conflict.entityType === 'note') {
@@ -662,6 +697,9 @@ export async function resolveConflict(
           lastSyncedAt: isRemote ? now : null
         })
       );
+      if (isRemote && record.deletedAt) {
+        await removeLocalNoteNotebookReferences(record.id, device, now);
+      }
     }
   }
 
@@ -720,4 +758,42 @@ async function resolveDuplicateNotebookNameConflict(
   );
   await remapLocalNoteNotebookReferences(local.id, copyId, device, now);
   if (local.id !== copyId) await localDb.notebooks.delete(local.id);
+}
+
+async function removeLocalNoteNotebookReferences(
+  notebookId: string,
+  device: Device,
+  updatedAt: string
+): Promise<void> {
+  const notes = await localDb.notes.toArray();
+  const updates: LocalNote[] = [];
+  for (const note of notes) {
+    if (
+      note.syncStatus === 'conflict' ||
+      note.syncStatus === 'deleted' ||
+      note.deletedAt
+    ) {
+      continue;
+    }
+
+    const notebookIds = noteNotebookIds(note);
+    if (!notebookIds.includes(notebookId)) continue;
+    const nextNotebookIds = normalizedNotebookIds(
+      notebookIds.filter((id) => id !== notebookId)
+    );
+    if (nextNotebookIds.join('\0') === notebookIds.join('\0')) continue;
+
+    updates.push({
+      ...note,
+      notebookIds: nextNotebookIds,
+      notebookId: primaryNotebookId(nextNotebookIds),
+      updatedAt,
+      deviceId: device.id,
+      version: safePendingVersion(note),
+      syncStatus: 'pending',
+      lastSyncedAt: null
+    });
+  }
+
+  if (updates.length) await localDb.notes.bulkPut(updates);
 }

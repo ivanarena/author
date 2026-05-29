@@ -6,6 +6,7 @@ import {
   applyRemoteDeletes,
   markAcceptedChanges,
   mergeRemoteChanges,
+  removeDeletedNotebookReferences,
   resolveConflict
 } from './sync-store';
 import { localDb, type LocalConflict } from './db';
@@ -439,6 +440,58 @@ describe('client sync store', () => {
     );
   });
 
+  it('removes local note assignments after pulling a deleted notebook that applied cleanly', async () => {
+    const assignedNote: LocalNote = {
+      ...baseNote,
+      notebookIds: [baseNotebook.id, 'other-book'],
+      notebookId: baseNotebook.id,
+      syncStatus: 'synced',
+      version: 4,
+      lastSyncedVersion: 4
+    };
+    const deletedRemote = remoteNotebook({
+      deletedAt: '2026-05-02T10:00:00.000Z',
+      updatedAt: '2026-05-02T10:00:00.000Z',
+      version: 2
+    });
+    vi.mocked(localDb.notebooks.get)
+      .mockResolvedValueOnce({
+        ...baseNotebook,
+        syncStatus: 'synced',
+        version: 1,
+        lastSyncedVersion: 1
+      })
+      .mockResolvedValueOnce({
+        ...deletedRemote,
+        syncStatus: 'synced',
+        lastSyncedVersion: 2,
+        lastSyncedAt: syncedAt
+      });
+    vi.mocked(localDb.notes.toArray).mockResolvedValue([assignedNote]);
+
+    await mergeRemoteChanges([], [deletedRemote], syncedAt);
+
+    expect(localDb.notebooks.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: baseNotebook.id,
+        deletedAt: '2026-05-02T10:00:00.000Z',
+        syncStatus: 'synced',
+        lastSyncedVersion: 2,
+        lastSyncedAt: syncedAt
+      })
+    );
+    expect(localDb.notes.bulkPut).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: assignedNote.id,
+        notebookIds: ['other-book'],
+        notebookId: 'other-book',
+        updatedAt: syncedAt,
+        version: 5,
+        syncStatus: 'pending'
+      })
+    ]);
+  });
+
   it('applies hard remote deletes to clean local records and devices', async () => {
     vi.mocked(localDb.notes.get).mockResolvedValue({
       ...baseNote,
@@ -457,7 +510,9 @@ describe('client sync store', () => {
       lastSyncedAt: syncedAt
     });
 
-    await applyRemoteDeletes(['note-1'], ['notebook-1'], ['phone-device']);
+    await expect(
+      applyRemoteDeletes(['note-1'], ['notebook-1'], ['phone-device'])
+    ).resolves.toEqual({ deletedNotebookIds: ['notebook-1'] });
 
     expect(localDb.notes.delete).toHaveBeenCalledWith('note-1');
     expect(localDb.notebooks.delete).toHaveBeenCalledWith('notebook-1');
@@ -479,10 +534,39 @@ describe('client sync store', () => {
       lastSyncedAt: syncedAt
     });
 
-    await applyRemoteDeletes(['note-1'], ['notebook-1']);
+    await expect(
+      applyRemoteDeletes(['note-1'], ['notebook-1'])
+    ).resolves.toEqual({ deletedNotebookIds: [] });
 
     expect(localDb.notes.delete).not.toHaveBeenCalled();
     expect(localDb.notebooks.delete).not.toHaveBeenCalled();
+  });
+
+  it('removes safe remote-deleted notebook references after remote note merges', async () => {
+    const assignedNote: LocalNote = {
+      ...baseNote,
+      notebookIds: ['deleted-book', 'other-book'],
+      notebookId: 'deleted-book',
+      syncStatus: 'synced',
+      version: 4,
+      lastSyncedVersion: 4
+    };
+    vi.mocked(localDb.notes.toArray).mockResolvedValue([assignedNote]);
+
+    await removeDeletedNotebookReferences(['deleted-book'], syncedAt);
+
+    expect(localDb.notes.bulkPut).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: assignedNote.id,
+        notebookIds: ['other-book'],
+        notebookId: 'other-book',
+        updatedAt: syncedAt,
+        deviceId: 'browser-device',
+        version: 5,
+        syncStatus: 'pending',
+        lastSyncedAt: null
+      })
+    ]);
   });
 
   it('resolves duplicate notebook-name conflicts by keeping the existing remote notebook', async () => {
@@ -610,6 +694,80 @@ describe('client sync store', () => {
       })
     );
   });
+
+  it('resolves remote-delete notebook conflicts by removing local note assignments when the remote tombstone wins', async () => {
+    const conflict = deletedRemoteNotebookConflict();
+    const assignedNote: LocalNote = {
+      ...baseNote,
+      notebookIds: [baseNotebook.id, 'other-book'],
+      notebookId: baseNotebook.id,
+      syncStatus: 'synced',
+      version: 4,
+      lastSyncedVersion: 4
+    };
+    vi.mocked(localDb.conflicts.get).mockResolvedValue(
+      notebookConflictRecord(conflict)
+    );
+    vi.mocked(localDb.notes.toArray).mockResolvedValue([assignedNote]);
+
+    await resolveConflict('deleted-notebook-conflict', 'keep-remote');
+
+    expect(localDb.notebooks.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: baseNotebook.id,
+        deletedAt: '2026-05-02T10:00:00.000Z',
+        syncStatus: 'synced',
+        lastSyncedVersion: 2,
+        lastSyncedAt: '2026-05-02T12:00:00.000Z'
+      })
+    );
+    expect(localDb.notes.bulkPut).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: assignedNote.id,
+        notebookIds: ['other-book'],
+        notebookId: 'other-book',
+        version: 5,
+        syncStatus: 'pending',
+        lastSyncedAt: null
+      })
+    ]);
+  });
+
+  it('remaps local note assignments to the local notebook copy when duplicating both generic notebook conflict sides', async () => {
+    const conflict = changedNotebookConflict();
+    const assignedNote: LocalNote = {
+      ...baseNote,
+      notebookIds: [baseNotebook.id],
+      notebookId: baseNotebook.id,
+      syncStatus: 'pending',
+      version: 5,
+      lastSyncedVersion: 4
+    };
+    vi.mocked(localDb.conflicts.get).mockResolvedValue(
+      notebookConflictRecord(conflict)
+    );
+    vi.mocked(localDb.notes.toArray).mockResolvedValue([assignedNote]);
+
+    await resolveConflict('changed-notebook-conflict', 'duplicate-both');
+
+    expect(localDb.notebooks.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'conflict-generated-id',
+        name: 'Local notebook copy',
+        syncStatus: 'pending',
+        lastSyncedVersion: 0
+      })
+    );
+    expect(localDb.notes.bulkPut).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: assignedNote.id,
+        notebookIds: ['conflict-generated-id'],
+        notebookId: 'conflict-generated-id',
+        version: 5,
+        syncStatus: 'pending'
+      })
+    ]);
+  });
 });
 
 function deletedRemoteNoteConflict() {
@@ -642,6 +800,81 @@ function deletedRemoteNoteConflict() {
         version: 2,
         syncStatus: 'synced' as const,
         lastSyncedVersion: 2
+      }
+    }
+  };
+}
+
+function deletedRemoteNotebookConflict() {
+  return {
+    id: 'deleted-notebook-conflict',
+    entityType: 'notebook' as const,
+    entityId: baseNotebook.id,
+    reason: 'deleted_remotely' as const,
+    local: {
+      source: 'local' as const,
+      deviceId: 'browser-device',
+      deviceName: 'Browser',
+      updatedAt: '2026-05-01T10:00:00.000Z',
+      version: 2,
+      previewText: 'Local notebook',
+      record: baseNotebook
+    },
+    remote: {
+      source: 'remote' as const,
+      deviceId: 'phone-device',
+      deviceName: 'Phone',
+      updatedAt: '2026-05-02T10:00:00.000Z',
+      version: 2,
+      previewText: 'Local notebook',
+      record: {
+        ...baseNotebook,
+        deletedAt: '2026-05-02T10:00:00.000Z',
+        updatedAt: '2026-05-02T10:00:00.000Z',
+        deviceId: 'phone-device',
+        version: 2,
+        syncStatus: 'synced' as const,
+        lastSyncedVersion: 2
+      }
+    }
+  };
+}
+
+function changedNotebookConflict() {
+  return {
+    id: 'changed-notebook-conflict',
+    entityType: 'notebook' as const,
+    entityId: baseNotebook.id,
+    reason: 'remote_changed' as const,
+    local: {
+      source: 'local' as const,
+      deviceId: 'browser-device',
+      deviceName: 'Browser',
+      updatedAt: '2026-05-02T10:00:00.000Z',
+      version: 5,
+      previewText: 'Local notebook',
+      record: {
+        ...baseNotebook,
+        name: 'Local notebook',
+        version: 5,
+        lastSyncedVersion: 4,
+        syncStatus: 'conflict' as const
+      }
+    },
+    remote: {
+      source: 'remote' as const,
+      deviceId: 'phone-device',
+      deviceName: 'Phone',
+      updatedAt: '2026-05-02T10:05:00.000Z',
+      version: 6,
+      previewText: 'Remote notebook',
+      record: {
+        ...baseNotebook,
+        name: 'Remote notebook',
+        deviceId: 'phone-device',
+        version: 6,
+        lastSyncedVersion: 6,
+        syncStatus: 'synced' as const
       }
     }
   };
@@ -704,6 +937,21 @@ function duplicateNotebookConflict() {
 
 function localConflictRecord(
   conflict: ReturnType<typeof duplicateNotebookConflict>
+): LocalConflict {
+  return {
+    id: conflict.id,
+    entityType: 'notebook',
+    entityId: conflict.entityId,
+    status: 'pending',
+    createdAt: '2026-05-02T10:06:00.000Z',
+    conflict
+  };
+}
+
+function notebookConflictRecord(
+  conflict:
+    | ReturnType<typeof deletedRemoteNotebookConflict>
+    | ReturnType<typeof changedNotebookConflict>
 ): LocalConflict {
   return {
     id: conflict.id,

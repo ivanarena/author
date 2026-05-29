@@ -27,6 +27,8 @@ Already in place:
   encryption audits, local sync metadata, conflicts, and pull cursor recovery.
 - Local pull-cursor reset tooling that forces a revision-0 recovery pull without
   touching local notes.
+- Remote notebook delete/remap handling clears or remaps local note assignments
+  instead of leaving orphaned notebook links.
 - Web, Node, Cloudflare, Docker, and Android release checks in CI.
 - A local `aube run release:verify` gate.
 - Signed APK releases require green CI, Docker scan, and Cloudflare deploy runs
@@ -105,8 +107,7 @@ Acceptance:
 
 Goal: make data-loss paths observable and recoverable.
 
-- Expand conflict tests for notebook delete/remap cases and password-change sync
-  interruption cases.
+- Expand password-change sync interruption cases.
 - Keep repair diagnostics current for stale local metadata, missing encryption
   material, and cursor reset recovery.
 - Keep note/version history visible enough for users to recover from mistakes

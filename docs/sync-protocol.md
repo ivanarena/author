@@ -131,3 +131,7 @@ explicitly resolves against the tombstone version.
 
 Active notebook names are unique case-insensitively after trimming whitespace. The client blocks duplicates immediately, and the server reports a `duplicate_name` conflict if another device tries to push one.
 When accepting notes, the server trims and deduplicates notebook references, then keeps only references that point to active notebooks owned by the same account, so a rejected or deleted notebook cannot make the note push fail.
+Clients also repair notebook references locally after a remote notebook delete
+has safely applied. The cleanup runs after remote note merges, removes the
+deleted notebook id from local note metadata, and leaves those note metadata
+updates pending so the next push converges without orphaned assignments.

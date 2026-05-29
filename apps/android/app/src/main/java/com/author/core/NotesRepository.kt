@@ -923,12 +923,14 @@ class NotesRepository(context: Context) {
           }
           val nextCursor = safeRevisionCursor(response.serverRevision, cursor, response.hasMore)
           db.putDevices(response.devices)
-          applyRemoteDeletes(
-            response.deletedNoteIds,
-            response.deletedNotebookIds,
-            response.deletedDeviceIds,
-          )
+          val deletedNotebookReferenceIds =
+            applyRemoteDeletes(
+              response.deletedNoteIds,
+              response.deletedNotebookIds,
+              response.deletedDeviceIds,
+            )
           mergeRemoteChanges(response.notes, response.notebooks, response.serverTime, device)
+          removeDeletedNotebookReferences(deletedNotebookReferenceIds, response.serverTime, device)
           db.putMeta("lastPulledAt", response.serverTime)
           db.putMeta("lastPulledRevision", nextCursor.toString())
           val pageSize =
@@ -1027,6 +1029,7 @@ class NotesRepository(context: Context) {
         } else if (choice == "duplicate-both") {
           val remote = conflict.remote.record
           val local = conflict.local.record
+          val copyId = newId()
           db.putNotebook(
             crypto.encryptNotebookFields(
               remote.copy(
@@ -1039,7 +1042,7 @@ class NotesRepository(context: Context) {
           db.putNotebook(
             crypto.encryptNotebookFields(
               local.copy(
-                id = newId(),
+                id = copyId,
                 name = "${local.name} copy",
                 nameHash = null,
                 createdAt = now,
@@ -1052,6 +1055,7 @@ class NotesRepository(context: Context) {
               )
             )
           )
+          remapLocalNoteNotebookReferences(local.id, copyId, device, now)
         } else {
           val selected = chooseConflictVersion(conflict, choice)
           val record = selected.record
@@ -1067,6 +1071,9 @@ class NotesRepository(context: Context) {
               )
             )
           )
+          if (isRemote && record.deletedAt != null) {
+            removeLocalNoteNotebookReferences(record.id, device, now)
+          }
         }
       }
       db.putConflict(
@@ -1393,7 +1400,8 @@ class NotesRepository(context: Context) {
     noteIds: List<String>,
     notebookIds: List<String>,
     deviceIds: List<String>,
-  ) {
+  ): List<String> {
+    val notebookIdsForReferenceCleanup = mutableListOf<String>()
     noteIds.distinct().forEach { id ->
       val note = db.getNote(id)
       if (note != null && note.syncStatus != "pending" && note.syncStatus != "conflict")
@@ -1401,13 +1409,15 @@ class NotesRepository(context: Context) {
     }
     notebookIds.distinct().forEach { id ->
       val notebook = db.getNotebook(id)
-      if (
-        notebook != null && notebook.syncStatus != "pending" && notebook.syncStatus != "conflict"
-      ) {
+      if (notebook == null) {
+        notebookIdsForReferenceCleanup += id
+      } else if (notebook.syncStatus != "pending" && notebook.syncStatus != "conflict") {
         db.deleteNotebookRow(id)
+        notebookIdsForReferenceCleanup += id
       }
     }
     deviceIds.distinct().forEach { db.deleteDevice(it) }
+    return notebookIdsForReferenceCleanup
   }
 
   private fun mergeRemoteChanges(
@@ -1418,6 +1428,20 @@ class NotesRepository(context: Context) {
   ) {
     notebooks.forEach { mergeRemoteNotebook(it, syncedAt, currentDevice) }
     notes.forEach { mergeRemoteNote(it, syncedAt, currentDevice) }
+    val deletedNotebookIds =
+      notebooks
+        .filter { it.deletedAt != null }
+        .mapNotNull { remote ->
+          val local = db.getNotebook(remote.id)
+          if (
+            local?.deletedAt != null &&
+              local.syncStatus != "pending" &&
+              local.syncStatus != "conflict"
+          )
+            remote.id
+          else null
+        }
+    removeDeletedNotebookReferences(deletedNotebookIds, syncedAt, currentDevice)
   }
 
   private fun mergeRemoteNote(remote: LocalNote, syncedAt: String, currentDevice: Device) {
@@ -1725,6 +1749,44 @@ class NotesRepository(context: Context) {
         val ids = noteNotebookIds(note)
         if (fromNotebookId !in ids) return@forEach
         val nextIds = remapNotebookIds(ids, fromNotebookId, toNotebookId)
+        if (nextIds == ids) return@forEach
+        db.putNote(
+          note.copy(
+            notebookIds = nextIds,
+            notebookId = primaryNotebookId(nextIds),
+            updatedAt = updatedAt,
+            deviceId = device.id,
+            version = safePendingVersion(note),
+            syncStatus = "pending",
+            lastSyncedAt = null,
+          )
+        )
+      }
+  }
+
+  private fun removeDeletedNotebookReferences(
+    notebookIds: List<String>,
+    updatedAt: String,
+    device: Device,
+  ) {
+    notebookIds
+      .distinct()
+      .filter { it.isNotBlank() }
+      .forEach { removeLocalNoteNotebookReferences(it, device, updatedAt) }
+  }
+
+  private fun removeLocalNoteNotebookReferences(
+    notebookId: String,
+    device: Device,
+    updatedAt: String,
+  ) {
+    db
+      .allNotes()
+      .filter { it.syncStatus != "conflict" && it.syncStatus != "deleted" && it.deletedAt == null }
+      .forEach { note ->
+        val ids = noteNotebookIds(note)
+        if (notebookId !in ids) return@forEach
+        val nextIds = ids.filter { it != notebookId }.distinct()
         if (nextIds == ids) return@forEach
         db.putNote(
           note.copy(

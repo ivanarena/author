@@ -1,0 +1,354 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { LocalNote, LocalNotebook } from '$lib/client/db';
+import type { NotesFilterId } from '../models';
+import type { NotesLibraryActionController } from './library';
+
+const mocks = vi.hoisted(() => ({
+  assignNoteToNotebook: vi.fn(),
+  createNotebook: vi.fn(),
+  deleteNotebook: vi.fn(),
+  deleteNotePermanently: vi.fn(),
+  moveNoteToTrash: vi.fn(),
+  notebookNameExists: vi.fn(),
+  renameNotebook: vi.fn(),
+  restoreNote: vi.fn()
+}));
+
+vi.mock('$lib/client/store', () => ({
+  assignNoteToNotebook: mocks.assignNoteToNotebook,
+  createNotebook: mocks.createNotebook,
+  deleteNotebook: mocks.deleteNotebook,
+  deleteNotePermanently: mocks.deleteNotePermanently,
+  moveNoteToTrash: mocks.moveNoteToTrash,
+  notebookNameExists: mocks.notebookNameExists,
+  renameNotebook: mocks.renameNotebook,
+  restoreNote: mocks.restoreNote
+}));
+
+import {
+  assignNotebookForNote,
+  assignNotebookForSelected,
+  clearSelectedNotes,
+  confirmDeleteNotebook,
+  contextCreateNotebookForNote,
+  deleteNotePermanentlyFromRow,
+  deleteSelectedNotesPermanently,
+  restoreSelectedNotes,
+  selectedNotesHaveNotebook,
+  submitNewNotebookMenu,
+  submitRenameNotebook,
+  toggleAllVisibleNotes,
+  toggleNoteSelection,
+  toggleSelectedNotebookMenu,
+  trashSelectedNotes
+} from './library';
+
+function note(overrides: Partial<LocalNote> = {}): LocalNote {
+  return {
+    id: 'note-1',
+    title: 'Note',
+    body: 'Body',
+    notebookIds: [],
+    notebookId: null,
+    createdAt: '2026-05-29T10:00:00.000Z',
+    updatedAt: '2026-05-29T10:00:00.000Z',
+    deletedAt: null,
+    trashedAt: null,
+    deviceId: 'device-1',
+    version: 1,
+    syncStatus: 'synced',
+    lastSyncedVersion: 1,
+    lastSyncedAt: '2026-05-29T10:00:00.000Z',
+    ...overrides
+  };
+}
+
+function notebook(overrides: Partial<LocalNotebook> = {}): LocalNotebook {
+  return {
+    id: 'notebook-1',
+    name: 'Work',
+    createdAt: '2026-05-29T10:00:00.000Z',
+    updatedAt: '2026-05-29T10:00:00.000Z',
+    deletedAt: null,
+    deviceId: 'device-1',
+    version: 1,
+    syncStatus: 'synced',
+    lastSyncedVersion: 1,
+    lastSyncedAt: '2026-05-29T10:00:00.000Z',
+    ...overrides
+  };
+}
+
+function controller(
+  overrides: Partial<NotesLibraryActionController> = {}
+): NotesLibraryActionController {
+  return {
+    deletingNotebookId: null,
+    filterId: 'all' as NotesFilterId,
+    linkingNoteId: null,
+    loginOpen: false,
+    newNotebookOpen: false,
+    notebookError: '',
+    notebookNameValue: '',
+    notebooks: [],
+    notes: [],
+    renameNotebookError: '',
+    renameNotebookValue: '',
+    renamingNotebookId: null,
+    selectedActiveNoteCount: 0,
+    selectedNote: null,
+    selectedNoteIds: new Set<string>(),
+    selectedNotebookMenuOpen: false,
+    selectedNotes: [],
+    selectedTrashedNoteCount: 0,
+    trash: [],
+    visibleNotes: [],
+    clearSelectedNotes: vi.fn(),
+    closeContextMenu: vi.fn(),
+    flushPendingSave: vi.fn(),
+    localNotebookNameExists: vi.fn(() => false),
+    newNote: vi.fn(),
+    refresh: vi.fn(),
+    selectNote: vi.fn(),
+    ...overrides
+  };
+}
+
+describe('library actions', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.assignNoteToNotebook.mockImplementation(
+      async (id: string, notebookId: string | null, assigned: boolean) =>
+        note({
+          id,
+          notebookId: assigned ? notebookId : null,
+          notebookIds: assigned && notebookId ? [notebookId] : [],
+          syncStatus: 'pending'
+        })
+    );
+    mocks.createNotebook.mockResolvedValue(notebook());
+    mocks.deleteNotebook.mockResolvedValue(undefined);
+    mocks.deleteNotePermanently.mockResolvedValue(undefined);
+    mocks.moveNoteToTrash.mockResolvedValue(undefined);
+    mocks.notebookNameExists.mockResolvedValue(false);
+    mocks.renameNotebook.mockResolvedValue(notebook({ name: 'Renamed' }));
+    mocks.restoreNote.mockResolvedValue(undefined);
+  });
+
+  it('keeps note selection stable and closes notebook menus', () => {
+    const first = note({ id: 'note-1' });
+    const second = note({ id: 'note-2' });
+    const model = controller({
+      selectedNoteIds: new Set(['note-1']),
+      selectedNotebookMenuOpen: true,
+      visibleNotes: [first, second]
+    });
+
+    toggleNoteSelection(model, second, true);
+    expect(model.selectedNoteIds).toEqual(new Set(['note-1', 'note-2']));
+    expect(model.selectedNotebookMenuOpen).toBe(false);
+
+    toggleAllVisibleNotes(model, false);
+    expect(model.selectedNoteIds.size).toBe(0);
+
+    model.selectedNoteIds = new Set(['note-1']);
+    model.selectedNotebookMenuOpen = true;
+    clearSelectedNotes(model);
+    expect(model.selectedNoteIds.size).toBe(0);
+    expect(model.selectedNotebookMenuOpen).toBe(false);
+  });
+
+  it('toggles selected notebook assignments and reports aggregate selection state', async () => {
+    const first = note({ id: 'note-1', notebookIds: ['notebook-1'] });
+    const second = note({ id: 'note-2', notebookIds: [] });
+    const model = controller({
+      selectedNotes: [first, second],
+      selectedActiveNoteCount: 2
+    });
+
+    expect(selectedNotesHaveNotebook(model, 'notebook-1')).toBe(false);
+    toggleSelectedNotebookMenu(model);
+    expect(model.selectedNotebookMenuOpen).toBe(true);
+    expect(model.closeContextMenu).toHaveBeenCalled();
+
+    await assignNotebookForSelected(model, 'notebook-1');
+
+    expect(mocks.assignNoteToNotebook).toHaveBeenCalledWith(
+      'note-1',
+      'notebook-1',
+      true
+    );
+    expect(mocks.assignNoteToNotebook).toHaveBeenCalledWith(
+      'note-2',
+      'notebook-1',
+      true
+    );
+    expect(model.selectedNotebookMenuOpen).toBe(false);
+    expect(model.refresh).toHaveBeenCalled();
+  });
+
+  it('moves selected active notes to trash and selects a safe next note', async () => {
+    const selected = note({ id: 'note-1' });
+    const next = note({ id: 'note-2' });
+    const model = controller({
+      notes: [next],
+      selectedNote: selected,
+      selectedNotes: [selected],
+      clearSelectedNotes: vi.fn()
+    });
+
+    await trashSelectedNotes(model);
+
+    expect(model.flushPendingSave).toHaveBeenCalled();
+    expect(mocks.moveNoteToTrash).toHaveBeenCalledWith('note-1');
+    expect(model.clearSelectedNotes).toHaveBeenCalled();
+    expect(model.refresh).toHaveBeenCalled();
+    expect(model.selectNote).toHaveBeenCalledWith(next);
+  });
+
+  it('restores and permanently deletes selected trashed notes explicitly', async () => {
+    const trashed = note({
+      id: 'trashed',
+      trashedAt: '2026-05-29T10:00:00.000Z'
+    });
+    const restored = note({ id: 'trashed', trashedAt: null });
+    const model = controller({
+      notes: [restored],
+      selectedNotes: [trashed],
+      clearSelectedNotes: vi.fn()
+    });
+
+    await restoreSelectedNotes(model);
+
+    expect(mocks.restoreNote).toHaveBeenCalledWith('trashed');
+    expect(model.filterId).toBe('all');
+    expect(model.clearSelectedNotes).toHaveBeenCalled();
+    expect(model.selectNote).toHaveBeenCalledWith(restored);
+
+    await deleteSelectedNotesPermanently(
+      controller({
+        filterId: 'trash',
+        selectedNote: trashed,
+        selectedNotes: [trashed],
+        trash: [],
+        clearSelectedNotes: vi.fn()
+      })
+    );
+
+    expect(mocks.deleteNotePermanently).toHaveBeenCalledWith('trashed');
+  });
+
+  it('creates notebooks only after local and remote duplicate checks pass', async () => {
+    const selected = note({ id: 'note-1' });
+    const created = notebook({ id: 'new-notebook', name: 'Ideas' });
+    mocks.createNotebook.mockResolvedValueOnce(created);
+    const model = controller({
+      notebookNameValue: ' Ideas ',
+      selectedNote: selected
+    });
+
+    await submitNewNotebookMenu(model);
+
+    expect(mocks.notebookNameExists).toHaveBeenCalledWith('Ideas');
+    expect(mocks.createNotebook).toHaveBeenCalledWith('Ideas');
+    expect(mocks.assignNoteToNotebook).toHaveBeenCalledWith(
+      selected.id,
+      created.id,
+      true
+    );
+    expect(model.filterId).toBe(created.id);
+    expect(model.newNotebookOpen).toBe(false);
+    expect(model.notebookNameValue).toBe('');
+
+    const duplicate = controller({
+      notebookNameValue: 'Ideas',
+      localNotebookNameExists: vi.fn(() => true)
+    });
+    await submitNewNotebookMenu(duplicate);
+    expect(duplicate.notebookError).toBe('Notebook already exists');
+  });
+
+  it('renames and deletes notebooks without leaving selected notes orphaned', async () => {
+    const target = notebook({ id: 'notebook-1', name: 'Work' });
+    const selected = note({ id: 'note-1', notebookIds: ['notebook-1'] });
+    const next = note({ id: 'note-2' });
+    const model = controller({
+      filterId: 'notebook-1',
+      notes: [selected, next],
+      renameNotebookValue: ' Renamed ',
+      selectedNote: selected
+    });
+
+    await submitRenameNotebook(model, target);
+
+    expect(mocks.renameNotebook).toHaveBeenCalledWith('notebook-1', 'Renamed');
+    expect(model.renamingNotebookId).toBeNull();
+    expect(model.renameNotebookValue).toBe('');
+
+    await confirmDeleteNotebook(model, target);
+
+    expect(mocks.deleteNotebook).toHaveBeenCalledWith('notebook-1');
+    expect(model.filterId).toBe('all');
+    expect(model.deletingNotebookId).toBeNull();
+    expect(model.selectNote).toHaveBeenCalledWith(next);
+  });
+
+  it('creates a notebook from a row context and updates the selected note', async () => {
+    const selected = note({ id: 'note-1' });
+    const created = notebook({ id: 'context-notebook', name: 'Contexts' });
+    const updated = note({
+      id: selected.id,
+      notebookId: created.id,
+      notebookIds: [created.id]
+    });
+    mocks.createNotebook.mockResolvedValueOnce(created);
+    mocks.assignNoteToNotebook.mockResolvedValueOnce(updated);
+    const model = controller({ selectedNote: selected });
+
+    await expect(
+      contextCreateNotebookForNote(model, selected, ' Contexts ')
+    ).resolves.toBeNull();
+
+    expect(model.selectedNote).toBe(updated);
+    expect(model.filterId).toBe(created.id);
+    expect(model.closeContextMenu).toHaveBeenCalled();
+  });
+
+  it('updates row-level assignments and permanent deletes only trashed notes', async () => {
+    const selected = note({ id: 'note-1', notebookIds: [] });
+    const assigned = note({ id: 'note-1', notebookIds: ['notebook-1'] });
+    mocks.assignNoteToNotebook.mockResolvedValueOnce(assigned);
+    const model = controller({
+      selectedNote: selected,
+      selectedNoteIds: new Set(['trashed'])
+    });
+
+    await assignNotebookForNote(model, selected, 'notebook-1');
+
+    expect(mocks.assignNoteToNotebook).toHaveBeenCalledWith(
+      'note-1',
+      'notebook-1',
+      true
+    );
+    expect(model.selectedNote).toBe(assigned);
+
+    const active = note({ id: 'active' });
+    await deleteNotePermanentlyFromRow(model, active);
+    expect(mocks.deleteNotePermanently).not.toHaveBeenCalled();
+
+    const trashed = note({
+      id: 'trashed',
+      trashedAt: '2026-05-29T10:00:00.000Z'
+    });
+    await deleteNotePermanentlyFromRow(
+      controller({
+        selectedNote: trashed,
+        selectedNoteIds: new Set(['trashed']),
+        trash: [],
+        filterId: 'trash'
+      }),
+      trashed
+    );
+    expect(mocks.deleteNotePermanently).toHaveBeenCalledWith('trashed');
+  });
+});

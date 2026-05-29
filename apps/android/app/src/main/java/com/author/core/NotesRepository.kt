@@ -753,6 +753,7 @@ class NotesRepository(context: Context) {
       try {
         runSync(replacementSession.token)
       } catch (error: Throwable) {
+        recordSyncErrorInternal(error, "Password change sync")
         throw IllegalStateException(
           "Password changed, but Author could not finish syncing: ${error.message ?: "Sync failed"}",
           error,

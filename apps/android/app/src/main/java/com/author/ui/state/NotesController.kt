@@ -1232,18 +1232,35 @@ class NotesController(private val repository: NotesRepository, private val scope
       try {
         val response = repository.changePassword(token, currentPasswordValue, newPasswordValue)
         applyAccount(response.user, response.trustedDevices)
-        response.session?.let { runCatching { repository.logout(it.token) } }
-        clearSensitiveWorkspace()
-        clearLocalSession(
-          "Password changed. Sign in again to unlock notes.",
-          openLogin = true,
-          clearEncryptionKeyMaterial = true,
-        )
-        loginUsernameValue = response.user.username
-        notify("success", "Password changed", "Sign in again to unlock notes.")
+        hasToken = repository.getStoredSession() != null
+        currentPasswordValue = ""
+        newPasswordValue = ""
+        confirmPasswordValue = ""
+        accountPasswordEditing = false
+        accountPanel = null
+        accountMessage = "Password changed"
+        syncMessage = "Local changes saved"
+        refresh()
+        notify("success", "Password changed", "Your encrypted notes stayed on the same data key.")
       } catch (error: Throwable) {
         accountError = error.message ?: "Could not change password"
-        notify("error", "Password not changed", accountError)
+        val syncIncomplete = accountError.startsWith("Password changed, but")
+        if (syncIncomplete) {
+          val storedSession = repository.getStoredSession()
+          hasToken = storedSession != null
+          storedSession?.user?.let { applyUser(it) }
+          currentPasswordValue = ""
+          newPasswordValue = ""
+          confirmPasswordValue = ""
+          accountPasswordEditing = false
+          syncMessage = "Password changed; sync retry needed"
+          refresh()
+        }
+        notify(
+          "error",
+          if (syncIncomplete) "Password sync incomplete" else "Password not changed",
+          accountError,
+        )
       }
     }
   }

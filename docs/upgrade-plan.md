@@ -30,7 +30,8 @@ Already in place:
 - Remote notebook delete/remap handling clears or remaps local note assignments
   instead of leaving orphaned notebook links.
 - Password-change interruption handling preserves the replacement session and
-  records sync diagnostics when the final post-change sync fails.
+  records sync diagnostics when the final post-change sync fails on web and
+  Android.
 - Web, Node, Cloudflare, Docker, and Android release checks in CI.
 - A local `aube run release:verify` gate.
 - Signed APK releases require green CI, Docker scan, and Cloudflare deploy runs

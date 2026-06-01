@@ -22,6 +22,37 @@ Please report security issues privately to the project maintainer instead of
 opening a public issue. Include reproduction steps, affected commit or release,
 and whether the issue affects web, server, Android, or sync.
 
+Preferred channel:
+
+- GitHub private vulnerability report:
+  https://github.com/ivanarena/author/security/advisories/new
+
+If that form is unavailable, contact the repository maintainer privately through
+the GitHub profile listed on the repository owner account. Do not include
+exploit details in public issues, pull requests, screenshots, logs, or comments
+until a fix and disclosure plan are agreed.
+
+Expected handling:
+
+- Initial acknowledgement target: within 7 calendar days.
+- Triage target: within 14 calendar days after enough reproduction detail is
+  available.
+- Critical issues affecting confidentiality, authentication, sync integrity, or
+  release signing should receive a fix or mitigation plan before the next
+  release.
+- Public disclosure should wait until a patched release, mitigation, or written
+  non-applicability decision is available.
+
+Supported surface:
+
+- Latest `main` and the latest published release are the only supported security
+  targets.
+- Older releases may need to upgrade through the documented migration path before
+  receiving fixes.
+- Security reports about generated dependency code, Gradle wrapper binaries, or
+  platform services should include the upstream version and why the issue is
+  reachable from Author.
+
 ## Current Threat Model
 
 - Local editing and offline access take priority over network availability.

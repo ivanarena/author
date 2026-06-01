@@ -118,6 +118,11 @@ Required external blockers:
 - Review the Trivy SARIF uploaded by CI for the release commit.
 - Review CodeQL and OpenSSF Scorecard SARIF artifacts, or code-scanning alerts
   if code scanning is enabled, for the release commit.
+- Clear or explicitly accept remaining Scorecard findings before public release.
+  As of this pass, repo-setting/practice findings such as branch protection,
+  code-review enforcement, OpenSSF best-practices badge status, fuzzing coverage,
+  Gradle wrapper binary review, and Docker npm-command pinning require either an
+  admin/platform change or a written exception in release notes.
 - Verify the release commit has successful `CI`, `Docker`, and
   `Cloudflare Deploy` workflow runs before publishing release notes.
 - Verify Cosign-signed container images and protected Android release keys.

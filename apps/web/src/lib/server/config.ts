@@ -254,9 +254,6 @@ export function getServerSecret(): string {
     throw new Error('NOTES_SERVER_SECRET is required in production');
   }
 
-  const loginPassword = getLoginPassword();
-  if (loginPassword) return loginPassword;
-
   return 'local-dev-server-secret';
 }
 

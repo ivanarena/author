@@ -2,6 +2,7 @@ package com.author
 
 import android.app.Activity
 import android.app.PendingIntent
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -47,7 +48,9 @@ class UpdateDownloadActivity : Activity() {
 
     fun pendingIntent(context: Context, downloadUrl: String): PendingIntent {
       val intent =
-        Intent(context, UpdateDownloadActivity::class.java)
+        Intent()
+          .setComponent(ComponentName(context, UpdateDownloadActivity::class.java))
+          .setPackage(context.packageName)
           .putExtra(EXTRA_DOWNLOAD_URL, downloadUrl)
           .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       return PendingIntent.getActivity(

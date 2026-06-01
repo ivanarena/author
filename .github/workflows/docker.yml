@@ -33,8 +33,12 @@ jobs:
       IMAGE_REF: ghcr.io/${{ github.repository }}:sha-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: github.event_name == 'pull_request'
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: github.event_name == 'workflow_run'
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          ref: main
 
       - name: Refuse stale CI result
         if: github.event_name == 'workflow_run'
@@ -104,7 +108,16 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ env.IMAGE_SHA }}
+          ref: main
+
+      - name: Refuse stale CI result
+        run: |
+          git fetch --no-tags --depth=1 origin main
+          current_main="$(git rev-parse origin/main)"
+          if [ "$current_main" != "$IMAGE_SHA" ]; then
+            echo "::error::CI completed for ${IMAGE_SHA}, but main is now ${current_main}."
+            exit 1
+          fi
 
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 

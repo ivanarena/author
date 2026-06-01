@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import type {
   AuthChallengeResponse,
   AuthKdfParams,
@@ -199,7 +199,7 @@ function digestBytes(value: Uint8Array): Buffer {
 }
 
 function tokenHash(token: string): string {
-  return digest(token).toString('hex');
+  return createHash('sha256').update(token).digest('hex');
 }
 
 function deviceTrustSecretHash(
@@ -228,7 +228,18 @@ function requireDeviceTrustSecret(secret: string | null | undefined): string {
 
 export function tokensMatch(actual: string | null, expected: string): boolean {
   if (!actual) return false;
-  return timingSafeEqual(digest(actual), digest(expected));
+  return constantTimeStringEqual(actual, expected);
+}
+
+function constantTimeStringEqual(actual: string, expected: string): boolean {
+  const actualBytes = Buffer.from(actual);
+  const expectedBytes = Buffer.from(expected);
+  const length = Math.max(actualBytes.length, expectedBytes.length, 1);
+  let difference = actualBytes.length ^ expectedBytes.length;
+  for (let index = 0; index < length; index += 1) {
+    difference |= (actualBytes[index] ?? 0) ^ (expectedBytes[index] ?? 0);
+  }
+  return difference === 0;
 }
 
 export function normalizeUsername(
@@ -630,7 +641,7 @@ function cleanLoginIdentifier(login: string | null | undefined): string | null {
 }
 
 function fakeAuthSalt(identifier: string): string {
-  const secret = getServerSecret() ?? getLoginPassword() ?? 'local-dev';
+  const secret = getServerSecret() ?? 'local-dev';
   return digest(`author:auth-proof-fake-salt:v1\0${secret}\0${identifier}`)
     .subarray(0, 16)
     .toString('base64url');

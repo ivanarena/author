@@ -10,6 +10,7 @@ Tables:
 - `notebooks`
 - `noteSnapshots`
 - `devices`
+- `secrets`
 - `syncMeta`
 - `conflicts`
 
@@ -25,6 +26,13 @@ Trash moves, and restore-from-history actions. Snapshots use the same note
 field envelope context as the source note, are pruned to the newest 50
 snapshots per note, and are deleted when a note is permanently deleted. They do
 not sync or become API contract fields.
+
+`secrets` stores local-only browser secrets that must not become shared API
+fields. The current entry is the trusted-device secret used to prove this
+browser during trusted-device sign-in. Legacy installs migrate that value out
+of `localStorage`; it remains readable to same-origin JavaScript, so the web
+threat model still treats XSS or a compromised deployed bundle as able to use
+the active browser session.
 
 ## Server SQLite/libSQL
 

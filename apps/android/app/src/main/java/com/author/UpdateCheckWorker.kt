@@ -3,12 +3,9 @@ package com.author
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
 import android.graphics.Color
 import androidx.core.content.edit
-import androidx.core.net.toUri
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -128,7 +125,9 @@ class UpdateCheckWorker(appContext: Context, params: WorkerParameters) :
         .setContentTitle(applicationContext.getString(R.string.update_notification_title))
         .setContentText(body)
         .setStyle(Notification.BigTextStyle().bigText(body))
-        .setContentIntent(updateIntent(update.downloadUrl))
+        .setContentIntent(
+          UpdateDownloadActivity.pendingIntent(applicationContext, update.downloadUrl)
+        )
         .setColor(Color.rgb(47, 125, 82))
         .setCategory(Notification.CATEGORY_STATUS)
         .setVisibility(Notification.VISIBILITY_PUBLIC)
@@ -140,18 +139,6 @@ class UpdateCheckWorker(appContext: Context, params: WorkerParameters) :
       update.versionCode?.let { putInt(LAST_NOTIFIED_VERSION_CODE, it) }
       putString(LAST_NOTIFIED_VERSION_NAME, update.versionName)
     }
-  }
-
-  private fun updateIntent(downloadUrl: String): PendingIntent {
-    val intent =
-      Intent(Intent.ACTION_VIEW, downloadUrl.ifBlank { BuildConfig.UPDATE_DOWNLOAD_URL }.toUri())
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    return PendingIntent.getActivity(
-      applicationContext,
-      0,
-      intent,
-      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-    )
   }
 
   private fun readResponse(connection: HttpURLConnection, status: Int): String {

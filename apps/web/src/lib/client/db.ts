@@ -35,11 +35,17 @@ export interface LocalNoteSnapshot extends Note {
   reason: LocalNoteSnapshotReason;
 }
 
+export interface LocalSecret {
+  key: string;
+  value: string;
+}
+
 export class NotesLocalDatabase extends Dexie {
   notes!: Table<LocalNote, string>;
   notebooks!: Table<LocalNotebook, string>;
   noteSnapshots!: Table<LocalNoteSnapshot, string>;
   devices!: Table<Device, string>;
+  secrets!: Table<LocalSecret, string>;
   syncMeta!: Table<SyncMeta, string>;
   conflicts!: Table<LocalConflict, string>;
 
@@ -108,6 +114,17 @@ export class NotesLocalDatabase extends Dexie {
       syncMeta: 'key',
       conflicts: 'id, entityType, entityId, status, createdAt'
     });
+    this.version(5).stores({
+      notes:
+        'id, notebookId, *notebookIds, createdAt, updatedAt, deletedAt, trashedAt, deviceId, version, syncStatus, lastSyncedVersion',
+      notebooks:
+        'id, name, createdAt, updatedAt, deletedAt, deviceId, version, syncStatus, lastSyncedVersion',
+      noteSnapshots: 'snapshotId, id, savedAt, reason',
+      devices: 'id, name',
+      secrets: 'key',
+      syncMeta: 'key',
+      conflicts: 'id, entityType, entityId, status, createdAt'
+    });
   }
 }
 
@@ -138,6 +155,7 @@ export async function clearLocalWorkspace(): Promise<void> {
       localDb.notebooks,
       localDb.noteSnapshots,
       localDb.devices,
+      localDb.secrets,
       localDb.syncMeta,
       localDb.conflicts
     ],
@@ -147,6 +165,7 @@ export async function clearLocalWorkspace(): Promise<void> {
         localDb.notebooks.clear(),
         localDb.noteSnapshots.clear(),
         localDb.devices.clear(),
+        localDb.secrets.clear(),
         localDb.syncMeta.clear(),
         localDb.conflicts.clear()
       ]);

@@ -608,7 +608,7 @@ export async function login(
     password,
     totpCode,
     device,
-    deviceTrustSecret: getOrCreateDeviceTrustSecret()
+    deviceTrustSecret: await getOrCreateDeviceTrustSecret()
   });
   if (!password?.trim()) return response;
   if (response.e2eeKeyring) {
@@ -653,7 +653,7 @@ export async function signup(
     password,
     e2eeKeyring: keyring.e2eeKeyring,
     device,
-    deviceTrustSecret: getOrCreateDeviceTrustSecret()
+    deviceTrustSecret: await getOrCreateDeviceTrustSecret()
   };
   const response = await signupWithDevice(body);
   return {

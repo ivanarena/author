@@ -72,12 +72,22 @@ function randomHex(bytes: number): string {
     .join('');
 }
 
-export function getOrCreateDeviceTrustSecret(): string {
-  const existing = localStorage.getItem(DEVICE_TRUST_SECRET_KEY)?.trim();
+export async function getOrCreateDeviceTrustSecret(): Promise<string> {
+  const existing = (
+    await localDb.secrets.get(DEVICE_TRUST_SECRET_KEY)
+  )?.value.trim();
   if (existing && existing.length >= 32) return existing;
 
+  const legacy = localStorage.getItem(DEVICE_TRUST_SECRET_KEY)?.trim();
+  if (legacy && legacy.length >= 32) {
+    localStorage.removeItem(DEVICE_TRUST_SECRET_KEY);
+    await localDb.secrets.put({ key: DEVICE_TRUST_SECRET_KEY, value: legacy });
+    return legacy;
+  }
+
   const secret = randomHex(32);
-  localStorage.setItem(DEVICE_TRUST_SECRET_KEY, secret);
+  localStorage.removeItem(DEVICE_TRUST_SECRET_KEY);
+  await localDb.secrets.put({ key: DEVICE_TRUST_SECRET_KEY, value: secret });
   return secret;
 }
 

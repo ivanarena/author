@@ -17,6 +17,13 @@
     android:theme="@style/Theme.Author"
     android:usesCleartextTraffic="${usesCleartextTraffic}">
     <activity
+      android:name=".UpdateDownloadActivity"
+      android:excludeFromRecents="true"
+      android:exported="false"
+      android:noHistory="true"
+      android:theme="@style/Theme.Author.NoDisplay" />
+
+    <activity
       android:name=".MainActivity"
       android:exported="true"
       android:windowSoftInputMode="adjustResize">

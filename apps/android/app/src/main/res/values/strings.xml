@@ -5,4 +5,5 @@
   <string name="update_notification_channel_description">Notifications when a newer Author APK is available.</string>
   <string name="update_notification_title">New Author APK available</string>
   <string name="update_notification_body">Version %1$s is ready to install.</string>
+  <string name="update_download_chooser_title">Open update download</string>
 </resources>

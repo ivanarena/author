@@ -20,6 +20,10 @@ vi.mock('./db', () => ({
     devices: {
       get: vi.fn(),
       put: vi.fn()
+    },
+    secrets: {
+      get: vi.fn(),
+      put: vi.fn()
     }
   }
 }));
@@ -80,6 +84,7 @@ beforeEach(() => {
     vi.fn(() => ({ matches: false }))
   );
   vi.mocked(localDb.devices.get).mockResolvedValue(undefined);
+  vi.mocked(localDb.secrets.get).mockResolvedValue(undefined);
 });
 
 describe('local browser state', () => {
@@ -121,12 +126,35 @@ describe('local browser state', () => {
     });
   });
 
-  it('creates and preserves a separate trusted-login secret', () => {
-    const secret = getOrCreateDeviceTrustSecret();
+  it('creates and preserves a separate trusted-login secret outside localStorage', async () => {
+    const secret = await getOrCreateDeviceTrustSecret();
 
     expect(secret).toBe('07'.repeat(32));
-    expect(getOrCreateDeviceTrustSecret()).toBe(secret);
+    expect(localDb.secrets.put).toHaveBeenCalledWith({
+      key: 'author-device-trust-secret-v1',
+      value: secret
+    });
+    expect(localStorage.getItem('author-device-trust-secret-v1')).toBeNull();
+    vi.mocked(localDb.secrets.get).mockResolvedValue({
+      key: 'author-device-trust-secret-v1',
+      value: secret
+    });
+    await expect(getOrCreateDeviceTrustSecret()).resolves.toBe(secret);
     expect(crypto.getRandomValues).toHaveBeenCalledTimes(1);
+  });
+
+  it('migrates an existing trusted-login secret out of localStorage', async () => {
+    const legacy = 'legacy-device-trust-secret-0123456789';
+    localStorage.setItem('author-device-trust-secret-v1', legacy);
+
+    await expect(getOrCreateDeviceTrustSecret()).resolves.toBe(legacy);
+
+    expect(localStorage.getItem('author-device-trust-secret-v1')).toBeNull();
+    expect(localDb.secrets.put).toHaveBeenCalledWith({
+      key: 'author-device-trust-secret-v1',
+      value: legacy
+    });
+    expect(crypto.getRandomValues).not.toHaveBeenCalled();
   });
 
   it('stores, hints, and clears auth session fields without losing the login hint or device key', () => {

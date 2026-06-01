@@ -1,7 +1,10 @@
 module.exports = {
   platform: 'github',
-  repositories: [process.env.GITHUB_REPOSITORY],
+  repositories: (process.env.RENOVATE_REPOSITORIES ?? '')
+    .split(',')
+    .map((repository) => repository.trim())
+    .filter(Boolean),
   onboarding: false,
   requireConfig: 'optional',
-  allowedPostUpgradeCommands: ['^npx -y @endevco/aube@1\\.16\\.0 install$']
+  allowedCommands: ['^npx -y @endevco/aube@1\\.16\\.0 install$']
 };

@@ -18,7 +18,7 @@ Author should compete by staying narrow and trustworthy:
 - Self-hostable Node/SQLite, Cloudflare/Turso hosting, Docker image publishing,
   Android parity, and a small codebase operators can inspect.
 
-Do not compete by overstating security. As of May 29, 2026, Standard Notes,
+Do not compete by overstating security. As of June 1, 2026, Standard Notes,
 Obsidian Sync, Notesnook, and Joplin all publish E2EE/security documentation,
 and Standard Notes and Obsidian publish independent audit claims or reports.
 Author can honestly claim local-first encrypted sync with documented recovery
@@ -49,11 +49,16 @@ Already in place:
 - Local pull-cursor reset that forces a revision-0 recovery pull without
   deleting pending records.
 - Encrypted local note snapshots before edits and Trash/restore transitions,
-  with a restore-previous-version action for the current note.
+  with browsable plain-text local history and restore-selected-version recovery
+  for the current note.
+- Public security-model page linked from the in-app legal settings.
 - Remote notebook delete/remap handling that avoids orphaned note assignments.
 - Password-change interruption handling that preserves the replacement session
   and records diagnostics when final sync fails.
+- Android device-credential app lock as a local unlock control.
 - Local, CI, Docker, Cloudflare, and Android release gates.
+- Release evidence template and generator for command results, workflow URLs,
+  security artifact reviews, backup drills, and artifact traceability.
 - GitHub Actions pinned to immutable SHAs, with Renovate-managed version
   comments.
 - CodeQL, OpenSSF Scorecard, Trivy image scanning, SBOM/provenance generation,
@@ -71,9 +76,9 @@ Known limits:
 - There is no independent security review.
 - There is no key transparency log, reproducible signed web app, or native
   desktop distribution.
-- Release readiness still depends on external drills: staging credentials,
-  backup restores, SARIF review, release-key custody, and security-workflow
-  review.
+- Release readiness still depends on completing the external evidence for each
+  release: staging credentials, backup restores, SARIF review, release-key
+  custody, and security-workflow review.
 
 ## Roadmap
 
@@ -93,6 +98,8 @@ Required:
   strictly newer than the previous Android release.
 - Keep format checks scoped to source files so ignored caches such as Trivy,
   Playwright, Gradle, SQLite, and `.data` never break release verification.
+- Create a release evidence file with `aube run release:evidence -- <tag>` for
+  every release candidate and complete it before publishing release notes.
 - Treat dependency audit failures, deprecations, Docker scan failures, release
   lint failures, and connected Android smoke failures as release blockers.
 
@@ -102,6 +109,9 @@ Acceptance:
 - The Android release version check rejects stale build metadata before tags are
   published.
 - Docker image scan reports zero high/critical OS or library findings.
+- Release evidence links the exact commit to local commands, workflow runs,
+  security reviews, staging smoke, backup restore, signed artifacts, and
+  rollback notes.
 - Connected Android instrumentation passes on release-candidate changes that
   touch Android, sync, storage, auth, encryption, or shared contracts.
 
@@ -166,8 +176,9 @@ Acceptance:
 - Sync paused by import/export resumes without dropping pending changes.
 - Conflict choices keep local, remote, newer/older, and duplicate-both behavior
   explicit.
-- Restore Previous Version recovers the newest encrypted local snapshot as a
-  pending note edit and never revives permanently deleted note history.
+- Note History previews encrypted local snapshots, restores the selected
+  version as a pending note edit, and never revives permanently deleted note
+  history.
 
 ### P1: Tighten Security Claims And Assurance
 
@@ -189,7 +200,8 @@ Required:
 
 Acceptance:
 
-- Threat-model text distinguishes encrypted sync from immutable-client E2EE.
+- Threat-model text on `/security` and in docs distinguishes encrypted sync
+  from immutable-client E2EE.
 - Old clients fail closed instead of corrupting encrypted data.
 - Password changes rewrap the account keyring without rotating note ciphertext.
 - Recovery-kit and operator-assisted recovery drills prove the same data key is
@@ -207,7 +219,7 @@ Required:
   in the release gate.
 - Keep SQLCipher database storage, Keystore-backed database keys, Android backup
   exclusions, HTTPS release URL enforcement, and server-only Turso credentials.
-- Add biometric or device-credential app lock as a local unlock control without
+- Keep device-credential app lock as a local unlock control without
   changing sync encryption contracts.
 - Keep Android update notification checks documented and smoke-tested.
 
@@ -218,7 +230,7 @@ Acceptance:
 - Shared sync/encryption changes include Kotlin tests or connected smoke
   coverage.
 - App lock protects casual local access while preserving offline-first writes
-  after unlock.
+  after device unlock.
 
 ### P2: Make Operations Observable
 
@@ -250,7 +262,8 @@ Allowed:
 
 - Better keyboard navigation, focus behavior, search responsiveness, empty
   states, typography controls, and accessible labels.
-- Browsable plain-text note history beyond the current latest-snapshot restore.
+- Continued plain-text note history improvements that do not change the note
+  model.
 - Small settings improvements that reduce support burden.
 
 Not allowed without a product-direction change:
@@ -271,6 +284,7 @@ Run from the repo root unless noted:
 ```sh
 aube run deps:check
 aube run release:version:check
+aube run release:evidence -- <tag>
 aube run quality
 aube audit --prod
 aube audit --audit-level high

@@ -207,7 +207,7 @@
         }}
       >
         <History size={14} strokeWidth={1.8} />
-        <span>Restore previous version</span>
+        <span>Note history</span>
       </button>
       <button
         class="danger"

@@ -273,6 +273,7 @@ private fun SettingsContent(
 
 @Composable
 internal fun AccountSettings(controller: NotesController, showIdentity: Boolean = true) {
+  LaunchedEffect(controller) { controller.refreshAppLockState() }
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
     if (controller.hasToken) {
       val panel = controller.accountPanel
@@ -285,6 +286,9 @@ internal fun AccountSettings(controller: NotesController, showIdentity: Boolean 
             controller.accountUsername,
             controller.accountEmail.ifBlank { "Sync account" },
           )
+        }
+        AccountMenuRow(Icons.Outlined.Security, "App lock", appLockLabel(controller)) {
+          controller.toggleAppLock()
         }
         AccountMenuRow(
           Icons.Outlined.Email,
@@ -335,10 +339,20 @@ internal fun AccountSettings(controller: NotesController, showIdentity: Boolean 
           fontSize = AppTextSize.Label,
         )
       }
+      AccountMenuRow(Icons.Outlined.Security, "App lock", appLockLabel(controller)) {
+        controller.toggleAppLock()
+      }
       ActionRow(Icons.AutoMirrored.Outlined.Login, "Sign in to sync") { controller.openLogin() }
     }
   }
 }
+
+private fun appLockLabel(controller: NotesController): String =
+  when {
+    !controller.appLockAvailable -> "Screen lock unavailable"
+    controller.appLockEnabled -> "Enabled"
+    else -> "Disabled"
+  }
 
 private fun trustedDeviceCountLabel(count: Int): String =
   when (count) {

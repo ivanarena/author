@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LocalNote, LocalNotebook } from '$lib/client/db';
+import type {
+  LocalNote,
+  LocalNotebook,
+  LocalNoteSnapshot
+} from '$lib/client/db';
 import type { NotesFilterId } from '../models';
 import type { NotesLibraryActionController } from './library';
 
@@ -8,10 +12,12 @@ const mocks = vi.hoisted(() => ({
   createNotebook: vi.fn(),
   deleteNotebook: vi.fn(),
   deleteNotePermanently: vi.fn(),
+  loadNoteSnapshots: vi.fn(),
   moveNoteToTrash: vi.fn(),
   notebookNameExists: vi.fn(),
   renameNotebook: vi.fn(),
   restoreLatestNoteSnapshot: vi.fn(),
+  restoreNoteSnapshot: vi.fn(),
   restoreNote: vi.fn()
 }));
 
@@ -20,10 +26,12 @@ vi.mock('$lib/client/store', () => ({
   createNotebook: mocks.createNotebook,
   deleteNotebook: mocks.deleteNotebook,
   deleteNotePermanently: mocks.deleteNotePermanently,
+  loadNoteSnapshots: mocks.loadNoteSnapshots,
   moveNoteToTrash: mocks.moveNoteToTrash,
   notebookNameExists: mocks.notebookNameExists,
   renameNotebook: mocks.renameNotebook,
   restoreLatestNoteSnapshot: mocks.restoreLatestNoteSnapshot,
+  restoreNoteSnapshot: mocks.restoreNoteSnapshot,
   restoreNote: mocks.restoreNote
 }));
 
@@ -31,13 +39,17 @@ import {
   assignNotebookForNote,
   assignNotebookForSelected,
   clearSelectedNotes,
+  closeNoteHistory,
   confirmDeleteNotebook,
   contextCreateNotebookForNote,
   deleteNotePermanentlyFromRow,
   deleteSelectedNotesPermanently,
+  openNoteHistory,
   restorePreviousNoteVersion,
   restoreSelectedNotes,
+  restoreSelectedHistorySnapshot,
   selectedNotesHaveNotebook,
+  selectHistorySnapshot,
   submitNewNotebookMenu,
   submitRenameNotebook,
   toggleAllVisibleNotes,
@@ -82,12 +94,27 @@ function notebook(overrides: Partial<LocalNotebook> = {}): LocalNotebook {
   };
 }
 
+function snapshot(
+  overrides: Partial<LocalNoteSnapshot> = {}
+): LocalNoteSnapshot {
+  return {
+    ...note(),
+    snapshotId: 'snapshot-1',
+    savedAt: '2026-05-29T10:05:00.000Z',
+    reason: 'edit',
+    ...overrides
+  };
+}
+
 function controller(
   overrides: Partial<NotesLibraryActionController> = {}
 ): NotesLibraryActionController {
   return {
     deletingNotebookId: null,
     filterId: 'all' as NotesFilterId,
+    historyLoading: false,
+    historyOpen: false,
+    historySnapshots: [],
     linkingNoteId: null,
     loginOpen: false,
     newNotebookOpen: false,
@@ -99,6 +126,7 @@ function controller(
     renameNotebookValue: '',
     renamingNotebookId: null,
     selectedActiveNoteCount: 0,
+    selectedHistorySnapshotId: null,
     selectedNote: null,
     selectedNoteIds: new Set<string>(),
     selectedNotebookMenuOpen: false,
@@ -133,10 +161,12 @@ describe('library actions', () => {
     mocks.createNotebook.mockResolvedValue(notebook());
     mocks.deleteNotebook.mockResolvedValue(undefined);
     mocks.deleteNotePermanently.mockResolvedValue(undefined);
+    mocks.loadNoteSnapshots.mockResolvedValue([]);
     mocks.moveNoteToTrash.mockResolvedValue(undefined);
     mocks.notebookNameExists.mockResolvedValue(false);
     mocks.renameNotebook.mockResolvedValue(notebook({ name: 'Renamed' }));
     mocks.restoreLatestNoteSnapshot.mockResolvedValue(null);
+    mocks.restoreNoteSnapshot.mockResolvedValue(null);
     mocks.restoreNote.mockResolvedValue(undefined);
   });
 
@@ -396,5 +426,103 @@ describe('library actions', () => {
       'No previous version',
       'No local note history is available for this note yet.'
     );
+  });
+
+  it('opens local note history and selects the newest snapshot', async () => {
+    const selected = note({ id: 'note-1' });
+    const newer = snapshot({
+      snapshotId: 'snapshot-newer',
+      title: 'Newer',
+      savedAt: '2026-05-29T10:07:00.000Z'
+    });
+    const older = snapshot({
+      snapshotId: 'snapshot-older',
+      title: 'Older',
+      savedAt: '2026-05-29T10:05:00.000Z'
+    });
+    mocks.loadNoteSnapshots.mockResolvedValueOnce([newer, older]);
+    const model = controller({
+      linkingNoteId: 'note-1',
+      selectedNotebookMenuOpen: true
+    });
+
+    await openNoteHistory(model, selected);
+
+    expect(model.flushPendingSave).toHaveBeenCalled();
+    expect(mocks.loadNoteSnapshots).toHaveBeenCalledWith('note-1', 50);
+    expect(model.historyOpen).toBe(true);
+    expect(model.historyLoading).toBe(false);
+    expect(model.historySnapshots).toEqual([newer, older]);
+    expect(model.selectedHistorySnapshotId).toBe('snapshot-newer');
+    expect(model.selectedNotebookMenuOpen).toBe(false);
+    expect(model.linkingNoteId).toBeNull();
+    expect(model.closeContextMenu).toHaveBeenCalled();
+  });
+
+  it('closes local note history and reports load failures', async () => {
+    const selected = note({ id: 'note-1' });
+    mocks.loadNoteSnapshots.mockRejectedValueOnce(
+      new Error('IndexedDB failed')
+    );
+    const model = controller();
+
+    await openNoteHistory(model, selected);
+
+    expect(model.historyOpen).toBe(false);
+    expect(model.historyLoading).toBe(false);
+    expect(model.historySnapshots).toEqual([]);
+    expect(model.selectedHistorySnapshotId).toBeNull();
+    expect(model.notify).toHaveBeenCalledWith(
+      'error',
+      'History unavailable',
+      'IndexedDB failed'
+    );
+  });
+
+  it('changes, restores, and closes selected local note history', async () => {
+    const selected = note({ id: 'note-1', title: 'Current' });
+    const restored = note({
+      id: 'note-1',
+      title: 'Historical',
+      syncStatus: 'pending'
+    });
+    const first = snapshot({ snapshotId: 'snapshot-1' });
+    const second = snapshot({ snapshotId: 'snapshot-2' });
+    mocks.restoreNoteSnapshot.mockResolvedValueOnce(restored);
+    const model = controller({
+      historyOpen: true,
+      historySnapshots: [first, second],
+      notes: [restored],
+      selectedHistorySnapshotId: first.snapshotId,
+      selectedNote: selected
+    });
+
+    selectHistorySnapshot(model, second.snapshotId);
+    await restoreSelectedHistorySnapshot(model, selected);
+
+    expect(model.selectedHistorySnapshotId).toBeNull();
+    expect(model.historyOpen).toBe(false);
+    expect(model.historySnapshots).toEqual([]);
+    expect(mocks.restoreNoteSnapshot).toHaveBeenCalledWith(
+      'note-1',
+      'snapshot-2'
+    );
+    expect(model.refresh).toHaveBeenCalled();
+    expect(model.selectNote).toHaveBeenCalledWith(restored);
+    expect(model.notify).toHaveBeenCalledWith(
+      'success',
+      'Version restored',
+      'The restored text is saved locally and queued for sync.'
+    );
+
+    model.historyOpen = true;
+    model.historyLoading = true;
+    model.historySnapshots = [first];
+    model.selectedHistorySnapshotId = first.snapshotId;
+    closeNoteHistory(model);
+    expect(model.historyOpen).toBe(false);
+    expect(model.historyLoading).toBe(false);
+    expect(model.historySnapshots).toEqual([]);
+    expect(model.selectedHistorySnapshotId).toBeNull();
   });
 });

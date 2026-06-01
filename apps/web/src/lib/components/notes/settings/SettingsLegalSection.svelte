@@ -24,6 +24,15 @@
     </a>
     <a
       class="settings-action"
+      href={resolve('/security')}
+      rel="noreferrer"
+      target="_blank"
+    >
+      <Landmark size={15} strokeWidth={1.8} />
+      <span>Security model</span>
+    </a>
+    <a
+      class="settings-action"
       href={resolve('/terms')}
       rel="noreferrer"
       target="_blank"

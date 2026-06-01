@@ -4,6 +4,7 @@
   import EditorPane from '$lib/components/notes/EditorPane.svelte';
   import LoginModal from '$lib/components/notes/LoginModal.svelte';
   import NavigationDock from '$lib/components/notes/NavigationDock.svelte';
+  import NoteHistoryDialog from '$lib/components/notes/NoteHistoryDialog.svelte';
   import NotificationStack from '$lib/components/notes/NotificationStack.svelte';
   import SettingsModal from '$lib/components/notes/SettingsModal.svelte';
   import { createNotesPageController } from '$lib/components/notes/controller/page-controller.svelte.js';
@@ -37,5 +38,6 @@
 {/if}
 
 <ContextMenu model={controller} />
+<NoteHistoryDialog model={controller} />
 <ConflictDialog model={controller} />
 <NotificationStack model={controller} />

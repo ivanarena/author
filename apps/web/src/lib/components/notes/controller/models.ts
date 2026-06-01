@@ -1,5 +1,10 @@
 import type { RemoteSyncState, TrustedAuthDevice } from '@author/api-types';
-import type { LocalConflict, LocalNote, LocalNotebook } from '$lib/client/db';
+import type {
+  LocalConflict,
+  LocalNote,
+  LocalNotebook,
+  LocalNoteSnapshot
+} from '$lib/client/db';
 import type { EncryptionKeyMaterialStorageMode } from '$lib/client/encryption';
 import type { ResolvedTheme, StoredTheme } from '$lib/client/local-state';
 import type {
@@ -219,7 +224,21 @@ export interface EditorPaneModel {
   handleEditorInput: (event: Event, field: 'title' | 'body') => void;
   undoEditorHistory: () => void;
   redoEditorHistory: () => void;
+  openNoteHistory: () => void | Promise<void>;
   openEditorContext: (event: MouseEvent) => void;
+}
+
+export interface NoteHistoryDialogModel {
+  historyModal: HTMLElement | null;
+  historyLoading: boolean;
+  historyOpen: boolean;
+  historySnapshots: LocalNoteSnapshot[];
+  selectedHistorySnapshot: LocalNoteSnapshot | null;
+  selectedHistorySnapshotId: string | null;
+  selectedNote: LocalNote | null;
+  closeNoteHistory: () => void;
+  restoreSelectedHistorySnapshot: () => void | Promise<void>;
+  selectHistorySnapshot: (snapshotId: string) => void;
 }
 
 export interface SettingsModalModel {

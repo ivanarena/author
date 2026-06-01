@@ -11,6 +11,7 @@ import {
   reencryptLocalNotes,
   resetPullCursorRecovery,
   restoreLatestNoteSnapshot,
+  restoreNoteSnapshot,
   updateNoteContent
 } from './entity-store';
 import { clearLocalWorkspace, localDb } from './db';
@@ -614,6 +615,44 @@ describe('local note recovery snapshots', () => {
       expect.objectContaining({
         title: 'Recovered title',
         body: 'Recovered body',
+        syncStatus: 'pending'
+      })
+    );
+  });
+
+  it('restores a selected snapshot as a pending local note change', async () => {
+    const snapshot = {
+      ...note,
+      title: 'Chosen title',
+      body: 'Chosen body',
+      snapshotId: 'snapshot-2',
+      savedAt: '2026-05-06T09:00:00.000Z',
+      reason: 'trash' as const
+    };
+    vi.mocked(localDb.noteSnapshots.get).mockResolvedValue(snapshot);
+
+    await expect(
+      restoreNoteSnapshot(note.id, snapshot.snapshotId)
+    ).resolves.toMatchObject({
+      id: note.id,
+      title: 'Chosen title',
+      body: 'Chosen body',
+      version: note.version + 1,
+      syncStatus: 'pending'
+    });
+
+    expect(localDb.noteSnapshots.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: note.id,
+        title: note.title,
+        body: note.body,
+        reason: 'restore'
+      })
+    );
+    expect(localDb.notes.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Chosen title',
+        body: 'Chosen body',
         syncStatus: 'pending'
       })
     );

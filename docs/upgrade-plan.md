@@ -35,6 +35,8 @@ Required:
 - Review dependency audit, deprecation, Trivy, CodeQL SARIF, and OpenSSF
   Scorecard SARIF findings before releases.
 - Restore a fresh backup and run `db:check` before production upgrades.
+- Create and complete release evidence with
+  `aube run release:evidence -- <tag>` before production release notes.
 - Publish release notes only after CI, Docker, and Cloudflare Deploy are green
   for the exact release commit.
 
@@ -46,6 +48,8 @@ Acceptance:
 - Staging smoke passes against non-production data.
 - A restored backup passes `db:check`.
 - Docker scan artifacts and security workflow SARIF artifacts are reviewed.
+- Release evidence records command results, workflow URLs, artifact digests,
+  backup restore results, security reviews, exceptions, and rollback notes.
 
 ## Phase 1: Data Safety And Recovery
 
@@ -71,8 +75,9 @@ Acceptance:
 - Sync queued during import/export resumes instead of dropping pending records.
 - Conflict resolution remains explicit across web, server, shared tests, and
   Android.
-- Restore Previous Version recovers the newest encrypted local snapshot as a
-  pending note edit and never revives permanently deleted note history.
+- Note History previews encrypted local snapshots, restores the selected
+  version as a pending note edit, and never revives permanently deleted note
+  history.
 
 ## Phase 2: E2EE Hardening
 
@@ -114,7 +119,7 @@ Required:
 - Run debug and release Android verification before release candidates.
 - Run connected-device smoke for release candidates when an emulator or device
   is available.
-- Add biometric or device-credential app lock as a local unlock control without
+- Keep device-credential app lock as a local unlock control without
   changing the sync encryption contract.
 - Keep sideloaded update notification checks documented and verified.
 
@@ -153,7 +158,8 @@ Allowed:
 
 - Improve keyboard navigation, focus behavior, quick search, search speed,
   empty-state clarity, typography controls, and accessible labels.
-- Add browsable plain-text history beyond the current latest-snapshot restore.
+- Continue improving browsable plain-text history without changing the note
+  model.
 - Polish settings where it reduces support burden.
 
 Avoid unless product direction changes explicitly:

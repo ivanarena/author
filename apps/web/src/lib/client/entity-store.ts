@@ -370,11 +370,27 @@ export async function loadNoteSnapshots(
 export async function restoreLatestNoteSnapshot(
   noteId: string
 ): Promise<LocalNote | null> {
-  const note = await localDb.notes.get(noteId);
-  if (!note || note.deletedAt || note.trashedAt) return null;
-
   const [snapshot] = await loadNoteSnapshots(noteId, 1);
   if (!snapshot) return null;
+  return restoreLoadedNoteSnapshot(noteId, snapshot);
+}
+
+export async function restoreNoteSnapshot(
+  noteId: string,
+  snapshotId: string
+): Promise<LocalNote | null> {
+  const storedSnapshot = await localDb.noteSnapshots.get(snapshotId);
+  if (!storedSnapshot || storedSnapshot.id !== noteId) return null;
+  const snapshot = await decryptNoteFields(storedSnapshot);
+  return restoreLoadedNoteSnapshot(noteId, snapshot);
+}
+
+async function restoreLoadedNoteSnapshot(
+  noteId: string,
+  snapshot: LocalNoteSnapshot
+): Promise<LocalNote | null> {
+  const note = await localDb.notes.get(noteId);
+  if (!note || note.deletedAt || note.trashedAt) return null;
 
   const device = await getOrCreateDevice();
   const now = nowIso();

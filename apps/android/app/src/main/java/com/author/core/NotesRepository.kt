@@ -1,5 +1,6 @@
 package com.author.core
 
+import android.app.KeyguardManager
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
@@ -32,6 +33,7 @@ private const val EDITOR_FONT_KEY = "author-editor-font"
 private const val EDITOR_TEXT_SIZE_KEY = "author-editor-text-size"
 private const val EDITOR_LINE_HEIGHT_KEY = "author-editor-line-height"
 private const val API_BASE_URL_KEY = "author-api-base-url"
+private const val APP_LOCK_ENABLED_KEY = "author-app-lock-enabled-v1"
 private const val LOCAL_WORKSPACE_OWNER_KEY = "localWorkspaceOwner"
 private const val ENCRYPTION_AUDIT_VERSION_KEY = "localEncryptionAuditVersion"
 private const val ENCRYPTION_AUDIT_VERSION = "keyring-aes:v7"
@@ -134,6 +136,16 @@ class NotesRepository(context: Context) {
 
   fun setApiBaseUrl(value: String) {
     prefs.edit { putString(API_BASE_URL_KEY, value.trim()) }
+  }
+
+  fun isAppLockAvailable(): Boolean =
+    appContext.getSystemService(KeyguardManager::class.java)?.isDeviceSecure == true
+
+  fun getAppLockEnabled(): Boolean =
+    prefs.getBoolean(APP_LOCK_ENABLED_KEY, false) && isAppLockAvailable()
+
+  fun setAppLockEnabled(value: Boolean) {
+    prefs.edit { putBoolean(APP_LOCK_ENABLED_KEY, value) }
   }
 
   fun getLoginHint(): String =

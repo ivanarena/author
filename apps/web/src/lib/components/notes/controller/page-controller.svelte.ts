@@ -1,7 +1,12 @@
 import { onMount, tick } from 'svelte';
 import type { Device } from '@author/schema';
 import type { RemoteSyncState, TrustedAuthDevice } from '@author/api-types';
-import type { LocalConflict, LocalNote, LocalNotebook } from '$lib/client/db';
+import type {
+  LocalConflict,
+  LocalNote,
+  LocalNotebook,
+  LocalNoteSnapshot
+} from '$lib/client/db';
 import {
   getEncryptionKeyMaterialStorageMode,
   hasStoredEncryptionKeyMaterial,
@@ -72,6 +77,7 @@ import type {
   ImportBanner,
   MetadataRow,
   NavigationDockModel,
+  NoteHistoryDialogModel,
   NotesFilterId,
   NotificationStackModel,
   SettingsModalModel,
@@ -117,6 +123,7 @@ export type {
   ImportBanner,
   MetadataRow,
   NavigationDockModel,
+  NoteHistoryDialogModel,
   NoteListPanelModel,
   NotebookSidebarModel,
   NotesFilterId,
@@ -134,6 +141,7 @@ export class NotesPageController
   implements
     NavigationDockModel,
     EditorPaneModel,
+    NoteHistoryDialogModel,
     SettingsModalModel,
     ContextMenuModel,
     ConflictDialogModel,
@@ -224,6 +232,10 @@ export class NotesPageController
   archiveOperation = $state<ArchiveOperation | null>(null);
   importBanner = $state<ImportBanner | null>(null);
   notifications = $state<AppNotification[]>([]);
+  historyOpen = $state(false);
+  historyLoading = $state(false);
+  historySnapshots = $state<LocalNoteSnapshot[]>([]);
+  selectedHistorySnapshotId = $state<string | null>(null);
   settingsSection = $state<SettingsSection>('account');
   settingsOpen = $state(false);
   contextMenu = $state<ContextMenuState>(null);
@@ -249,6 +261,7 @@ export class NotesPageController
   importMarkdownInput: HTMLInputElement | null = null;
   settingsModal: HTMLElement | null = null;
   loginModal: HTMLElement | null = null;
+  historyModal: HTMLElement | null = null;
   readonly minEditorZoom = MIN_EDITOR_ZOOM;
   readonly maxEditorZoom = MAX_EDITOR_ZOOM;
   readonly minEditorTextSize = MIN_EDITOR_TEXT_SIZE;
@@ -393,6 +406,13 @@ export class NotesPageController
     this.redoStack.length > 0 && !this.selectedNote?.trashedAt
   );
   editorFontCss = $derived(getEditorFontCss(this.editorFont));
+  selectedHistorySnapshot = $derived(
+    this.selectedHistorySnapshotId
+      ? (this.historySnapshots.find(
+          (snapshot) => snapshot.snapshotId === this.selectedHistorySnapshotId
+        ) ?? null)
+      : null
+  );
 
   constructor() {
     $effect(() => {
@@ -401,6 +421,10 @@ export class NotesPageController
 
     $effect(() => {
       if (this.loginOpen) void this.focusLoginModal();
+    });
+
+    $effect(() => {
+      if (this.historyOpen) void this.focusHistoryModal();
     });
 
     $effect(() => {
@@ -546,6 +570,7 @@ export class NotesPageController
     if (event.key !== 'Escape') return;
     this.closeContextMenu();
     this.closeAccountMenu();
+    this.closeNoteHistory();
     this.closeSettings();
     this.closeNotebookMenus();
   };
@@ -601,6 +626,27 @@ export class NotesPageController
 
   redoEditorHistory = () => {
     editorActions.redoEditorHistory(this);
+  };
+
+  openNoteHistory = async () => {
+    if (!this.selectedNote) return;
+    await libraryActions.openNoteHistory(this, this.selectedNote);
+  };
+
+  closeNoteHistory = () => {
+    libraryActions.closeNoteHistory(this);
+  };
+
+  selectHistorySnapshot = (snapshotId: string) => {
+    libraryActions.selectHistorySnapshot(this, snapshotId);
+  };
+
+  restoreSelectedHistorySnapshot = async () => {
+    if (!this.selectedNote) return;
+    await libraryActions.restoreSelectedHistorySnapshot(
+      this,
+      this.selectedNote
+    );
   };
 
   openMenus = () => {
@@ -833,7 +879,7 @@ export class NotesPageController
 
   contextRestorePreviousNoteVersion = async (note: LocalNote) => {
     this.closeContextMenu();
-    await libraryActions.restorePreviousNoteVersion(this, note);
+    await libraryActions.openNoteHistory(this, note);
   };
 
   contextDeleteNotePermanently = async (note: LocalNote) => {
@@ -1277,6 +1323,11 @@ export class NotesPageController
   private focusLoginModal = async () => {
     await tick();
     this.loginModal?.focus({ preventScroll: true });
+  };
+
+  private focusHistoryModal = async () => {
+    await tick();
+    this.historyModal?.focus({ preventScroll: true });
   };
 
   private focusSearch = async () => {

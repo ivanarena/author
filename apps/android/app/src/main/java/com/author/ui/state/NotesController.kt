@@ -79,6 +79,10 @@ class NotesController(private val repository: NotesRepository, private val scope
   var editorTextSize by mutableFloatStateOf(repository.getEditorTextSize())
   var editorLineHeight by mutableFloatStateOf(repository.getEditorLineHeight())
   var theme by mutableStateOf(repository.getTheme())
+  var appLockAvailable by mutableStateOf(repository.isAppLockAvailable())
+  var appLockEnabled by mutableStateOf(repository.getAppLockEnabled())
+  var appLocked by mutableStateOf(repository.getAppLockEnabled())
+  var appLockMessage by mutableStateOf("")
   var currentPage by mutableStateOf("editor")
   var loginOpen by mutableStateOf(false)
   var settingsSection by mutableStateOf("account")
@@ -233,6 +237,7 @@ class NotesController(private val repository: NotesRepository, private val scope
           .onFailure { repository.recordSyncError(it, "Local workspace") }
         runCatching { refreshServerConfigNow() }
           .onFailure { serverConfigError = it.message ?: "Could not reach sync API" }
+        refreshAppLockState()
         repository.getStoredSession()?.let { resumeSession(it.token) }
         repository.recordDebugLog("info", "App", "Workspace opened")
       } catch (error: Throwable) {
@@ -300,6 +305,73 @@ class NotesController(private val repository: NotesRepository, private val scope
     signupConfirmPasswordValue = ""
     loginError = ""
     loginOpen = true
+  }
+
+  fun refreshAppLockState() {
+    appLockAvailable = repository.isAppLockAvailable()
+    if (!appLockAvailable) repository.setAppLockEnabled(false)
+    appLockEnabled = repository.getAppLockEnabled()
+    if (!appLockEnabled) appLocked = false
+    if (!appLockAvailable && appLockMessage.isBlank()) {
+      appLockMessage = "Device screen lock is unavailable."
+    }
+  }
+
+  fun toggleAppLock() {
+    refreshAppLockState()
+    if (appLockEnabled) {
+      repository.setAppLockEnabled(false)
+      appLockEnabled = false
+      appLocked = false
+      appLockMessage = "App lock disabled."
+      notify("success", "App lock disabled", "Author will stay open after leaving the app.")
+      return
+    }
+
+    if (!appLockAvailable) {
+      appLockMessage = "Set a device screen lock before enabling Author app lock."
+      notify("error", "Screen lock unavailable", appLockMessage)
+      return
+    }
+
+    repository.setAppLockEnabled(true)
+    appLockEnabled = true
+    appLockMessage = "App lock enabled."
+    notify(
+      "success",
+      "App lock enabled",
+      "Author will ask for this device's screen lock when reopened.",
+    )
+  }
+
+  fun lockAppIfEnabled() {
+    refreshAppLockState()
+    if (!appLockEnabled) return
+    scope.launch { flushPendingSave() }
+    loginOpen = false
+    appLocked = true
+    appLockMessage = "Use this device's screen lock to reopen notes."
+  }
+
+  fun prepareAppUnlock() {
+    appLockMessage = "Waiting for device unlock."
+  }
+
+  fun unlockApp() {
+    appLocked = false
+    appLockMessage = ""
+  }
+
+  fun appLockAuthenticationFailed() {
+    if (appLocked) appLockMessage = "Unlock canceled."
+  }
+
+  fun appLockUnavailable() {
+    appLockMessage = "Device screen lock is unavailable."
+    notify("error", "Screen lock unavailable", appLockMessage)
+    repository.setAppLockEnabled(false)
+    appLockEnabled = false
+    appLocked = false
   }
 
   fun chooseAuthMode(mode: String) {

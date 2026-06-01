@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Redo2, Undo2, ZoomIn, ZoomOut } from '@lucide/svelte';
+  import { History, Redo2, Undo2, ZoomIn, ZoomOut } from '@lucide/svelte';
   import type { EditorPaneModel } from './controller/page-controller.svelte.js';
 
   let { model }: { model: EditorPaneModel } = $props();
@@ -62,6 +62,17 @@
             onclick={model.redoEditorHistory}
           >
             <Redo2 size={14} strokeWidth={1.8} />
+          </button>
+          <button
+            class="icon-button mini"
+            title="Note history"
+            aria-label="Note history"
+            disabled={!model.selectedNote ||
+              Boolean(model.selectedNote.trashedAt)}
+            onmousedown={(event) => event.preventDefault()}
+            onclick={model.openNoteHistory}
+          >
+            <History size={14} strokeWidth={1.8} />
           </button>
         </div>
       </div>

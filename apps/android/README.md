@@ -41,6 +41,13 @@ sync protocol as the web app. The database key is generated locally and stored
 through Android Keystore-backed secure preferences; note fields remain encrypted
 for sync before leaving the device.
 
+## Local App Lock
+
+Author includes an optional device-credential app lock under Account settings.
+When enabled, leaving the app locks the Compose surface until Android confirms
+the device screen lock again. This protects casual local access without changing
+the sync encryption contract or requiring network access after unlock.
+
 ## Release Validation
 
 Release builds require an HTTPS Author API URL:

@@ -17,7 +17,9 @@ import com.author.core.LocalNote
 import com.author.core.NotesRepository
 import com.author.ui.app.AuthorApp
 import com.author.ui.state.NotesController
+import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.After
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -70,6 +72,36 @@ class AuthorAppInstrumentedTest {
     compose.onNodeWithContentDescription("Notes").performClick()
     compose.onNodeWithText(title).assertIsDisplayed()
     compose.onNodeWithText(body).assertIsDisplayed()
+  }
+
+  @Test
+  fun appLockScreenBlocksNotesUntilUnlockRequested() {
+    val repository = NotesRepository(context)
+    val unlockRequested = AtomicBoolean(false)
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      val controller = remember {
+        NotesController(repository, scope).also {
+          it.appLockEnabled = true
+          it.appLocked = true
+          it.appLockMessage = "Use this device's screen lock to reopen notes."
+        }
+      }
+
+      AuthorApp(
+        controller = controller,
+        onExport = {},
+        onImport = {},
+        onUnlockApp = { unlockRequested.set(true) },
+      )
+    }
+
+    compose.onNodeWithText("Author locked").assertIsDisplayed()
+    compose.onNodeWithText("Unlock").assertIsDisplayed().performClick()
+
+    compose.waitForIdle()
+    assertTrue(unlockRequested.get())
   }
 
   private fun savedDraft(repository: NotesRepository, title: String): LocalNote? =

@@ -1,14 +1,20 @@
-import type { LocalNote, LocalNotebook } from '$lib/client/db';
+import type {
+  LocalNote,
+  LocalNotebook,
+  LocalNoteSnapshot
+} from '$lib/client/db';
 import { noteNotebookIds } from '$lib/client/note-utils';
 import {
   assignNoteToNotebook,
   createNotebook,
   deleteNotebook,
   deleteNotePermanently,
+  loadNoteSnapshots,
   moveNoteToTrash,
   notebookNameExists,
   renameNotebook,
   restoreLatestNoteSnapshot,
+  restoreNoteSnapshot,
   restoreNote
 } from '$lib/client/store';
 import type { NotesFilterId } from '../models';
@@ -16,6 +22,9 @@ import type { NotesFilterId } from '../models';
 export interface NotesLibraryActionController {
   deletingNotebookId: string | null;
   filterId: NotesFilterId;
+  historyLoading: boolean;
+  historyOpen: boolean;
+  historySnapshots: LocalNoteSnapshot[];
   linkingNoteId: string | null;
   loginOpen: boolean;
   newNotebookOpen: boolean;
@@ -27,6 +36,7 @@ export interface NotesLibraryActionController {
   renameNotebookValue: string;
   renamingNotebookId: string | null;
   selectedActiveNoteCount: number;
+  selectedHistorySnapshotId: string | null;
   selectedNote: LocalNote | null;
   selectedNoteIds: Set<string>;
   selectedNotebookMenuOpen: boolean;
@@ -454,6 +464,91 @@ export async function restorePreviousNoteVersion(
   controller.notify?.(
     'success',
     'Previous version restored',
+    'The restored text is saved locally and queued for sync.'
+  );
+}
+
+export async function openNoteHistory(
+  controller: NotesLibraryActionController,
+  note: LocalNote
+): Promise<void> {
+  if (note.trashedAt) return;
+  await controller.flushPendingSave();
+  controller.historyOpen = true;
+  controller.historyLoading = true;
+  controller.historySnapshots = [];
+  controller.selectedHistorySnapshotId = null;
+  controller.selectedNotebookMenuOpen = false;
+  controller.linkingNoteId = null;
+  controller.closeContextMenu();
+
+  try {
+    const snapshots = await loadNoteSnapshots(note.id, 50);
+    controller.historySnapshots = snapshots;
+    controller.selectedHistorySnapshotId = snapshots[0]?.snapshotId ?? null;
+  } catch (error) {
+    closeNoteHistory(controller);
+    controller.notify?.(
+      'error',
+      'History unavailable',
+      error instanceof Error ? error.message : 'Could not load local history'
+    );
+  } finally {
+    controller.historyLoading = false;
+  }
+}
+
+export function closeNoteHistory(
+  controller: NotesLibraryActionController
+): void {
+  controller.historyOpen = false;
+  controller.historyLoading = false;
+  controller.historySnapshots = [];
+  controller.selectedHistorySnapshotId = null;
+}
+
+export function selectHistorySnapshot(
+  controller: NotesLibraryActionController,
+  snapshotId: string
+): void {
+  if (
+    !controller.historySnapshots.some(
+      (snapshot) => snapshot.snapshotId === snapshotId
+    )
+  ) {
+    return;
+  }
+  controller.selectedHistorySnapshotId = snapshotId;
+}
+
+export async function restoreSelectedHistorySnapshot(
+  controller: NotesLibraryActionController,
+  note: LocalNote
+): Promise<void> {
+  if (note.trashedAt || !controller.selectedHistorySnapshotId) return;
+  await controller.flushPendingSave();
+  const restored = await restoreNoteSnapshot(
+    note.id,
+    controller.selectedHistorySnapshotId
+  );
+  if (!restored) {
+    controller.notify?.(
+      'info',
+      'Version unavailable',
+      'This local note history entry is no longer available.'
+    );
+    return;
+  }
+
+  await controller.refresh();
+  const current =
+    controller.notes.find((candidate) => candidate.id === restored.id) ??
+    restored;
+  await controller.selectNote(current);
+  closeNoteHistory(controller);
+  controller.notify?.(
+    'success',
+    'Version restored',
     'The restored text is saved locally and queued for sync.'
   );
 }

@@ -31,39 +31,31 @@ import com.author.core.noteNotebookIds
 import com.author.core.readBoundedUtf8
 import com.author.ui.app.AppNotification
 import com.author.ui.theme.resolveThemeChoice
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 
-class NotesController(private val repository: NotesRepository, private val scope: CoroutineScope) {
+class NotesController(private val repository: NotesRepository, private val scope: CoroutineScope) :
+  AutoCloseable {
   private companion object {
     const val MIN_PASSWORD_LENGTH = 15
     const val MAX_MARKDOWN_IMPORT_FILE_BYTES = 2L * 1024L * 1024L
     const val MAX_MARKDOWN_IMPORT_TOTAL_BYTES = 20L * 1024L * 1024L
   }
 
-  private val initialWorkspace =
-    runCatching { repository.loadWorkspaceSnapshot() }
-      .onFailure {
-        repository.recordDebugLog(
-          "error",
-          "Database",
-          "Could not load workspace",
-          it.stackTraceToString(),
-        )
-      }
-      .getOrNull()
   private val initialSession = repository.getStoredSession()
   private var pageBackStack by mutableStateOf<List<String>>(emptyList())
 
-  var notes by mutableStateOf<List<LocalNote>>(initialWorkspace?.notes ?: emptyList())
-  var notebooks by mutableStateOf<List<LocalNotebook>>(initialWorkspace?.notebooks ?: emptyList())
-  var trash by mutableStateOf<List<LocalNote>>(initialWorkspace?.trash ?: emptyList())
-  var devices by mutableStateOf<List<Device>>(initialWorkspace?.devices ?: emptyList())
-  var conflicts by mutableStateOf<List<LocalConflict>>(initialWorkspace?.conflicts ?: emptyList())
+  var notes by mutableStateOf<List<LocalNote>>(emptyList())
+  var notebooks by mutableStateOf<List<LocalNotebook>>(emptyList())
+  var trash by mutableStateOf<List<LocalNote>>(emptyList())
+  var devices by mutableStateOf<List<Device>>(emptyList())
+  var conflicts by mutableStateOf<List<LocalConflict>>(emptyList())
   var selectedNote by mutableStateOf<LocalNote?>(null)
   var noteSelectionMode by mutableStateOf(false)
   var selectedNoteIds by mutableStateOf<Set<String>>(emptySet())
@@ -137,48 +129,20 @@ class NotesController(private val repository: NotesRepository, private val scope
   var syncActivityLabel by mutableStateOf("")
   var syncActivityDetail by mutableStateOf("")
   var isSyncing by mutableStateOf(false)
-  var isWorkspaceLoading by mutableStateOf(initialWorkspace == null)
-  var pendingSyncCount by mutableIntStateOf(initialWorkspace?.pendingSyncCount ?: 0)
-  var lastSyncPassTitle by
-    mutableStateOf(
-      initialWorkspace?.lastSyncPass?.completedAt?.let { formatDateTime(it) }
-        ?: "No completed pass yet"
-    )
-  var lastSyncPassDetail by
-    mutableStateOf(
-      initialWorkspace?.lastSyncPass?.let {
-        if (it.completedAt == null) {
-          "No sync pass has completed on this device."
-        } else {
-          "${it.pushed} pushed, ${it.pulled} pulled, ${it.conflicts} conflicts"
-        }
-      } ?: "No sync pass has completed on this device."
-    )
-  var syncDebugTitle by
-    mutableStateOf(
-      initialWorkspace?.syncDebugInfo?.lastErrorAt?.let { formatDateTime(it) }
-        ?: "No sync errors yet"
-    )
-  var syncDebugDetail by
-    mutableStateOf(
-      initialWorkspace?.syncDebugInfo?.lastErrorMessage?.ifBlank {
-        "The most recent sync error will appear here."
-      } ?: "The most recent sync error will appear here."
-    )
-  var syncDebugLog by
-    mutableStateOf(
-      initialWorkspace?.syncDebugInfo?.let {
-        formatSyncDebugLog(it.lastErrorAt, it.lastErrorMessage, it.lastErrorStack)
-      } ?: "No sync errors recorded on this device."
-    )
+  var isWorkspaceLoading by mutableStateOf(true)
+  var pendingSyncCount by mutableIntStateOf(0)
+  var lastSyncPassTitle by mutableStateOf("No completed pass yet")
+  var lastSyncPassDetail by mutableStateOf("No sync pass has completed on this device.")
+  var syncDebugTitle by mutableStateOf("No sync errors yet")
+  var syncDebugDetail by mutableStateOf("The most recent sync error will appear here.")
+  var syncDebugLog by mutableStateOf("No sync errors recorded on this device.")
   var repairDiagnosticsTitle by mutableStateOf(formatRepairDiagnosticsTitle(null))
   var repairDiagnosticsDetail by mutableStateOf(formatRepairDiagnosticsDetail(null))
   var repairDiagnosticsLog by mutableStateOf(formatRepairDiagnosticsLog(null))
   var canResetPullCursor by mutableStateOf(false)
-  var appDebugTitle by mutableStateOf(formatAppDebugTitle(initialWorkspace?.appDebugLogEntries))
-  var appDebugDetail by mutableStateOf(formatAppDebugDetail(initialWorkspace?.appDebugLogEntries))
-  var appDebugLog by
-    mutableStateOf(DebugLogStore.format(initialWorkspace?.appDebugLogEntries ?: emptyList()))
+  var appDebugTitle by mutableStateOf(formatAppDebugTitle(emptyList()))
+  var appDebugDetail by mutableStateOf(formatAppDebugDetail(emptyList()))
+  var appDebugLog by mutableStateOf(DebugLogStore.format(emptyList()))
   var remoteSyncEnabled by mutableStateOf(false)
   var remoteSyncState by mutableStateOf("unknown")
   var remoteSyncError by mutableStateOf("")
@@ -193,6 +157,28 @@ class NotesController(private val repository: NotesRepository, private val scope
   private var syncQueued = false
   private var lastSnapshot = "" to ""
   private var preparedExport: ByteArray? = null
+  private var closed = false
+
+  override fun close() {
+    if (closed) return
+    closed = true
+    try {
+      runBlocking { flushPendingSave() }
+    } catch (error: Throwable) {
+      runCatching {
+        repository.recordDebugLog(
+          "error",
+          "App",
+          "Could not flush pending save before closing",
+          error.stackTraceToString(),
+        )
+      }
+    } finally {
+      autoSyncJob?.cancel()
+      autoSyncJob = null
+      repository.close()
+    }
+  }
 
   fun openAccountPanel(panel: String) {
     accountPanel = panel
@@ -240,6 +226,8 @@ class NotesController(private val repository: NotesRepository, private val scope
         refreshAppLockState()
         repository.getStoredSession()?.let { resumeSession(it.token) }
         repository.recordDebugLog("info", "App", "Workspace opened")
+      } catch (error: CancellationException) {
+        throw error
       } catch (error: Throwable) {
         repository.recordDebugLog("error", "App", "Startup failed", error.stackTraceToString())
         isWorkspaceLoading = false

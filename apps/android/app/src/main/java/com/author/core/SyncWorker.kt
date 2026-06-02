@@ -1,6 +1,7 @@
 package com.author.core
 
 import android.content.Context
+import android.database.sqlite.SQLiteDatabaseLockedException
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -15,37 +16,58 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
   CoroutineWorker(appContext, params) {
   override suspend fun doWork(): Result {
     val repository = NotesRepository(applicationContext)
-    repository.recordDebugLog("info", "Sync worker", "Background sync started")
-    val token =
-      repository.getStoredSession()?.token
-        ?: run {
-          repository.recordDebugLog("debug", "Sync worker", "No stored session; skipping sync")
-          return Result.success()
-        }
-    if (!repository.hasStoredEncryptionKeyMaterial()) {
-      repository.recordDebugLog("warn", "Sync worker", "No encryption key material; skipping sync")
-      return Result.success()
-    }
+    return try {
+      repository.recordDebugLog("info", "Sync worker", "Background sync started")
+      val token =
+        repository.getStoredSession()?.token
+          ?: run {
+            repository.recordDebugLog("debug", "Sync worker", "No stored session; skipping sync")
+            return Result.success()
+          }
+      if (!repository.hasStoredEncryptionKeyMaterial()) {
+        repository.recordDebugLog(
+          "warn",
+          "Sync worker",
+          "No encryption key material; skipping sync",
+        )
+        return Result.success()
+      }
 
-    return runCatching { repository.runSync(token) }
-      .fold(
-        onSuccess = {
-          repository.recordDebugLog("info", "Sync worker", "Background sync completed")
-          Result.success()
-        },
-        onFailure = { error ->
-          repository.recordDebugLog(
-            "error",
-            "Sync worker",
-            "Background sync failed",
-            error.stackTraceToString(),
-          )
-          if (error is AuthException) Result.success() else Result.retry()
-        },
-      )
+      runCatching { repository.runSync(token) }
+        .fold(
+          onSuccess = {
+            repository.recordDebugLog("info", "Sync worker", "Background sync completed")
+            Result.success()
+          },
+          onFailure = { error ->
+            val localDatabaseBusy = error.isLocalDatabaseBusy()
+            val retryLocalDatabaseBusy =
+              localDatabaseBusy && runAttemptCount < LOCAL_DATABASE_BUSY_RETRY_LIMIT
+            repository.recordDebugLog(
+              if (localDatabaseBusy) "warn" else "error",
+              "Sync worker",
+              when {
+                retryLocalDatabaseBusy -> "Background sync waiting; local database is busy"
+                localDatabaseBusy -> "Background sync skipped; local database stayed busy"
+                else -> "Background sync failed"
+              },
+              error.stackTraceToString(),
+            )
+            when {
+              error is AuthException -> Result.success()
+              retryLocalDatabaseBusy -> Result.retry()
+              localDatabaseBusy -> Result.success()
+              else -> Result.retry()
+            }
+          },
+        )
+    } finally {
+      repository.close()
+    }
   }
 
   companion object {
+    private const val LOCAL_DATABASE_BUSY_RETRY_LIMIT = 3
     private const val UNIQUE_WORK_NAME = "author-sync"
 
     fun enqueue(context: Context) {
@@ -61,4 +83,20 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
         .enqueueUniqueWork(UNIQUE_WORK_NAME, ExistingWorkPolicy.KEEP, request)
     }
   }
+}
+
+private fun Throwable.isLocalDatabaseBusy(): Boolean {
+  var current: Throwable? = this
+  while (current != null) {
+    if (current is SQLiteDatabaseLockedException) return true
+    val message = current.message.orEmpty()
+    if (
+      message.contains("database is locked", ignoreCase = true) ||
+        message.contains("database locked", ignoreCase = true)
+    ) {
+      return true
+    }
+    current = current.cause
+  }
+  return false
 }

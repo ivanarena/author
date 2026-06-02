@@ -638,6 +638,8 @@ private fun DeleteAccountPanel(controller: NotesController) {
 
 @Composable
 private fun SyncSettings(controller: NotesController) {
+  var troubleshootingPanel by remember { mutableStateOf<String?>(null) }
+
   LaunchedEffect(controller) { controller.refreshRepairDiagnostics() }
 
   Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -679,14 +681,24 @@ private fun SyncSettings(controller: NotesController) {
     }
 
     SettingsChoiceGroup("Troubleshooting") {
-      RepairDiagnosticsTile(controller)
-      SyncDebugTile(controller)
-      if (controller.canResetPullCursor) {
-        ActionRow(Icons.Outlined.Refresh, "Reset pull cursor", enabled = !controller.isSyncing) {
-          controller.resetPullCursorRecovery()
+      val panel = troubleshootingPanel
+      if (panel != null) {
+        TroubleshootingDetailPanel(controller, panel) { troubleshootingPanel = null }
+      } else {
+        AccountMenuRow(
+          Icons.Outlined.Security,
+          "Repair diagnostics",
+          controller.repairDiagnosticsTitle,
+        ) {
+          troubleshootingPanel = "repair"
+        }
+        AccountMenuRow(Icons.Outlined.Refresh, "Last sync error", controller.syncDebugTitle) {
+          troubleshootingPanel = "sync"
+        }
+        AccountMenuRow(Icons.Outlined.Settings, "Diagnostic log", controller.appDebugTitle) {
+          troubleshootingPanel = "app"
         }
       }
-      ActionRow(Icons.Outlined.Delete, "Clear diagnostic log") { controller.clearDebugLog() }
     }
 
     SettingsChoiceGroup("Actions") {
@@ -708,6 +720,52 @@ private fun SyncSettings(controller: NotesController) {
 
 private fun pendingSyncDetail(count: Int): String =
   if (count == 1) "1 local change queued" else "$count local changes queued"
+
+@Composable
+private fun TroubleshootingDetailPanel(
+  controller: NotesController,
+  panel: String,
+  onBack: () -> Unit,
+) {
+  Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    AccountDetailHeader(
+      troubleshootingPanelTitle(panel),
+      troubleshootingPanelDetail(controller, panel),
+      onBack,
+    )
+    when (panel) {
+      "repair" -> {
+        RepairDiagnosticsTile(controller)
+        if (controller.canResetPullCursor) {
+          ActionRow(Icons.Outlined.Refresh, "Reset pull cursor", enabled = !controller.isSyncing) {
+            controller.resetPullCursorRecovery()
+          }
+        }
+      }
+      "sync" -> SyncErrorTile(controller)
+      "app" -> {
+        AppDebugTile(controller)
+        ActionRow(Icons.Outlined.Delete, "Clear diagnostic log") { controller.clearDebugLog() }
+      }
+    }
+  }
+}
+
+private fun troubleshootingPanelTitle(panel: String): String =
+  when (panel) {
+    "repair" -> "Repair diagnostics"
+    "sync" -> "Last sync error"
+    "app" -> "Diagnostic log"
+    else -> "Troubleshooting"
+  }
+
+private fun troubleshootingPanelDetail(controller: NotesController, panel: String): String =
+  when (panel) {
+    "repair" -> controller.repairDiagnosticsDetail
+    "sync" -> controller.syncDebugDetail
+    "app" -> controller.appDebugDetail
+    else -> "Sync troubleshooting"
+  }
 
 @Composable
 private fun SyncStatusTile(controller: NotesController) {
@@ -797,7 +855,7 @@ private fun RepairDiagnosticsTile(controller: NotesController) {
 }
 
 @Composable
-private fun SyncDebugTile(controller: NotesController) {
+private fun SyncErrorTile(controller: NotesController) {
   GlassPanel(Modifier.fillMaxWidth()) {
     Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
       Text(
@@ -821,8 +879,16 @@ private fun SyncDebugTile(controller: NotesController) {
           lineHeight = 15.sp,
         )
       }
+    }
+  }
+}
+
+@Composable
+private fun AppDebugTile(controller: NotesController) {
+  GlassPanel(Modifier.fillMaxWidth()) {
+    Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
       Text(
-        "Diagnostics",
+        "Diagnostic log",
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
         fontSize = AppTextSize.Label,
         fontWeight = FontWeight.SemiBold,

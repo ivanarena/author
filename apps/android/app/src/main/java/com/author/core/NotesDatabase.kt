@@ -28,6 +28,11 @@ class NotesDatabase(
     null,
     false,
   ) {
+  override fun onConfigure(db: SQLiteDatabase) {
+    super.onConfigure(db)
+    db.rawExecSQL("PRAGMA busy_timeout = 5000")
+  }
+
   override fun onCreate(db: SQLiteDatabase) {
     db.execSQL(
       """

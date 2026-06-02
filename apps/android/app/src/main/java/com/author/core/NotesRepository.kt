@@ -62,7 +62,7 @@ private val THEMES =
 private val FONTS = setOf("kedebideri", "system-sans", "system-serif", "mono")
 private val GROUPS = setOf("smart", "month", "year", "none")
 
-class NotesRepository(context: Context) {
+class NotesRepository(context: Context) : AutoCloseable {
   private val appContext = context.applicationContext
   private val prefs: SharedPreferences =
     appContext.getSharedPreferences("author", Context.MODE_PRIVATE)
@@ -2194,6 +2194,10 @@ class NotesRepository(context: Context) {
       skippedNotes = skippedNotes,
       noteIds = importedNoteIds,
     )
+  }
+
+  override fun close() {
+    db.close()
   }
 }
 

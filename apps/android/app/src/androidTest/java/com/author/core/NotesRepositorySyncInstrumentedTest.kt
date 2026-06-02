@@ -47,8 +47,19 @@ class NotesRepositorySyncInstrumentedTest {
 
   @After
   fun tearDown() {
+    if (::repository.isInitialized) repository.close()
     context.deleteDatabase("author.db")
     prefs.edit().clear().commit()
+  }
+
+  @Test
+  fun closingRepositoryReleasesEncryptedDatabaseForReopen() = runBlocking {
+    val firstDevice = repository.getOrCreateDevice()
+
+    repository.close()
+    repository = NotesRepository(context)
+
+    assertEquals(firstDevice, repository.getOrCreateDevice())
   }
 
   @Test

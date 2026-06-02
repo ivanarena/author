@@ -35,6 +35,7 @@ class AuthorAppInstrumentedTest {
   @get:Rule val compose = createComposeRule()
 
   private lateinit var context: Context
+  private val repositories = mutableListOf<NotesRepository>()
 
   @Before
   fun setUp() {
@@ -44,6 +45,8 @@ class AuthorAppInstrumentedTest {
 
   @After
   fun tearDown() {
+    repositories.forEach { it.close() }
+    repositories.clear()
     resetWorkspace()
   }
 
@@ -51,7 +54,7 @@ class AuthorAppInstrumentedTest {
   fun editorDraftPersistsAndAppearsInNotesList() {
     val title = "Android UI draft"
     val body = "Saved through Compose"
-    val repository = NotesRepository(context)
+    val repository = newRepository()
 
     compose.setContent {
       val scope = rememberCoroutineScope()
@@ -76,7 +79,7 @@ class AuthorAppInstrumentedTest {
 
   @Test
   fun appLockScreenBlocksNotesUntilUnlockRequested() {
-    val repository = NotesRepository(context)
+    val repository = newRepository()
     val unlockRequested = AtomicBoolean(false)
 
     compose.setContent {
@@ -106,6 +109,9 @@ class AuthorAppInstrumentedTest {
 
   private fun savedDraft(repository: NotesRepository, title: String): LocalNote? =
     repository.loadWorkspaceSnapshot().notes.firstOrNull { it.title == title }
+
+  private fun newRepository(): NotesRepository =
+    NotesRepository(context).also { repositories.add(it) }
 
   private fun resetWorkspace() {
     context.deleteDatabase("author.db")

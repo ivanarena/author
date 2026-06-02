@@ -74,6 +74,13 @@ class MainActivity : ComponentActivity() {
     }
   }
 
+  override fun onDestroy() {
+    super.onDestroy()
+    if (::controller.isInitialized) {
+      controller.close()
+    }
+  }
+
   private fun requestNotificationPermission() {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
     if (

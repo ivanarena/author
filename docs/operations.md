@@ -54,12 +54,21 @@ Client Sync settings include local repair diagnostics on web and Android. A pull
 cursor reset is local recovery tooling only: it sets the next pull to revision
 `0`, clears the legacy timestamp cursor, and leaves pending notes/notebooks in
 place so conflicts remain explicit.
+Android background sync may also skip a run when the local SQLCipher database
+is locked by foreground app work. That warning is local contention, not data
+loss; pending records stay local and the next manual or scheduled sync can
+retry.
 
 ## Monitoring
 
 - `/api/health`: liveness JSON.
 - `/api/metrics`: Prometheus text for uptime, HTTP request counts/errors/duration buckets, scheduled backup status, and remote-sync state. It is authenticated by default; set `NOTES_METRICS_TOKEN` for scrapers, or `NOTES_METRICS_PUBLIC=true` only on a private trusted network.
 - Logs: stdout/stderr. Warnings include remote mirror failures and scheduler failures, without Turso tokens or session tokens.
+
+Current metric families include `author_up`, `author_uptime_seconds`,
+`author_http_requests_total`, `author_http_request_errors_total`,
+`author_http_request_duration_seconds`, `author_remote_sync_*`, and
+`author_database_backup_*`.
 
 ## Turso Usage Guard
 

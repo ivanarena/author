@@ -40,8 +40,10 @@ aube -F @author/web run dev
 aube -F @author/web run build
 aube -F @author/web run check
 aube run test
+aube run android:verify
 aube run release:verify
 aube run release:verify:local
+aube run release:verify:connected
 ```
 
 ## Build Scripts
@@ -51,6 +53,12 @@ aube run release:verify:local
 ```yaml
 onlyBuiltDependencies:
   - esbuild
+allowBuilds:
+  sharp: false
+  workerd: true
 ```
 
-That explicitly approves the Vite/esbuild native build step.
+That explicitly approves the Vite/esbuild native build step, records that
+Workers tooling may build `workerd`, and keeps `sharp` disabled. Do not add
+`npm`, `pnpm`, `yarn`, or `bun` lockfiles; `aube-lock.yaml` is the source of
+truth.

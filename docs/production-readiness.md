@@ -56,6 +56,9 @@ Already in place:
 - Password-change interruption handling that preserves the replacement session
   and records diagnostics when final sync fails.
 - Android device-credential app lock as a local unlock control.
+- Android SQLCipher local storage with Keystore-backed key storage, local repair
+  diagnostics, WorkManager sync, clean repository/database close behavior, and
+  non-fatal handling for local database-busy background sync runs.
 - Local, CI, Docker, Cloudflare, and Android release gates.
 - Release evidence template and generator for command results, workflow URLs,
   security artifact reviews, backup drills, and artifact traceability.
@@ -219,6 +222,9 @@ Required:
   in the release gate.
 - Keep SQLCipher database storage, Keystore-backed database keys, Android backup
   exclusions, HTTPS release URL enforcement, and server-only Turso credentials.
+- Keep background sync non-blocking: database-busy runs should log and skip
+  without deleting pending records, and foreground/manual sync should remain the
+  convergence path.
 - Keep device-credential app lock as a local unlock control without
   changing sync encryption contracts.
 - Keep Android update notification checks documented and smoke-tested.

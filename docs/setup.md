@@ -4,6 +4,7 @@
 
 - Node.js 24 or newer
 - Aube
+- For Android verification: JDK 21 and the Android SDK
 
 The self-hosted server uses libSQL with a local SQLite file. When Turso is configured for self-hosting, the server treats it as a remote sync peer and reconciles both databases. Cloudflare Workers deployments use Turso directly as their primary database.
 
@@ -318,10 +319,15 @@ AUTHOR_API_URL=https://your-author-api.example.com
 ```
 
 For local emulator development, use `AUTHOR_API_URL=http://10.0.2.2:5173`.
-`ANDROID_SYNC_API_URL`, `ANDROID_SYNC_SERVER_URL`, and `NOTES_SYNC_SERVER_URL`
-are still accepted as backwards-compatible aliases. Do not set this value to
-`TURSO_DATABASE_URL`; Android never receives the Turso auth token and does not
-talk directly to Turso.
+`AUTHOR_SYNC_API_URL`, `ANDROID_SYNC_API_URL`, `ANDROID_SYNC_SERVER_URL`, and
+`NOTES_SYNC_SERVER_URL` are still accepted as backwards-compatible aliases. Do
+not set this value to `TURSO_DATABASE_URL`; Android never receives the Turso
+auth token and does not talk directly to Turso.
+
+Android stores notes, notebooks, sync metadata, and conflicts in an on-device
+SQLCipher database. Manual sync uses the app repository mutex; WorkManager
+background sync uses its own repository instance and skips a run if the local
+encrypted database is busy, leaving pending records for the next sync.
 
 ## Android APK Update Notifications
 

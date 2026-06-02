@@ -60,6 +60,10 @@ Supported surface:
   users can continue working after ordinary browser or app restarts.
 - Server databases, remote mirrors, local browser profiles, Android devices, and
   backups should still be treated as sensitive.
+- Android stores its local workspace in SQLCipher with key material held through
+  Android secure preferences, and its optional app lock is a local device
+  unlock control. It is not a substitute for protecting the signed-in device or
+  sync account.
 - Sync conflicts must be explicit. The server must not silently overwrite
   changed user data when `baseVersion` no longer matches.
 - `NOTES_SERVER_SECRET`, auth tokens, Turso credentials, release signing keys,

@@ -11,6 +11,12 @@ Conflict prompts show:
 - update time for each version
 - preview text for each version
 
+Local conflict records stay local until the user resolves them. Browser
+conflicts live in IndexedDB; Android conflicts live in SQLCipher. Note and
+notebook conflict payloads are encrypted before local storage and decrypted for
+the prompt, so the prompt can show useful previews without syncing a separate
+conflict document.
+
 Available choices:
 
 - keep newer version

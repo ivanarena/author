@@ -64,6 +64,9 @@ Required:
 - Keep repair diagnostics current for stale local metadata, missing encryption
   material, denormalized notebook assignments, conflicts, and cursor reset
   recovery.
+- Keep Android background sync safe around local SQLCipher contention: a locked
+  local database should skip that background pass without losing pending
+  records.
 - Keep local note/version history as plain-text recovery, not rich-text history
   or collaboration state.
 - Keep Markdown/frontmatter import/export portable and tested.
@@ -121,6 +124,8 @@ Required:
   is available.
 - Keep device-credential app lock as a local unlock control without
   changing the sync encryption contract.
+- Keep SQLCipher open/close behavior and database-busy handling covered by
+  focused Android tests.
 - Keep sideloaded update notification checks documented and verified.
 
 Acceptance:

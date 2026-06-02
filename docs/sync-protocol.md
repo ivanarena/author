@@ -81,6 +81,16 @@ cleanup use the local primary immediately and queue mirror convergence in the ba
 mutations still synchronize remote state first because they affect authentication and account
 recovery rather than the typing path.
 
+Android foreground/manual sync runs under a repository mutex, while background
+sync is scheduled through WorkManager. The background worker opens its own
+repository, skips successfully when there is no stored session or no encryption
+key material, and closes the encrypted database handle when done. If the local
+SQLCipher database is busy or locked, the worker records a warning and retries
+with WorkManager backoff for a small bounded number of attempts. If the database
+stays busy after that cap, the run is skipped so foreground edits remain
+unblocked; the next scheduled or manual sync can converge the same pending local
+records.
+
 ## Pull Payload
 
 Pull accepts a revision cursor. `since` is retained for old clients, but the

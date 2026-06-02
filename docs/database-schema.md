@@ -1,8 +1,8 @@
 # Database Schema
 
-## Local IndexedDB
+## Web Local IndexedDB
 
-Dexie database: `author`
+Dexie database: `author`, current schema version: 5.
 
 Tables:
 
@@ -36,6 +36,9 @@ the active browser session.
 
 ## Server SQLite/libSQL
 
+Server schema migrations are tracked through version 18 in
+`apps/web/src/lib/server/db.ts`.
+
 Tables:
 
 - `devices`
@@ -46,6 +49,7 @@ Tables:
 - `trusted_auth_devices`
 - `invitation_codes` (legacy, unused by current signup)
 - `signup_allowed_emails`
+- `sync_meta`
 - `schema_migrations`
 - `notes`
 - `notebooks`
@@ -119,6 +123,40 @@ The server keeps active-count indexes on `(owner_username, deleted_at, id)` for
 notes and notebooks. These support sync payload checks and the optional
 Turso-budget record-limit estimate without scanning the full note tables on
 every push.
+
+Server libSQL connections enable foreign keys and set a short SQLite
+`busy_timeout`; write transactions are serialized and retried in-process for a
+single Node/self-hosted app instance. This does not make one local SQLite file
+safe for multiple Author server processes.
+
+## Android Local SQLCipher
+
+Database: `author.db`, current schema version: 2.
+
+Android uses SQLCipher through `SQLiteOpenHelper`, not Room. A random database
+key is generated locally and stored through Android secure preferences. On
+startup, legacy plaintext `author.db` files are exported into a SQLCipher
+database and the plaintext backup is removed after a successful migration.
+
+Tables:
+
+- `notes`
+- `notebooks`
+- `devices`
+- `sync_meta`
+- `conflicts`
+
+Android note and notebook rows mirror the shared entity fields plus local-only
+`last_synced_version` and `last_synced_at`. Conflicts are stored as JSON
+payloads in `conflicts`; note and notebook conflict payloads are encrypted
+before local storage and decrypted only for display/resolution.
+
+Android `sync_meta` stores the same local cursor and diagnostic keys used by
+the web client, including `lastPulledRevision`, `lastPulledAt`, last sync pass
+counts, last sync error details, local workspace owner, and pull-cursor reset
+state. The database config sets `PRAGMA busy_timeout = 5000`; background sync
+also closes repository handles when done so the encrypted database can be
+reopened cleanly.
 
 ## Trash
 

@@ -46,6 +46,7 @@ aube run test:coverage         # Unit tests with coverage thresholds
 aube run test:e2e              # Browser IndexedDB sync tests
 aube run quality               # Format, lint, and Svelte/TypeScript checks
 aube run deps:check            # Verify dependency links and resolution
+aube run android:verify        # Android format, compile, unit, APK, and lint checks
 aube -F @author/web run check  # Svelte and TypeScript checks
 aube -F @author/web run build  # Production web build
 aube run emulator:window       # Start the Android emulator with a visible window and no boot animation
@@ -87,13 +88,12 @@ For production hardening, reverse-proxy TLS, backup/restore drills, metrics, and
 ## Monorepo
 
 - `apps/web` is the SvelteKit web app, local Dexie store, Hono API, and self-host server.
-- `apps/android` is the Kotlin/Compose Android app.
-- `packages/schema` defines Note, Notebook, Device, and shared sync metadata types.
+- `apps/android` is the Kotlin/Compose Android app with SQLCipher local storage and WorkManager sync.
+- `packages/schema` defines Note, Notebook, Device, and shared retention constants.
 - `packages/api-types` defines API request and response contracts.
-- `packages/sync-spec` contains executable sync helpers plus protocol docs.
+- `packages/sync-spec` contains executable sync helpers and protocol invariants.
 - `packages/test-fixtures` contains deterministic records used by tests and seed scripts.
-- `docs` contains architecture notes.
-- `tests` is reserved for cross-app integration tests.
+- `docs` contains architecture, setup, operations, sync, and release notes.
 
 See `docs/package-manager.md` for the Aube workflow.
 

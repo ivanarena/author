@@ -14,6 +14,7 @@ setting and keep the aliases only for older build pipelines:
 
 ```env
 AUTHOR_API_URL=https://your-author-api.example.com
+AUTHOR_SYNC_API_URL=https://your-author-api.example.com
 ANDROID_SYNC_API_URL=https://your-author-api.example.com
 ANDROID_SYNC_SERVER_URL=https://your-author-api.example.com
 NOTES_SYNC_SERVER_URL=https://your-author-api.example.com
@@ -39,7 +40,14 @@ The app is implemented with Kotlin and Jetpack Compose. Local changes are saved
 first in an on-device SQLCipher database, then pushed/pulled through the same
 sync protocol as the web app. The database key is generated locally and stored
 through Android Keystore-backed secure preferences; note fields remain encrypted
-for sync before leaving the device.
+for sync before leaving the device. The current local database schema is version
+2 and stores notes, notebooks, devices, sync metadata, and encrypted conflict
+payloads.
+
+Manual sync runs under the repository mutex. Background sync runs through
+WorkManager, closes its repository/database handle after each run, and treats a
+busy local database as a skipped background pass instead of data loss. Pending
+local records remain queued for the next manual or scheduled sync.
 
 ## Local App Lock
 

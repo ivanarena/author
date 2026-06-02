@@ -41,7 +41,7 @@ beforeEach(() => {
   process.env.NOTES_DB_PATH = join(tempDir, 'notes.sqlite');
   process.env.NOTES_REMOTE_SYNC_ENABLED = 'false';
   process.env.NOTES_LOGIN_USERNAME = 'owner';
-  process.env.NOTES_LOGIN_PASSWORD = 'test-password';
+  process.env.NOTES_LOGIN_PASSWORD = 'test-password-2026';
 });
 
 afterEach(async () => {
@@ -74,7 +74,7 @@ afterEach(async () => {
 
 async function loginToken(
   username = 'owner',
-  password = 'test-password'
+  password = 'test-password-2026'
 ): Promise<string> {
   const login = await loginResponse(username, password);
   expect(login.status).toBe(200);
@@ -114,7 +114,7 @@ async function authChallengeResponse(
 
 async function loginResponse(
   username = 'owner',
-  password = 'test-password',
+  password = 'test-password-2026',
   totpCode: string | null = null
 ): Promise<Response> {
   const challenge = await authChallenge(username, 'login');
@@ -167,7 +167,7 @@ async function fakePasswordProof(
 
 async function seedRemoteOwner(
   remotePath: string,
-  password = 'test-password'
+  password = 'test-password-2026'
 ): Promise<void> {
   process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
   process.env.TURSO_AUTH_TOKEN = 'test-token';
@@ -453,7 +453,7 @@ describe('Hono API', () => {
         },
         body: JSON.stringify({
           username: 'owner',
-          password: 'test-password',
+          password: 'test-password-2026',
           device: fixtureDevice
         })
       })
@@ -507,9 +507,14 @@ describe('Hono API', () => {
     const changed = await post(
       '/api/account/password',
       {
-        proof: await passwordProof(token, 'test-password', 'password_change'),
-        newPasswordVerifier:
-          await passwordVerifierFromPassword('new-test-password')
+        proof: await passwordProof(
+          token,
+          'test-password-2026',
+          'password_change'
+        ),
+        newPasswordVerifier: await passwordVerifierFromPassword(
+          'new-test-password-2026'
+        )
       },
       token
     );
@@ -832,7 +837,7 @@ describe('Hono API', () => {
       TURSO_AUTH_TOKEN: 'test-token',
       NOTES_REMOTE_SYNC_ENABLED: 'false',
       NOTES_LOGIN_USERNAME: 'owner',
-      NOTES_LOGIN_PASSWORD: 'test-password',
+      NOTES_LOGIN_PASSWORD: 'test-password-2026',
       NOTES_SIGNUP_ALLOWED_EMAILS: 'worker@example.com'
     };
 
@@ -893,7 +898,7 @@ describe('Hono API', () => {
       NOTES_DB_PROVIDER: 'turso',
       NOTES_REMOTE_SYNC_ENABLED: 'false',
       NOTES_LOGIN_USERNAME: 'owner',
-      NOTES_LOGIN_PASSWORD: 'test-password'
+      NOTES_LOGIN_PASSWORD: 'test-password-2026'
     };
 
     const config = await api.fetch(
@@ -1060,7 +1065,7 @@ describe('Hono API', () => {
 
     const local = await openDatabase();
     try {
-      await setUserPassword(local, 'owner', 'old-local-password');
+      await setUserPassword(local, 'owner', 'old-local-password-2026');
     } finally {
       local.close();
     }
@@ -1075,7 +1080,10 @@ describe('Hono API', () => {
       remote.close();
     }
 
-    const oldLocalPassword = await loginResponse('owner', 'old-local-password');
+    const oldLocalPassword = await loginResponse(
+      'owner',
+      'old-local-password-2026'
+    );
     expect(oldLocalPassword.status).toBe(401);
 
     const remotePassword = await loginResponse('owner', 'remote-password');
@@ -1136,7 +1144,7 @@ describe('Hono API', () => {
 
     const db = await openDatabase();
     try {
-      await setUserPassword(db, 'owner', 'new-test-password');
+      await setUserPassword(db, 'owner', 'new-test-password-2026');
     } finally {
       db.close();
     }
@@ -1148,12 +1156,12 @@ describe('Hono API', () => {
     );
     expect(oldSession.status).toBe(401);
 
-    const oldPassword = await loginResponse('owner', 'test-password');
+    const oldPassword = await loginResponse('owner', 'test-password-2026');
     expect(oldPassword.status).toBe(401);
 
-    await expect(loginToken('owner', 'new-test-password')).resolves.toEqual(
-      expect.any(String)
-    );
+    await expect(
+      loginToken('owner', 'new-test-password-2026')
+    ).resolves.toEqual(expect.any(String));
   });
 
   it('revokes trusted device OTP login when a password is reset', async () => {
@@ -1167,7 +1175,7 @@ describe('Hono API', () => {
       client: { url: `file:${remotePath}`, authToken: 'test-token' }
     });
     try {
-      await setUserPassword(seededRemote, 'owner', 'test-password');
+      await setUserPassword(seededRemote, 'owner', 'test-password-2026');
     } finally {
       seededRemote.close();
     }
@@ -1179,7 +1187,7 @@ describe('Hono API', () => {
     const enable = await post(
       '/api/account/totp',
       {
-        proof: await passwordProof(token, 'test-password', 'totp'),
+        proof: await passwordProof(token, 'test-password-2026', 'totp'),
         secret: setupBody.secret,
         totpCode: totpCode(setupBody.secret)
       },
@@ -1206,7 +1214,7 @@ describe('Hono API', () => {
       client: { url: `file:${remotePath}`, authToken: 'test-token' }
     });
     try {
-      await setUserPassword(remote, 'owner', 'new-test-password');
+      await setUserPassword(remote, 'owner', 'new-test-password-2026');
     } finally {
       remote.close();
     }
@@ -1237,7 +1245,7 @@ describe('Hono API', () => {
       client: { url: `file:${remotePath}`, authToken: 'test-token' }
     });
     try {
-      await setUserPassword(remote, 'owner', 'test-password');
+      await setUserPassword(remote, 'owner', 'test-password-2026');
     } finally {
       remote.close();
     }
@@ -1250,7 +1258,7 @@ describe('Hono API', () => {
       client: { url: `file:${remotePath}`, authToken: 'test-token' }
     });
     try {
-      await setUserPassword(updatedRemote, 'owner', 'new-test-password');
+      await setUserPassword(updatedRemote, 'owner', 'new-test-password-2026');
     } finally {
       updatedRemote.close();
     }
@@ -1320,8 +1328,8 @@ describe('Hono API', () => {
       client: { url: `file:${remotePath}`, authToken: 'test-token' }
     });
     try {
-      await setUserPassword(remote, 'owner', 'test-password');
-      await setUserPassword(remote, 'other', 'other-password');
+      await setUserPassword(remote, 'owner', 'test-password-2026');
+      await setUserPassword(remote, 'other', 'other-password-2026');
       await updateUserProfile(remote, 'other', null, 'taken@example.com');
     } finally {
       remote.close();
@@ -1372,7 +1380,7 @@ describe('Hono API', () => {
       client: { url: `file:${remotePath}`, authToken: 'test-token' }
     });
     try {
-      await setUserPassword(remote, 'owner', 'test-password');
+      await setUserPassword(remote, 'owner', 'test-password-2026');
     } finally {
       remote.close();
     }
@@ -1423,7 +1431,11 @@ describe('Hono API', () => {
     const shortPassword = await post(
       '/api/account/password',
       {
-        proof: await passwordProof(token, 'test-password', 'password_change')
+        proof: await passwordProof(
+          token,
+          'test-password-2026',
+          'password_change'
+        )
       },
       token
     );
@@ -1435,9 +1447,14 @@ describe('Hono API', () => {
     const password = await post(
       '/api/account/password',
       {
-        proof: await passwordProof(token, 'test-password', 'password_change'),
-        newPasswordVerifier:
-          await passwordVerifierFromPassword('new-test-password'),
+        proof: await passwordProof(
+          token,
+          'test-password-2026',
+          'password_change'
+        ),
+        newPasswordVerifier: await passwordVerifierFromPassword(
+          'new-test-password-2026'
+        ),
         e2eeKeyring: 'wrapped-keyring-v2'
       },
       token
@@ -1463,7 +1480,7 @@ describe('Hono API', () => {
       })
     );
     expect(replacementValidate.status).toBe(200);
-    const newLogin = await loginResponse('owner', 'new-test-password');
+    const newLogin = await loginResponse('owner', 'new-test-password-2026');
     await expect(newLogin.json()).resolves.toMatchObject({
       token: expect.any(String),
       e2eeKeyring: 'wrapped-keyring-v2'
@@ -1487,7 +1504,7 @@ describe('Hono API', () => {
       remoteWithData.close();
     }
 
-    token = await loginToken('owner', 'new-test-password');
+    token = await loginToken('owner', 'new-test-password-2026');
     const deleted = await api.fetch(
       new Request('http://localhost/api/account', {
         method: 'DELETE',
@@ -1498,7 +1515,7 @@ describe('Hono API', () => {
         body: JSON.stringify({
           proof: await passwordProof(
             token,
-            'new-test-password',
+            'new-test-password-2026',
             'delete_account'
           )
         })
@@ -1558,7 +1575,7 @@ describe('Hono API', () => {
       local.close();
     }
 
-    const missing = await loginResponse('owner', 'new-test-password');
+    const missing = await loginResponse('owner', 'new-test-password-2026');
     expect(missing.status).toBe(401);
   }, 180_000);
 
@@ -1573,7 +1590,7 @@ describe('Hono API', () => {
       client: { url: `file:${remotePath}`, authToken: 'test-token' }
     });
     try {
-      await setUserPassword(remote, 'owner', 'test-password');
+      await setUserPassword(remote, 'owner', 'test-password-2026');
     } finally {
       remote.close();
     }
@@ -1585,7 +1602,7 @@ describe('Hono API', () => {
     const enable = await post(
       '/api/account/totp',
       {
-        proof: await passwordProof(token, 'test-password', 'totp'),
+        proof: await passwordProof(token, 'test-password-2026', 'totp'),
         secret: setupBody.secret,
         totpCode: totpCode(setupBody.secret)
       },
@@ -1612,7 +1629,7 @@ describe('Hono API', () => {
       storedRemote.close();
     }
 
-    const withoutCode = await loginResponse('owner', 'test-password');
+    const withoutCode = await loginResponse('owner', 'test-password-2026');
     expect(withoutCode.status).toBe(401);
 
     const trustedDeviceCode = await api.fetch(
@@ -1657,7 +1674,7 @@ describe('Hono API', () => {
 
     const withCode = await loginResponse(
       'owner',
-      'test-password',
+      'test-password-2026',
       totpCode(setupBody.secret)
     );
     expect(withCode.status).toBe(200);
@@ -1706,7 +1723,7 @@ describe('Hono API', () => {
       } else {
         process.env.NODE_ENV = previousNodeEnv;
       }
-      process.env.NOTES_LOGIN_PASSWORD = 'test-password';
+      process.env.NOTES_LOGIN_PASSWORD = 'test-password-2026';
     }
   });
 
@@ -1743,7 +1760,7 @@ describe('Hono API', () => {
       client: { url: `file:${remotePath}`, authToken: 'test-token' }
     });
     try {
-      await setUserPassword(remote, 'owner', 'test-password');
+      await setUserPassword(remote, 'owner', 'test-password-2026');
     } finally {
       remote.close();
     }
@@ -1790,7 +1807,7 @@ describe('Hono API', () => {
       client: { url: `file:${remotePath}`, authToken: 'test-token' }
     });
     try {
-      await setUserPassword(remote, 'owner', 'test-password');
+      await setUserPassword(remote, 'owner', 'test-password-2026');
     } finally {
       remote.close();
     }

@@ -50,7 +50,7 @@ function setEnv(key: string, value: string | undefined): void {
 describe('server config', () => {
   it('requires an independent server secret in production', () => {
     setEnv('NODE_ENV', 'production');
-    setEnv('NOTES_LOGIN_PASSWORD', 'test-password');
+    setEnv('NOTES_LOGIN_PASSWORD', 'test-password-2026');
     setEnv('NOTES_SERVER_SECRET', undefined);
     setEnv('NOTES_TOTP_SECRET_KEY', undefined);
 
@@ -61,7 +61,7 @@ describe('server config', () => {
 
   it('uses the configured server secret in production', () => {
     setEnv('NODE_ENV', 'production');
-    setEnv('NOTES_LOGIN_PASSWORD', 'test-password');
+    setEnv('NOTES_LOGIN_PASSWORD', 'test-password-2026');
     setEnv('NOTES_SERVER_SECRET', 'server-secret');
 
     expect(getServerSecret()).toBe('server-secret');

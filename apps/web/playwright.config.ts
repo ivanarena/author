@@ -22,7 +22,7 @@ export default defineConfig({
   },
   webServer: {
     cwd: resolve(repoRoot, 'apps/web'),
-    command: `bash -lc "rm -f ${e2eDbPath}* && AUTHOR_API_URL=${e2eBaseUrl} NOTES_DB_PATH=${e2eDbPath} NOTES_REMOTE_SYNC_ENABLED=false NOTES_LOGIN_USERNAME=owner NOTES_LOGIN_PASSWORD=e2e-password NOTES_SERVER_SECRET=e2e-server-secret NOTES_CLEANUP_ENABLED=false NOTES_BACKUP_ENABLED=false ./node_modules/.bin/vite --host 0.0.0.0 --port 5179"`,
+    command: `bash -lc "rm -f ${e2eDbPath}* && AUTHOR_API_URL=${e2eBaseUrl} NOTES_DB_PATH=${e2eDbPath} NOTES_REMOTE_SYNC_ENABLED=false NOTES_LOGIN_USERNAME=owner NOTES_LOGIN_PASSWORD=e2e-password-2026 NOTES_SERVER_SECRET=e2e-server-secret NOTES_CLEANUP_ENABLED=false NOTES_BACKUP_ENABLED=false ./node_modules/.bin/vite --host 0.0.0.0 --port 5179"`,
     url: `${e2eBaseUrl}/api/health`,
     reuseExistingServer: false,
     timeout: 120_000

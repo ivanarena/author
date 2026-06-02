@@ -19,7 +19,7 @@ import {
 let token = '';
 const localDeviceId = 'e2e-browser-device';
 const loginUsername = 'owner';
-const loginPassword = 'e2e-password';
+const loginPassword = 'e2e-password-2026';
 let e2eKeyMaterial = '';
 
 const testsWithoutPreloadedSession = new Set([

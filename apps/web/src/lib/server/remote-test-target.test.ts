@@ -12,7 +12,7 @@ describe('remote test target config', () => {
         STAGING_AUTHOR_API_URL: 'https://author-staging.example.test',
         STAGING_TURSO_DATABASE_URL: 'libsql://author-staging.turso.io',
         STAGING_TURSO_AUTH_TOKEN: 'token',
-        AUTHOR_REMOTE_TEST_PASSWORD: 'test-password-1234',
+        AUTHOR_REMOTE_TEST_PASSWORD: 'test-password-2026-1234',
         AUTHOR_REMOTE_TEST_EMAIL: 'remote@example.invalid'
       },
       { requireApiUrl: true }
@@ -23,7 +23,7 @@ describe('remote test target config', () => {
       databaseUrl: 'libsql://author-staging.turso.io',
       authToken: 'token',
       username: 'author-remote-test',
-      password: 'test-password-1234',
+      password: 'test-password-2026-1234',
       email: 'remote@example.invalid',
       allowNonTestTarget: false
     });
@@ -40,7 +40,7 @@ describe('remote test target config', () => {
       AUTHOR_REMOTE_TEST_API_URL: 'https://author.example.com',
       AUTHOR_REMOTE_TEST_DATABASE_URL: 'libsql://author.turso.io',
       AUTHOR_REMOTE_TEST_AUTH_TOKEN: 'token',
-      AUTHOR_REMOTE_TEST_PASSWORD: 'test-password-1234'
+      AUTHOR_REMOTE_TEST_PASSWORD: 'test-password-2026-1234'
     });
 
     expect(() => assertSafeRemoteTestTarget(target)).toThrow(
@@ -54,7 +54,7 @@ describe('remote test target config', () => {
       AUTHOR_REMOTE_TEST_DATABASE_URL: 'libsql://author-staging.turso.io',
       AUTHOR_REMOTE_TEST_AUTH_TOKEN: 'token',
       AUTHOR_REMOTE_TEST_USERNAME: 'owner',
-      AUTHOR_REMOTE_TEST_PASSWORD: 'test-password-1234'
+      AUTHOR_REMOTE_TEST_PASSWORD: 'test-password-2026-1234'
     });
 
     expect(() => assertSafeRemoteTestTarget(target)).toThrow(
@@ -67,7 +67,7 @@ describe('remote test target config', () => {
       AUTHOR_REMOTE_TEST_API_URL: 'https://author.example.com',
       AUTHOR_REMOTE_TEST_DATABASE_URL: 'libsql://author.turso.io',
       AUTHOR_REMOTE_TEST_AUTH_TOKEN: 'token',
-      AUTHOR_REMOTE_TEST_PASSWORD: 'test-password-1234',
+      AUTHOR_REMOTE_TEST_PASSWORD: 'test-password-2026-1234',
       AUTHOR_REMOTE_TEST_ALLOW_NON_TEST_TARGET: 'true'
     });
 
@@ -78,7 +78,7 @@ describe('remote test target config', () => {
     const target = remoteTestTargetFromEnv({
       AUTHOR_REMOTE_TEST_DATABASE_URL: 'libsql://author.turso.io',
       AUTHOR_REMOTE_TEST_AUTH_TOKEN: 'token',
-      AUTHOR_REMOTE_TEST_PASSWORD: 'test-password-1234'
+      AUTHOR_REMOTE_TEST_PASSWORD: 'test-password-2026-1234'
     });
 
     expect(() => assertSafeRemoteTestTarget(target)).toThrow(

@@ -40,7 +40,7 @@ import kotlinx.coroutines.withContext
 
 class NotesController(private val repository: NotesRepository, private val scope: CoroutineScope) {
   private companion object {
-    const val MIN_PASSWORD_LENGTH = 12
+    const val MIN_PASSWORD_LENGTH = 15
     const val MAX_MARKDOWN_IMPORT_FILE_BYTES = 2L * 1024L * 1024L
     const val MAX_MARKDOWN_IMPORT_TOTAL_BYTES = 20L * 1024L * 1024L
   }

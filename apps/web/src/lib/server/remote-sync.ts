@@ -47,6 +47,7 @@ type AuthUserRecord = {
   displayName: string | null;
   passwordHash: string;
   passwordSalt: string;
+  e2eeKeyring: string | null;
   totpSecret: string | null;
   totpEnabledAt: string | null;
   createdAt: string;
@@ -197,6 +198,10 @@ function toAuthUser(row: Row): AuthUserRecord {
         : asString(row.display_name),
     passwordHash: asString(row.password_hash),
     passwordSalt: asString(row.password_salt),
+    e2eeKeyring:
+      row.e2ee_keyring === null || row.e2ee_keyring === undefined
+        ? null
+        : asString(row.e2ee_keyring),
     totpSecret:
       row.totp_secret === null || row.totp_secret === undefined
         ? null
@@ -305,6 +310,17 @@ function canTombstoneOverwriteRecord(
   );
 }
 
+function recordIsDeleted(record: Note | Notebook): boolean {
+  return Boolean(record.deletedAt);
+}
+
+function bothRecordsAreDeleted(
+  source: Note | Notebook,
+  target: Note | Notebook
+): boolean {
+  return recordIsDeleted(source) && recordIsDeleted(target);
+}
+
 function authCredentialsDiffer(
   source: AuthUserRecord,
   target: AuthUserRecord
@@ -325,6 +341,7 @@ function authUsersDiffer(
     authCredentialsDiffer(source, target) ||
     source.email !== target.email ||
     source.displayName !== target.displayName ||
+    source.e2eeKeyring !== target.e2eeKeyring ||
     source.createdAt !== target.createdAt ||
     source.updatedAt !== target.updatedAt
   );
@@ -366,13 +383,14 @@ async function putAuthUser(
     db,
     `INSERT INTO users (
        username, email, display_name, password_hash, password_salt,
-       totp_secret, totp_enabled_at, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       e2ee_keyring, totp_secret, totp_enabled_at, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(username) DO UPDATE SET
        email = excluded.email,
        display_name = excluded.display_name,
        password_hash = excluded.password_hash,
        password_salt = excluded.password_salt,
+       e2ee_keyring = excluded.e2ee_keyring,
        totp_secret = excluded.totp_secret,
        totp_enabled_at = excluded.totp_enabled_at,
        created_at = excluded.created_at,
@@ -383,6 +401,7 @@ async function putAuthUser(
       user.displayName,
       user.passwordHash,
       user.passwordSalt,
+      user.e2eeKeyring,
       user.totpSecret,
       user.totpEnabledAt,
       user.createdAt,
@@ -548,6 +567,10 @@ async function notebookChanges(
         });
         continue;
       }
+      if (bothRecordsAreDeleted(notebook, targetNotebook)) {
+        deleteSourceIds.push(notebook.id);
+        continue;
+      }
       throw new MirrorDivergenceError('notebook', notebook.id);
     }
 
@@ -560,6 +583,8 @@ async function notebookChanges(
         record: notebook,
         baseVersion: targetTombstone?.version ?? 0
       });
+    } else if (recordIsDeleted(notebook)) {
+      deleteSourceIds.push(notebook.id);
     } else {
       throw new MirrorDivergenceError('notebook', notebook.id);
     }
@@ -596,6 +621,10 @@ async function noteChanges(
         });
         continue;
       }
+      if (bothRecordsAreDeleted(note, targetNote)) {
+        deleteSourceIds.push(note.id);
+        continue;
+      }
       throw new MirrorDivergenceError('note', note.id);
     }
 
@@ -605,6 +634,8 @@ async function noteChanges(
         record: note,
         baseVersion: targetTombstone?.version ?? 0
       });
+    } else if (recordIsDeleted(note)) {
+      deleteSourceIds.push(note.id);
     } else {
       throw new MirrorDivergenceError('note', note.id);
     }
@@ -624,16 +655,26 @@ async function notebookDeleteChanges(
   const copyTargetToSource: MirrorChange<Notebook>[] = [];
   if (!notebookIds.length) return { deleteTargetIds, copyTargetToSource };
 
-  const [sourceTombstones, targetNotebooks] = await Promise.all([
-    getEntityTombstonesByIds(source, ownerUsername, 'notebook', notebookIds),
-    getNotebooksByIds(target, notebookIds, ownerUsername)
-  ]);
+  const [sourceTombstones, sourceNotebooks, targetNotebooks] =
+    await Promise.all([
+      getEntityTombstonesByIds(source, ownerUsername, 'notebook', notebookIds),
+      getNotebooksByIds(source, notebookIds, ownerUsername),
+      getNotebooksByIds(target, notebookIds, ownerUsername)
+    ]);
 
   for (const notebookId of notebookIds) {
     const sourceTombstone = sourceTombstones.get(notebookId) ?? null;
+    const sourceNotebook = sourceNotebooks.get(notebookId) ?? null;
     const targetNotebook = targetNotebooks.get(notebookId) ?? null;
 
+    if (sourceNotebook) continue;
+
     if (!targetNotebook) {
+      deleteTargetIds.push(notebookId);
+      continue;
+    }
+
+    if (recordIsDeleted(targetNotebook)) {
       deleteTargetIds.push(notebookId);
       continue;
     }
@@ -662,16 +703,25 @@ async function noteDeleteChanges(
   const copyTargetToSource: MirrorChange<Note>[] = [];
   if (!noteIds.length) return { deleteTargetIds, copyTargetToSource };
 
-  const [sourceTombstones, targetNotes] = await Promise.all([
+  const [sourceTombstones, sourceNotes, targetNotes] = await Promise.all([
     getEntityTombstonesByIds(source, ownerUsername, 'note', noteIds),
+    getNotesByIds(source, noteIds, ownerUsername),
     getNotesByIds(target, noteIds, ownerUsername)
   ]);
 
   for (const noteId of noteIds) {
     const sourceTombstone = sourceTombstones.get(noteId) ?? null;
+    const sourceNote = sourceNotes.get(noteId) ?? null;
     const targetNote = targetNotes.get(noteId) ?? null;
 
+    if (sourceNote) continue;
+
     if (!targetNote) {
+      deleteTargetIds.push(noteId);
+      continue;
+    }
+
+    if (recordIsDeleted(targetNote)) {
       deleteTargetIds.push(noteId);
       continue;
     }

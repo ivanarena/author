@@ -23,6 +23,7 @@ import {
   deleteNotebooksByIds,
   deleteNotesByIds,
   getDevicesByIds,
+  getEntityTombstonesByIds,
   getNote,
   getNotebook,
   getSyncMeta,
@@ -1169,6 +1170,286 @@ describe('server repository', () => {
     }
   });
 
+  it('converges deleted mirror notebook rows into tombstones', async () => {
+    const local = await openMemoryDatabase();
+    const remote = await openMemoryDatabase();
+    try {
+      await pushChanges(local, {
+        device: fixtureDevice,
+        notebooks: [
+          {
+            record: {
+              ...fixtureNotebook,
+              updatedAt: '2026-05-18T00:00:00.000Z',
+              version: 2,
+              syncStatus: 'pending' as const
+            },
+            baseVersion: 0
+          }
+        ],
+        notes: []
+      });
+      await deleteNotebooksByIds(local, [fixtureNotebook.id]);
+      await runSql(
+        local,
+        `UPDATE entity_tombstones
+         SET deleted_at = ?, device_id = ?, version = ?
+         WHERE owner_username = ? AND entity_type = ? AND entity_id = ?`,
+        [
+          '2026-05-21T00:00:00.000Z',
+          fixtureDevice.id,
+          3,
+          LEGACY_OWNER_USERNAME,
+          'notebook',
+          fixtureNotebook.id
+        ]
+      );
+
+      await pushChanges(remote, {
+        device: { id: 'remote-device', name: 'Remote device' },
+        notebooks: [
+          {
+            record: {
+              ...fixtureNotebook,
+              deletedAt: '2026-05-19T00:00:00.000Z',
+              updatedAt: '2026-05-19T00:00:00.000Z',
+              deviceId: 'remote-device',
+              version: 3,
+              syncStatus: 'pending' as const
+            },
+            baseVersion: 0
+          }
+        ],
+        notes: []
+      });
+
+      await syncDatabases(local, remote);
+
+      await expect(getNotebook(local, fixtureNotebook.id)).resolves.toBeNull();
+      await expect(getNotebook(remote, fixtureNotebook.id)).resolves.toBeNull();
+      expect(
+        (
+          await getEntityTombstonesByIds(
+            remote,
+            LEGACY_OWNER_USERNAME,
+            'notebook',
+            [fixtureNotebook.id]
+          )
+        ).get(fixtureNotebook.id)
+      ).toMatchObject({ entityId: fixtureNotebook.id });
+    } finally {
+      local.close();
+      remote.close();
+    }
+  });
+
+  it('converges deleted mirror note rows into tombstones', async () => {
+    const local = await openMemoryDatabase();
+    const remote = await openMemoryDatabase();
+    const noteWithoutNotebook = {
+      ...fixtureNote,
+      notebookIds: [],
+      notebookId: null
+    };
+    try {
+      await pushChanges(local, {
+        device: fixtureDevice,
+        notebooks: [],
+        notes: [
+          {
+            record: {
+              ...noteWithoutNotebook,
+              updatedAt: '2026-05-18T00:00:00.000Z',
+              version: 2,
+              syncStatus: 'pending' as const
+            },
+            baseVersion: 0
+          }
+        ]
+      });
+      await deleteNotesByIds(local, [fixtureNote.id]);
+      await runSql(
+        local,
+        `UPDATE entity_tombstones
+         SET deleted_at = ?, device_id = ?, version = ?
+         WHERE owner_username = ? AND entity_type = ? AND entity_id = ?`,
+        [
+          '2026-05-21T00:00:00.000Z',
+          fixtureDevice.id,
+          3,
+          LEGACY_OWNER_USERNAME,
+          'note',
+          fixtureNote.id
+        ]
+      );
+
+      await pushChanges(remote, {
+        device: { id: 'remote-device', name: 'Remote device' },
+        notebooks: [],
+        notes: [
+          {
+            record: {
+              ...noteWithoutNotebook,
+              deletedAt: '2026-05-19T00:00:00.000Z',
+              updatedAt: '2026-05-19T00:00:00.000Z',
+              deviceId: 'remote-device',
+              version: 3,
+              syncStatus: 'pending' as const
+            },
+            baseVersion: 0
+          }
+        ]
+      });
+
+      await syncDatabases(local, remote);
+
+      await expect(getNote(local, fixtureNote.id)).resolves.toBeNull();
+      await expect(getNote(remote, fixtureNote.id)).resolves.toBeNull();
+      expect(
+        (
+          await getEntityTombstonesByIds(
+            remote,
+            LEGACY_OWNER_USERNAME,
+            'note',
+            [fixtureNote.id]
+          )
+        ).get(fixtureNote.id)
+      ).toMatchObject({ entityId: fixtureNote.id });
+    } finally {
+      local.close();
+      remote.close();
+    }
+  });
+
+  it('ignores stale mirror delete events when the source still has a note row', async () => {
+    const local = await openMemoryDatabase();
+    const remote = await openMemoryDatabase();
+    const noteWithoutNotebook = {
+      ...fixtureNote,
+      notebookIds: [],
+      notebookId: null
+    };
+    try {
+      await pushChanges(local, {
+        device: fixtureDevice,
+        notebooks: [],
+        notes: [{ record: noteWithoutNotebook, baseVersion: 0 }]
+      });
+      await deleteNotesByIds(local, [fixtureNote.id]);
+      await pushChanges(local, {
+        device: fixtureDevice,
+        notebooks: [],
+        notes: [
+          {
+            record: {
+              ...noteWithoutNotebook,
+              deletedAt: '2026-05-26T07:59:24.903Z',
+              trashedAt: '2026-05-26T07:59:07.376Z',
+              updatedAt: '2026-05-26T07:59:24.903Z',
+              version: 3,
+              syncStatus: 'pending' as const
+            },
+            baseVersion: 2
+          }
+        ]
+      });
+
+      await pushChanges(remote, {
+        device: fixtureDevice,
+        notebooks: [],
+        notes: [
+          {
+            record: {
+              ...noteWithoutNotebook,
+              deletedAt: '2026-05-26T07:59:24.903Z',
+              trashedAt: '2026-05-26T07:59:07.376Z',
+              updatedAt: '2026-05-26T07:59:24.903Z',
+              version: 4,
+              syncStatus: 'pending' as const
+            },
+            baseVersion: 0
+          }
+        ]
+      });
+
+      await syncDatabases(local, remote);
+
+      await expect(getNote(local, fixtureNote.id)).resolves.toMatchObject({
+        deletedAt: '2026-05-26T07:59:24.903Z'
+      });
+      await expect(getNote(remote, fixtureNote.id)).resolves.toMatchObject({
+        deletedAt: '2026-05-26T07:59:24.903Z',
+        version: 4
+      });
+    } finally {
+      local.close();
+      remote.close();
+    }
+  });
+
+  it('ignores stale mirror delete events when the source still has a notebook row', async () => {
+    const local = await openMemoryDatabase();
+    const remote = await openMemoryDatabase();
+    try {
+      await pushChanges(local, {
+        device: fixtureDevice,
+        notebooks: [{ record: fixtureNotebook, baseVersion: 0 }],
+        notes: []
+      });
+      await deleteNotebooksByIds(local, [fixtureNotebook.id]);
+      await pushChanges(local, {
+        device: fixtureDevice,
+        notebooks: [
+          {
+            record: {
+              ...fixtureNotebook,
+              deletedAt: '2026-05-26T07:59:24.903Z',
+              updatedAt: '2026-05-26T07:59:24.903Z',
+              version: 3,
+              syncStatus: 'pending' as const
+            },
+            baseVersion: 2
+          }
+        ],
+        notes: []
+      });
+
+      await pushChanges(remote, {
+        device: fixtureDevice,
+        notebooks: [
+          {
+            record: {
+              ...fixtureNotebook,
+              deletedAt: '2026-05-26T07:59:24.903Z',
+              updatedAt: '2026-05-26T07:59:24.903Z',
+              version: 4,
+              syncStatus: 'pending' as const
+            },
+            baseVersion: 0
+          }
+        ],
+        notes: []
+      });
+
+      await syncDatabases(local, remote);
+
+      await expect(
+        getNotebook(local, fixtureNotebook.id)
+      ).resolves.toMatchObject({
+        deletedAt: '2026-05-26T07:59:24.903Z'
+      });
+      await expect(
+        getNotebook(remote, fixtureNotebook.id)
+      ).resolves.toMatchObject({
+        deletedAt: '2026-05-26T07:59:24.903Z',
+        version: 4
+      });
+    } finally {
+      local.close();
+      remote.close();
+    }
+  });
+
   it('refuses to choose when the remote mirror has an older hard delete for a newer local note', async () => {
     const local = await openMemoryDatabase();
     const remote = await openMemoryDatabase();
@@ -1376,8 +1657,8 @@ describe('server repository', () => {
   it('does not revoke another account session or trusted device when one owner account deletes a shared device id', async () => {
     const db = await openMemoryDatabase();
     try {
-      const alice = await setUserPassword(db, 'alice', 'alice-password');
-      const bob = await setUserPassword(db, 'bob', 'bob-password');
+      const alice = await setUserPassword(db, 'alice', 'alice-password-2026');
+      const bob = await setUserPassword(db, 'bob', 'bob-password-2026');
       await upsertDevice(
         db,
         { id: fixtureDevice.id, name: 'Alice laptop' },
@@ -1438,16 +1719,16 @@ describe('server repository', () => {
     const local = await openMemoryDatabase();
     const remote = await openMemoryDatabase();
     try {
-      await setUserPassword(local, 'local-user', 'local-password');
+      await setUserPassword(local, 'local-user', 'local-password-2026');
       await setUserPassword(remote, 'remote-user', 'remote-password');
 
       await syncDatabases(local, remote);
 
       await expect(
-        authenticateUser(remote, 'local-user', 'local-password')
+        authenticateUser(remote, 'local-user', 'local-password-2026')
       ).resolves.toBeNull();
       await expect(
-        authenticateUser(local, 'local-user', 'local-password')
+        authenticateUser(local, 'local-user', 'local-password-2026')
       ).resolves.toBeNull();
       await expect(
         authenticateUser(local, 'remote-user', 'remote-password')
@@ -1463,12 +1744,50 @@ describe('server repository', () => {
     }
   });
 
+  it('mirrors remote DB-backed user keyrings', async () => {
+    const local = await openMemoryDatabase();
+    const remote = await openMemoryDatabase();
+    try {
+      await setUserPassword(remote, 'owner', 'remote-password-2026');
+      await runSql(
+        remote,
+        'UPDATE users SET e2ee_keyring = ?, updated_at = ? WHERE username = ?',
+        ['wrapped-remote-keyring-v1', '2026-05-01T00:00:00.000Z', 'owner']
+      );
+
+      await syncDatabases(local, remote);
+
+      await expect(
+        queryAll(local, 'SELECT e2ee_keyring FROM users WHERE username = ?', [
+          'owner'
+        ])
+      ).resolves.toEqual([{ e2ee_keyring: 'wrapped-remote-keyring-v1' }]);
+
+      await runSql(
+        remote,
+        'UPDATE users SET e2ee_keyring = ?, updated_at = ? WHERE username = ?',
+        ['wrapped-remote-keyring-v2', '2026-05-02T00:00:00.000Z', 'owner']
+      );
+
+      await syncDatabases(local, remote);
+
+      await expect(
+        queryAll(local, 'SELECT e2ee_keyring FROM users WHERE username = ?', [
+          'owner'
+        ])
+      ).resolves.toEqual([{ e2ee_keyring: 'wrapped-remote-keyring-v2' }]);
+    } finally {
+      local.close();
+      remote.close();
+    }
+  });
+
   it('does not let newer local account rows overwrite remote account state', async () => {
     const local = await openMemoryDatabase();
     const remote = await openMemoryDatabase();
     try {
       await setUserPassword(remote, 'owner', 'remote-password');
-      await setUserPassword(local, 'owner', 'local-password');
+      await setUserPassword(local, 'owner', 'local-password-2026');
       await runSql(
         local,
         'UPDATE users SET updated_at = ? WHERE username = ?',
@@ -1478,7 +1797,7 @@ describe('server repository', () => {
       await syncDatabases(local, remote);
 
       await expect(
-        authenticateUser(remote, 'owner', 'local-password')
+        authenticateUser(remote, 'owner', 'local-password-2026')
       ).resolves.toBeNull();
       await expect(
         authenticateUser(remote, 'owner', 'remote-password')

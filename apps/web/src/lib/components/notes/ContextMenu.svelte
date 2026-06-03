@@ -5,6 +5,7 @@
     FolderPlus,
     History,
     Pencil,
+    Share2,
     Trash2,
     X
   } from '@lucide/svelte';
@@ -138,6 +139,16 @@
         variant="context"
         onAssign={model.contextAssignNotebookForNote}
       />
+      <button
+        role="menuitem"
+        onclick={(event) => {
+          event.stopPropagation();
+          void model.contextShareNote(contextNote);
+        }}
+      >
+        <Share2 size={14} strokeWidth={1.8} />
+        <span>Share note</span>
+      </button>
       <div class="context-new-notebook">
         {#if newNotebookOpen}
           <form

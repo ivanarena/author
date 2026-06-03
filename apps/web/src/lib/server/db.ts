@@ -176,6 +176,7 @@ const schemaSql = `
     updated_at TEXT NOT NULL,
     deleted_at TEXT,
     trashed_at TEXT,
+    is_favorite INTEGER NOT NULL DEFAULT 0,
     device_id TEXT NOT NULL,
     version INTEGER NOT NULL,
     sync_status TEXT NOT NULL,
@@ -202,6 +203,7 @@ const schemaSql = `
     updated_at TEXT NOT NULL,
     deleted_at TEXT,
     trashed_at TEXT,
+    is_favorite INTEGER NOT NULL DEFAULT 0,
     device_id TEXT NOT NULL,
     version INTEGER NOT NULL,
     saved_at TEXT NOT NULL,
@@ -248,6 +250,7 @@ const createNotesTableSql = `
     updated_at TEXT NOT NULL,
     deleted_at TEXT,
     trashed_at TEXT,
+    is_favorite INTEGER NOT NULL DEFAULT 0,
     device_id TEXT NOT NULL,
     version INTEGER NOT NULL,
     sync_status TEXT NOT NULL,
@@ -270,6 +273,7 @@ const createNoteVersionsTableSql = `
     updated_at TEXT NOT NULL,
     deleted_at TEXT,
     trashed_at TEXT,
+    is_favorite INTEGER NOT NULL DEFAULT 0,
     device_id TEXT NOT NULL,
     version INTEGER NOT NULL,
     saved_at TEXT NOT NULL,
@@ -345,6 +349,7 @@ async function migrateLegacyMarkdownColumns(db: NotesDb): Promise<void> {
     const notesHaveOwner = await hasColumn(db, 'notes', 'owner_username');
     const notesHaveTitleHash = await hasColumn(db, 'notes', 'title_hash');
     const notesHaveBodyHash = await hasColumn(db, 'notes', 'body_hash');
+    const notesHaveFavorite = await hasColumn(db, 'notes', 'is_favorite');
     const notebookIdsExpression = notesHaveNotebookIds
       ? "COALESCE(notebook_ids, CASE WHEN notebook_id IS NULL THEN '[]' ELSE json_array(notebook_id) END)"
       : "CASE WHEN notebook_id IS NULL THEN '[]' ELSE json_array(notebook_id) END";
@@ -353,6 +358,9 @@ async function migrateLegacyMarkdownColumns(db: NotesDb): Promise<void> {
       : sqlString(defaultDataOwner());
     const titleHashExpression = notesHaveTitleHash ? 'title_hash' : 'NULL';
     const bodyHashExpression = notesHaveBodyHash ? 'body_hash' : 'NULL';
+    const favoriteExpression = notesHaveFavorite
+      ? 'COALESCE(is_favorite, 0)'
+      : '0';
     await exec(
       db,
       `PRAGMA foreign_keys = OFF;
@@ -360,11 +368,11 @@ async function migrateLegacyMarkdownColumns(db: NotesDb): Promise<void> {
        ${createNotesTableSql}
        INSERT INTO notes (
          id, owner_username, title, body, title_hash, body_hash, notebook_ids, notebook_id, created_at, updated_at,
-         deleted_at, trashed_at, device_id, version, sync_status
+         deleted_at, trashed_at, is_favorite, device_id, version, sync_status
        )
        SELECT
          id, ${ownerExpression}, title, ${bodyExpression}, ${titleHashExpression}, ${bodyHashExpression}, ${notebookIdsExpression}, notebook_id, created_at, updated_at,
-         deleted_at, trashed_at, device_id, version, sync_status
+         deleted_at, trashed_at, ${favoriteExpression}, device_id, version, sync_status
        FROM notes_legacy_markdown;
        DROP TABLE notes_legacy_markdown;
        PRAGMA foreign_keys = ON;`
@@ -401,6 +409,11 @@ async function migrateLegacyMarkdownColumns(db: NotesDb): Promise<void> {
       'note_versions',
       'body_hash'
     );
+    const versionsHaveFavorite = await hasColumn(
+      db,
+      'note_versions',
+      'is_favorite'
+    );
     const notebookIdsExpression = versionsHaveNotebookIds
       ? "COALESCE(notebook_ids, CASE WHEN notebook_id IS NULL THEN '[]' ELSE json_array(notebook_id) END)"
       : "CASE WHEN notebook_id IS NULL THEN '[]' ELSE json_array(notebook_id) END";
@@ -409,17 +422,20 @@ async function migrateLegacyMarkdownColumns(db: NotesDb): Promise<void> {
       : sqlString(defaultDataOwner());
     const titleHashExpression = versionsHaveTitleHash ? 'title_hash' : 'NULL';
     const bodyHashExpression = versionsHaveBodyHash ? 'body_hash' : 'NULL';
+    const favoriteExpression = versionsHaveFavorite
+      ? 'COALESCE(is_favorite, 0)'
+      : '0';
     await exec(
       db,
       `ALTER TABLE note_versions RENAME TO note_versions_legacy_markdown;
        ${createNoteVersionsTableSql}
        INSERT INTO note_versions (
          id, note_id, owner_username, title, body, title_hash, body_hash, notebook_ids, notebook_id, created_at, updated_at,
-         deleted_at, trashed_at, device_id, version, saved_at, reason
+         deleted_at, trashed_at, is_favorite, device_id, version, saved_at, reason
        )
        SELECT
          id, note_id, ${ownerExpression}, title, ${bodyExpression}, ${titleHashExpression}, ${bodyHashExpression}, ${notebookIdsExpression}, notebook_id, created_at, updated_at,
-         deleted_at, trashed_at, device_id, version, saved_at, reason
+         deleted_at, trashed_at, ${favoriteExpression}, device_id, version, saved_at, reason
        FROM note_versions_legacy_markdown;
        DROP TABLE note_versions_legacy_markdown;`
     );
@@ -446,6 +462,22 @@ async function migrateNotebookIds(db: NotesDb): Promise<void> {
     await run(
       db,
       `UPDATE note_versions SET notebook_ids = CASE WHEN notebook_id IS NULL THEN '[]' ELSE json_array(notebook_id) END`
+    );
+  }
+}
+
+async function migrateNoteFavorites(db: NotesDb): Promise<void> {
+  if (!(await hasColumn(db, 'notes', 'is_favorite'))) {
+    await run(
+      db,
+      `ALTER TABLE notes ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0`
+    );
+  }
+
+  if (!(await hasColumn(db, 'note_versions', 'is_favorite'))) {
+    await run(
+      db,
+      `ALTER TABLE note_versions ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0`
     );
   }
 }
@@ -1129,6 +1161,13 @@ export const SERVER_MIGRATIONS: ServerMigration[] = [
         await run(db, 'ALTER TABLE users ADD COLUMN e2ee_keyring TEXT');
       }
     }
+  },
+  {
+    version: 19,
+    name: 'note-favorites',
+    rollback:
+      'Restore from the pre-upgrade backup. Favorite state defaults to off for existing notes.',
+    up: migrateNoteFavorites
   }
 ];
 

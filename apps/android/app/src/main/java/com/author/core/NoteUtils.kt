@@ -172,6 +172,7 @@ fun filterNotesForView(
     val ids = noteNotebookIds(note)
     when (filterId) {
       "all" -> true
+      "favorites" -> note.isFavorite
       "unfiled" -> ids.isEmpty()
       else -> ids.contains(filterId)
     }
@@ -305,7 +306,8 @@ fun recordsDiffer(a: LocalNote, b: LocalNote): Boolean {
     (a.notebookId?.trim().takeUnless { it.isNullOrEmpty() }) !=
       (b.notebookId?.trim().takeUnless { it.isNullOrEmpty() }) ||
     a.deletedAt != b.deletedAt ||
-    a.trashedAt != b.trashedAt
+    a.trashedAt != b.trashedAt ||
+    a.isFavorite != b.isFavorite
 }
 
 fun recordsDiffer(a: LocalNotebook, b: LocalNotebook): Boolean {

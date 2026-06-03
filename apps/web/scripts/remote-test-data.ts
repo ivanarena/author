@@ -99,6 +99,7 @@ export async function seedRemoteTestAccount(
       updatedAt: now,
       deletedAt: null,
       trashedAt: null,
+      isFavorite: false,
       deviceId: device.id,
       version: 1,
       syncStatus: 'synced'
@@ -115,6 +116,7 @@ export async function seedRemoteTestAccount(
       updatedAt: now,
       deletedAt: null,
       trashedAt: null,
+      isFavorite: false,
       deviceId: device.id,
       version: 1,
       syncStatus: 'synced'
@@ -178,6 +180,7 @@ export function createRemoteTestRunFixture(
     updatedAt: now,
     deletedAt: null,
     trashedAt: null,
+    isFavorite: false,
     deviceId: device.id,
     version: 1,
     syncStatus: 'pending'

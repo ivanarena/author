@@ -380,6 +380,7 @@ async function mergeRemoteNote(remote: Note, syncedAt: string): Promise<void> {
     : null;
   const remoteLocal: LocalNote = {
     ...remoteStored,
+    isFavorite: Boolean(remotePlain.isFavorite),
     deviceId: republishDevice?.id ?? remoteStored.deviceId,
     version: republishDevice
       ? nextVersionAfter(remote.version)

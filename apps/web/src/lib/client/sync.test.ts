@@ -81,6 +81,7 @@ const note: Note = {
   updatedAt: '2026-05-01T10:05:00.000Z',
   deletedAt: null,
   trashedAt: null,
+  isFavorite: false,
   deviceId: device.id,
   version: 2,
   syncStatus: 'pending'

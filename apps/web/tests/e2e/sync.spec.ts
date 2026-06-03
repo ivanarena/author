@@ -45,6 +45,7 @@ type RemoteNote = {
   updatedAt: string;
   deletedAt: string | null;
   trashedAt: string | null;
+  isFavorite: boolean;
   deviceId: string;
   version: number;
   syncStatus: 'synced' | 'pending' | 'conflict' | 'deleted';
@@ -777,6 +778,7 @@ test('keeps local offline edits and reports conflicts when the online session re
     updatedAt: now,
     deletedAt: null,
     trashedAt: null,
+    isFavorite: false,
     deviceId: 'e2e-seed-device',
     version: 1,
     syncStatus: 'pending'

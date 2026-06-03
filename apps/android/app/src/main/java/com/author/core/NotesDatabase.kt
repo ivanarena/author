@@ -10,7 +10,7 @@ import net.zetetic.database.sqlcipher.SQLiteOpenHelper
 import org.json.JSONArray
 
 private const val DATABASE_NAME = "author.db"
-private const val DATABASE_VERSION = 2
+private const val DATABASE_VERSION = 3
 private const val DATABASE_KEY_PREF = "author-database-key-material-v1"
 
 class NotesDatabase(
@@ -48,6 +48,7 @@ class NotesDatabase(
         updated_at TEXT NOT NULL,
         deleted_at TEXT,
         trashed_at TEXT,
+        is_favorite INTEGER NOT NULL DEFAULT 0,
         device_id TEXT NOT NULL,
         version INTEGER NOT NULL,
         sync_status TEXT NOT NULL,
@@ -98,6 +99,9 @@ class NotesDatabase(
   override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
     if (oldVersion < 2) {
       db.execSQL("ALTER TABLE notebooks ADD COLUMN name_hash TEXT")
+    }
+    if (oldVersion < 3) {
+      db.execSQL("ALTER TABLE notes ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0")
     }
   }
 
@@ -357,6 +361,7 @@ private fun noteValues(note: LocalNote) =
     put("updated_at", note.updatedAt)
     put("deleted_at", note.deletedAt)
     put("trashed_at", note.trashedAt)
+    put("is_favorite", if (note.isFavorite) 1 else 0)
     put("device_id", note.deviceId)
     put("version", note.version)
     put("sync_status", note.syncStatus)
@@ -392,6 +397,7 @@ private fun Cursor.toNote() =
     updatedAt = getString("updated_at"),
     deletedAt = getNullableString("deleted_at"),
     trashedAt = getNullableString("trashed_at"),
+    isFavorite = getInt("is_favorite") != 0,
     deviceId = getString("device_id"),
     version = getInt("version"),
     syncStatus = getString("sync_status"),

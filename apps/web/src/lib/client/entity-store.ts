@@ -97,6 +97,7 @@ export async function createBlankNote(
     updatedAt: now,
     deletedAt: null,
     trashedAt: null,
+    isFavorite: false,
     deviceId: device.id,
     version: 1,
     syncStatus: 'pending',
@@ -288,6 +289,30 @@ export async function assignNoteToNotebook(
     ...note,
     notebookIds,
     notebookId: primaryNotebookId(notebookIds),
+    updatedAt: nowIso(),
+    deviceId: device.id,
+    version: note.version + 1,
+    syncStatus: 'pending'
+  };
+
+  await localDb.notes.put(updated);
+  return decryptNoteFields(updated);
+}
+
+export async function setNoteFavorite(
+  noteId: string,
+  isFavorite: boolean
+): Promise<LocalNote | null> {
+  const note = await localDb.notes.get(noteId);
+  if (!note || note.deletedAt) return note ?? null;
+  if (Boolean(note.isFavorite) === isFavorite) {
+    return decryptNoteFields(note);
+  }
+
+  const device = await getOrCreateDevice();
+  const updated: LocalNote = {
+    ...note,
+    isFavorite,
     updatedAt: nowIso(),
     deviceId: device.id,
     version: note.version + 1,

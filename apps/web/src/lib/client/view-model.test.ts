@@ -23,6 +23,7 @@ const baseNote: LocalNote = {
   updatedAt: '2026-04-29T08:00:00.000Z',
   deletedAt: null,
   trashedAt: null,
+  isFavorite: false,
   deviceId: 'device-a',
   version: 1,
   syncStatus: 'synced',
@@ -65,6 +66,13 @@ describe('client note view model', () => {
     expect(
       filterNotesForView(notes, [], 'work').map((item) => item.id)
     ).toEqual(['b']);
+    expect(
+      filterNotesForView(
+        [notes[0], note({ id: 'favorite', isFavorite: true })],
+        [],
+        'favorites'
+      ).map((item) => item.id)
+    ).toEqual(['favorite']);
     expect(filterNotesBySearch(notes, 'shop').map((item) => item.id)).toEqual([
       'a'
     ]);

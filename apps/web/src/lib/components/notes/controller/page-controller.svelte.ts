@@ -107,6 +107,7 @@ import {
 import type { ContextMenuState, EditorSnapshot } from './ui-types';
 import * as accountActions from './actions/account';
 import * as archiveActions from './actions/archive';
+import type { ShareNotePayload } from './actions/archive';
 import * as editorActions from './actions/editor';
 import * as libraryActions from './actions/library';
 import * as syncActions from './actions/sync';
@@ -319,6 +320,7 @@ export class NotesPageController
   selectedTrashedNoteCount = $derived(
     this.selectedNotes.filter((note) => note.trashedAt).length
   );
+  favoriteCount = $derived(this.notes.filter((note) => note.isFavorite).length);
   wordCount = $derived(countWords(`${this.titleValue} ${this.bodyValue}`));
   activeConflict = $derived(this.conflicts[0] ?? null);
   notebookCounts = $derived(countNotesByNotebook(this.notes));
@@ -872,6 +874,11 @@ export class NotesPageController
     await this.trashNote(note);
   };
 
+  contextShareNote = async (note: LocalNote) => {
+    this.closeContextMenu();
+    await this.shareNote(note);
+  };
+
   contextRestoreNote = async (note: LocalNote) => {
     this.closeContextMenu();
     await this.restoreNoteFromRow(note);
@@ -952,6 +959,10 @@ export class NotesPageController
     await libraryActions.trashNote(this, note);
   };
 
+  toggleNoteFavorite = async (note: LocalNote) => {
+    await libraryActions.toggleNoteFavorite(this, note);
+  };
+
   restoreNoteFromRow = async (note: LocalNote) => {
     await libraryActions.restoreNoteFromRow(this, note);
   };
@@ -969,6 +980,14 @@ export class NotesPageController
 
   exportMarkdown = async () => {
     await archiveActions.exportMarkdown(this);
+  };
+
+  exportSelectedMarkdown = async () => {
+    await archiveActions.exportSelectedMarkdown(this);
+  };
+
+  shareNote = async (note: LocalNote) => {
+    await archiveActions.shareNote(this, note);
   };
 
   startMarkdownImport = () => {
@@ -1346,6 +1365,22 @@ export class NotesPageController
     anchor.click();
     anchor.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+
+  shareNotePayload = async ({
+    title,
+    text
+  }: ShareNotePayload): Promise<'shared' | 'copied'> => {
+    if (typeof navigator.share === 'function') {
+      await navigator.share({ title, text });
+      return 'shared';
+    }
+
+    if (!navigator.clipboard?.writeText) {
+      throw new Error('Sharing is not available in this browser');
+    }
+    await navigator.clipboard.writeText(text);
+    return 'copied';
   };
 
   beginArchiveOperation = (label: string, detail: string, progress: number) => {

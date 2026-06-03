@@ -1170,6 +1170,7 @@ function hasNoteRecord(record: unknown): record is Note {
     isIsoDate(note.updatedAt) &&
     isNullableIsoDate(note.deletedAt) &&
     isNullableIsoDate(note.trashedAt) &&
+    typeof (note.isFavorite ?? false) === 'boolean' &&
     nonEmptyString(note.deviceId) &&
     isPositiveInteger(note.version) &&
     Boolean(note.syncStatus && SYNC_STATUSES.has(note.syncStatus))

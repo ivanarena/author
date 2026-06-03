@@ -2,7 +2,7 @@
 
 ## Web Local IndexedDB
 
-Dexie database: `author`, current schema version: 5.
+Dexie database: `author`, current schema version: 6.
 
 Tables:
 
@@ -20,6 +20,8 @@ Local notes and notebooks include the shared schema fields plus:
 - `lastSyncedAt`
 
 Those fields are local-only and provide the base version used during sync.
+Notes also keep `isFavorite` as shared note metadata so favorite filters sync
+with the rest of the note record.
 
 `noteSnapshots` stores local-only encrypted note snapshots before text edits,
 Trash moves, and restore-from-history actions. Snapshots use the same note
@@ -36,7 +38,7 @@ the active browser session.
 
 ## Server SQLite/libSQL
 
-Server schema migrations are tracked through version 18 in
+Server schema migrations are tracked through version 19 in
 `apps/web/src/lib/server/db.ts`.
 
 Tables:
@@ -71,6 +73,8 @@ field-specific authenticated data. Clients validate that an existing envelope de
 preserving it; spoofed prefix text is treated as plaintext and encrypted. Plaintext rows are
 encrypted by the browser or Android app before normal reads and sync.
 Markdown is not parsed or rendered.
+Notes store `is_favorite` as a boolean integer on both `notes` and
+`note_versions`, defaulting existing rows to `0`.
 
 Devices are keyed by `(owner_username, id)` so two accounts using the same
 browser- or Android-generated device id keep separate labels, trusted-device
@@ -131,7 +135,7 @@ safe for multiple Author server processes.
 
 ## Android Local SQLCipher
 
-Database: `author.db`, current schema version: 2.
+Database: `author.db`, current schema version: 3.
 
 Android uses SQLCipher through `SQLiteOpenHelper`, not Room. A random database
 key is generated locally and stored through Android secure preferences. On

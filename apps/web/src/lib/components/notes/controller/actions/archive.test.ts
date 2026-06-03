@@ -16,7 +16,9 @@ vi.mock('$lib/client/store', () => ({
 
 import {
   exportMarkdown,
+  exportSelectedMarkdown,
   handleMarkdownImport,
+  shareNote,
   startMarkdownImport
 } from './archive';
 
@@ -31,6 +33,7 @@ function note(overrides: Partial<LocalNote> = {}): LocalNote {
     updatedAt: '2026-05-29T10:00:00.000Z',
     deletedAt: null,
     trashedAt: null,
+    isFavorite: false,
     deviceId: 'device-1',
     version: 1,
     syncStatus: 'pending',
@@ -50,7 +53,11 @@ function controller(
     isArchiveBusy: false,
     isImporting: false,
     notes: [],
+    selectedNote: null,
+    selectedNotes: [],
     syncMessage: '',
+    titleValue: '',
+    bodyValue: '',
     beginArchiveOperation: vi.fn(),
     downloadBlob: vi.fn(),
     endArchiveOperation: vi.fn(),
@@ -58,6 +65,7 @@ function controller(
     notify: vi.fn(),
     refresh: vi.fn(),
     selectNote: vi.fn(),
+    shareNotePayload: vi.fn(async () => 'shared' as const),
     updateArchiveOperation: vi.fn(),
     yieldToUi: vi.fn(),
     ...overrides
@@ -120,6 +128,102 @@ describe('archive actions', () => {
       'Disk full'
     );
     expect(model.endArchiveOperation).toHaveBeenCalledWith();
+  });
+
+  it('exports selected active notes as a Markdown archive', async () => {
+    const model = controller({
+      selectedNotes: [
+        note({ id: 'note-1' }),
+        note({ id: 'note-2' }),
+        note({ id: 'trash', trashedAt: '2026-05-29T10:00:00.000Z' })
+      ]
+    });
+
+    await exportSelectedMarkdown(model);
+
+    expect(model.flushPendingSave).toHaveBeenCalled();
+    expect(model.beginArchiveOperation).toHaveBeenCalledWith(
+      'Exporting selected notes',
+      'Collecting notes',
+      18
+    );
+    expect(mocks.exportNotesMarkdownZip).toHaveBeenCalledWith([
+      'note-1',
+      'note-2'
+    ]);
+    expect(model.downloadBlob).toHaveBeenCalledWith(
+      expect.any(Blob),
+      'author-notes.zip'
+    );
+    expect(model.syncMessage).toBe('Exported 2 selected notes');
+    expect(model.endArchiveOperation).toHaveBeenCalledWith();
+  });
+
+  it('does not start selected export without active selected notes', async () => {
+    const model = controller({
+      selectedNotes: [
+        note({ id: 'trash', trashedAt: '2026-05-29T10:00:00.000Z' })
+      ]
+    });
+
+    await exportSelectedMarkdown(model);
+
+    expect(mocks.exportNotesMarkdownZip).not.toHaveBeenCalled();
+    expect(model.beginArchiveOperation).not.toHaveBeenCalled();
+    expect(model.notify).toHaveBeenCalledWith(
+      'info',
+      'No notes selected',
+      'Select notes to export.'
+    );
+  });
+
+  it('shares the current editor text when sharing the selected note', async () => {
+    const selected = note({ id: 'note-1', title: 'Saved', body: 'Saved body' });
+    const model = controller({
+      selectedNote: selected,
+      titleValue: ' Current ',
+      bodyValue: 'Current body',
+      shareNotePayload: vi.fn(async () => 'copied' as const)
+    });
+
+    await shareNote(model, selected);
+
+    expect(model.shareNotePayload).toHaveBeenCalledWith({
+      title: 'Current',
+      text: 'Current\n\nCurrent body'
+    });
+    expect(model.notify).toHaveBeenCalledWith(
+      'success',
+      'Note copied',
+      'The note text was copied to the clipboard.'
+    );
+    expect(model.flushPendingSave).toHaveBeenCalled();
+  });
+
+  it('ignores share cancellation and reports share failures', async () => {
+    const model = controller({
+      shareNotePayload: vi.fn(async () => {
+        throw new DOMException('Canceled', 'AbortError');
+      })
+    });
+
+    await shareNote(model, note());
+
+    expect(model.notify).not.toHaveBeenCalled();
+    expect(model.flushPendingSave).toHaveBeenCalled();
+
+    const failing = controller({
+      shareNotePayload: vi.fn(async () => {
+        throw new Error('No share target');
+      })
+    });
+    await shareNote(failing, note());
+
+    expect(failing.notify).toHaveBeenCalledWith(
+      'error',
+      'Share failed',
+      'No share target'
+    );
   });
 
   it('opens the hidden import picker only when archive work is idle', () => {

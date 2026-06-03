@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   moveNoteToTrash: vi.fn(),
   notebookNameExists: vi.fn(),
   renameNotebook: vi.fn(),
+  setNoteFavorite: vi.fn(),
   restoreLatestNoteSnapshot: vi.fn(),
   restoreNoteSnapshot: vi.fn(),
   restoreNote: vi.fn()
@@ -30,6 +31,7 @@ vi.mock('$lib/client/store', () => ({
   moveNoteToTrash: mocks.moveNoteToTrash,
   notebookNameExists: mocks.notebookNameExists,
   renameNotebook: mocks.renameNotebook,
+  setNoteFavorite: mocks.setNoteFavorite,
   restoreLatestNoteSnapshot: mocks.restoreLatestNoteSnapshot,
   restoreNoteSnapshot: mocks.restoreNoteSnapshot,
   restoreNote: mocks.restoreNote
@@ -53,6 +55,7 @@ import {
   submitNewNotebookMenu,
   submitRenameNotebook,
   toggleAllVisibleNotes,
+  toggleNoteFavorite,
   toggleNoteSelection,
   toggleSelectedNotebookMenu,
   trashSelectedNotes
@@ -69,6 +72,7 @@ function note(overrides: Partial<LocalNote> = {}): LocalNote {
     updatedAt: '2026-05-29T10:00:00.000Z',
     deletedAt: null,
     trashedAt: null,
+    isFavorite: false,
     deviceId: 'device-1',
     version: 1,
     syncStatus: 'synced',
@@ -165,6 +169,10 @@ describe('library actions', () => {
     mocks.moveNoteToTrash.mockResolvedValue(undefined);
     mocks.notebookNameExists.mockResolvedValue(false);
     mocks.renameNotebook.mockResolvedValue(notebook({ name: 'Renamed' }));
+    mocks.setNoteFavorite.mockImplementation(
+      async (id: string, isFavorite: boolean) =>
+        note({ id, isFavorite, syncStatus: 'pending' })
+    );
     mocks.restoreLatestNoteSnapshot.mockResolvedValue(null);
     mocks.restoreNoteSnapshot.mockResolvedValue(null);
     mocks.restoreNote.mockResolvedValue(undefined);
@@ -385,6 +393,29 @@ describe('library actions', () => {
       trashed
     );
     expect(mocks.deleteNotePermanently).toHaveBeenCalledWith('trashed');
+  });
+
+  it('toggles row favorites after flushing pending editor text', async () => {
+    const selected = note({ id: 'note-1' });
+    const model = controller({
+      selectedNote: selected,
+      linkingNoteId: 'note-1'
+    });
+
+    await toggleNoteFavorite(model, selected);
+
+    expect(model.flushPendingSave).toHaveBeenCalled();
+    expect(mocks.setNoteFavorite).toHaveBeenCalledWith('note-1', true);
+    expect(model.selectedNote).toMatchObject({
+      id: 'note-1',
+      isFavorite: true,
+      syncStatus: 'pending'
+    });
+    expect(model.linkingNoteId).toBeNull();
+    expect(model.refresh).toHaveBeenCalled();
+
+    await toggleNoteFavorite(model, note({ id: 'trashed', trashedAt: 'now' }));
+    expect(mocks.setNoteFavorite).toHaveBeenCalledTimes(1);
   });
 
   it('restores the latest local note snapshot from the row context', async () => {

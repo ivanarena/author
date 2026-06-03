@@ -15,10 +15,16 @@ class NoteUtilsTest {
         note("a", title = "Alpha"),
         note("b", title = "Bravo", notebookIds = listOf("work")),
         note("c", title = "Charlie", notebookId = "legacy"),
+        note("favorite", title = "Favorite", notebookIds = listOf("starred"))
+          .copy(isFavorite = true),
       )
     val trash = listOf(note("t", title = "Trashed", trashedAt = "2026-05-07T12:00:00Z"))
 
-    assertEquals(listOf("a", "b", "c"), filterNotesForView(notes, trash, "all").map { it.id })
+    assertEquals(
+      listOf("a", "b", "c", "favorite"),
+      filterNotesForView(notes, trash, "all").map { it.id },
+    )
+    assertEquals(listOf("favorite"), filterNotesForView(notes, trash, "favorites").map { it.id })
     assertEquals(listOf("a"), filterNotesForView(notes, trash, "unfiled").map { it.id })
     assertEquals(listOf("b"), filterNotesForView(notes, trash, "work").map { it.id })
     assertEquals(listOf("c"), filterNotesForView(notes, trash, "legacy").map { it.id })
@@ -121,10 +127,12 @@ class NoteUtilsTest {
     val changedBodyHash = sameEncryptedWithDifferentCiphertext.copy(bodyHash = "hash:body:2")
     val changedNotebook =
       sameEncryptedWithDifferentCiphertext.copy(notebookIds = listOf("personal"))
+    val changedFavorite = sameEncryptedWithDifferentCiphertext.copy(isFavorite = true)
 
     assertEquals(false, recordsDiffer(local, sameEncryptedWithDifferentCiphertext))
     assertEquals(true, recordsDiffer(local, changedBodyHash))
     assertEquals(true, recordsDiffer(local, changedNotebook))
+    assertEquals(true, recordsDiffer(local, changedFavorite))
   }
 
   @Test

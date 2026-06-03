@@ -14,6 +14,7 @@ export interface Note {
   updatedAt: ISODateString;
   deletedAt: ISODateString | null;
   trashedAt: ISODateString | null;
+  isFavorite: boolean;
   deviceId: string;
   version: number;
   syncStatus: SyncStatus;

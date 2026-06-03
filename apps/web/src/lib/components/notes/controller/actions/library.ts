@@ -13,6 +13,7 @@ import {
   moveNoteToTrash,
   notebookNameExists,
   renameNotebook,
+  setNoteFavorite,
   restoreLatestNoteSnapshot,
   restoreNoteSnapshot,
   restoreNote
@@ -259,6 +260,21 @@ export async function assignNotebookForNote(
   if (updated && controller.selectedNote?.id === note.id) {
     controller.selectedNote = updated;
   }
+  await controller.refresh();
+}
+
+export async function toggleNoteFavorite(
+  controller: NotesLibraryActionController,
+  note: LocalNote
+): Promise<void> {
+  if (note.trashedAt) return;
+  await controller.flushPendingSave();
+  const updated = await setNoteFavorite(note.id, !note.isFavorite);
+  if (updated && controller.selectedNote?.id === note.id) {
+    controller.selectedNote = updated;
+  }
+  controller.linkingNoteId = null;
+  controller.selectedNotebookMenuOpen = false;
   await controller.refresh();
 }
 

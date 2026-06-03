@@ -65,6 +65,7 @@ function note(overrides: Partial<LocalNote> = {}): LocalNote {
     updatedAt: '2026-05-29T10:00:00.000Z',
     deletedAt: null,
     trashedAt: null,
+    isFavorite: false,
     deviceId: 'device-1',
     version: 1,
     syncStatus: 'synced',

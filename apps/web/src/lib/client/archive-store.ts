@@ -41,7 +41,7 @@ export function importNotesSummary(
 
 export const importNotesMarkdownSummary = importNotesSummary;
 
-export async function exportNotesMarkdownZip(): Promise<{
+export async function exportNotesMarkdownZip(noteIds?: string[]): Promise<{
   blob: Blob;
   fileName: string;
   noteCount: number;
@@ -56,12 +56,19 @@ export async function exportNotesMarkdownZip(): Promise<{
   const decryptedNotebookRows = await Promise.all(
     notebookRows.map((notebook) => decryptNotebookFields(notebook))
   );
+  const selectedNoteIds = noteIds ? new Set(noteIds) : null;
+  const notesToExport = selectedNoteIds
+    ? decryptedNoteRows.filter((note) => selectedNoteIds.has(note.id))
+    : decryptedNoteRows;
   const exportedAt = nowIso();
   const archive = buildNotesMarkdownArchive(
-    decryptedNoteRows,
+    notesToExport,
     decryptedNotebookRows,
     exportedAt
   );
+  if (selectedNoteIds && archive.files.length === 0) {
+    throw new Error('No selected notes to export');
+  }
 
   return {
     blob: createZipBlob(archive, exportedAt),
@@ -184,6 +191,7 @@ async function importParsedNotes(
       updatedAt,
       deletedAt: null,
       trashedAt: note.trashedAt,
+      isFavorite: false,
       deviceId: device.id,
       version: 1,
       syncStatus: 'pending',

@@ -22,7 +22,12 @@ import type {
   NotebookCallback
 } from './ui-types';
 
-export type NotesFilterId = 'all' | 'unfiled' | 'trash' | (string & {});
+export type NotesFilterId =
+  | 'all'
+  | 'favorites'
+  | 'unfiled'
+  | 'trash'
+  | (string & {});
 export type Theme = StoredTheme;
 export type AuthMode = 'signin' | 'signup';
 export type SettingsSection =
@@ -67,6 +72,7 @@ export interface NotebookSidebarModel {
   notebooks: LocalNotebook[];
   trash: LocalNote[];
   notebookCounts: Map<string, number>;
+  favoriteCount: number;
   unfiledCount: number;
   filterId: NotesFilterId;
   newNotebookOpen: boolean;
@@ -125,10 +131,13 @@ export interface NoteListPanelModel {
   trashSelectedNotes: () => void | Promise<void>;
   restoreSelectedNotes: () => void | Promise<void>;
   deleteSelectedNotesPermanently: () => void | Promise<void>;
+  exportSelectedMarkdown: () => void | Promise<void>;
   openNoteContext: (event: MouseEvent, note: LocalNote) => void;
   restoreNoteFromRow: NoteCallback;
   deleteNotePermanentlyFromRow: NoteCallback;
+  shareNote: NoteCallback;
   trashNote: NoteCallback;
+  toggleNoteFavorite: NoteCallback;
   assignNotebookForNote: NotebookAssignmentCallback;
   notebookNamesForNote: (note: LocalNote) => string[];
 }
@@ -348,6 +357,8 @@ export interface SettingsModalModel {
   cancelAccountDeleteEdit: () => void;
   setSettingsSection: (section: SettingsSection) => void;
   exportMarkdown: () => void | Promise<void>;
+  exportSelectedMarkdown: () => void | Promise<void>;
+  shareNote: NoteCallback;
   startMarkdownImport: () => void;
   handleMarkdownImport: (event: Event) => void | Promise<void>;
   toggleCompactView: () => void;
@@ -371,6 +382,7 @@ export interface ContextMenuModel {
   contextRenameNotebook: NotebookCallback;
   contextDeleteNotebook: NotebookCallback;
   contextTrashNote: NoteCallback;
+  contextShareNote: NoteCallback;
   contextRestoreNote: NoteCallback;
   contextRestorePreviousNoteVersion: NoteCallback;
   contextDeleteNotePermanently: NoteCallback;

@@ -7,6 +7,7 @@ import type { ContextMenuState, EditorSnapshot } from '../ui-types';
 
 const EMPTY_NOTEBOOK_FILTERS = new Set<NotesFilterId>([
   'all',
+  'favorites',
   'unfiled',
   'trash'
 ]);

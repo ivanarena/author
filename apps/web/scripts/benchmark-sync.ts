@@ -79,6 +79,7 @@ function makeNote(
     updatedAt: createdAt,
     deletedAt: null,
     trashedAt: null,
+    isFavorite: false,
     deviceId: device.id,
     version: 1,
     syncStatus: 'pending'

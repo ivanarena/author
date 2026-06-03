@@ -78,6 +78,7 @@ const baseNote: LocalNote = {
   updatedAt: '2026-05-01T10:00:00.000Z',
   deletedAt: null,
   trashedAt: null,
+  isFavorite: false,
   deviceId: 'browser-device',
   version: 2,
   syncStatus: 'pending',
@@ -112,7 +113,8 @@ function remoteNote(overrides: Partial<Note> = {}): Note {
     version: 3,
     updatedAt: '2026-05-01T10:10:00.000Z',
     syncStatus: 'synced',
-    ...overrides
+    ...overrides,
+    isFavorite: overrides.isFavorite ?? baseNote.isFavorite
   };
 }
 

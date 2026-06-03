@@ -13,7 +13,10 @@
     CalendarDays,
     CalendarRange,
     Clock3,
+    Download,
     List,
+    Share2,
+    Star,
     Trash2,
     X
   } from '@lucide/svelte';
@@ -225,6 +228,15 @@
           <button
             class="icon-button mini"
             type="button"
+            title="Export selected notes"
+            aria-label="Export selected notes"
+            onclick={() => void model.exportSelectedMarkdown()}
+          >
+            <Download size={14} strokeWidth={1.8} />
+          </button>
+          <button
+            class="icon-button mini"
+            type="button"
             title="Move selected to notebook"
             aria-label="Move selected to notebook"
             aria-expanded={model.selectedNotebookMenuOpen}
@@ -322,7 +334,18 @@
             </label>
             <button class="note-main" onclick={() => model.selectNote(note)}>
               <span class="note-heading">
-                <span class="note-title">{noteDisplayTitle(note)}</span>
+                <span class="note-title-line">
+                  <span class="note-title">{noteDisplayTitle(note)}</span>
+                  {#if note.isFavorite}
+                    <Star
+                      class="favorite-marker"
+                      size={12}
+                      strokeWidth={1.8}
+                      fill="currentColor"
+                      aria-hidden="true"
+                    />
+                  {/if}
+                </span>
                 {#if model.compactView}
                   <time class="note-age" datetime={note.updatedAt}
                     >{formatListDate(note.updatedAt)}</time
@@ -371,6 +394,38 @@
                   <Trash2 size={14} strokeWidth={1.8} />
                 </button>
               {:else}
+                <button
+                  class="icon-button mini favorite-button"
+                  class:active={note.isFavorite}
+                  title={note.isFavorite
+                    ? 'Remove from Favorites'
+                    : 'Add to Favorites'}
+                  aria-label={note.isFavorite
+                    ? 'Remove from Favorites'
+                    : 'Add to Favorites'}
+                  aria-pressed={note.isFavorite}
+                  onclick={(event) => {
+                    event.stopPropagation();
+                    void model.toggleNoteFavorite(note);
+                  }}
+                >
+                  <Star
+                    size={14}
+                    strokeWidth={1.8}
+                    fill={note.isFavorite ? 'currentColor' : 'none'}
+                  />
+                </button>
+                <button
+                  class="icon-button mini"
+                  title="Share note"
+                  aria-label="Share note"
+                  onclick={(event) => {
+                    event.stopPropagation();
+                    void model.shareNote(note);
+                  }}
+                >
+                  <Share2 size={14} strokeWidth={1.8} />
+                </button>
                 <button
                   class="icon-button mini"
                   title="Notebooks"

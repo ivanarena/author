@@ -125,6 +125,32 @@ export class NotesLocalDatabase extends Dexie {
       syncMeta: 'key',
       conflicts: 'id, entityType, entityId, status, createdAt'
     });
+    this.version(6)
+      .stores({
+        notes:
+          'id, notebookId, *notebookIds, isFavorite, createdAt, updatedAt, deletedAt, trashedAt, deviceId, version, syncStatus, lastSyncedVersion',
+        notebooks:
+          'id, name, createdAt, updatedAt, deletedAt, deviceId, version, syncStatus, lastSyncedVersion',
+        noteSnapshots: 'snapshotId, id, savedAt, reason',
+        devices: 'id, name',
+        secrets: 'key',
+        syncMeta: 'key',
+        conflicts: 'id, entityType, entityId, status, createdAt'
+      })
+      .upgrade(async (tx) => {
+        await tx
+          .table('notes')
+          .toCollection()
+          .modify((note) => {
+            note.isFavorite = Boolean(note.isFavorite);
+          });
+        await tx
+          .table('noteSnapshots')
+          .toCollection()
+          .modify((snapshot) => {
+            snapshot.isFavorite = Boolean(snapshot.isFavorite);
+          });
+      });
   }
 }
 

@@ -19,6 +19,7 @@ data class LocalNote(
   val syncStatus: String,
   val lastSyncedVersion: Int,
   val lastSyncedAt: String?,
+  val isFavorite: Boolean = false,
 )
 
 data class LocalNotebook(

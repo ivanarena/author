@@ -48,8 +48,8 @@ async function insertNoteSnapshot(
     db,
     `INSERT INTO note_versions (
        note_id, owner_username, title, body, title_hash, body_hash, notebook_ids, notebook_id, created_at, updated_at,
-       deleted_at, trashed_at, device_id, version, saved_at, reason
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       deleted_at, trashed_at, is_favorite, device_id, version, saved_at, reason
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       noteId,
       ownerUsername,
@@ -63,6 +63,7 @@ async function insertNoteSnapshot(
       fixtureNote.updatedAt,
       fixtureNote.deletedAt,
       fixtureNote.trashedAt,
+      fixtureNote.isFavorite ? 1 : 0,
       fixtureNote.deviceId,
       fixtureNote.version,
       savedAt,

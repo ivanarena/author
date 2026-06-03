@@ -42,6 +42,7 @@ fun noteToJson(note: LocalNote): JSONObject =
     .put("updatedAt", note.updatedAt)
     .putNullable("deletedAt", note.deletedAt)
     .putNullable("trashedAt", note.trashedAt)
+    .put("isFavorite", note.isFavorite)
     .put("deviceId", note.deviceId)
     .put("version", note.version)
     .put("syncStatus", note.syncStatus)
@@ -63,6 +64,7 @@ fun noteFromJson(json: JSONObject): LocalNote {
     updatedAt = json.getString("updatedAt"),
     deletedAt = json.optNullableString("deletedAt"),
     trashedAt = json.optNullableString("trashedAt"),
+    isFavorite = json.optBoolean("isFavorite", false),
     deviceId = json.getString("deviceId"),
     version = json.optInt("version", 1),
     syncStatus = json.optString("syncStatus", "synced"),

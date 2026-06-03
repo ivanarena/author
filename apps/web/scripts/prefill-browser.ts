@@ -158,6 +158,7 @@ function mockNote(
     updatedAt,
     deletedAt: null,
     trashedAt: null,
+    isFavorite: false,
     deviceId,
     version: 1,
     syncStatus: 'synced',

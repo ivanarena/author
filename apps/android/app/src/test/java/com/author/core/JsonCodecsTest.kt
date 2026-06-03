@@ -99,7 +99,12 @@ class JsonCodecsTest {
       JSONObject()
         .put("serverTime", "2026-05-10T10:02:00Z")
         .put("serverRevision", 42)
-        .put("notes", JSONArray().put(noteToJson(note("note-1", "Pulled"))))
+        .put(
+          "notes",
+          JSONArray().put(
+            noteToJson(note("note-1", "Pulled", isFavorite = true))
+          ),
+        )
         .put("notebooks", JSONArray().put(notebookToJson(notebook("book-1", "Work"))))
         .put("devices", JSONArray().put(deviceToJson(Device("web", "Web"))))
         .put("deletedNoteIds", JSONArray().put("deleted-note"))
@@ -112,6 +117,7 @@ class JsonCodecsTest {
     assertEquals(42L, parsed.serverRevision)
     assertEquals(true, parsed.hasMore)
     assertEquals("note-1", parsed.notes.single().id)
+    assertEquals(true, parsed.notes.single().isFavorite)
     assertEquals("book-1", parsed.notebooks.single().id)
     assertEquals("web", parsed.devices.single().id)
     assertEquals(listOf("deleted-note"), parsed.deletedNoteIds)
@@ -119,7 +125,12 @@ class JsonCodecsTest {
     assertEquals(listOf("deleted-device"), parsed.deletedDeviceIds)
   }
 
-  private fun note(id: String, title: String, version: Int = 2) =
+  private fun note(
+    id: String,
+    title: String,
+    version: Int = 2,
+    isFavorite: Boolean = false,
+  ) =
     LocalNote(
       id = id,
       title = title,
@@ -137,6 +148,7 @@ class JsonCodecsTest {
       syncStatus = "pending",
       lastSyncedVersion = version - 1,
       lastSyncedAt = null,
+      isFavorite = isFavorite,
     )
 
   private fun notebook(id: String, name: String, version: Int = 1) =

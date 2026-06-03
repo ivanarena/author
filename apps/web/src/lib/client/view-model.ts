@@ -58,13 +58,14 @@ const HEALTHY_SYNC_MESSAGES = new Set([
 export function filterNotesForView(
   notes: LocalNote[],
   trash: LocalNote[],
-  filterId: 'all' | 'unfiled' | 'trash' | string
+  filterId: 'all' | 'favorites' | 'unfiled' | 'trash' | string
 ): LocalNote[] {
   if (filterId === 'trash') return trash;
 
   return notes.filter((note) => {
     const notebookIds = noteNotebookIds(note);
     if (filterId === 'all') return true;
+    if (filterId === 'favorites') return note.isFavorite;
     if (filterId === 'unfiled') return notebookIds.length === 0;
     return notebookIds.includes(filterId);
   });

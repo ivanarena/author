@@ -36,7 +36,8 @@ export function recordsDiffer<T extends SyncEntity>(a: T, b: T): boolean {
       normalizedNotebookId(a.notebookId) !==
         normalizedNotebookId(b.notebookId) ||
       a.deletedAt !== b.deletedAt ||
-      a.trashedAt !== b.trashedAt
+      a.trashedAt !== b.trashedAt ||
+      Boolean(a.isFavorite) !== Boolean(b.isFavorite)
     );
   }
 

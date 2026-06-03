@@ -62,6 +62,7 @@ const note: LocalNote = {
   updatedAt: '2026-05-02T10:00:00.000Z',
   deletedAt: null,
   trashedAt: null,
+  isFavorite: false,
   deviceId: 'browser-device',
   version: 2,
   syncStatus: 'synced',
@@ -86,6 +87,27 @@ describe('archive store import and export', () => {
     expect(archive.noteCount).toBe(1);
     expect(content).toContain(
       'author-2026-05-04-md-frontmatter/Ideas/Roadmap.md'
+    );
+  });
+
+  it('exports only the requested note ids', async () => {
+    vi.mocked(localDb.notes.toArray).mockResolvedValue([
+      note,
+      { ...note, id: 'note-2', title: 'Private', body: 'Skip me' }
+    ]);
+
+    const archive = await exportNotesMarkdownZip(['note-2']);
+    const content = new TextDecoder().decode(await archive.blob.arrayBuffer());
+
+    expect(archive.noteCount).toBe(1);
+    expect(content).toContain('Private.md');
+    expect(content).toContain('Skip me');
+    expect(content).not.toContain('Roadmap.md');
+  });
+
+  it('requires selected note ids to match exportable notes', async () => {
+    await expect(exportNotesMarkdownZip(['missing-note'])).rejects.toThrow(
+      'No selected notes to export'
     );
   });
 

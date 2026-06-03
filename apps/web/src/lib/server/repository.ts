@@ -83,6 +83,10 @@ function asNullableString(value: unknown): string | null {
   return value === null || value === undefined ? null : String(value);
 }
 
+function asBoolean(value: unknown): boolean {
+  return value === true || value === 1 || value === '1';
+}
+
 function normalizedNotebookId(id: string | null): string | null {
   const trimmed = id?.trim() ?? '';
   return trimmed || null;
@@ -157,6 +161,7 @@ function toNote(row: Row): Note {
     updatedAt: asString(row.updated_at),
     deletedAt: asNullableString(row.deleted_at),
     trashedAt: asNullableString(row.trashed_at),
+    isFavorite: asBoolean(row.is_favorite),
     deviceId: asString(row.device_id),
     version: Number(row.version),
     syncStatus: 'synced'
@@ -956,8 +961,8 @@ async function saveNoteSnapshot(
     db,
     `INSERT INTO note_versions (
        note_id, owner_username, title, body, title_hash, body_hash, notebook_ids, notebook_id, created_at, updated_at,
-       deleted_at, trashed_at, device_id, version, saved_at, reason
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       deleted_at, trashed_at, is_favorite, device_id, version, saved_at, reason
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       note.id,
       ownerUsername,
@@ -971,6 +976,7 @@ async function saveNoteSnapshot(
       note.updatedAt,
       note.deletedAt,
       note.trashedAt,
+      note.isFavorite ? 1 : 0,
       note.deviceId,
       note.version,
       savedAt,
@@ -1079,8 +1085,8 @@ async function putNotes(
       db,
       `INSERT INTO notes (
          id, owner_username, title, body, title_hash, body_hash, notebook_ids, notebook_id, created_at, updated_at,
-         deleted_at, trashed_at, device_id, version, sync_status
-       ) VALUES ${valuesPlaceholders(15, chunk.length)}
+         deleted_at, trashed_at, is_favorite, device_id, version, sync_status
+       ) VALUES ${valuesPlaceholders(16, chunk.length)}
        ON CONFLICT(id) DO UPDATE SET
          title = excluded.title,
          body = excluded.body,
@@ -1092,6 +1098,7 @@ async function putNotes(
          updated_at = excluded.updated_at,
          deleted_at = excluded.deleted_at,
          trashed_at = excluded.trashed_at,
+         is_favorite = excluded.is_favorite,
          device_id = excluded.device_id,
          version = excluded.version,
          sync_status = excluded.sync_status
@@ -1109,6 +1116,7 @@ async function putNotes(
         note.updatedAt,
         note.deletedAt,
         note.trashedAt,
+        note.isFavorite ? 1 : 0,
         note.deviceId,
         note.version,
         'synced'
@@ -1220,8 +1228,8 @@ async function saveNoteSnapshots(
       db,
       `INSERT INTO note_versions (
          note_id, owner_username, title, body, title_hash, body_hash, notebook_ids, notebook_id, created_at, updated_at,
-         deleted_at, trashed_at, device_id, version, saved_at, reason
-       ) VALUES ${valuesPlaceholders(16, chunk.length)}`,
+         deleted_at, trashed_at, is_favorite, device_id, version, saved_at, reason
+       ) VALUES ${valuesPlaceholders(17, chunk.length)}`,
       chunk.flatMap(({ note, reason }) => [
         note.id,
         ownerUsername,
@@ -1235,6 +1243,7 @@ async function saveNoteSnapshots(
         note.updatedAt,
         note.deletedAt,
         note.trashedAt,
+        note.isFavorite ? 1 : 0,
         note.deviceId,
         note.version,
         savedAt,
@@ -1397,7 +1406,8 @@ function noteWithSyncableNotebookRefsFromMap(
   const normalized = {
     ...note,
     notebookIds: syncableIds,
-    notebookId: syncableIds[0] ?? null
+    notebookId: syncableIds[0] ?? null,
+    isFavorite: Boolean(note.isFavorite)
   };
   return {
     note: normalized,

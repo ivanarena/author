@@ -403,12 +403,28 @@ textarea::-webkit-scrollbar {
   white-space: nowrap;
 }
 
+.note-title-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
 .note-title {
   color: var(--text);
   font-size: 13px;
   font-weight: 600;
   line-height: 1.35;
   word-spacing: 0.02em;
+}
+
+.favorite-marker {
+  color: var(--text);
+}
+
+.favorite-button.active {
+  color: var(--text);
 }
 
 .note-preview {

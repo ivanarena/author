@@ -6,6 +6,7 @@
     Inbox,
     Notebook,
     Pencil,
+    Star,
     Trash2,
     X
   } from '@lucide/svelte';
@@ -86,6 +87,15 @@
       </button>
       <div class="nav-trailing">
         <span class="nav-count">{model.notes.length}</span>
+      </div>
+    </div>
+    <div class="nav-row" class:active={model.filterId === 'favorites'}>
+      <button class="nav-main" onclick={() => (model.filterId = 'favorites')}>
+        <Star size={15} strokeWidth={1.8} />
+        <span>Favorites</span>
+      </button>
+      <div class="nav-trailing">
+        <span class="nav-count">{model.favoriteCount}</span>
       </div>
     </div>
     <div class="nav-row" class:active={model.filterId === 'unfiled'}>

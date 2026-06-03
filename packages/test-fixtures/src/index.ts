@@ -103,6 +103,7 @@ function note(
     updatedAt,
     deletedAt: null,
     trashedAt: null,
+    isFavorite: false,
     deviceId: fixtureDevice.id,
     version: 1,
     syncStatus: 'synced'

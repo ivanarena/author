@@ -21,6 +21,7 @@ const baseNote: Note = {
   updatedAt: '2026-01-01T01:00:00.000Z',
   deletedAt: null,
   trashedAt: null,
+  isFavorite: false,
   deviceId: 'device-a',
   version: 2,
   syncStatus: 'pending'
@@ -134,6 +135,12 @@ describe('sync conflict rules', () => {
         ...sameEncryptedRemote,
         notebookIds: ['notebook-2'],
         notebookId: 'notebook-2'
+      })
+    ).toBe(true);
+    expect(
+      recordsDiffer(encryptedLocal, {
+        ...sameEncryptedRemote,
+        isFavorite: true
       })
     ).toBe(true);
   });

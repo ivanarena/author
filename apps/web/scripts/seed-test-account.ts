@@ -244,6 +244,7 @@ const notes: Note[] = notebookNames.flatMap((notebookName) => {
       updatedAt,
       deletedAt: null,
       trashedAt: null,
+      isFavorite: false,
       deviceId: device.id,
       version: 1,
       syncStatus: 'synced'
@@ -263,6 +264,7 @@ notes.push(
     ...noteDates(seededNoteIndex++),
     deletedAt: null,
     trashedAt: null,
+    isFavorite: false,
     deviceId: device.id,
     version: 1,
     syncStatus: 'synced'
@@ -278,6 +280,7 @@ notes.push(
     ...noteDates(seededNoteIndex++),
     deletedAt: null,
     trashedAt: null,
+    isFavorite: false,
     deviceId: device.id,
     version: 1,
     syncStatus: 'synced'

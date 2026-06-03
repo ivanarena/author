@@ -125,6 +125,7 @@ function preparePendingNote(record: LocalNote, device: Device): LocalNote {
     notebookId: notebookIds[0] ?? null,
     deletedAt: record.deletedAt ?? null,
     trashedAt: record.trashedAt ?? null,
+    isFavorite: Boolean(record.isFavorite),
     deviceId: device.id,
     version: safePendingVersion(record),
     syncStatus: 'pending',
@@ -157,6 +158,7 @@ function noteNeedsRepair(before: LocalNote, after: LocalNote): boolean {
     before.lastSyncedAt !== after.lastSyncedAt ||
     before.deletedAt !== after.deletedAt ||
     before.trashedAt !== after.trashedAt ||
+    Boolean(before.isFavorite) !== after.isFavorite ||
     before.notebookId !== after.notebookId ||
     (before.notebookIds ?? []).join('\0') !== after.notebookIds.join('\0')
   );

@@ -155,7 +155,7 @@ private fun SettingsSectionSelector(controller: NotesController, modifier: Modif
     )
   Column(
     modifier.animateContentSize(appTween(AppMotion.Medium)),
-    verticalArrangement = Arrangement.spacedBy(6.dp),
+    verticalArrangement = Arrangement.spacedBy(8.dp),
   ) {
     sections.forEach { section ->
       SettingsNavRow(
@@ -184,20 +184,20 @@ private fun SettingsNavRow(
     if (active) MaterialTheme.colorScheme.primary
     else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f)
   Surface(
-    color =
-      if (active) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.52f)
-      else Color.Transparent,
-    shape = RoundedCornerShape(10.dp),
+    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)),
+    color = if (active) rowColor(active = true) else rowColor(),
+    shape = RoundedCornerShape(18.dp),
+    border = BorderStroke(1.dp, appDividerColor().copy(alpha = if (active) 0.9f else 0.72f)),
   ) {
     Row(
       Modifier.fillMaxWidth()
-        .heightIn(min = 54.dp)
+        .heightIn(min = 64.dp)
         .clickable(onClick = onClick)
-        .padding(horizontal = 12.dp, vertical = 9.dp),
+        .padding(horizontal = 12.dp, vertical = 10.dp),
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-      Icon(icon, null, modifier = Modifier.size(17.dp), tint = contentColor)
+      MaterialIconTile(icon, null, tint = contentColor, active = active)
       Column(Modifier.weight(1f)) {
         Text(
           label,
@@ -218,6 +218,12 @@ private fun SettingsNavRow(
           overflow = TextOverflow.Ellipsis,
         )
       }
+      Icon(
+        Icons.Outlined.ChevronRight,
+        null,
+        modifier = Modifier.size(18.dp),
+        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (active) 0.52f else 0.32f),
+      )
     }
   }
 }
@@ -373,19 +379,20 @@ private fun AccountMenuRow(
     if (destructive) MaterialTheme.colorScheme.error
     else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
   Surface(
-    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)),
-    color = Color.Transparent,
-    shape = RoundedCornerShape(8.dp),
+    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)),
+    color = rowColor(),
+    shape = RoundedCornerShape(16.dp),
+    border = BorderStroke(1.dp, appDividerColor().copy(alpha = 0.72f)),
   ) {
     Row(
       Modifier.fillMaxWidth()
-        .heightIn(min = 54.dp)
+        .heightIn(min = 60.dp)
         .clickable(onClick = onClick)
-        .padding(horizontal = 12.dp, vertical = 9.dp),
+        .padding(horizontal = 12.dp, vertical = 10.dp),
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-      Icon(icon, null, modifier = Modifier.size(17.dp), tint = contentColor)
+      MaterialIconTile(icon, null, tint = contentColor, destructive = destructive)
       Column(Modifier.weight(1f)) {
         Text(
           label,
@@ -433,23 +440,26 @@ private fun AccountDetailPanel(controller: NotesController, panel: String) {
 @Composable
 private fun AccountDetailHeader(title: String, detail: String, onBack: () -> Unit) {
   Surface(
-    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)),
-    color = Color.Transparent,
-    shape = RoundedCornerShape(8.dp),
+    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)),
+    color = rowColor(active = true),
+    shape = RoundedCornerShape(16.dp),
+    border = BorderStroke(1.dp, appDividerColor().copy(alpha = 0.9f)),
   ) {
     Row(
       Modifier.fillMaxWidth()
-        .heightIn(min = 52.dp)
+        .heightIn(min = 58.dp)
         .clickable(onClick = onBack)
-        .padding(horizontal = 12.dp, vertical = 8.dp),
+        .padding(horizontal = 12.dp, vertical = 10.dp),
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-      Icon(
+      MaterialIconTile(
         Icons.AutoMirrored.Outlined.ArrowBack,
         null,
-        modifier = Modifier.size(18.dp),
         tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+        active = true,
+        size = 34.dp,
+        iconSize = 18.dp,
       )
       Column(Modifier.weight(1f)) {
         Text(
@@ -632,7 +642,9 @@ private fun DeleteAccountPanel(controller: NotesController) {
     valueColor = MaterialTheme.colorScheme.error,
   )
   PasswordField(controller.deletePasswordValue, "Password") { controller.deletePasswordValue = it }
-  ActionRow(Icons.Outlined.Delete, "Delete account") { controller.deleteAccount() }
+  ActionRow(Icons.Outlined.Delete, "Delete account", destructive = true) {
+    controller.deleteAccount()
+  }
   ActionRow(Icons.Outlined.Close, "Cancel") { controller.closeAccountPanel() }
 }
 
@@ -745,7 +757,9 @@ private fun TroubleshootingDetailPanel(
       "sync" -> SyncErrorTile(controller)
       "app" -> {
         AppDebugTile(controller)
-        ActionRow(Icons.Outlined.Delete, "Clear diagnostic log") { controller.clearDebugLog() }
+        ActionRow(Icons.Outlined.Delete, "Clear diagnostic log", destructive = true) {
+          controller.clearDebugLog()
+        }
       }
     }
   }
@@ -935,10 +949,18 @@ private fun AppearanceSettings(controller: NotesController) {
   val systemDark = isSystemInDarkTheme()
   val resolvedTheme = resolveThemeChoice(controller.theme, systemDark)
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-    ActionRow(Icons.Outlined.FolderOpen, "Compact notes") { controller.toggleCompactView() }
+    ActionRow(
+      Icons.Outlined.FolderOpen,
+      "Compact notes",
+      active = controller.compactView,
+      detail = if (controller.compactView) "Enabled" else "Disabled",
+    ) {
+      controller.toggleCompactView()
+    }
     ActionRow(
       if (resolvedTheme.startsWith("dark")) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
       if (resolvedTheme.startsWith("dark")) "Light mode" else "Dark mode",
+      detail = themeChoiceLabel(controller.theme),
     ) {
       controller.toggleTheme(systemDark)
     }
@@ -995,12 +1017,11 @@ private fun ThemePicker(controller: NotesController) {
 
 @Composable
 private fun ThemeChoiceRow(choice: ThemeChoice, active: Boolean, onClick: () -> Unit) {
-  val background =
-    if (active) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.52f)
-    else Color.Transparent
+  val background = if (active) rowColor(active = true) else rowColor()
   Surface(
     modifier =
       Modifier.fillMaxWidth()
+        .clip(RoundedCornerShape(16.dp))
         .semantics {
           contentDescription = choice.label
           stateDescription = if (active) "Selected" else "Not selected"
@@ -1008,10 +1029,11 @@ private fun ThemeChoiceRow(choice: ThemeChoice, active: Boolean, onClick: () -> 
         .clickable(onClick = onClick),
     color = background,
     contentColor = MaterialTheme.colorScheme.onSurface,
-    shape = RoundedCornerShape(8.dp),
+    shape = RoundedCornerShape(16.dp),
+    border = BorderStroke(1.dp, appDividerColor().copy(alpha = if (active) 0.9f else 0.72f)),
   ) {
     Row(
-      Modifier.heightIn(min = 42.dp).padding(horizontal = 12.dp, vertical = 8.dp),
+      Modifier.heightIn(min = 54.dp).padding(horizontal = 12.dp, vertical = 8.dp),
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -1124,12 +1146,14 @@ private fun FontDropdown(controller: NotesController) {
   SettingsChoiceGroup("Font") {
     Box {
       Surface(
-        modifier = Modifier.fillMaxWidth().clickable { open = true },
-        color = Color.Transparent,
-        shape = RoundedCornerShape(8.dp),
+        modifier =
+          Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { open = true },
+        color = rowColor(),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, appDividerColor().copy(alpha = 0.72f)),
       ) {
         Row(
-          Modifier.heightIn(min = 42.dp).padding(horizontal = 12.dp, vertical = 8.dp),
+          Modifier.heightIn(min = 54.dp).padding(horizontal = 14.dp, vertical = 8.dp),
           verticalAlignment = Alignment.CenterVertically,
           horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -1166,14 +1190,15 @@ private fun FontDropdown(controller: NotesController) {
 
 @Composable
 private fun SettingsChoiceGroup(label: String, content: @Composable ColumnScope.() -> Unit) {
-  Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+  Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
     Text(
       label,
-      color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+      color = MaterialTheme.colorScheme.primary.copy(alpha = 0.76f),
       fontSize = AppTextSize.Label,
       fontWeight = FontWeight.SemiBold,
+      modifier = Modifier.padding(start = 4.dp),
     )
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp), content = content)
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp), content = content)
   }
 }
 
@@ -1183,19 +1208,27 @@ private fun SettingsStepper(
   value: String,
   controls: @Composable RowScope.() -> Unit,
 ) {
-  Row(
-    verticalAlignment = Alignment.CenterVertically,
-    horizontalArrangement = Arrangement.spacedBy(8.dp),
+  Surface(
+    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)),
+    color = rowColor(),
+    shape = RoundedCornerShape(16.dp),
+    border = BorderStroke(1.dp, appDividerColor().copy(alpha = 0.72f)),
   ) {
-    Column(Modifier.weight(1f)) {
-      Text(label, fontSize = AppTextSize.Body, fontWeight = FontWeight.SemiBold)
-      Text(
-        value,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
-        fontSize = AppTextSize.Label,
-      )
+    Row(
+      Modifier.fillMaxWidth().heightIn(min = 58.dp).padding(horizontal = 14.dp, vertical = 8.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      Column(Modifier.weight(1f)) {
+        Text(label, fontSize = AppTextSize.Body, fontWeight = FontWeight.SemiBold)
+        Text(
+          value,
+          color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+          fontSize = AppTextSize.Label,
+        )
+      }
+      controls()
     }
-    controls()
   }
 }
 

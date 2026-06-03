@@ -45,6 +45,65 @@ class NoteUtilsTest {
   }
 
   @Test
+  fun filterNotesByAdvancedFiltersSupportsNotebookAndDateRanges() {
+    val now = Instant.parse("2026-05-07T12:00:00Z")
+    val notes =
+      listOf(
+        note("unfiled-today", title = "Unfiled", updatedAt = "2026-05-07T10:00:00Z"),
+        note(
+          "work-yesterday",
+          title = "Work yesterday",
+          notebookIds = listOf("work"),
+          updatedAt = "2026-05-06T10:00:00Z",
+        ),
+        note(
+          "home-week",
+          title = "Home week",
+          notebookIds = listOf("home"),
+          updatedAt = "2026-05-03T10:00:00Z",
+        ),
+        note(
+          "work-month",
+          title = "Work month",
+          notebookIds = listOf("work"),
+          updatedAt = "2026-04-20T10:00:00Z",
+        ),
+        note(
+          "work-older",
+          title = "Work older",
+          notebookIds = listOf("work"),
+          updatedAt = "2025-04-01T10:00:00Z",
+        ),
+      )
+
+    assertEquals(
+      listOf("work-yesterday", "work-month", "work-older"),
+      filterNotesByAdvancedFilters(notes, setOf("work"), emptySet(), now).map { it.id },
+    )
+    assertEquals(
+      listOf("unfiled-today"),
+      filterNotesByAdvancedFilters(notes, setOf(NOTE_FILTER_UNFILED_ID), emptySet(), now).map {
+        it.id
+      },
+    )
+    assertEquals(
+      listOf("unfiled-today", "work-yesterday"),
+      filterNotesByAdvancedFilters(
+          notes,
+          emptySet(),
+          setOf(NOTE_DATE_FILTER_TODAY, NOTE_DATE_FILTER_YESTERDAY),
+          now,
+        )
+        .map { it.id },
+    )
+    assertEquals(
+      listOf("work-month"),
+      filterNotesByAdvancedFilters(notes, setOf("work"), setOf(NOTE_DATE_FILTER_PREVIOUS_30), now)
+        .map { it.id },
+    )
+  }
+
+  @Test
   fun sortNotesUsesExpectedModes() {
     val notes =
       listOf(

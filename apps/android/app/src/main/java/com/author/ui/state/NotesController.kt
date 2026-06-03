@@ -19,6 +19,8 @@ import com.author.core.LocalConflict
 import com.author.core.LocalNote
 import com.author.core.LocalNotebook
 import com.author.core.MarkdownInputFile
+import com.author.core.NOTE_DATE_FILTERS
+import com.author.core.NOTE_FILTER_UNFILED_ID
 import com.author.core.NotesRepository
 import com.author.core.RepairDiagnostics
 import com.author.core.StoredSession
@@ -65,6 +67,8 @@ class NotesController(private val repository: NotesRepository, private val scope
   var searchValue by mutableStateOf("")
   var noteSort by mutableStateOf(repository.getSort())
   var noteGroup by mutableStateOf(repository.getGroup())
+  var noteFilterNotebookIds by mutableStateOf<Set<String>>(emptySet())
+  var noteFilterDateRanges by mutableStateOf<Set<String>>(emptySet())
   var compactView by mutableStateOf(repository.getCompactView())
   var editorZoom by mutableFloatStateOf(repository.getEditorZoom())
   var editorFont by mutableStateOf(repository.getEditorFont())
@@ -417,6 +421,10 @@ class NotesController(private val repository: NotesRepository, private val scope
     appDebugTitle = formatAppDebugTitle(workspace.appDebugLogEntries)
     appDebugDetail = formatAppDebugDetail(workspace.appDebugLogEntries)
     appDebugLog = DebugLogStore.format(workspace.appDebugLogEntries)
+    val validNotebookFilterIds =
+      notebooks.filter { it.deletedAt == null }.map { it.id }.toSet() + NOTE_FILTER_UNFILED_ID
+    noteFilterNotebookIds = noteFilterNotebookIds.filter { it in validNotebookFilterIds }.toSet()
+    noteFilterDateRanges = noteFilterDateRanges.filter { it in NOTE_DATE_FILTERS }.toSet()
     selectedNoteIds = selectedNoteIds.filter { id -> (notes + trash).any { it.id == id } }.toSet()
     if (selectedId != null) {
       val refreshed = (notes + trash).firstOrNull { it.id == selectedId }
@@ -604,6 +612,8 @@ class NotesController(private val repository: NotesRepository, private val scope
     titleValue = ""
     bodyValue = ""
     filterId = "all"
+    noteFilterNotebookIds = emptySet()
+    noteFilterDateRanges = emptySet()
     pendingSyncCount = 0
     resetHistory()
   }
@@ -652,6 +662,33 @@ class NotesController(private val repository: NotesRepository, private val scope
   fun setGroup(group: String) {
     noteGroup = group
     repository.setGroup(group)
+  }
+
+  fun toggleNoteFilterNotebook(notebookId: String) {
+    val normalized = if (notebookId.isBlank()) NOTE_FILTER_UNFILED_ID else notebookId.trim()
+    noteFilterNotebookIds =
+      if (normalized in noteFilterNotebookIds) noteFilterNotebookIds - normalized
+      else noteFilterNotebookIds + normalized
+  }
+
+  fun toggleNoteFilterDateRange(range: String) {
+    if (range !in NOTE_DATE_FILTERS) return
+    noteFilterDateRanges =
+      if (range in noteFilterDateRanges) noteFilterDateRanges - range
+      else noteFilterDateRanges + range
+  }
+
+  fun clearNoteFilters() {
+    noteFilterNotebookIds = emptySet()
+    noteFilterDateRanges = emptySet()
+  }
+
+  fun clearNotebookFilters() {
+    noteFilterNotebookIds = emptySet()
+  }
+
+  fun clearDateFilters() {
+    noteFilterDateRanges = emptySet()
   }
 
   fun toggleCompactView() {
@@ -780,6 +817,7 @@ class NotesController(private val repository: NotesRepository, private val scope
     scope.launch {
       repository.deleteNotebook(notebook.id)
       if (filterId == notebook.id) filterId = "all"
+      noteFilterNotebookIds = noteFilterNotebookIds - notebook.id
       deletingNotebookId = null
       refresh()
       selectedNote?.takeIf { noteNotebookIds(it).contains(notebook.id) }?.let { openDraftNote() }

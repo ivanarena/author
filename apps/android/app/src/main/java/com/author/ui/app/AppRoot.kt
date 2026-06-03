@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Lock
@@ -133,11 +133,12 @@ private fun PageFloatingAction(controller: NotesController) {
   if (controller.currentPage != "notes" && controller.currentPage != "notebooks") return
 
   FloatingActionButton(
+    modifier = Modifier.size(64.dp),
     onClick = {
       if (controller.currentPage == "notebooks") controller.newNotebookOpen = true
       else controller.newNote()
     },
-    shape = CircleShape,
+    shape = RoundedCornerShape(999.dp),
     containerColor = MaterialTheme.colorScheme.primary,
     contentColor = MaterialTheme.colorScheme.onPrimary,
   ) {

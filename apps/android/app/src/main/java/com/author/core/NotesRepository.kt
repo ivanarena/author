@@ -59,7 +59,7 @@ private val THEMES =
     "dark-rose",
     "dark-lavender",
   )
-private val FONTS = setOf("kedebideri", "system-sans", "system-serif", "mono")
+private val FONTS = setOf("figtree", "kedebideri", "system-sans", "system-serif", "mono")
 private val GROUPS = setOf("smart", "month", "year", "none")
 
 class NotesRepository(context: Context) : AutoCloseable {
@@ -110,11 +110,15 @@ class NotesRepository(context: Context) : AutoCloseable {
 
   fun getEditorFont(): String {
     val stored = prefs.getString(EDITOR_FONT_KEY, null)
-    return if (stored in FONTS) stored ?: "kedebideri" else "kedebideri"
+    return when {
+      stored == "kedebideri" -> "figtree"
+      stored in FONTS -> stored ?: "figtree"
+      else -> "figtree"
+    }
   }
 
   fun setEditorFont(value: String) {
-    prefs.edit { putString(EDITOR_FONT_KEY, if (value in FONTS) value else "kedebideri") }
+    prefs.edit { putString(EDITOR_FONT_KEY, if (value in FONTS) value else "figtree") }
   }
 
   fun getEditorTextSize(): Float = prefs.getFloat(EDITOR_TEXT_SIZE_KEY, 16f).coerceIn(14f, 22f)

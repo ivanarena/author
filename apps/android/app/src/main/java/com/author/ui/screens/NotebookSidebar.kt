@@ -1,11 +1,5 @@
 package com.author.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,12 +17,9 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,25 +43,7 @@ internal fun NotebookSidebar(
     modifier.padding(horizontal = pageHorizontalPadding(), vertical = 12.dp),
     verticalArrangement = Arrangement.spacedBy(10.dp),
   ) {
-    AnimatedVisibility(
-      visible = controller.newNotebookOpen,
-      enter = fadeIn(appTween(AppMotion.Medium)) + expandVertically(appTween(AppMotion.Slow)),
-      exit = fadeOut(appTween(AppMotion.Fast)) + shrinkVertically(appTween(AppMotion.Medium)),
-    ) {
-      GlassPanel(Modifier.fillMaxWidth()) {
-        Row(
-          Modifier.padding(8.dp).animateContentSize(appTween(AppMotion.Medium)),
-          verticalAlignment = Alignment.CenterVertically,
-        ) {
-          MiniField(controller.notebookNameValue, "Notebook name", Modifier.weight(1f)) {
-            controller.notebookNameValue = it
-            controller.notebookError = ""
-          }
-          GlassIcon(Icons.Outlined.Check, "Create") { controller.createNotebook() }
-          GlassIcon(Icons.Outlined.Close, "Close") { controller.newNotebookOpen = false }
-        }
-      }
-    }
+    if (controller.newNotebookOpen) NewNotebookDialog(controller)
     LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
       item {
         NavRow(
@@ -120,13 +93,39 @@ private fun notebookCountLabel(count: Int, controller: NotesController): String 
   if (controller.isWorkspaceLoading) "..." else count.toString()
 
 @Composable
-private fun NotebookGroupSeparator() {
-  Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-    HorizontalDivider(
-      color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.11f),
-      thickness = 1.dp,
-    )
+private fun NewNotebookDialog(controller: NotesController) {
+  AppModal(onDismissRequest = { controller.newNotebookOpen = false }) {
+    AppModalTitle("New notebook", onDismiss = { controller.newNotebookOpen = false })
+    MiniField(controller.notebookNameValue, "Notebook name", Modifier.fillMaxWidth()) {
+      controller.notebookNameValue = it
+      controller.notebookError = ""
+    }
+    if (controller.notebookError.isNotBlank()) {
+      Text(
+        controller.notebookError,
+        color = MaterialTheme.colorScheme.error,
+        fontSize = AppTextSize.Label,
+      )
+    }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      ModalActionButton(
+        "Cancel",
+        modifier = Modifier.weight(1f),
+        onClick = { controller.newNotebookOpen = false },
+      )
+      ModalActionButton(
+        "Create",
+        modifier = Modifier.weight(1f),
+        primary = true,
+        onClick = { controller.createNotebook() },
+      )
+    }
   }
+}
+
+@Composable
+private fun NotebookGroupSeparator() {
+  Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) { AppHorizontalDivider() }
 }
 
 @Composable
@@ -192,16 +191,23 @@ private fun NotebookActionsMenuContent(
 
 @Composable
 private fun DeleteNotebookDialog(controller: NotesController, notebook: LocalNotebook) {
-  AlertDialog(
-    onDismissRequest = { controller.deletingNotebookId = null },
-    containerColor = MaterialTheme.colorScheme.background,
-    title = { Text("Delete notebook?") },
-    text = { Text("Notes in ${notebook.name} will stay in your notes.") },
-    confirmButton = {
-      TextButton(onClick = { controller.confirmDeleteNotebook(notebook) }) { Text("Delete") }
-    },
-    dismissButton = {
-      TextButton(onClick = { controller.deletingNotebookId = null }) { Text("Cancel") }
-    },
-  )
+  AppModal(onDismissRequest = { controller.deletingNotebookId = null }) {
+    AppModalTitle("Delete notebook?", onDismiss = { controller.deletingNotebookId = null })
+    GlassPanel(Modifier.fillMaxWidth()) {
+      Text("Notes in ${notebook.name} will stay in your notes.", modifier = Modifier.padding(16.dp))
+    }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      ModalActionButton(
+        "Cancel",
+        modifier = Modifier.weight(1f),
+        onClick = { controller.deletingNotebookId = null },
+      )
+      ModalActionButton(
+        "Delete",
+        modifier = Modifier.weight(1f),
+        destructive = true,
+        onClick = { controller.confirmDeleteNotebook(notebook) },
+      )
+    }
+  }
 }

@@ -1,6 +1,7 @@
 package com.author.ui.common
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -8,23 +9,28 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -54,6 +60,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.author.ui.theme.*
 
 internal object AppTextSize {
@@ -69,18 +77,21 @@ internal fun PageHeader(
   actions: @Composable RowScope.() -> Unit = {},
 ) {
   val compactScreen = isCompactWindow()
-  Surface(color = toolbarColor()) {
-    Row(
-      Modifier.fillMaxWidth()
-        .heightIn(min = if (compactScreen) 56.dp else 64.dp)
-        .padding(horizontal = pageHorizontalPadding(), vertical = 10.dp),
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-      leading()
-      Spacer(Modifier.weight(1f))
-      actions()
+  Column {
+    Surface(color = toolbarColor()) {
+      Row(
+        Modifier.fillMaxWidth()
+          .heightIn(min = if (compactScreen) 56.dp else 64.dp)
+          .padding(horizontal = pageHorizontalPadding(), vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        leading()
+        Spacer(Modifier.weight(1f))
+        actions()
+      }
     }
+    AppHorizontalDivider()
   }
 }
 
@@ -91,6 +102,148 @@ internal fun isCompactWindow(): Boolean {
 }
 
 @Composable internal fun pageHorizontalPadding(): Dp = if (isCompactWindow()) 20.dp else 32.dp
+
+@Composable
+internal fun panelColor(active: Boolean = false): Color {
+  return when {
+    active -> MaterialTheme.colorScheme.primaryContainer
+    else -> MaterialTheme.colorScheme.surface
+  }
+}
+
+@Composable
+internal fun rowColor(active: Boolean = false): Color =
+  if (active) panelColor(active = true) else MaterialTheme.colorScheme.surfaceVariant
+
+@Composable
+internal fun contrastControlColor(active: Boolean = false, enabled: Boolean = true): Color =
+  if (!enabled) rowColor()
+  else if (active) MaterialTheme.colorScheme.primaryContainer
+  else MaterialTheme.colorScheme.surfaceVariant
+
+@Composable
+internal fun contrastControlContentColor(active: Boolean = false, enabled: Boolean = true): Color =
+  if (!enabled) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.34f)
+  else if (active) MaterialTheme.colorScheme.onPrimaryContainer
+  else MaterialTheme.colorScheme.onSurface
+
+@Composable internal fun appDividerColor(): Color = MaterialTheme.colorScheme.outlineVariant
+
+@Composable
+internal fun AppHorizontalDivider(
+  modifier: Modifier = Modifier,
+  startIndent: Dp = 0.dp,
+  endIndent: Dp = 0.dp,
+) {
+  HorizontalDivider(
+    modifier = modifier.padding(start = startIndent, end = endIndent),
+    color = appDividerColor(),
+    thickness = 1.dp,
+  )
+}
+
+@Composable internal fun dialogContainerColor(): Color = MaterialTheme.colorScheme.surfaceVariant
+
+internal fun appDialogShape(): RoundedCornerShape = RoundedCornerShape(32.dp)
+
+@Composable
+internal fun AppModal(
+  onDismissRequest: () -> Unit,
+  modifier: Modifier = Modifier,
+  maxWidth: Dp = 430.dp,
+  contentPadding: PaddingValues = PaddingValues(horizontal = 28.dp, vertical = 26.dp),
+  dismissOnBackPress: Boolean = true,
+  dismissOnClickOutside: Boolean = true,
+  content: @Composable ColumnScope.() -> Unit,
+) {
+  val compactWindow = isCompactWindow()
+  Dialog(
+    onDismissRequest = onDismissRequest,
+    properties =
+      DialogProperties(
+        dismissOnBackPress = dismissOnBackPress,
+        dismissOnClickOutside = dismissOnClickOutside,
+        usePlatformDefaultWidth = false,
+      ),
+  ) {
+    Surface(
+      modifier =
+        modifier
+          .padding(horizontal = if (compactWindow) 24.dp else 32.dp)
+          .widthIn(max = maxWidth)
+          .fillMaxWidth()
+          .offset(y = if (compactWindow) (-16).dp else 0.dp),
+      shape = appDialogShape(),
+      color = dialogContainerColor(),
+      tonalElevation = 0.dp,
+      shadowElevation = 24.dp,
+    ) {
+      Column(
+        Modifier.fillMaxWidth().padding(contentPadding),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        content = content,
+      )
+    }
+  }
+}
+
+@Composable
+internal fun AppModalTitle(
+  title: String,
+  onDismiss: (() -> Unit)? = null,
+  dismissEnabled: Boolean = true,
+) {
+  Row(
+    Modifier.fillMaxWidth(),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(12.dp),
+  ) {
+    Text(
+      title,
+      modifier = Modifier.weight(1f),
+      color = MaterialTheme.colorScheme.onSurface,
+      fontSize = AppTextSize.Title,
+      fontWeight = FontWeight.ExtraBold,
+      maxLines = 1,
+      overflow = TextOverflow.Ellipsis,
+    )
+    if (onDismiss != null) {
+      IconButton(onClick = onDismiss, enabled = dismissEnabled, modifier = Modifier.size(42.dp)) {
+        Icon(
+          Icons.Outlined.Close,
+          "Close",
+          modifier = Modifier.size(22.dp),
+          tint =
+            MaterialTheme.colorScheme.onSurface.copy(alpha = if (dismissEnabled) 0.76f else 0.32f),
+        )
+      }
+    }
+  }
+}
+
+@Composable
+internal fun MaterialIconTile(
+  icon: ImageVector,
+  contentDescription: String?,
+  modifier: Modifier = Modifier,
+  tint: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f),
+  active: Boolean = false,
+  destructive: Boolean = false,
+  size: Dp = 36.dp,
+  iconSize: Dp = 19.dp,
+) {
+  val background =
+    when {
+      destructive -> MaterialTheme.colorScheme.errorContainer
+      active -> MaterialTheme.colorScheme.primaryContainer
+      else -> MaterialTheme.colorScheme.surfaceVariant
+    }
+  Surface(modifier = modifier.size(size), shape = RoundedCornerShape(16.dp), color = background) {
+    Box(contentAlignment = Alignment.Center) {
+      Icon(icon, contentDescription, modifier = Modifier.size(iconSize), tint = tint)
+    }
+  }
+}
 
 @Composable
 internal fun NavRow(
@@ -108,18 +261,25 @@ internal fun NavRow(
   Surface(
     modifier =
       Modifier.fillMaxWidth()
-        .clip(RoundedCornerShape(8.dp))
+        .clip(RoundedCornerShape(12.dp))
         .animateContentSize(appTween(AppMotion.Medium))
         .navRowClick(onClick, onLongClick),
-    color = Color.Transparent,
-    shape = RoundedCornerShape(8.dp),
+    color = if (active) rowColor(active = true) else Color.Transparent,
+    shape = RoundedCornerShape(12.dp),
   ) {
     Row(
-      Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+      Modifier.heightIn(min = 50.dp).padding(horizontal = 8.dp, vertical = 6.dp),
       verticalAlignment = Alignment.CenterVertically,
     ) {
-      Icon(icon, null, modifier = Modifier.size(16.dp), tint = contentColor)
-      Spacer(Modifier.width(8.dp))
+      MaterialIconTile(
+        icon,
+        null,
+        tint = contentColor,
+        active = active,
+        size = 32.dp,
+        iconSize = 17.dp,
+      )
+      Spacer(Modifier.width(10.dp))
       Text(
         label,
         modifier = Modifier.weight(1f),
@@ -204,11 +364,11 @@ internal fun AppDropdownMenu(
   DropdownMenu(
     expanded = expanded,
     onDismissRequest = onDismissRequest,
-    modifier = modifier.clip(RoundedCornerShape(16.dp)),
-    shape = RoundedCornerShape(16.dp),
+    modifier = modifier.clip(RoundedCornerShape(20.dp)),
+    shape = RoundedCornerShape(20.dp),
     containerColor = menuColor(),
     tonalElevation = 0.dp,
-    shadowElevation = 8.dp,
+    shadowElevation = 12.dp,
     content = content,
   )
 }
@@ -218,36 +378,60 @@ internal fun ActionRow(
   icon: ImageVector,
   label: String,
   enabled: Boolean = true,
+  active: Boolean = false,
+  destructive: Boolean = false,
+  detail: String = "",
   onClick: () -> Unit,
 ) {
+  val rowActive = active && enabled
+  val contentAlpha = if (enabled) 0.78f else 0.34f
+  val contentColor =
+    if (destructive && enabled) MaterialTheme.colorScheme.error
+    else MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha)
   Surface(
-    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)),
-    color = Color.Transparent,
-    shape = RoundedCornerShape(8.dp),
+    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)),
+    color = rowColor(rowActive),
+    shape = RoundedCornerShape(22.dp),
+    border = BorderStroke(1.dp, appDividerColor().copy(alpha = if (rowActive) 0.9f else 0.72f)),
   ) {
     Row(
       Modifier.fillMaxWidth()
-        .heightIn(min = 42.dp)
+        .heightIn(min = 56.dp)
         .clickable(enabled = enabled, onClick = onClick)
-        .padding(horizontal = 12.dp, vertical = 9.dp),
+        .padding(horizontal = 12.dp, vertical = 10.dp),
       verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-      val contentAlpha = if (enabled) 0.72f else 0.32f
-      Icon(
+      MaterialIconTile(
         icon,
         null,
-        modifier = Modifier.size(16.dp),
-        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha),
+        tint = contentColor,
+        active = rowActive,
+        destructive = destructive,
+        size = 36.dp,
+        iconSize = 18.dp,
       )
-      Spacer(Modifier.width(8.dp))
-      Text(
-        label,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f),
-        fontSize = AppTextSize.Body,
-        fontWeight = FontWeight.Medium,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-      )
+      Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+          label,
+          color =
+            if (destructive && enabled) MaterialTheme.colorScheme.error
+            else MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f),
+          fontSize = AppTextSize.Body,
+          fontWeight = if (rowActive || destructive) FontWeight.SemiBold else FontWeight.Medium,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+        if (detail.isNotBlank()) {
+          Text(
+            detail,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 0.52f else 0.32f),
+            fontSize = AppTextSize.Label,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+          )
+        }
+      }
     }
   }
 }
@@ -256,7 +440,7 @@ internal fun ActionRow(
 internal fun InfoTile(label: String, value: String, detail: String, valueColor: Color? = null) {
   val resolvedValueColor = valueColor ?: MaterialTheme.colorScheme.onSurface
   GlassPanel(Modifier.fillMaxWidth()) {
-    Column(Modifier.padding(10.dp)) {
+    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
       Text(
         label,
         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
@@ -298,7 +482,7 @@ internal fun MiniField(
     singleLine = true,
     modifier = modifier,
     textStyle = TextStyle(fontSize = AppTextSize.Body, fontFamily = LocalAppFontFamily.current),
-    shape = RoundedCornerShape(14.dp),
+    shape = RoundedCornerShape(16.dp),
     colors = textFieldColors(),
   )
 }
@@ -325,7 +509,7 @@ internal fun PasswordField(value: String, placeholder: String, onChange: (String
     },
     modifier = Modifier.fillMaxWidth(),
     textStyle = TextStyle(fontSize = AppTextSize.Body, fontFamily = LocalAppFontFamily.current),
-    shape = RoundedCornerShape(14.dp),
+    shape = RoundedCornerShape(16.dp),
     colors = textFieldColors(),
   )
 }
@@ -333,17 +517,17 @@ internal fun PasswordField(value: String, placeholder: String, onChange: (String
 @Composable
 internal fun textFieldColors() =
   TextFieldDefaults.colors(
-    focusedContainerColor = Color.Transparent,
-    unfocusedContainerColor = Color.Transparent,
-    disabledContainerColor = Color.Transparent,
+    focusedContainerColor = rowColor(),
+    unfocusedContainerColor = rowColor(),
+    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.18f),
     focusedTextColor = MaterialTheme.colorScheme.onSurface,
     unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
     focusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
     unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
     cursorColor = MaterialTheme.colorScheme.onSurface,
     focusedIndicatorColor = MaterialTheme.colorScheme.primary,
-    unfocusedIndicatorColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.72f),
-    disabledIndicatorColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.42f),
+    unfocusedIndicatorColor = Color.Transparent,
+    disabledIndicatorColor = Color.Transparent,
   )
 
 @Composable
@@ -363,7 +547,7 @@ internal fun SmallTextButton(
   modifier: Modifier = Modifier,
   onClick: () -> Unit,
 ) {
-  TextButton(onClick = onClick, modifier = modifier.clip(RoundedCornerShape(8.dp))) {
+  TextButton(onClick = onClick, modifier = modifier.clip(RoundedCornerShape(12.dp))) {
     Text(
       label,
       color =
@@ -376,22 +560,95 @@ internal fun SmallTextButton(
 }
 
 @Composable
+internal fun ModalActionButton(
+  label: String,
+  modifier: Modifier = Modifier,
+  primary: Boolean = false,
+  destructive: Boolean = false,
+  loading: Boolean = false,
+  enabled: Boolean = true,
+  onClick: () -> Unit,
+) {
+  val active = (primary || destructive) && enabled
+  val contentColor =
+    when {
+      destructive && enabled -> MaterialTheme.colorScheme.error
+      enabled || loading -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f)
+      else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.36f)
+    }
+  val background =
+    when {
+      destructive -> MaterialTheme.colorScheme.errorContainer
+      primary -> MaterialTheme.colorScheme.primaryContainer
+      else -> Color.Transparent
+    }
+  Surface(
+    modifier =
+      modifier
+        .fillMaxWidth()
+        .heightIn(min = 48.dp)
+        .clip(RoundedCornerShape(22.dp))
+        .clickable(enabled = enabled, onClick = onClick),
+    shape = RoundedCornerShape(22.dp),
+    color = background,
+    border = BorderStroke(1.dp, appDividerColor().copy(alpha = if (active) 0.9f else 0.72f)),
+  ) {
+    Row(
+      Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
+      horizontalArrangement = Arrangement.Center,
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      if (loading) {
+        CircularProgressIndicator(
+          modifier = Modifier.size(14.dp),
+          strokeWidth = 2.dp,
+          color = contentColor,
+        )
+        Spacer(Modifier.width(8.dp))
+      }
+      Text(
+        label,
+        color = contentColor,
+        fontSize = AppTextSize.Body,
+        fontWeight = if (primary || destructive) FontWeight.SemiBold else FontWeight.Medium,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+      )
+    }
+  }
+}
+
+@Composable
 internal fun GlassIcon(
   icon: ImageVector,
   label: String,
   active: Boolean = false,
+  accent: Boolean = false,
   enabled: Boolean = true,
   onClick: () -> Unit,
 ) {
+  val useAccent = active && accent
   IconButton(onClick = onClick, enabled = enabled) {
-    Icon(
-      icon,
-      label,
-      modifier = Modifier.size(18.dp),
-      tint =
-        if (active && enabled) MaterialTheme.colorScheme.primary
-        else MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 0.72f else 0.32f),
-    )
+    Surface(
+      modifier = Modifier.size(48.dp),
+      shape = RoundedCornerShape(24.dp),
+      color = contrastControlColor(active = useAccent, enabled = enabled),
+      border =
+        if (useAccent && enabled) {
+          BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        } else null,
+      tonalElevation = 0.dp,
+      shadowElevation = 0.dp,
+    ) {
+      Box(contentAlignment = Alignment.Center) {
+        Icon(
+          icon,
+          label,
+          modifier = Modifier.size(21.dp),
+          tint = contrastControlContentColor(active = useAccent, enabled = enabled),
+        )
+      }
+    }
   }
 }
 
@@ -403,16 +660,16 @@ internal fun GlassPanel(
 ) {
   Surface(
     modifier = modifier.animateContentSize(appTween(AppMotion.Medium)),
-    color = Color.Transparent,
-    shape = RoundedCornerShape(8.dp),
-    border = null,
-    tonalElevation = 0.dp,
+    color = panelColor(active),
+    shape = RoundedCornerShape(24.dp),
+    border = BorderStroke(1.dp, appDividerColor().copy(alpha = if (active) 0.9f else 0.72f)),
+    tonalElevation = if (active) 1.dp else 0.dp,
     shadowElevation = 0.dp,
     content = content,
   )
 }
 
-@Composable internal fun menuColor(): Color = MaterialTheme.colorScheme.background
+@Composable internal fun menuColor(): Color = MaterialTheme.colorScheme.surface
 
 @Composable internal fun toolbarColor(): Color = MaterialTheme.colorScheme.background
 

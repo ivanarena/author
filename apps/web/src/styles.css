@@ -1,8 +1,8 @@
 :root {
   color-scheme: light;
   --app-font:
-    'Kedebideri', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    'Segoe UI', sans-serif;
+    'Figtree Variable', 'Figtree', ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-family: var(--app-font);
   background: #ffffff;
   color: #202020;
@@ -255,6 +255,7 @@ body {
   background-attachment: fixed;
   color: var(--text);
   font-size: 14px;
+  font-weight: 450;
   line-height: 1.45;
   text-rendering: optimizeLegibility;
 }

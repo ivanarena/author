@@ -3,6 +3,7 @@ package com.author.ui.state
 import com.author.core.LocalNote
 import com.author.core.countNotesByNotebook
 import com.author.core.countWords
+import com.author.core.filterNotesByAdvancedFilters
 import com.author.core.filterNotesBySearch
 import com.author.core.filterNotesForView
 import com.author.core.groupNotes
@@ -17,9 +18,19 @@ val NotesController.unfiledCount: Int
 val NotesController.visibleNotes: List<LocalNote>
   get() =
     sortNotes(
-      filterNotesBySearch(filterNotesForView(notes, trash, filterId), searchValue),
+      filterNotesBySearch(
+        filterNotesByAdvancedFilters(
+          filterNotesForView(notes, trash, filterId),
+          noteFilterNotebookIds,
+          noteFilterDateRanges,
+        ),
+        searchValue,
+      ),
       noteSort,
     )
+
+val NotesController.noteFiltersActive: Boolean
+  get() = noteFilterNotebookIds.isNotEmpty() || noteFilterDateRanges.isNotEmpty()
 
 val NotesController.visibleGroups: List<Pair<String, List<LocalNote>>>
   get() = groupNotes(visibleNotes, noteSort, noteGroup)

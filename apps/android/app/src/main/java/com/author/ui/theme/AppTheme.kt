@@ -12,8 +12,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.author.R
@@ -28,12 +30,34 @@ internal object AppMotion {
 internal fun <T> appTween(durationMillis: Int): TweenSpec<T> =
   tween(durationMillis = durationMillis, easing = AppMotion.Smooth)
 
+@OptIn(ExperimentalTextApi::class)
 internal val AppFontFamily =
   FontFamily(
-    Font(R.font.kedebideri_regular, FontWeight.Normal),
-    Font(R.font.kedebideri_medium, FontWeight.Medium),
-    Font(R.font.kedebideri_semibold, FontWeight.SemiBold),
-    Font(R.font.kedebideri_bold, FontWeight.Bold),
+    Font(
+      resId = R.font.figtree_variable,
+      weight = FontWeight.Normal,
+      variationSettings = FontVariation.Settings(FontVariation.weight(400)),
+    ),
+    Font(
+      resId = R.font.figtree_variable,
+      weight = FontWeight.Medium,
+      variationSettings = FontVariation.Settings(FontVariation.weight(500)),
+    ),
+    Font(
+      resId = R.font.figtree_variable,
+      weight = FontWeight.SemiBold,
+      variationSettings = FontVariation.Settings(FontVariation.weight(600)),
+    ),
+    Font(
+      resId = R.font.figtree_variable,
+      weight = FontWeight.Bold,
+      variationSettings = FontVariation.Settings(FontVariation.weight(700)),
+    ),
+    Font(
+      resId = R.font.figtree_variable,
+      weight = FontWeight.ExtraBold,
+      variationSettings = FontVariation.Settings(FontVariation.weight(800)),
+    ),
   )
 
 internal val LocalAppFontFamily = staticCompositionLocalOf { AppFontFamily }
@@ -42,7 +66,7 @@ internal data class FontChoice(val value: String, val label: String)
 
 internal val FontChoices =
   listOf(
-    FontChoice("kedebideri", "Kedebideri"),
+    FontChoice("figtree", "Figtree"),
     FontChoice("system-sans", "System Sans"),
     FontChoice("system-serif", "System Serif"),
     FontChoice("mono", "Mono"),
@@ -94,9 +118,24 @@ private fun typography(fontFamily: FontFamily) =
         lineHeight = 20.sp,
         fontWeight = FontWeight.SemiBold,
       ),
-    bodyLarge = BaseTypography.bodyLarge.copy(fontFamily = fontFamily, fontSize = 16.sp),
-    bodyMedium = BaseTypography.bodyMedium.copy(fontFamily = fontFamily, fontSize = 14.sp),
-    bodySmall = BaseTypography.bodySmall.copy(fontFamily = fontFamily, fontSize = 12.sp),
+    bodyLarge =
+      BaseTypography.bodyLarge.copy(
+        fontFamily = fontFamily,
+        fontSize = 16.sp,
+        fontWeight = FontWeight.Normal,
+      ),
+    bodyMedium =
+      BaseTypography.bodyMedium.copy(
+        fontFamily = fontFamily,
+        fontSize = 14.sp,
+        fontWeight = FontWeight.Normal,
+      ),
+    bodySmall =
+      BaseTypography.bodySmall.copy(
+        fontFamily = fontFamily,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Normal,
+      ),
     labelLarge =
       BaseTypography.labelLarge.copy(
         fontFamily = fontFamily,
@@ -114,6 +153,8 @@ private fun typography(fontFamily: FontFamily) =
 
 private fun fontFamily(font: String): FontFamily =
   when (font) {
+    "figtree",
+    "kedebideri" -> AppFontFamily
     "system-sans" -> FontFamily.SansSerif
     "system-serif" -> FontFamily.Serif
     "mono" -> FontFamily.Monospace

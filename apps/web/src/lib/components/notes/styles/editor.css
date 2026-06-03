@@ -77,13 +77,14 @@ textarea::placeholder {
   min-height: 68px;
   margin-bottom: 58px;
   font-size: calc(var(--editor-text-size, 16px) * 3.75 * var(--editor-zoom, 1));
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.08;
 }
 
 textarea {
   min-height: 0;
   font-size: calc(var(--editor-text-size, 16px) * var(--editor-zoom, 1));
+  font-weight: 400;
   line-height: var(--editor-line-height, 1.75);
   scrollbar-width: none;
 }

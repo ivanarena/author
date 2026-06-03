@@ -99,12 +99,7 @@ class JsonCodecsTest {
       JSONObject()
         .put("serverTime", "2026-05-10T10:02:00Z")
         .put("serverRevision", 42)
-        .put(
-          "notes",
-          JSONArray().put(
-            noteToJson(note("note-1", "Pulled", isFavorite = true))
-          ),
-        )
+        .put("notes", JSONArray().put(noteToJson(note("note-1", "Pulled", isFavorite = true))))
         .put("notebooks", JSONArray().put(notebookToJson(notebook("book-1", "Work"))))
         .put("devices", JSONArray().put(deviceToJson(Device("web", "Web"))))
         .put("deletedNoteIds", JSONArray().put("deleted-note"))
@@ -125,12 +120,7 @@ class JsonCodecsTest {
     assertEquals(listOf("deleted-device"), parsed.deletedDeviceIds)
   }
 
-  private fun note(
-    id: String,
-    title: String,
-    version: Int = 2,
-    isFavorite: Boolean = false,
-  ) =
+  private fun note(id: String, title: String, version: Int = 2, isFavorite: Boolean = false) =
     LocalNote(
       id = id,
       title = title,

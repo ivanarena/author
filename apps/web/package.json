@@ -33,7 +33,7 @@
     "@author/api-types": "workspace:*",
     "@author/schema": "workspace:*",
     "@author/sync-spec": "workspace:*",
-    "@fontsource/kedebideri": "^5.2.2",
+    "@fontsource-variable/figtree": "^5.2.10",
     "@libsql/client": "^0.17.3",
     "@lucide/svelte": "^1.16.0",
     "@noble/hashes": "^2.2.0",

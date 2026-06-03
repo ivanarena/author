@@ -162,6 +162,22 @@ fun countNotesByNotebook(items: List<LocalNote>): Map<String, Int> {
   return counts
 }
 
+const val NOTE_FILTER_UNFILED_ID = "__unfiled__"
+const val NOTE_DATE_FILTER_TODAY = "today"
+const val NOTE_DATE_FILTER_YESTERDAY = "yesterday"
+const val NOTE_DATE_FILTER_PREVIOUS_7 = "previous-7"
+const val NOTE_DATE_FILTER_PREVIOUS_30 = "previous-30"
+const val NOTE_DATE_FILTER_OLDER = "older"
+
+val NOTE_DATE_FILTERS =
+  setOf(
+    NOTE_DATE_FILTER_TODAY,
+    NOTE_DATE_FILTER_YESTERDAY,
+    NOTE_DATE_FILTER_PREVIOUS_7,
+    NOTE_DATE_FILTER_PREVIOUS_30,
+    NOTE_DATE_FILTER_OLDER,
+  )
+
 fun filterNotesForView(
   notes: List<LocalNote>,
   trash: List<LocalNote>,
@@ -176,6 +192,45 @@ fun filterNotesForView(
       "unfiled" -> ids.isEmpty()
       else -> ids.contains(filterId)
     }
+  }
+}
+
+fun filterNotesByAdvancedFilters(
+  items: List<LocalNote>,
+  notebookFilterIds: Set<String>,
+  dateRangeFilters: Set<String>,
+  now: Instant = Instant.now(),
+): List<LocalNote> {
+  val notebooks =
+    notebookFilterIds
+      .map { if (it.isBlank()) NOTE_FILTER_UNFILED_ID else it.trim() }
+      .filter { it.isNotBlank() }
+      .toSet()
+  val dates = dateRangeFilters.filter { it in NOTE_DATE_FILTERS }.toSet()
+  if (notebooks.isEmpty() && dates.isEmpty()) return items
+  return items.filter { note ->
+    (notebooks.isEmpty() || noteMatchesNotebookFilter(note, notebooks)) &&
+      (dates.isEmpty() || noteDateFilterKey(note.updatedAt, now) in dates)
+  }
+}
+
+private fun noteMatchesNotebookFilter(note: LocalNote, notebookFilterIds: Set<String>): Boolean {
+  val ids = noteNotebookIds(note)
+  return (NOTE_FILTER_UNFILED_ID in notebookFilterIds && ids.isEmpty()) ||
+    ids.any { it in notebookFilterIds }
+}
+
+fun noteDateFilterKey(iso: String, now: Instant = Instant.now()): String {
+  val zone = ZoneId.systemDefault()
+  val today = LocalDate.ofInstant(now, zone)
+  val target = runCatching { LocalDate.ofInstant(Instant.parse(iso), zone) }.getOrElse { today }
+  val daysAgo = java.time.temporal.ChronoUnit.DAYS.between(target, today).toInt()
+  return when {
+    daysAgo <= 0 -> NOTE_DATE_FILTER_TODAY
+    daysAgo == 1 -> NOTE_DATE_FILTER_YESTERDAY
+    daysAgo < 7 -> NOTE_DATE_FILTER_PREVIOUS_7
+    daysAgo < 30 -> NOTE_DATE_FILTER_PREVIOUS_30
+    else -> NOTE_DATE_FILTER_OLDER
   }
 }
 

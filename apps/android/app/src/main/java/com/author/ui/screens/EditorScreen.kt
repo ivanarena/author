@@ -19,19 +19,16 @@ import androidx.compose.material.icons.automirrored.outlined.Redo
 import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.RestoreFromTrash
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -62,31 +59,33 @@ internal fun EditorPage(controller: NotesController) {
 @Composable
 private fun EditorTopBar(controller: NotesController) {
   val compactScreen = isCompactWindow()
-  Surface(color = toolbarColor()) {
-    Row(
-      Modifier.fillMaxWidth()
-        .heightIn(min = if (compactScreen) 64.dp else 72.dp)
-        .padding(horizontal = if (compactScreen) 16.dp else 28.dp, vertical = 8.dp),
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-      GlassIcon(Icons.Outlined.Menu, "Notes") { controller.navigateTo("notes") }
-      Spacer(Modifier.weight(1f))
-      GlassIcon(
-        Icons.AutoMirrored.Outlined.Undo,
-        "Undo",
-        enabled = controller.undoStack.isNotEmpty(),
+  Column {
+    Surface(color = toolbarColor()) {
+      Row(
+        Modifier.fillMaxWidth()
+          .heightIn(min = if (compactScreen) 64.dp else 72.dp)
+          .padding(horizontal = if (compactScreen) 16.dp else 28.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
       ) {
-        controller.undoEditor()
+        GlassIcon(Icons.Outlined.Menu, "Notes") { controller.navigateTo("notes") }
+        Spacer(Modifier.weight(1f))
+        GlassIcon(
+          Icons.AutoMirrored.Outlined.Undo,
+          "Undo",
+          enabled = controller.undoStack.isNotEmpty(),
+        ) {
+          controller.undoEditor()
+        }
+        GlassIcon(
+          Icons.AutoMirrored.Outlined.Redo,
+          "Redo",
+          enabled = controller.redoStack.isNotEmpty(),
+        ) {
+          controller.redoEditor()
+        }
+        EditorMoreMenu(controller)
       }
-      GlassIcon(
-        Icons.AutoMirrored.Outlined.Redo,
-        "Redo",
-        enabled = controller.redoStack.isNotEmpty(),
-      ) {
-        controller.redoEditor()
-      }
-      EditorMoreMenu(controller)
     }
   }
 }
@@ -108,10 +107,10 @@ private fun EditorPane(controller: NotesController, modifier: Modifier = Modifie
   Column(
     modifier
       .fillMaxSize()
-      .padding(horizontal = if (compactScreen) 20.dp else 32.dp)
+      .padding(horizontal = if (compactScreen) 56.dp else 84.dp)
       .padding(
-        top = if (compactScreen) 24.dp else 48.dp,
-        bottom = if (compactScreen) 8.dp else 16.dp,
+        top = if (compactScreen) 44.dp else 72.dp,
+        bottom = if (compactScreen) 32.dp else 48.dp,
       ),
     horizontalAlignment = Alignment.CenterHorizontally,
   ) {
@@ -124,7 +123,7 @@ private fun EditorPane(controller: NotesController, modifier: Modifier = Modifie
           TextStyle(
             color = text,
             fontSize = titleSize,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.SemiBold,
             lineHeight = titleLineHeight,
             fontFamily = fontFamily,
           ),
@@ -135,7 +134,7 @@ private fun EditorPane(controller: NotesController, modifier: Modifier = Modifie
               "Title",
               color = muted.copy(alpha = 0.38f),
               fontSize = titleSize,
-              fontWeight = FontWeight.Bold,
+              fontWeight = FontWeight.SemiBold,
               fontFamily = fontFamily,
             )
           }
@@ -151,6 +150,7 @@ private fun EditorPane(controller: NotesController, modifier: Modifier = Modifie
           TextStyle(
             color = text,
             fontSize = bodySize,
+            fontWeight = FontWeight.Normal,
             lineHeight = bodyLineHeight,
             fontFamily = fontFamily,
           ),
@@ -165,6 +165,7 @@ private fun EditorPane(controller: NotesController, modifier: Modifier = Modifie
               "Body",
               color = muted.copy(alpha = 0.38f),
               fontSize = bodySize,
+              fontWeight = FontWeight.Normal,
               fontFamily = fontFamily,
             )
           }
@@ -185,16 +186,7 @@ private fun EditorMoreMenu(controller: NotesController) {
   Box {
     GlassIcon(Icons.Outlined.MoreVert, "Note actions") { open = true }
     AppDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-      if (note == null) {
-        AppDropdownMenuItem(
-          label = "Open notes",
-          leadingIcon = { Icon(Icons.Outlined.FolderOpen, null, modifier = Modifier.size(18.dp)) },
-          onClick = {
-            open = false
-            controller.navigateTo("notes")
-          },
-        )
-      } else if (note.trashedAt != null) {
+      if (note?.trashedAt != null) {
         AppDropdownMenuItem(
           label = "Restore",
           leadingIcon = {
@@ -213,7 +205,7 @@ private fun EditorMoreMenu(controller: NotesController) {
             controller.deleteNotePermanently(note)
           },
         )
-      } else {
+      } else if (note != null) {
         DropdownSectionLabel("Notebooks")
         NotebookAssignmentMenuItems(controller, note = note, selectedMode = false) { open = false }
         HorizontalDivider()
@@ -226,7 +218,7 @@ private fun EditorMoreMenu(controller: NotesController) {
           },
         )
       }
-      HorizontalDivider()
+      if (note != null) HorizontalDivider()
       AppDropdownMenuItem(
         label = "Metadata",
         leadingIcon = { Icon(Icons.Outlined.Info, null, modifier = Modifier.size(18.dp)) },
@@ -266,21 +258,15 @@ private fun NoteMetadataDialog(
   note: LocalNote,
   onDismiss: () -> Unit,
 ) {
-  AlertDialog(
-    onDismissRequest = onDismiss,
-    containerColor = MaterialTheme.colorScheme.background,
-    title = { Text("Metadata") },
-    text = {
-      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        val status = syncStatusLabel(note.syncStatus)
-        InfoTile("Status", status, "", valueColor = syncStatusColor(status))
-        InfoTile("Last synced", lastSyncedLabel(controller, note), "")
-        InfoTile("Updated", formatDateTime(note.updatedAt), "")
-        InfoTile("Created", formatDateTime(note.createdAt), "")
-      }
-    },
-    confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
-  )
+  AppModal(onDismissRequest = onDismiss) {
+    AppModalTitle("Metadata", onDismiss = onDismiss)
+    val status = syncStatusLabel(note.syncStatus)
+    InfoTile("Status", status, "", valueColor = syncStatusColor(status))
+    InfoTile("Last synced", lastSyncedLabel(controller, note), "")
+    InfoTile("Updated", formatDateTime(note.updatedAt), "")
+    InfoTile("Created", formatDateTime(note.createdAt), "")
+    ModalActionButton("Done", primary = true, onClick = onDismiss)
+  }
 }
 
 private fun lastSyncedLabel(controller: NotesController, note: LocalNote): String =

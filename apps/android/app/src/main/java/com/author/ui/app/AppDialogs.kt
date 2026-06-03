@@ -7,19 +7,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -42,70 +38,71 @@ import com.author.ui.state.NotesController
 
 @Composable
 internal fun LoginDialog(controller: NotesController) {
-  AlertDialog(
+  AppModal(
     onDismissRequest = { if (!controller.isLoggingIn) controller.loginOpen = false },
-    containerColor = MaterialTheme.colorScheme.background,
-    title = { Text(if (controller.authMode == "signup") "Create account" else "Sign in") },
-    text = {
-      Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        AuthModeTabs(controller)
-        MiniField(
-          controller.loginUsernameValue,
-          if (controller.authMode == "signup") "Username" else "Username or email",
-          Modifier.fillMaxWidth(),
-        ) {
-          controller.loginUsernameValue = it
-          controller.loginError = ""
-        }
-        if (controller.authMode == "signup") {
-          MiniField(controller.signupEmailValue, "Email", Modifier.fillMaxWidth()) {
-            controller.signupEmailValue = it
-            controller.loginError = ""
-          }
-        }
-        PasswordField(
-          controller.loginPasswordValue,
-          if (controller.authMode == "signup" || !controller.deviceOtpLoginAvailable) "Password"
-          else "Password optional",
-        ) {
-          controller.loginPasswordValue = it
-          controller.loginError = ""
-        }
-        if (controller.authMode == "signup") {
-          PasswordField(controller.signupConfirmPasswordValue, "Confirm password") {
-            controller.signupConfirmPasswordValue = it
-            controller.loginError = ""
-          }
-        } else {
-          MiniField(controller.loginTotpCodeValue, "Authenticator code", Modifier.fillMaxWidth()) {
-            controller.loginTotpCodeValue = it
-            controller.loginError = ""
-          }
-        }
-        if (controller.loginError.isNotBlank()) {
-          Text(
-            controller.loginError,
-            color = MaterialTheme.colorScheme.error,
-            fontSize = AppTextSize.Label,
-            fontWeight = FontWeight.SemiBold,
-          )
-        }
-        LoginDialogActions(controller)
+    dismissOnBackPress = !controller.isLoggingIn,
+    dismissOnClickOutside = !controller.isLoggingIn,
+  ) {
+    AppModalTitle(
+      if (controller.authMode == "signup") "Create account" else "Sign in",
+      onDismiss = { if (!controller.isLoggingIn) controller.loginOpen = false },
+      dismissEnabled = !controller.isLoggingIn,
+    )
+    AuthModeTabs(controller)
+    MiniField(
+      controller.loginUsernameValue,
+      if (controller.authMode == "signup") "Username" else "Username or email",
+      Modifier.fillMaxWidth(),
+    ) {
+      controller.loginUsernameValue = it
+      controller.loginError = ""
+    }
+    if (controller.authMode == "signup") {
+      MiniField(controller.signupEmailValue, "Email", Modifier.fillMaxWidth()) {
+        controller.signupEmailValue = it
+        controller.loginError = ""
       }
-    },
-    confirmButton = {},
-    dismissButton = {},
-  )
+    }
+    PasswordField(
+      controller.loginPasswordValue,
+      if (controller.authMode == "signup" || !controller.deviceOtpLoginAvailable) "Password"
+      else "Password optional",
+    ) {
+      controller.loginPasswordValue = it
+      controller.loginError = ""
+    }
+    if (controller.authMode == "signup") {
+      PasswordField(controller.signupConfirmPasswordValue, "Confirm password") {
+        controller.signupConfirmPasswordValue = it
+        controller.loginError = ""
+      }
+    } else {
+      MiniField(controller.loginTotpCodeValue, "Authenticator code", Modifier.fillMaxWidth()) {
+        controller.loginTotpCodeValue = it
+        controller.loginError = ""
+      }
+    }
+    if (controller.loginError.isNotBlank()) {
+      Text(
+        controller.loginError,
+        color = MaterialTheme.colorScheme.error,
+        fontSize = AppTextSize.Label,
+        fontWeight = FontWeight.SemiBold,
+      )
+    }
+    LoginDialogActions(controller)
+  }
 }
 
 @Composable
 private fun AuthModeTabs(controller: NotesController) {
   Surface(
     modifier = Modifier.fillMaxWidth(),
-    shape = RoundedCornerShape(12.dp),
-    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f),
+    shape = RoundedCornerShape(18.dp),
+    color = rowColor(),
+    border = BorderStroke(1.dp, appDividerColor().copy(alpha = 0.72f)),
   ) {
-    Row(Modifier.fillMaxWidth().padding(3.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row(Modifier.fillMaxWidth().padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
       AuthModeTab(
         label = "Sign in",
         active = controller.authMode == "signin",
@@ -142,16 +139,16 @@ private fun AuthModeTab(
   Surface(
     modifier =
       modifier
-        .heightIn(min = 38.dp)
-        .clip(RoundedCornerShape(10.dp))
+        .heightIn(min = 40.dp)
+        .clip(RoundedCornerShape(14.dp))
         .clickable(enabled = enabled, onClick = onClick),
-    shape = RoundedCornerShape(10.dp),
-    color = if (active) MaterialTheme.colorScheme.background else Color.Transparent,
+    shape = RoundedCornerShape(14.dp),
+    color = if (active) dialogContainerColor() else Color.Transparent,
     tonalElevation = 0.dp,
     shadowElevation = 0.dp,
   ) {
     Box(
-      Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 9.dp),
+      Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp),
       contentAlignment = Alignment.Center,
     ) {
       Text(
@@ -169,17 +166,17 @@ private fun AuthModeTab(
 @Composable
 private fun LoginDialogActions(controller: NotesController) {
   Row(
-    Modifier.fillMaxWidth().padding(top = 4.dp),
+    Modifier.fillMaxWidth().padding(top = 2.dp),
     horizontalArrangement = Arrangement.spacedBy(8.dp),
   ) {
-    DialogActionButton(
+    ModalActionButton(
       label = "Cancel",
       enabled = !controller.isLoggingIn,
       modifier = Modifier.weight(1f),
     ) {
       controller.loginOpen = false
     }
-    DialogActionButton(
+    ModalActionButton(
       label = authSubmitLabel(controller),
       primary = true,
       loading = controller.isLoggingIn,
@@ -187,54 +184,6 @@ private fun LoginDialogActions(controller: NotesController) {
       modifier = Modifier.weight(1f),
     ) {
       controller.submitLogin()
-    }
-  }
-}
-
-@Composable
-private fun DialogActionButton(
-  label: String,
-  modifier: Modifier = Modifier,
-  primary: Boolean = false,
-  loading: Boolean = false,
-  enabled: Boolean = true,
-  onClick: () -> Unit,
-) {
-  val background =
-    if (primary) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.09f) else Color.Transparent
-  val contentColor =
-    MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled || loading) 0.88f else 0.36f)
-  Surface(
-    modifier =
-      modifier
-        .heightIn(min = 44.dp)
-        .clip(RoundedCornerShape(10.dp))
-        .clickable(enabled = enabled, onClick = onClick),
-    shape = RoundedCornerShape(10.dp),
-    color = background,
-    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.24f)),
-  ) {
-    Row(
-      Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 11.dp),
-      horizontalArrangement = Arrangement.Center,
-      verticalAlignment = Alignment.CenterVertically,
-    ) {
-      if (loading) {
-        CircularProgressIndicator(
-          modifier = Modifier.size(14.dp),
-          strokeWidth = 2.dp,
-          color = contentColor,
-        )
-        Spacer(Modifier.width(8.dp))
-      }
-      Text(
-        label,
-        color = contentColor,
-        fontSize = AppTextSize.Body,
-        fontWeight = if (primary) FontWeight.SemiBold else FontWeight.Medium,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-      )
     }
   }
 }
@@ -253,50 +202,52 @@ internal fun ConflictDialog(controller: NotesController, conflict: LocalConflict
   val noteConflict = conflict.noteConflict
   val notebookConflict = conflict.notebookConflict
 
-  AlertDialog(
-    onDismissRequest = {},
-    containerColor = MaterialTheme.colorScheme.background,
-    title = { Text("Sync conflict") },
-    text = {
-      Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(
-          if (conflict.reason == "duplicate_name")
-            "A notebook with this name already exists. Keep the existing notebook or keep the local one as a renamed copy."
-          else "Choose which version to keep. Both versions are preserved until you decide."
-        )
-        val localName =
-          noteConflict?.local?.deviceName ?: notebookConflict?.local?.deviceName ?: "Local"
-        val localPreview =
-          noteConflict?.local?.previewText ?: notebookConflict?.local?.previewText ?: ""
-        val remoteName =
-          noteConflict?.remote?.deviceName ?: notebookConflict?.remote?.deviceName ?: "Remote"
-        val remotePreview =
-          noteConflict?.remote?.previewText ?: notebookConflict?.remote?.previewText ?: ""
-        InfoTile(localName, localPreview, "")
-        InfoTile(remoteName, remotePreview, "")
-      }
-    },
-    confirmButton = {
-      Column {
-        if (conflict.reason == "duplicate_name") {
-          Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            SmallTextButton("Keep local copy") { controller.resolveConflict("keep-local") }
-            SmallTextButton("Keep existing") { controller.resolveConflict("keep-remote") }
-          }
-        } else {
-          Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            SmallTextButton("Keep newer") { controller.resolveConflict("keep-newer") }
-            SmallTextButton("Keep older") { controller.resolveConflict("keep-older") }
-          }
-          Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            SmallTextButton("Keep local") { controller.resolveConflict("keep-local") }
-            SmallTextButton("Keep remote") { controller.resolveConflict("keep-remote") }
-            SmallTextButton("Duplicate both") { controller.resolveConflict("duplicate-both") }
-          }
+  AppModal(onDismissRequest = {}, dismissOnBackPress = false, dismissOnClickOutside = false) {
+    AppModalTitle("Sync conflict")
+    Text(
+      if (conflict.reason == "duplicate_name")
+        "A notebook with this name already exists. Keep the existing notebook or keep the local one as a renamed copy."
+      else "Choose which version to keep. Both versions are preserved until you decide."
+    )
+    val localName =
+      noteConflict?.local?.deviceName ?: notebookConflict?.local?.deviceName ?: "Local"
+    val localPreview =
+      noteConflict?.local?.previewText ?: notebookConflict?.local?.previewText ?: ""
+    val remoteName =
+      noteConflict?.remote?.deviceName ?: notebookConflict?.remote?.deviceName ?: "Remote"
+    val remotePreview =
+      noteConflict?.remote?.previewText ?: notebookConflict?.remote?.previewText ?: ""
+    InfoTile(localName, localPreview, "")
+    InfoTile(remoteName, remotePreview, "")
+    if (conflict.reason == "duplicate_name") {
+      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ModalActionButton("Keep local copy", modifier = Modifier.weight(1f), primary = true) {
+          controller.resolveConflict("keep-local")
+        }
+        ModalActionButton("Keep existing", modifier = Modifier.weight(1f)) {
+          controller.resolveConflict("keep-remote")
         }
       }
-    },
-  )
+    } else {
+      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ModalActionButton("Keep newer", modifier = Modifier.weight(1f), primary = true) {
+          controller.resolveConflict("keep-newer")
+        }
+        ModalActionButton("Keep older", modifier = Modifier.weight(1f)) {
+          controller.resolveConflict("keep-older")
+        }
+      }
+      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ModalActionButton("Keep local", modifier = Modifier.weight(1f)) {
+          controller.resolveConflict("keep-local")
+        }
+        ModalActionButton("Keep remote", modifier = Modifier.weight(1f)) {
+          controller.resolveConflict("keep-remote")
+        }
+      }
+      ModalActionButton("Duplicate both") { controller.resolveConflict("duplicate-both") }
+    }
+  }
 }
 
 @Composable
@@ -370,7 +321,7 @@ private fun NotificationSurface(
   val colors = notificationColors(kind)
   Surface(
     modifier = modifier.padding(horizontal = 12.dp),
-    shape = RoundedCornerShape(8.dp),
+    shape = RoundedCornerShape(18.dp),
     color = colors.background,
     border = BorderStroke(1.dp, colors.border),
     tonalElevation = 0.dp,

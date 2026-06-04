@@ -1,10 +1,10 @@
 <script lang="ts">
   import { KeyRound, X } from '@lucide/svelte';
+  import { MIN_PASSWORD_LENGTH } from '$lib/shared/password-policy';
   import type { SettingsModalModel } from '../../controller/page-controller.svelte.js';
   import PasswordField from './PasswordField.svelte';
 
   let { model }: { model: SettingsModalModel } = $props();
-  const minPasswordLength = 12;
 
   function setCurrentPassword(value: string): void {
     model.currentPasswordValue = value;
@@ -20,16 +20,45 @@
     model.confirmPasswordValue = value;
     model.accountError = '';
   }
+
+  function formValue(
+    formData: FormData,
+    name: string,
+    fallback: string
+  ): string {
+    const value = formData.get(name);
+    return typeof value === 'string' ? value : fallback;
+  }
+
+  function submitPasswordForm(event: SubmitEvent): void {
+    event.preventDefault();
+    const form = event.currentTarget;
+    if (!(form instanceof HTMLFormElement)) return;
+    const formData = new FormData(form);
+    model.currentPasswordValue = formValue(
+      formData,
+      'currentPassword',
+      model.currentPasswordValue
+    );
+    model.newPasswordValue = formValue(
+      formData,
+      'newPassword',
+      model.newPasswordValue
+    );
+    model.confirmPasswordValue = formValue(
+      formData,
+      'confirmPassword',
+      model.confirmPasswordValue
+    );
+    void model.changeAccountPassword();
+  }
 </script>
 
 {#if model.accountPasswordEditing}
   <form
     class="menu-form account-form"
     aria-label="Change password"
-    onsubmit={(event) => {
-      event.preventDefault();
-      void model.changeAccountPassword();
-    }}
+    onsubmit={submitPasswordForm}
   >
     <div class="settings-section-title">
       <KeyRound size={15} strokeWidth={1.8} />
@@ -37,6 +66,7 @@
     </div>
     <PasswordField
       id="current-password"
+      name="currentPassword"
       label="Current"
       value={model.currentPasswordValue}
       autocomplete="current-password"
@@ -45,18 +75,20 @@
     <div class="field-grid">
       <PasswordField
         id="new-password"
+        name="newPassword"
         label="New"
         value={model.newPasswordValue}
         autocomplete="new-password"
-        minlength={minPasswordLength}
+        minlength={MIN_PASSWORD_LENGTH}
         onValue={setNewPassword}
       />
       <PasswordField
         id="confirm-password"
+        name="confirmPassword"
         label="Confirm"
         value={model.confirmPasswordValue}
         autocomplete="new-password"
-        minlength={minPasswordLength}
+        minlength={MIN_PASSWORD_LENGTH}
         onValue={setConfirmPassword}
       />
     </div>

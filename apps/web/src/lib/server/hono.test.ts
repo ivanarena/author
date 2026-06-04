@@ -18,6 +18,7 @@ import {
   passwordVerifierFromPassword,
   randomAuthNonce
 } from '../shared/auth-proof';
+import { MIN_PASSWORD_LENGTH } from '../shared/password-policy';
 
 let tempDir: string;
 const fixtureDeviceTrustSecret = 'test-device-trust-secret-0123456789';
@@ -489,6 +490,23 @@ describe('Hono API', () => {
     }
   });
 
+  it('enforces the shared password length for server-created passwords', async () => {
+    const db = await openDatabase();
+    try {
+      await expect(
+        setUserPassword(db, 'short-user', 'a'.repeat(MIN_PASSWORD_LENGTH - 1))
+      ).rejects.toThrow(
+        `Password must be at least ${MIN_PASSWORD_LENGTH} characters`
+      );
+
+      await expect(
+        setUserPassword(db, 'emoji-user', '🙂'.repeat(MIN_PASSWORD_LENGTH))
+      ).resolves.toMatchObject({ username: 'emoji-user' });
+    } finally {
+      db.close();
+    }
+  });
+
   it('persists and clears account verification throttle attempts', async () => {
     await seedRemoteOwner(join(tempDir, 'account-proof-throttle.sqlite'));
     const token = await loginToken();
@@ -727,7 +745,7 @@ describe('Hono API', () => {
   });
 
   it('rejects signup payloads without a client password verifier', async () => {
-    const remotePath = join(tempDir, 'short-password-remote.sqlite');
+    const remotePath = join(tempDir, 'missing-verifier-remote.sqlite');
     process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
     process.env.TURSO_AUTH_TOKEN = 'test-token';
     process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';

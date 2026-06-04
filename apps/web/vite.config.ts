@@ -6,6 +6,7 @@ import { defineConfig } from 'vitest/config';
 
 const appRoot = fileURLToPath(new URL('.', import.meta.url));
 const repoRoot = resolve(appRoot, '../..');
+const E2E_ENV_MARKER = 'AUTHOR_E2E_ENV';
 
 const WORKSPACE_ENV_KEYS = new Set([
   'NOTES_DB_PROVIDER',
@@ -47,6 +48,8 @@ const WORKSPACE_ENV_KEYS = new Set([
 ]);
 
 function loadWorkspaceEnvDefaults(mode: string): void {
+  if (process.env[E2E_ENV_MARKER] === 'true') return;
+
   const shellEnvKeys = new Set(Object.keys(process.env));
   const envLayers = [loadEnv(mode, repoRoot, ''), loadEnv(mode, appRoot, '')];
   for (const env of envLayers) {

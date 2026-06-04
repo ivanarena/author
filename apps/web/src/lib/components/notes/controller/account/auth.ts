@@ -13,6 +13,7 @@ import {
 } from '$lib/client/store';
 import { logout } from '$lib/client/api-client';
 import { login, signup } from '$lib/client/sync';
+import { passwordMeetsMinimumLength } from '$lib/shared/password-policy';
 import type { AuthMode } from '../models';
 import {
   MIN_PASSWORD_LENGTH,
@@ -92,7 +93,7 @@ export async function submitLoginMenu(
   }
   if (
     controller.authMode === 'signup' &&
-    password.length < MIN_PASSWORD_LENGTH
+    !passwordMeetsMinimumLength(password)
   ) {
     controller.loginError = `Password must be at least ${MIN_PASSWORD_LENGTH} characters`;
     return;

@@ -21,7 +21,6 @@ import type {
   TotpSetupResponse
 } from '@author/api-types';
 import { API_PATHS } from '@author/api-types';
-import type { Note, Notebook, SyncStatus } from '@author/schema';
 import { Hono, type Context } from 'hono';
 import {
   type AuthSession,
@@ -92,6 +91,13 @@ import {
 import { checkRecordLimits } from './record-limits';
 import { isSecureRequest } from './security-headers';
 import { databaseBackupSnapshot } from './backup-scheduler';
+import { jsonOrSizeError } from './request-body';
+import {
+  hasEntityChanges,
+  hasNotebookRecord,
+  hasNoteRecord,
+  isNullableString
+} from './payload-validation';
 
 type ApiBindings = RuntimeEnv;
 
@@ -245,12 +251,6 @@ const MAX_SYNC_CHANGES_PER_PUSH = 20;
 const REMOTE_SYNC_RETRY_BASE_MS = 5_000;
 const REMOTE_SYNC_RETRY_MAX_MS = 5 * 60_000;
 const REMOTE_SYNC_PENDING_KEY = 'remote.sync.pending';
-const SYNC_STATUSES = new Set<SyncStatus>([
-  'synced',
-  'pending',
-  'conflict',
-  'deleted'
-]);
 const rateLimitEncoder = new TextEncoder();
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 let remoteSyncRetryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -260,13 +260,6 @@ let remoteSyncQueued = false;
 let remoteSyncQueuePromise: Promise<void> | null = null;
 const serverStartedAt = Date.now();
 const SAFE_HTTP_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
-
-class RequestBodyTooLargeError extends Error {
-  constructor() {
-    super('Request body too large');
-    this.name = 'RequestBodyTooLargeError';
-  }
-}
 
 function syncOwner(session: AuthSession): string {
   return session.user.username;
@@ -1044,79 +1037,6 @@ function deviceTrustSecretFromBody(
   return trimmed.length >= 32 ? trimmed : null;
 }
 
-function requestBodyTooLarge(request: Request, maxBytes: number): boolean {
-  const contentLength = request.headers.get('content-length');
-  if (!contentLength) return false;
-  const bytes = Number(contentLength);
-  return Number.isFinite(bytes) && bytes > maxBytes;
-}
-
-async function readJsonBody<T>(
-  request: Request,
-  maxBytes: number
-): Promise<T | null> {
-  if (requestBodyTooLarge(request, maxBytes)) {
-    throw new RequestBodyTooLargeError();
-  }
-
-  if (!request.body) return null;
-
-  const reader = request.body.getReader();
-  const decoder = new TextDecoder();
-  const chunks: string[] = [];
-  let bytes = 0;
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    bytes += value.byteLength;
-    if (bytes > maxBytes) {
-      await reader.cancel().catch(() => undefined);
-      throw new RequestBodyTooLargeError();
-    }
-    chunks.push(decoder.decode(value, { stream: true }));
-  }
-  chunks.push(decoder.decode());
-
-  const text = chunks.join('');
-  if (!text.trim()) return null;
-
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    return null;
-  }
-}
-
-async function jsonOrSizeError<T>(
-  request: Request,
-  maxBytes: number,
-  message: string
-): Promise<{ ok: true; body: T | null } | { ok: false; response: Response }> {
-  try {
-    return { ok: true, body: await readJsonBody<T>(request, maxBytes) };
-  } catch (error) {
-    if (error instanceof RequestBodyTooLargeError) {
-      return {
-        ok: false,
-        response: new Response(JSON.stringify({ error: message }), {
-          status: 413,
-          headers: { 'content-type': 'application/json' }
-        })
-      };
-    }
-    throw error;
-  }
-}
-
-function nonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0;
-}
-
-function isNullableString(value: unknown): value is string | null {
-  return value === null || typeof value === 'string';
-}
-
 function accountUpdateError(
   error: unknown
 ): { error: string; status: 400 | 409 } | null {
@@ -1132,82 +1052,6 @@ function accountUpdateError(
     return { error: 'Email is already taken', status: 409 };
   }
   return null;
-}
-
-function isNullableIsoDate(value: unknown): value is string | null {
-  if (value === null) return true;
-  return typeof value === 'string' && !Number.isNaN(Date.parse(value));
-}
-
-function isIsoDate(value: unknown): value is string {
-  return typeof value === 'string' && !Number.isNaN(Date.parse(value));
-}
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every(nonEmptyString);
-}
-
-function isNonNegativeInteger(value: unknown): value is number {
-  return Number.isInteger(value) && Number(value) >= 0;
-}
-
-function isPositiveInteger(value: unknown): value is number {
-  return Number.isInteger(value) && Number(value) > 0;
-}
-
-function hasNoteRecord(record: unknown): record is Note {
-  if (!record || typeof record !== 'object') return false;
-  const note = record as Partial<Note>;
-  return (
-    nonEmptyString(note.id) &&
-    typeof note.title === 'string' &&
-    typeof note.body === 'string' &&
-    isNullableString(note.titleHash ?? null) &&
-    isNullableString(note.bodyHash ?? null) &&
-    isStringArray(note.notebookIds) &&
-    isNullableString(note.notebookId) &&
-    isIsoDate(note.createdAt) &&
-    isIsoDate(note.updatedAt) &&
-    isNullableIsoDate(note.deletedAt) &&
-    isNullableIsoDate(note.trashedAt) &&
-    typeof (note.isFavorite ?? false) === 'boolean' &&
-    nonEmptyString(note.deviceId) &&
-    isPositiveInteger(note.version) &&
-    Boolean(note.syncStatus && SYNC_STATUSES.has(note.syncStatus))
-  );
-}
-
-function hasNotebookRecord(record: unknown): record is Notebook {
-  if (!record || typeof record !== 'object') return false;
-  const notebook = record as Partial<Notebook>;
-  return (
-    nonEmptyString(notebook.id) &&
-    typeof notebook.name === 'string' &&
-    isNullableString(notebook.nameHash ?? null) &&
-    isIsoDate(notebook.createdAt) &&
-    isIsoDate(notebook.updatedAt) &&
-    isNullableIsoDate(notebook.deletedAt) &&
-    nonEmptyString(notebook.deviceId) &&
-    isPositiveInteger(notebook.version) &&
-    Boolean(notebook.syncStatus && SYNC_STATUSES.has(notebook.syncStatus))
-  );
-}
-
-function hasEntityChanges<T>(
-  value: unknown,
-  hasRecord: (record: unknown) => record is T
-): value is Array<{ record: T; baseVersion: number }> {
-  return (
-    Array.isArray(value) &&
-    value.every((change) => {
-      if (!change || typeof change !== 'object') return false;
-      const candidate = change as { baseVersion?: unknown; record?: unknown };
-      return (
-        isNonNegativeInteger(candidate.baseVersion) &&
-        hasRecord(candidate.record)
-      );
-    })
-  );
 }
 
 function recordsBelongToDevice(body: PushRequest): boolean {

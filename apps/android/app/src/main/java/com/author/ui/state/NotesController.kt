@@ -48,6 +48,9 @@ class NotesController(private val repository: NotesRepository, private val scope
     const val MIN_PASSWORD_LENGTH = 15
     const val MAX_MARKDOWN_IMPORT_FILE_BYTES = 2L * 1024L * 1024L
     const val MAX_MARKDOWN_IMPORT_TOTAL_BYTES = 20L * 1024L * 1024L
+
+    fun passwordMeetsMinimumLength(password: String): Boolean =
+      password.codePointCount(0, password.length) >= MIN_PASSWORD_LENGTH
   }
 
   private val initialSession = repository.getStoredSession()
@@ -942,7 +945,7 @@ class NotesController(private val repository: NotesRepository, private val scope
       showLoginError("Password required")
       return
     }
-    if (authMode == "signup" && password.length < MIN_PASSWORD_LENGTH) {
+    if (authMode == "signup" && !passwordMeetsMinimumLength(password)) {
       showLoginError("Password must be at least $MIN_PASSWORD_LENGTH characters")
       return
     }
@@ -1316,7 +1319,7 @@ class NotesController(private val repository: NotesRepository, private val scope
       notify("error", "New password required")
       return
     }
-    if (newPasswordValue.length < MIN_PASSWORD_LENGTH) {
+    if (!passwordMeetsMinimumLength(newPasswordValue)) {
       accountError = "New password must be at least $MIN_PASSWORD_LENGTH characters"
       notify("error", accountError)
       return

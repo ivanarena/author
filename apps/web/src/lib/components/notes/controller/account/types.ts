@@ -3,7 +3,7 @@ import type { Device } from '@author/schema';
 import type { SyncProgress } from '$lib/client/sync';
 import type { AppNotification, AuthMode } from '../models';
 
-export const MIN_PASSWORD_LENGTH = 15;
+export { MIN_PASSWORD_LENGTH } from '$lib/shared/password-policy';
 
 export interface LastSyncPass {
   completedAt: string | null;

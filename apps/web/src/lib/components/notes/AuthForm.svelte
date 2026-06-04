@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Check, Eye, EyeOff, LoaderCircle, LogIn, X } from '@lucide/svelte';
+  import { MIN_PASSWORD_LENGTH } from '$lib/shared/password-policy';
   import type { SettingsModalModel } from './controller/page-controller.svelte.js';
 
   let {
@@ -19,16 +20,53 @@
     return model.authMode === 'signup' ? 'Create account' : 'Sign in to sync';
   }
 
-  const minPasswordLength = 12;
+  function formValue(
+    formData: FormData,
+    name: string,
+    fallback: string
+  ): string {
+    const value = formData.get(name);
+    return typeof value === 'string' ? value : fallback;
+  }
+
+  function submitAuthForm(event: SubmitEvent): void {
+    event.preventDefault();
+    const form = event.currentTarget;
+    if (!(form instanceof HTMLFormElement)) return;
+    const formData = new FormData(form);
+    model.loginUsernameValue = formValue(
+      formData,
+      'username',
+      model.loginUsernameValue
+    );
+    model.signupEmailValue = formValue(
+      formData,
+      'email',
+      model.signupEmailValue
+    );
+    model.loginPasswordValue = formValue(
+      formData,
+      'password',
+      model.loginPasswordValue
+    );
+    model.signupConfirmPasswordValue = formValue(
+      formData,
+      'confirmPassword',
+      model.signupConfirmPasswordValue
+    );
+    model.loginTotpCodeValue = formValue(
+      formData,
+      'totpCode',
+      model.loginTotpCodeValue
+    );
+    void model.submitLoginMenu();
+  }
 </script>
 
 <form
   class="menu-form login-form"
   aria-label="Sign in to sync"
-  onsubmit={(event) => {
-    event.preventDefault();
-    void model.submitLoginMenu();
-  }}
+  onsubmit={submitAuthForm}
 >
   <div class="login-copy">
     <span class="login-copy-icon" aria-hidden="true">
@@ -78,6 +116,7 @@
       <label for="sync-username">Username</label>
       <input
         id="sync-username"
+        name="username"
         type="text"
         bind:value={model.loginUsernameValue}
         autocomplete="username"
@@ -97,6 +136,7 @@
         <label for="signup-email">Email</label>
         <input
           id="signup-email"
+          name="email"
           type="email"
           bind:value={model.signupEmailValue}
           autocomplete="email"
@@ -113,9 +153,12 @@
       <div class="password-field">
         <input
           id="sync-password"
+          name="password"
           type={passwordVisible ? 'text' : 'password'}
           bind:value={model.loginPasswordValue}
-          autocomplete="current-password"
+          autocomplete={model.authMode === 'signup'
+            ? 'new-password'
+            : 'current-password'}
           placeholder={model.authMode === 'signup' ||
           !model.deviceOtpLoginAvailable
             ? 'Password'
@@ -123,7 +166,7 @@
           required={model.authMode === 'signup' ||
             !model.deviceOtpLoginAvailable}
           minlength={model.authMode === 'signup'
-            ? minPasswordLength
+            ? MIN_PASSWORD_LENGTH
             : undefined}
           disabled={model.isLoggingIn}
           oninput={() => (model.loginError = '')}
@@ -152,12 +195,13 @@
         <div class="password-field">
           <input
             id="signup-confirm-password"
+            name="confirmPassword"
             type={confirmPasswordVisible ? 'text' : 'password'}
             bind:value={model.signupConfirmPasswordValue}
             autocomplete="new-password"
             placeholder="Confirm password"
             required
-            minlength={minPasswordLength}
+            minlength={MIN_PASSWORD_LENGTH}
             disabled={model.isLoggingIn}
             oninput={() => (model.loginError = '')}
           />
@@ -185,6 +229,7 @@
         <label for="sync-totp-code">Authenticator code</label>
         <input
           id="sync-totp-code"
+          name="totpCode"
           type="text"
           inputmode="numeric"
           bind:value={model.loginTotpCodeValue}

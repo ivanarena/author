@@ -20,6 +20,10 @@ import {
   xorBytes
 } from '../shared/auth-proof';
 import {
+  MIN_PASSWORD_LENGTH,
+  passwordMeetsMinimumLength
+} from '../shared/password-policy';
+import {
   getAuthSessionDays,
   getLegacyAuthToken,
   getLoginPassword,
@@ -37,7 +41,6 @@ import {
 
 const PASSWORD_KEY_LENGTH = 32;
 const PASSWORD_VERIFIER_PREFIX = `${AUTH_PROOF_ALGORITHM}:v1:`;
-const MIN_PASSWORD_LENGTH = 15;
 const SESSION_TOKEN_BYTES = 32;
 const AUTH_SESSION_COOKIE_NAME = 'author_session';
 const AUTH_CHALLENGE_TTL_MS = 5 * 60_000;
@@ -299,7 +302,7 @@ function requirePassword(password: string): string {
   if (!password.trim()) {
     throw new Error('Password is required');
   }
-  if (password.length < MIN_PASSWORD_LENGTH) {
+  if (!passwordMeetsMinimumLength(password)) {
     throw new Error(
       `Password must be at least ${MIN_PASSWORD_LENGTH} characters`
     );

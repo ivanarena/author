@@ -24,6 +24,7 @@ import {
   updateAccount
 } from '$lib/client/api-client';
 import { runSync } from '$lib/client/sync';
+import { passwordMeetsMinimumLength } from '$lib/shared/password-policy';
 import {
   MIN_PASSWORD_LENGTH,
   type NotesAccountActionController
@@ -104,7 +105,7 @@ export async function changeAccountPassword(
     controller.accountError = 'New password required';
     return;
   }
-  if (controller.newPasswordValue.length < MIN_PASSWORD_LENGTH) {
+  if (!passwordMeetsMinimumLength(controller.newPasswordValue)) {
     controller.accountError = `New password must be at least ${MIN_PASSWORD_LENGTH} characters`;
     return;
   }

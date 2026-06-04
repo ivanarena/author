@@ -3,6 +3,7 @@
 
   let {
     id,
+    name,
     label,
     value,
     autocomplete,
@@ -10,6 +11,7 @@
     onValue
   }: {
     id: string;
+    name?: string;
     label: string;
     value: string;
     autocomplete: 'current-password' | 'new-password';
@@ -24,6 +26,7 @@
   <div class="password-field">
     <input
       {id}
+      name={name ?? id}
       type={visible ? 'text' : 'password'}
       {value}
       {autocomplete}

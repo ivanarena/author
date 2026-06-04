@@ -1,4 +1,4 @@
-import type { APIRequestContext, Page } from '@playwright/test';
+import type { APIRequestContext, Locator, Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import {
@@ -107,6 +107,15 @@ async function browserEncryptionKeyMaterial(page: Page): Promise<string> {
     (key) => sessionStorage.getItem(key) ?? localStorage.getItem(key) ?? '',
     ENCRYPTION_KEY_MATERIAL_STORAGE_KEY
   );
+}
+
+async function setInputValueWithoutInputEvent(locator: Locator, value: string) {
+  await locator.evaluate((element, nextValue) => {
+    if (!(element instanceof HTMLInputElement)) {
+      throw new Error('Expected an input element');
+    }
+    element.value = nextValue;
+  }, value);
 }
 
 async function pullRemoteNotes(
@@ -501,8 +510,10 @@ test('signs up and manages trusted-device sign-in without ending the active sess
       username: string;
       email: string;
       displayName?: string | null;
+      passwordVerifier?: unknown;
       device: { id: string; name: string };
     };
+    expect(body.passwordVerifier).toBeTruthy();
     signedUpUser = {
       username: body.username,
       email: body.email,
@@ -614,8 +625,11 @@ test('signs up and manages trusted-device sign-in without ending the active sess
   ]);
   await signupUsernameField.fill(signupUsername);
   await signupEmailField.fill(signupEmail);
-  await signupPasswordField.fill(signupPassword);
-  await signupConfirmPasswordField.fill(signupPassword);
+  await setInputValueWithoutInputEvent(signupPasswordField, signupPassword);
+  await setInputValueWithoutInputEvent(
+    signupConfirmPasswordField,
+    signupPassword
+  );
   await authDialog.getByRole('button', { name: 'Create account' }).click();
 
   await expect(authDialog).toBeHidden();

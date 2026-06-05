@@ -178,6 +178,32 @@ class NoteCryptoTest {
   }
 
   @Test
+  fun matchesWebAuthProofVector() {
+    val params = AuthKdfParams()
+    val salt = "MDEyMzQ1Njc4OWFiY2RlZg"
+    val verifier = crypto.passwordVerifierFromPassword("correct horse battery", salt, params)
+    val challenge =
+      AuthChallenge(
+        mode = "proof",
+        challengeId = "Y2hhbGxlbmdlLWlkLTEyMzQ1Njc4",
+        username = "owner",
+        purpose = "login",
+        clientNonce = "Y2xpZW50LW5vbmNlLTEyMzQ1Njc4OTAxMjM0NTY",
+        serverNonce = "c2VydmVyLW5vbmNlLTEyMzQ1Njc4OTAxMjM0NTY",
+        expiresAt = "2026-05-22T12:00:00.000Z",
+        salt = salt,
+        params = params,
+      )
+
+    val proof = crypto.authProofFromPassword("correct horse battery", challenge)
+
+    assertEquals("b4rFnproYC5Yhg9YxI38-tR60QyQPz2QesC5QUAH8YY", verifier.storedKey)
+    assertEquals("jdWnq-SDU19qQ_Ug1I3KzQwUUulj9ZwHB0mJB1l1pTE", verifier.serverKey)
+    assertEquals("nAp3wJ9baO77rMYbJEYaG1ImJECtXfhD1_NILcLC7So", proof.proof.proof)
+    assertEquals("cAFcBTzTFv5IyvK68pROagJLvMkTbGDOuWFlzZjIFzk", proof.expectedServerProof)
+  }
+
+  @Test
   fun identifiesOldEncryptionFormatsAsRequiringMigrationRelease() {
     assertTrue(crypto.isUnsupportedEncryptedText("enc:v1:old"))
     assertTrue(crypto.isUnsupportedEncryptedText("enc:v2:old"))

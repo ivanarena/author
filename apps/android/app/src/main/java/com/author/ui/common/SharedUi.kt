@@ -467,6 +467,7 @@ internal fun MiniField(
   value: String,
   placeholder: String,
   modifier: Modifier = Modifier,
+  keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
   onChange: (String) -> Unit,
 ) {
   TextField(
@@ -475,6 +476,7 @@ internal fun MiniField(
     placeholder = { Text(placeholder) },
     singleLine = true,
     modifier = modifier,
+    keyboardOptions = keyboardOptions,
     textStyle = TextStyle(fontSize = AppTextSize.Body, fontFamily = LocalAppFontFamily.current),
     shape = AppShape.Control,
     colors = textFieldColors(),

@@ -631,6 +631,36 @@ describe('Hono API', () => {
     expect(missingOne.salt).not.toBe(existingOne.salt);
   });
 
+  it('accepts proof login with the account email address', async () => {
+    const token = await loginToken();
+    const db = await openDatabase();
+    try {
+      await updateUserProfile(db, 'owner', undefined, 'owner@example.com');
+    } finally {
+      db.close();
+    }
+
+    await api.fetch(
+      new Request('http://localhost/api/auth/logout', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}` }
+      })
+    );
+
+    const login = await loginResponse(
+      'OWNER@EXAMPLE.COM',
+      'test-password-2026'
+    );
+
+    expect(login.status).toBe(200);
+    await expect(login.json()).resolves.toMatchObject({
+      user: {
+        username: 'owner',
+        email: 'owner@example.com'
+      }
+    });
+  });
+
   it('rate-limits login challenge creation before inserting more challenges', async () => {
     for (let attempt = 0; attempt < 20; attempt += 1) {
       const response = await authChallengeResponse('owner', 'login');

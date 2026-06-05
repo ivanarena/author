@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
@@ -32,6 +33,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
@@ -58,12 +60,24 @@ internal fun LoginDialog(controller: NotesController) {
       controller.loginUsernameValue,
       if (controller.authMode == "signup") "Username" else "Username or email",
       Modifier.fillMaxWidth(),
+      keyboardOptions =
+        KeyboardOptions(
+          autoCorrectEnabled = false,
+          keyboardType =
+            if (controller.authMode == "signup") KeyboardType.Ascii else KeyboardType.Email,
+        ),
     ) {
       controller.loginUsernameValue = it
       controller.loginError = ""
     }
     if (controller.authMode == "signup") {
-      MiniField(controller.signupEmailValue, "Email", Modifier.fillMaxWidth()) {
+      MiniField(
+        controller.signupEmailValue,
+        "Email",
+        Modifier.fillMaxWidth(),
+        keyboardOptions =
+          KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Email),
+      ) {
         controller.signupEmailValue = it
         controller.loginError = ""
       }
@@ -82,7 +96,13 @@ internal fun LoginDialog(controller: NotesController) {
         controller.loginError = ""
       }
     } else {
-      MiniField(controller.loginTotpCodeValue, "Authenticator code", Modifier.fillMaxWidth()) {
+      MiniField(
+        controller.loginTotpCodeValue,
+        "Authenticator code",
+        Modifier.fillMaxWidth(),
+        keyboardOptions =
+          KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.NumberPassword),
+      ) {
         controller.loginTotpCodeValue = it
         controller.loginError = ""
       }

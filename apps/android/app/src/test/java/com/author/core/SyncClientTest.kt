@@ -14,6 +14,57 @@ import org.junit.Test
 
 class SyncClientTest {
   @Test
+  fun loginWithProofPostsEmailIdentifierAndProofPayload() {
+    OneShotJsonServer(
+        """
+        {
+          "token": "session-token",
+          "user": {
+            "username": "owner",
+            "email": "owner@example.com",
+            "displayName": null,
+            "twoFactorEnabled": false
+          },
+          "device": { "id": "phone", "name": "Phone" },
+          "expiresAt": "2026-05-26T12:00:00.000Z",
+          "serverProof": "server-proof",
+          "e2eeKeyring": "wrapped-keyring"
+        }
+        """
+          .trimIndent()
+      )
+      .use { server ->
+        val client = SyncClient { server.baseUrl }
+        val response =
+          client.loginWithProof(
+            "owner@example.com",
+            AuthProof("challenge-id", "client-nonce", "proof-value"),
+            null,
+            Device("phone", "Phone"),
+            "trusted-secret-01234567890123456789",
+          )
+
+        assertEquals("session-token", response.token)
+        assertEquals("owner", response.user.username)
+        assertEquals("server-proof", response.serverProof)
+        assertEquals("wrapped-keyring", response.e2eeKeyring)
+
+        val request = server.awaitRequest()
+        assertEquals("POST /api/auth/login HTTP/1.1", request.requestLine)
+        val body = JSONObject(request.body)
+        assertEquals("owner@example.com", body.getString("username"))
+        assertEquals("challenge-id", body.getJSONObject("proof").getString("challengeId"))
+        assertEquals("client-nonce", body.getJSONObject("proof").getString("clientNonce"))
+        assertEquals("proof-value", body.getJSONObject("proof").getString("proof"))
+        assertEquals("trusted-secret-01234567890123456789", body.getString("deviceTrustSecret"))
+        assertEquals("phone", body.getJSONObject("device").getString("id"))
+        assertFalse(body.has("bootstrapPassword"))
+        assertFalse(body.has("passwordVerifier"))
+        assertFalse(body.has("password"))
+      }
+  }
+
+  @Test
   fun loginTrustedDevicePostsOtpOnlyPayload() {
     OneShotJsonServer(
         """

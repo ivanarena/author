@@ -6,6 +6,7 @@ import {
   deleteNotePermanently,
   ensureLocalNotesEncrypted,
   loadNoteSnapshots,
+  localWorkspaceNeedsAccountUnlock,
   loadRepairDiagnostics,
   prepareLocalWorkspaceForAccount,
   reencryptLocalNotes,
@@ -16,6 +17,7 @@ import {
 } from './entity-store';
 import { clearLocalWorkspace, localDb } from './db';
 import {
+  ENCRYPTION_DECRYPT_FAILED_MESSAGE,
   assertSupportedEncryptionKeyMaterial,
   canDecryptEncryptedText,
   encryptNoteFields,
@@ -74,6 +76,8 @@ vi.mock('./db', () => ({
 }));
 
 vi.mock('./encryption', () => ({
+  ENCRYPTION_DECRYPT_FAILED_MESSAGE:
+    'Encrypted note data cannot be decrypted with the active key material. Sign in again before syncing or changing this workspace.',
   ENCRYPTION_UPGRADE_REQUIRED_MESSAGE:
     'This workspace uses an older encryption format. Open it with the migration-capable release first, then return to this version.',
   assertSupportedEncryptionKeyMaterial: vi.fn(),
@@ -247,6 +251,53 @@ describe('local workspace account adoption', () => {
     );
 
     expect(clearLocalWorkspace).toHaveBeenCalledTimes(1);
+  });
+
+  it('adopts locked same-account rows with the unwrapped account key', async () => {
+    vi.mocked(reencryptNoteFields).mockImplementation(
+      async (storedNote, previousMaterial) => {
+        if (previousMaterial === 'generated-local-key') {
+          throw new Error(ENCRYPTION_DECRYPT_FAILED_MESSAGE);
+        }
+        return storedNote;
+      }
+    );
+
+    await adoptLocalWorkspaceForAccount({
+      username: 'owner',
+      previousMaterial: 'generated-local-key',
+      nextMaterial: 'account-key'
+    });
+
+    expect(reencryptNoteFields).toHaveBeenCalledWith(
+      note,
+      'generated-local-key',
+      'account-key'
+    );
+    expect(reencryptNoteFields).toHaveBeenCalledWith(
+      note,
+      'account-key',
+      'account-key'
+    );
+    expect(localDb.notes.bulkPut).not.toHaveBeenCalled();
+    expect(localDb.syncMeta.put).toHaveBeenCalledWith({
+      key: 'localWorkspaceOwner',
+      value: 'owner'
+    });
+  });
+
+  it('detects an account-owned workspace that needs sign-in to unlock', async () => {
+    vi.mocked(hasStoredEncryptionKeyMaterial).mockReturnValue(false);
+    vi.mocked(localDb.syncMeta.get).mockImplementation((async (
+      key: unknown
+    ) => {
+      if (String(key) === 'localWorkspaceOwner') {
+        return { key: String(key), value: 'owner' };
+      }
+      return undefined;
+    }) as never);
+
+    await expect(localWorkspaceNeedsAccountUnlock()).resolves.toBe(true);
   });
 });
 

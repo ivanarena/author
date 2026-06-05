@@ -37,6 +37,7 @@ import {
   loadRepairDiagnostics,
   loadSyncDebugInfo,
   loadTrash,
+  localWorkspaceNeedsAccountUnlock,
   getLoginHint,
   getStoredSession,
   resetPullCursorRecovery as resetLocalPullCursorRecovery,
@@ -1145,6 +1146,18 @@ export class NotesPageController
       this.deviceOtpLoginAvailable = hasStoredEncryptionKeyMaterial();
       this.encryptionKeyStorageMode = getEncryptionKeyMaterialStorageMode();
       await this.refreshPublicConfig();
+      if (!storedSession?.token && (await localWorkspaceNeedsAccountUnlock())) {
+        recordDebugLog({
+          level: 'info',
+          source: 'App',
+          message: 'Account workspace locked until sign-in'
+        });
+        this.clearSensitiveWorkspace();
+        this.loginOpen = true;
+        this.accountMessage = 'Sign in again to unlock notes.';
+        this.syncMessage = 'Sign in to unlock and sync';
+        return;
+      }
       if (storedSession?.token && !hasStoredEncryptionKeyMaterial()) {
         recordDebugLog({
           level: 'warn',

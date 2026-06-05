@@ -15,6 +15,7 @@ import {
   reencryptConflictForStorage
 } from './conflict-crypto';
 import {
+  ENCRYPTION_DECRYPT_FAILED_MESSAGE,
   ENCRYPTION_UPGRADE_REQUIRED_MESSAGE,
   assertSupportedEncryptionKeyMaterial,
   canDecryptEncryptedTextWithPrimaryMaterial,
@@ -22,6 +23,7 @@ import {
   decryptNotebookFields,
   encryptNoteFields,
   encryptNotebookFields,
+  hasStoredEncryptionKeyMaterial,
   isCurrentEncryptedText,
   isCurrentFieldHash,
   isUnsupportedEncryptedText,
@@ -544,6 +546,14 @@ export async function rememberLocalWorkspaceAccount(
   });
 }
 
+export async function localWorkspaceNeedsAccountUnlock(): Promise<boolean> {
+  if (hasStoredEncryptionKeyMaterial()) return false;
+  const owner = (
+    await localDb.syncMeta.get(LOCAL_WORKSPACE_OWNER_KEY)
+  )?.value.trim();
+  return Boolean(owner && (await localWorkspaceHasUserData()));
+}
+
 async function localWorkspaceOwnerConflict(
   username: string,
   fallbackOwnerUsername?: string | null
@@ -611,8 +621,32 @@ export async function adoptLocalWorkspaceForAccount({
 }): Promise<void> {
   const normalizedUsername = normalizeAccountUsername(username);
   await assertLocalWorkspaceCanUseAccount(username, fallbackOwnerUsername);
-  await reencryptLocalNotes(previousMaterial, nextMaterial);
+  const adoptedPreviousMaterial = await preflightLocalWorkspaceAdoption(
+    previousMaterial,
+    nextMaterial
+  );
+  await reencryptLocalNotes(adoptedPreviousMaterial, nextMaterial);
   await rememberLocalWorkspaceAccount(normalizedUsername);
+}
+
+async function preflightLocalWorkspaceAdoption(
+  previousMaterial: string,
+  nextMaterial: string
+): Promise<string> {
+  try {
+    await preflightReencryptLocalNotes(previousMaterial, nextMaterial);
+    return previousMaterial;
+  } catch (error) {
+    if (
+      previousMaterial !== nextMaterial &&
+      error instanceof Error &&
+      error.message === ENCRYPTION_DECRYPT_FAILED_MESSAGE
+    ) {
+      await preflightReencryptLocalNotes(nextMaterial, nextMaterial);
+      return nextMaterial;
+    }
+    throw error;
+  }
 }
 
 export async function ensureLocalNotesEncrypted(): Promise<void> {
@@ -793,14 +827,18 @@ export async function preflightReencryptLocalNotes(
   previousMaterial: string,
   nextMaterial: string
 ): Promise<void> {
-  if (previousMaterial === nextMaterial) return;
-
   const [notes, noteSnapshots, notebooks, conflicts] = await Promise.all([
     localDb.notes.toArray(),
     localDb.noteSnapshots.toArray(),
     localDb.notebooks.toArray(),
     localDb.conflicts.toArray()
   ]);
+  assertNotesDoNotNeedLegacyMigration(notes);
+  assertNotesDoNotNeedLegacyMigration(noteSnapshots);
+  assertNotebooksDoNotNeedLegacyMigration(notebooks);
+  for (const conflict of conflicts) {
+    assertConflictDoesNotNeedLegacyMigration(conflict);
+  }
   await Promise.all(
     notes.map((note) =>
       reencryptNoteFields(note, previousMaterial, nextMaterial)

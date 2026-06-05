@@ -151,7 +151,9 @@ class AuthorAppInstrumentedTest {
 
     compose.onNodeWithText("I saved the recovery key and kit").performClick()
     compose.onNodeWithText("Done").assertIsEnabled().performClick()
-    compose.waitForIdle()
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      compose.onAllNodesWithText("Save recovery key").fetchSemanticsNodes().isEmpty()
+    }
     compose.onAllNodesWithText("Save recovery key").assertCountEquals(0)
   }
 

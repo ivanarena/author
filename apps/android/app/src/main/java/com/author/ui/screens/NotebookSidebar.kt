@@ -17,6 +17,7 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -29,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.author.core.LocalNotebook
+import com.author.core.NOTE_FILTER_FAVORITES_ID
 import com.author.ui.common.*
 import com.author.ui.state.*
 import com.author.ui.theme.*
@@ -53,6 +55,17 @@ internal fun NotebookSidebar(
           controller.filterId == "all",
         ) {
           controller.filterId = "all"
+          onFilterPicked()
+        }
+      }
+      item {
+        NavRow(
+          Icons.Outlined.StarBorder,
+          "Favorites",
+          notebookCountLabel(controller.favoriteCount, controller),
+          controller.filterId == NOTE_FILTER_FAVORITES_ID,
+        ) {
+          controller.filterId = NOTE_FILTER_FAVORITES_ID
           onFilterPicked()
         }
       }

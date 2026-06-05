@@ -162,6 +162,7 @@ fun countNotesByNotebook(items: List<LocalNote>): Map<String, Int> {
   return counts
 }
 
+const val NOTE_FILTER_FAVORITES_ID = "favorites"
 const val NOTE_FILTER_UNFILED_ID = "__unfiled__"
 const val NOTE_DATE_FILTER_TODAY = "today"
 const val NOTE_DATE_FILTER_YESTERDAY = "yesterday"
@@ -188,7 +189,7 @@ fun filterNotesForView(
     val ids = noteNotebookIds(note)
     when (filterId) {
       "all" -> true
-      "favorites" -> note.isFavorite
+      NOTE_FILTER_FAVORITES_ID -> note.isFavorite
       "unfiled" -> ids.isEmpty()
       else -> ids.contains(filterId)
     }

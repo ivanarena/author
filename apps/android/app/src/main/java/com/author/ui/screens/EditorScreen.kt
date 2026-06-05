@@ -24,6 +24,8 @@ import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.RestoreFromTrash
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -206,6 +208,21 @@ private fun EditorMoreMenu(controller: NotesController) {
           },
         )
       } else if (note != null) {
+        AppDropdownMenuItem(
+          label = if (note.isFavorite) "Remove from Favorites" else "Add to Favorites",
+          leadingIcon = {
+            Icon(
+              if (note.isFavorite) Icons.Outlined.Star else Icons.Outlined.StarBorder,
+              null,
+              modifier = Modifier.size(18.dp),
+            )
+          },
+          onClick = {
+            open = false
+            controller.toggleFavorite(note)
+          },
+        )
+        HorizontalDivider()
         DropdownSectionLabel("Notebooks")
         NotebookAssignmentMenuItems(controller, note = note, selectedMode = false) { open = false }
         HorizontalDivider()

@@ -20,6 +20,7 @@ import com.author.core.LocalNote
 import com.author.core.LocalNotebook
 import com.author.core.MarkdownInputFile
 import com.author.core.NOTE_DATE_FILTERS
+import com.author.core.NOTE_FILTER_FAVORITES_ID
 import com.author.core.NOTE_FILTER_UNFILED_ID
 import com.author.core.NotesRepository
 import com.author.core.RepairDiagnostics
@@ -848,6 +849,17 @@ class NotesController(private val repository: NotesRepository, private val scope
     }
   }
 
+  fun toggleFavorite(note: LocalNote) {
+    if (note.trashedAt != null) return
+    scope.launch {
+      flushPendingSave()
+      val updated = repository.setNoteFavorite(note.id, !note.isFavorite)
+      if (selectedNote?.id == note.id) selectedNote = updated
+      refresh()
+      scheduleSyncAfterLocalChange()
+    }
+  }
+
   fun trashNote(note: LocalNote) {
     scope.launch {
       flushPendingSave()
@@ -1514,7 +1526,7 @@ class NotesController(private val repository: NotesRepository, private val scope
   }
 
   private fun draftNotebookId(): String? =
-    if (filterId in setOf("all", "unfiled", "trash")) null else filterId
+    if (filterId in setOf("all", NOTE_FILTER_FAVORITES_ID, "unfiled", "trash")) null else filterId
 
   private fun resetHistory() {
     undoStack = emptyList()

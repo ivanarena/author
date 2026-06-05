@@ -35,6 +35,7 @@ import androidx.compose.ui.window.PopupProperties
 import com.author.core.LocalConflict
 import com.author.ui.common.*
 import com.author.ui.state.NotesController
+import com.author.ui.theme.AppTextSize
 
 @Composable
 internal fun LoginDialog(controller: NotesController) {

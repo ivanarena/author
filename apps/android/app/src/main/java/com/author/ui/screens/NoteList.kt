@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -34,6 +33,8 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.RestoreFromTrash
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -174,7 +175,7 @@ internal fun SearchNotesField(
   Surface(
     modifier = modifier,
     color = rowColor(),
-    shape = RoundedCornerShape(26.dp),
+    shape = AppShape.Search,
     border = BorderStroke(1.dp, appDividerColor().copy(alpha = 0.72f)),
     tonalElevation = 0.dp,
     shadowElevation = if (floating) 18.dp else 0.dp,
@@ -226,10 +227,10 @@ internal fun SearchNotesField(
         val hasQuery = controller.searchValue.isNotBlank()
         Surface(
           modifier =
-            Modifier.size(38.dp).clip(RoundedCornerShape(16.dp)).clickable {
+            Modifier.size(38.dp).clip(AppShape.Control).clickable {
               if (hasQuery) controller.searchValue = "" else onDismiss?.invoke()
             },
-          shape = RoundedCornerShape(16.dp),
+          shape = AppShape.Control,
           color = contrastControlColor(),
           tonalElevation = 0.dp,
           shadowElevation = 0.dp,
@@ -274,8 +275,8 @@ private fun SearchControlButton(
   onClick: () -> Unit,
 ) {
   Surface(
-    modifier = Modifier.size(44.dp).clip(RoundedCornerShape(18.dp)).clickable(onClick = onClick),
-    shape = RoundedCornerShape(18.dp),
+    modifier = Modifier.size(44.dp).clip(AppShape.ControlLarge).clickable(onClick = onClick),
+    shape = AppShape.ControlLarge,
     color = contrastControlColor(active = active),
     border = if (active) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null,
     tonalElevation = 0.dp,
@@ -300,8 +301,8 @@ private fun FilterOptionRow(
   onClick: () -> Unit,
 ) {
   Surface(
-    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).clickable(onClick = onClick),
-    shape = RoundedCornerShape(22.dp),
+    modifier = Modifier.fillMaxWidth().clip(AppShape.Panel).clickable(onClick = onClick),
+    shape = AppShape.Panel,
     color = rowColor(active),
     border = BorderStroke(1.dp, appDividerColor().copy(alpha = if (active) 0.9f else 0.72f)),
     tonalElevation = 0.dp,
@@ -459,7 +460,7 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
     Surface(
       modifier =
         Modifier.fillMaxWidth()
-          .clip(RoundedCornerShape(20.dp))
+          .clip(AppShape.NoteRow)
           .animateContentSize(appTween(AppMotion.Medium))
           .combinedClickable(
             onClick = {
@@ -481,7 +482,7 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
             },
           ),
       color = if (highlighted) rowColor(active = true) else Color.Transparent,
-      shape = RoundedCornerShape(20.dp),
+      shape = AppShape.NoteRow,
       border = if (highlighted) BorderStroke(1.dp, appDividerColor().copy(alpha = 0.9f)) else null,
     ) {
       Row(
@@ -510,9 +511,18 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
               overflow = TextOverflow.Ellipsis,
               modifier = Modifier.weight(1f),
             )
+            if (note.isFavorite) {
+              Icon(
+                Icons.Outlined.Star,
+                "Favorite",
+                modifier = Modifier.padding(start = 8.dp).size(15.dp),
+                tint = MaterialTheme.colorScheme.primary,
+              )
+            }
             if (controller.compactView) {
               Text(
                 relativeAge(note.updatedAt),
+                modifier = Modifier.padding(start = if (note.isFavorite) 8.dp else 0.dp),
                 fontSize = AppTextSize.Label,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
               )
@@ -561,7 +571,7 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
 private fun NotebookBadge(label: String, modifier: Modifier = Modifier) {
   Surface(
     modifier = modifier,
-    shape = RoundedCornerShape(999.dp),
+    shape = AppShape.Pill,
     color = contrastControlColor(),
     tonalElevation = 0.dp,
     shadowElevation = 0.dp,
@@ -625,6 +635,21 @@ private fun NoteActionsMenuContent(
       },
     )
   } else {
+    AppDropdownMenuItem(
+      label = if (note.isFavorite) "Remove from Favorites" else "Add to Favorites",
+      leadingIcon = {
+        Icon(
+          if (note.isFavorite) Icons.Outlined.Star else Icons.Outlined.StarBorder,
+          null,
+          modifier = Modifier.size(18.dp),
+        )
+      },
+      onClick = {
+        onDismiss()
+        controller.toggleFavorite(note)
+      },
+    )
+    HorizontalDivider()
     DropdownSectionLabel("Notebooks")
     NotebookAssignmentMenuItems(controller, note = note, selectedMode = false) { onDismiss() }
     HorizontalDivider()

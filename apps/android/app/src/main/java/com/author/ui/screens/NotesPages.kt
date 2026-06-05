@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -205,9 +204,9 @@ private fun NotebookFilterChip(
     modifier =
       Modifier.heightIn(min = 40.dp)
         .widthIn(max = 180.dp)
-        .clip(RoundedCornerShape(999.dp))
+        .clip(AppShape.Pill)
         .clickable(onClick = onClick),
-    shape = RoundedCornerShape(999.dp),
+    shape = AppShape.Pill,
     color = contrastControlColor(active = useAccent),
     tonalElevation = 0.dp,
     shadowElevation = 0.dp,

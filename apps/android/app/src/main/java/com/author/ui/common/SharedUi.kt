@@ -59,17 +59,9 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.author.ui.theme.*
-
-internal object AppTextSize {
-  val Debug = 11.sp
-  val Label = 12.sp
-  val Body = 14.sp
-  val Title = 18.sp
-}
 
 @Composable
 internal fun PageHeader(
@@ -144,7 +136,7 @@ internal fun AppHorizontalDivider(
 
 @Composable internal fun dialogContainerColor(): Color = MaterialTheme.colorScheme.surfaceVariant
 
-internal fun appDialogShape(): RoundedCornerShape = RoundedCornerShape(32.dp)
+internal fun appDialogShape(): RoundedCornerShape = AppShape.Modal
 
 @Composable
 internal fun AppModal(
@@ -238,7 +230,7 @@ internal fun MaterialIconTile(
       active -> MaterialTheme.colorScheme.primaryContainer
       else -> MaterialTheme.colorScheme.surfaceVariant
     }
-  Surface(modifier = modifier.size(size), shape = RoundedCornerShape(16.dp), color = background) {
+  Surface(modifier = modifier.size(size), shape = AppShape.Tile, color = background) {
     Box(contentAlignment = Alignment.Center) {
       Icon(icon, contentDescription, modifier = Modifier.size(iconSize), tint = tint)
     }
@@ -261,11 +253,11 @@ internal fun NavRow(
   Surface(
     modifier =
       Modifier.fillMaxWidth()
-        .clip(RoundedCornerShape(12.dp))
+        .clip(AppShape.NavRow)
         .animateContentSize(appTween(AppMotion.Medium))
         .navRowClick(onClick, onLongClick),
     color = if (active) rowColor(active = true) else Color.Transparent,
-    shape = RoundedCornerShape(12.dp),
+    shape = AppShape.NavRow,
   ) {
     Row(
       Modifier.heightIn(min = 50.dp).padding(horizontal = 8.dp, vertical = 6.dp),
@@ -364,8 +356,8 @@ internal fun AppDropdownMenu(
   DropdownMenu(
     expanded = expanded,
     onDismissRequest = onDismissRequest,
-    modifier = modifier.clip(RoundedCornerShape(20.dp)),
-    shape = RoundedCornerShape(20.dp),
+    modifier = modifier.clip(AppShape.Menu),
+    shape = AppShape.Menu,
     containerColor = menuColor(),
     tonalElevation = 0.dp,
     shadowElevation = 12.dp,
@@ -389,9 +381,9 @@ internal fun ActionRow(
     if (destructive && enabled) MaterialTheme.colorScheme.error
     else MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha)
   Surface(
-    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)),
+    modifier = Modifier.fillMaxWidth().clip(AppShape.Panel),
     color = rowColor(rowActive),
-    shape = RoundedCornerShape(22.dp),
+    shape = AppShape.Panel,
     border = BorderStroke(1.dp, appDividerColor().copy(alpha = if (rowActive) 0.9f else 0.72f)),
   ) {
     Row(
@@ -482,7 +474,7 @@ internal fun MiniField(
     singleLine = true,
     modifier = modifier,
     textStyle = TextStyle(fontSize = AppTextSize.Body, fontFamily = LocalAppFontFamily.current),
-    shape = RoundedCornerShape(16.dp),
+    shape = AppShape.Control,
     colors = textFieldColors(),
   )
 }
@@ -509,7 +501,7 @@ internal fun PasswordField(value: String, placeholder: String, onChange: (String
     },
     modifier = Modifier.fillMaxWidth(),
     textStyle = TextStyle(fontSize = AppTextSize.Body, fontFamily = LocalAppFontFamily.current),
-    shape = RoundedCornerShape(16.dp),
+    shape = AppShape.Control,
     colors = textFieldColors(),
   )
 }
@@ -547,7 +539,7 @@ internal fun SmallTextButton(
   modifier: Modifier = Modifier,
   onClick: () -> Unit,
 ) {
-  TextButton(onClick = onClick, modifier = modifier.clip(RoundedCornerShape(12.dp))) {
+  TextButton(onClick = onClick, modifier = modifier.clip(AppShape.NavRow)) {
     Text(
       label,
       color =
@@ -587,9 +579,9 @@ internal fun ModalActionButton(
       modifier
         .fillMaxWidth()
         .heightIn(min = 48.dp)
-        .clip(RoundedCornerShape(22.dp))
+        .clip(AppShape.Panel)
         .clickable(enabled = enabled, onClick = onClick),
-    shape = RoundedCornerShape(22.dp),
+    shape = AppShape.Panel,
     color = background,
     border = BorderStroke(1.dp, appDividerColor().copy(alpha = if (active) 0.9f else 0.72f)),
   ) {

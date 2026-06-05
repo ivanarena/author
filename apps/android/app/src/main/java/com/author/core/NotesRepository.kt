@@ -415,6 +415,26 @@ class NotesRepository(context: Context) : AutoCloseable {
       crypto.decryptNoteFields(updated)
     }
 
+  suspend fun setNoteFavorite(noteId: String, isFavorite: Boolean): LocalNote? =
+    withContext(Dispatchers.IO) {
+      val note = db.getNote(noteId) ?: return@withContext null
+      if (note.deletedAt != null || note.trashedAt != null) {
+        return@withContext crypto.decryptNoteFields(note)
+      }
+      if (note.isFavorite == isFavorite) return@withContext crypto.decryptNoteFields(note)
+      val device = getOrCreateDevice()
+      val updated =
+        note.copy(
+          isFavorite = isFavorite,
+          updatedAt = nowIso(),
+          deviceId = device.id,
+          version = note.version + 1,
+          syncStatus = "pending",
+        )
+      db.putNote(updated)
+      crypto.decryptNoteFields(updated)
+    }
+
   suspend fun moveNoteToTrash(noteId: String) =
     withContext(Dispatchers.IO) {
       val note = db.getNote(noteId) ?: return@withContext

@@ -15,6 +15,9 @@ val NotesController.notebookCounts: Map<String, Int>
 val NotesController.unfiledCount: Int
   get() = notebookCounts[""] ?: 0
 
+val NotesController.favoriteCount: Int
+  get() = notes.count { it.isFavorite }
+
 val NotesController.visibleNotes: List<LocalNote>
   get() =
     sortNotes(

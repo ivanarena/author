@@ -28,7 +28,7 @@
 
 {#if model.accountTotpEditing}
   <form
-    class="menu-form account-form"
+    class="menu-form account-form account-section"
     aria-label="Two-factor authentication"
     onsubmit={(event) => {
       event.preventDefault();
@@ -112,16 +112,37 @@
     </div>
   </form>
 {:else}
-  <button
-    class="settings-action"
-    type="button"
-    onclick={model.startAccountTotpEdit}
+  <div
+    class="account-section account-action-section"
+    aria-label="Authenticator 2FA"
   >
-    <KeyRound size={15} strokeWidth={1.8} />
-    <span
-      >{model.accountTwoFactorEnabled
-        ? 'Disable authenticator 2FA'
-        : 'Enable authenticator 2FA'}</span
+    <div class="settings-section-title">
+      <KeyRound size={15} strokeWidth={1.8} />
+      <strong>Authenticator 2FA</strong>
+    </div>
+    <div class="trusted-device-row">
+      <KeyRound size={16} strokeWidth={1.7} />
+      <div>
+        <strong>{model.accountTwoFactorEnabled ? 'Enabled' : 'Disabled'}</strong
+        >
+        <span
+          >{model.accountTwoFactorEnabled
+            ? 'Authenticator code required after password sign-in'
+            : 'Add an authenticator app for account sign-in'}</span
+        >
+      </div>
+    </div>
+    <button
+      class="settings-action"
+      type="button"
+      onclick={model.startAccountTotpEdit}
     >
-  </button>
+      <KeyRound size={15} strokeWidth={1.8} />
+      <span
+        >{model.accountTwoFactorEnabled
+          ? 'Disable authenticator 2FA'
+          : 'Enable authenticator 2FA'}</span
+      >
+    </button>
+  </div>
 {/if}

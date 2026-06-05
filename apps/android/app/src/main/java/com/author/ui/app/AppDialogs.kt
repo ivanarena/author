@@ -14,8 +14,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -27,6 +29,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -197,6 +201,103 @@ private fun authSubmitLabel(controller: NotesController): String =
   } else {
     "Sign in to sync"
   }
+
+@Composable
+internal fun SignupRecoveryDialog(controller: NotesController, onSaveRecoveryKit: () -> Unit) {
+  val clipboard = LocalClipboardManager.current
+  AppModal(onDismissRequest = {}, dismissOnBackPress = false, dismissOnClickOutside = false) {
+    AppModalTitle("Save recovery key")
+    Text(
+      "Save this key and recovery kit before continuing.",
+      color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
+      fontSize = AppTextSize.Body,
+    )
+    GlassPanel(Modifier.fillMaxWidth()) {
+      Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+          "Recovery key",
+          color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+          fontSize = AppTextSize.Label,
+          fontWeight = FontWeight.SemiBold,
+        )
+        SelectionContainer {
+          Text(
+            if (controller.signupRecoveryCodeVisible) {
+              controller.signupRecoveryCodeValue
+            } else {
+              "Recovery key hidden"
+            },
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = AppTextSize.Label,
+            fontWeight = FontWeight.Medium,
+          )
+        }
+      }
+    }
+    ModalActionButton("Copy key") {
+      clipboard.setText(AnnotatedString(controller.signupRecoveryCodeValue))
+      controller.signupRecoveryMessage = "Recovery key copied"
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      ModalActionButton(
+        if (controller.signupRecoveryCodeVisible) "Hide key" else "Show key",
+        modifier = Modifier.weight(1f),
+      ) {
+        controller.signupRecoveryCodeVisible = !controller.signupRecoveryCodeVisible
+      }
+      ModalActionButton("Save kit", modifier = Modifier.weight(1f)) { onSaveRecoveryKit() }
+    }
+    RecoveryConfirmRow(controller)
+    if (controller.signupRecoveryMessage.isNotBlank()) {
+      Text(
+        controller.signupRecoveryMessage,
+        color = MaterialTheme.colorScheme.primary,
+        fontSize = AppTextSize.Label,
+        fontWeight = FontWeight.SemiBold,
+      )
+    }
+    ModalActionButton("Done", primary = true, enabled = controller.signupRecoverySaved) {
+      controller.completeSignupRecoveryPrompt()
+    }
+  }
+}
+
+@Composable
+private fun RecoveryConfirmRow(controller: NotesController) {
+  Surface(
+    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)),
+    color = rowColor(),
+    shape = RoundedCornerShape(16.dp),
+    border = BorderStroke(1.dp, appDividerColor().copy(alpha = 0.72f)),
+  ) {
+    Row(
+      Modifier.fillMaxWidth()
+        .clickable { controller.signupRecoverySaved = !controller.signupRecoverySaved }
+        .padding(horizontal = 10.dp, vertical = 10.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+      Checkbox(
+        checked = controller.signupRecoverySaved,
+        onCheckedChange = { controller.signupRecoverySaved = it },
+        colors = appCheckboxColors(),
+      )
+      Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+          "I saved the recovery key and kit",
+          color = MaterialTheme.colorScheme.onSurface,
+          fontSize = AppTextSize.Body,
+          fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+          "They are needed together if you lose password access.",
+          color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+          fontSize = AppTextSize.Label,
+        )
+      }
+    }
+  }
+}
 
 @Composable
 internal fun ConflictDialog(controller: NotesController, conflict: LocalConflict) {

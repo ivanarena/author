@@ -116,6 +116,20 @@ class NoteCryptoTest {
   }
 
   @Test
+  fun recoveryKitRestoresAccountKeyringOnlyWithRecoveryCode() {
+    val prepared = crypto.prepareNewAccountKeyring("Owner", "test-password")
+
+    assertEquals(
+      prepared.keyMaterial,
+      crypto.restoreKeyringFromRecoveryKit(prepared.recoveryKitJson, prepared.recoveryCode),
+    )
+
+    assertThrowsEncryptionDecryptFailure {
+      crypto.restoreKeyringFromRecoveryKit(prepared.recoveryKitJson, "author-recovery-v1-wrong")
+    }
+  }
+
+  @Test
   fun migratesLegacyPasswordEncryptedV3EnvelopesIntoAccountKeyrings() {
     val passwordMaterial = crypto.keyMaterialFromPassword("Owner", "test-password")
     val legacy = legacyV3EncryptText("Legacy body", passwordMaterial, "note:note-1:body")

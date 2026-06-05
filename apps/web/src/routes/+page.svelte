@@ -7,6 +7,7 @@
   import NoteHistoryDialog from '$lib/components/notes/NoteHistoryDialog.svelte';
   import NotificationStack from '$lib/components/notes/NotificationStack.svelte';
   import SettingsModal from '$lib/components/notes/SettingsModal.svelte';
+  import SignupRecoveryModal from '$lib/components/notes/SignupRecoveryModal.svelte';
   import { createNotesPageController } from '$lib/components/notes/controller/page-controller.svelte.js';
   import '$lib/components/notes/styles/page.css';
 
@@ -35,6 +36,10 @@
 
 {#if controller.loginOpen}
   <LoginModal model={controller} />
+{/if}
+
+{#if controller.signupRecoveryOpen}
+  <SignupRecoveryModal model={controller} />
 {/if}
 
 <ContextMenu model={controller} />

@@ -59,7 +59,7 @@ private val THEMES =
     "dark-rose",
     "dark-lavender",
   )
-private val FONTS = setOf("figtree", "kedebideri", "system-sans", "system-serif", "mono")
+private val FONTS = setOf("figtree", "system-sans", "system-serif", "mono")
 private val GROUPS = setOf("smart", "month", "year", "none")
 
 class NotesRepository(context: Context) : AutoCloseable {
@@ -672,6 +672,7 @@ class NotesRepository(context: Context) : AutoCloseable {
         encryptionKeyMaterial = migrated.keyMaterial,
         e2eeKeyring = migrated.e2eeKeyring,
         recoveryCode = migrated.recoveryCode,
+        recoveryKitJson = migrated.recoveryKitJson,
       )
     }
 
@@ -691,6 +692,7 @@ class NotesRepository(context: Context) : AutoCloseable {
           encryptionKeyMaterial = keyring.keyMaterial,
           e2eeKeyring = keyring.e2eeKeyring,
           recoveryCode = keyring.recoveryCode,
+          recoveryKitJson = keyring.recoveryKitJson,
         )
     }
 

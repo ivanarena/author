@@ -20,14 +20,16 @@
 </header>
 
 {#if model.hasToken}
-  <AccountProfileSection {model} />
-  <CurrentDeviceSection {model} />
-  <TrustedDevicesSection {model} />
-  <AccountPasswordSection {model} />
-  <AccountRecoverySection {model} />
-  <AccountTotpSection {model} />
-  <AccountDeleteSection {model} />
-  <AccountStatusMessage {model} />
+  <div class="account-settings-stack">
+    <AccountProfileSection {model} />
+    <CurrentDeviceSection {model} />
+    <TrustedDevicesSection {model} />
+    <AccountPasswordSection {model} />
+    <AccountRecoverySection {model} />
+    <AccountTotpSection {model} />
+    <AccountDeleteSection {model} />
+    <AccountStatusMessage {model} />
+  </div>
 {:else}
   <AccountSignedOutSection {model} />
 {/if}

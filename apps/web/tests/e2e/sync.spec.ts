@@ -490,6 +490,16 @@ test('signs up and manages trusted-device sign-in without ending the active sess
 
   await signupPage.addInitScript((deviceId) => {
     localStorage.setItem('author-device-id', deviceId);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        readText: async () =>
+          localStorage.getItem('author-e2e-clipboard') ?? '',
+        writeText: async (value: string) => {
+          localStorage.setItem('author-e2e-clipboard', value);
+        }
+      }
+    });
   }, signupDeviceId);
   await signupPage.route('**/api/config', async (route) => {
     await route.fulfill({
@@ -553,6 +563,16 @@ test('signs up and manages trusted-device sign-in without ending the active sess
       })
     });
   });
+  await signupPage.route('**/api/account/totp/setup', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        secret: 'JBSWY3DPEHPK3PXP',
+        otpauthUrl:
+          'otpauth://totp/Author:owner?secret=JBSWY3DPEHPK3PXP&issuer=Author'
+      })
+    });
+  });
   await signupPage.route('**/api/sync/push', async (route) => {
     const body = route.request().postDataJSON() as {
       device?: { id: string; name: string };
@@ -609,14 +629,18 @@ test('signs up and manages trusted-device sign-in without ending the active sess
   await waitForDraftEditorReady(signupPage);
   await openProfileMenu(signupPage);
   await signupPage.getByRole('menuitem', { name: 'Sign in to sync' }).click();
-  const authDialog = signupPage.getByRole('dialog');
+  const authDialog = signupPage.getByRole('dialog', { name: 'Sign in' });
   await authDialog.getByRole('tab', { name: 'Sign up' }).click();
-  const signupUsernameField = authDialog.getByLabel('Username');
-  const signupEmailField = authDialog.getByLabel('Email');
-  const signupPasswordField = authDialog.getByLabel('Password', {
+  const signupDialog = signupPage.getByRole('dialog', {
+    name: 'Create account'
+  });
+  const signupUsernameField = signupDialog.getByLabel('Username');
+  const signupEmailField = signupDialog.getByLabel('Email');
+  const signupPasswordField = signupDialog.getByLabel('Password', {
     exact: true
   });
-  const signupConfirmPasswordField = authDialog.getByLabel('Confirm password');
+  const signupConfirmPasswordField =
+    signupDialog.getByLabel('Confirm password');
   await expectFieldsInVerticalOrder([
     { name: 'Username', locator: signupUsernameField },
     { name: 'Email', locator: signupEmailField },
@@ -630,9 +654,47 @@ test('signs up and manages trusted-device sign-in without ending the active sess
     signupConfirmPasswordField,
     signupPassword
   );
-  await authDialog.getByRole('button', { name: 'Create account' }).click();
+  await signupDialog.getByRole('button', { name: 'Create account' }).click();
 
-  await expect(authDialog).toBeHidden();
+  await expect(signupDialog).toBeHidden();
+  const recoveryDialog = signupPage.getByRole('dialog', {
+    name: 'Save recovery key'
+  });
+  await expect(recoveryDialog).toBeVisible();
+  const recoveryKeyField = recoveryDialog.locator('#signup-recovery-key');
+  await expect(recoveryKeyField).toHaveValue(/^author-recovery-v1-/);
+  const recoveryDone = recoveryDialog.getByRole('button', { name: 'Done' });
+  await expect(recoveryDone).toBeDisabled();
+  await recoveryDialog
+    .getByRole('button', { name: 'Copy recovery key' })
+    .click();
+  await expect
+    .poll(() =>
+      signupPage.evaluate(() => localStorage.getItem('author-e2e-clipboard'))
+    )
+    .toMatch(/^author-recovery-v1-/);
+  await recoveryDialog
+    .getByRole('button', { name: 'Hide recovery key' })
+    .click();
+  await expect(recoveryKeyField).toHaveAttribute('type', 'password');
+  await recoveryDialog
+    .getByRole('button', { name: 'Show recovery key' })
+    .click();
+  await expect(recoveryKeyField).toHaveAttribute('type', 'text');
+  const recoveryDownload = signupPage.waitForEvent('download');
+  await recoveryDialog
+    .getByRole('button', { name: 'Save recovery kit' })
+    .click();
+  expect((await recoveryDownload).suggestedFilename()).toBe(
+    'author-recovery-kit.json'
+  );
+  await expect(recoveryDone).toBeDisabled();
+  await recoveryDialog
+    .getByRole('checkbox', { name: /I saved the recovery key and kit/ })
+    .check();
+  await expect(recoveryDone).toBeEnabled();
+  await recoveryDone.click();
+  await expect(recoveryDialog).toBeHidden();
   await expect
     .poll(() =>
       signupPage.evaluate(() => localStorage.getItem('author-username'))
@@ -656,6 +718,29 @@ test('signs up and manages trusted-device sign-in without ending the active sess
     )
   ).toBeVisible();
   await expect(trustedDevices.getByText('This browser')).toBeVisible();
+
+  const accountPanelOverflow = await settingsDialog.evaluate(
+    (dialog) => dialog.scrollWidth > dialog.clientWidth + 1
+  );
+  expect(accountPanelOverflow).toBe(false);
+
+  await settingsDialog
+    .getByRole('button', { name: 'Enable authenticator 2FA' })
+    .click();
+  const totpForm = settingsDialog.getByRole('form', {
+    name: 'Two-factor authentication'
+  });
+  await expect(
+    totpForm.getByText('Authenticator 2FA', { exact: true })
+  ).toBeVisible();
+  await expect(totpForm.getByLabel('Authenticator secret')).toHaveValue(
+    'JBSWY3DPEHPK3PXP'
+  );
+  const totpOverflow = await totpForm.evaluate(
+    (form) => form.scrollWidth > form.clientWidth + 1
+  );
+  expect(totpOverflow).toBe(false);
+  await totpForm.getByRole('button', { name: 'Cancel' }).click();
 
   await trustedDevices
     .getByRole('button', { name: 'Remove trusted sign-in for This browser' })
@@ -939,6 +1024,10 @@ test('keeps the editor usable on a narrow mobile viewport @mobile', async ({
 }) => {
   await page.goto('/');
   await waitForDraftEditorReady(page);
+  await expect(page.locator('.editor-meta-strip span').first()).toHaveCSS(
+    'white-space',
+    'normal'
+  );
 
   const titleText = `Mobile viewport note ${Date.now()}`;
   const bodyText = 'Written on the narrow browser project';

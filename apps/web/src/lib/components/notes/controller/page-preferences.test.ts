@@ -121,10 +121,10 @@ describe('page preference helpers', () => {
   it('selects and applies editor font CSS safely', () => {
     const { cssValues, storedValues } = installBrowserGlobals();
 
-    expect(getStoredEditorFont()).toBe('kedebideri');
+    expect(getStoredEditorFont()).toBe('figtree');
 
     storedValues.set('author-editor-font', 'fantasy');
-    expect(getStoredEditorFont()).toBe('kedebideri');
+    expect(getStoredEditorFont()).toBe('figtree');
 
     setStoredEditorFont('system-serif');
     expect(getStoredEditorFont()).toBe('system-serif');

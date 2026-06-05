@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
@@ -54,6 +55,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -489,6 +491,8 @@ internal fun PasswordField(value: String, placeholder: String, onChange: (String
     singleLine = true,
     visualTransformation =
       if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+    keyboardOptions =
+      KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password),
     trailingIcon = {
       IconButton(onClick = { visible = !visible }) {
         Icon(

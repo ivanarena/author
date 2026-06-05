@@ -73,6 +73,7 @@ data class PreparedAccountKeyring(
   val keyMaterial: String,
   val e2eeKeyring: String,
   val recoveryCode: String,
+  val recoveryKitJson: String,
 )
 
 class NoteCrypto(
@@ -202,6 +203,7 @@ class NoteCrypto(
       keyMaterial = keyMaterial,
       e2eeKeyring = wrapKeyringMaterial(keyMaterial, passwordMaterial, recoveryCode),
       recoveryCode = recoveryCode,
+      recoveryKitJson = recoveryKitText(createRecoveryKit(keyMaterial, recoveryCode)),
     )
   }
 
@@ -221,7 +223,22 @@ class NoteCrypto(
       keyMaterial = keyMaterial,
       e2eeKeyring = wrapKeyringMaterial(keyMaterial, passwordMaterial, recoveryCode),
       recoveryCode = recoveryCode,
+      recoveryKitJson = recoveryKitText(createRecoveryKit(keyMaterial, recoveryCode)),
     )
+  }
+
+  fun restoreKeyringFromRecoveryKit(recoveryKitJson: String, recoveryCode: String): String {
+    val kit =
+      runCatching { JSONObject(recoveryKitJson) }
+        .getOrElse { throw IllegalStateException("Invalid recovery kit") }
+    if (
+      kit.optString("type") != "author-recovery-kit" ||
+        kit.optInt("version") != 1 ||
+        !validWrappedKeyringBox(kit.optJSONObject("recoveryWrap"), "recovery")
+    ) {
+      throw IllegalStateException("Invalid recovery kit")
+    }
+    return unwrapKeyringBox(kit.getJSONObject("recoveryWrap"), recoveryWrappingSecret(recoveryCode))
   }
 
   fun rewrapKeyringForPassword(
@@ -675,6 +692,21 @@ class NoteCrypto(
   private fun requireKeyringMaterial(material: String): JSONObject =
     parseKeyringMaterial(material)
       ?: throw IllegalStateException("Recovery kit requires keyring material")
+
+  private fun createRecoveryKit(keyMaterial: String, recoveryCode: String): JSONObject {
+    val keyring = requireKeyringMaterial(keyMaterial)
+    return JSONObject()
+      .put("type", "author-recovery-kit")
+      .put("version", 1)
+      .put("createdAt", isoNow())
+      .put(
+        "recoveryWrap",
+        wrapKeyringBox(keyMaterial, recoveryWrappingSecret(recoveryCode), "recovery"),
+      )
+      .put("keyHint", keyring.getString("activeKeyId"))
+  }
+
+  private fun recoveryKitText(kit: JSONObject): String = "${kit.toString(2)}\n"
 
   private fun validKeyring(json: JSONObject): Boolean =
     runCatching {

@@ -31,6 +31,12 @@ class MainActivity : ComponentActivity() {
       controller.completeMarkdownExport(uri, contentResolver)
     }
 
+  private val recoveryKitLauncher =
+    registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) {
+      uri: Uri? ->
+      controller.completeSignupRecoveryKitSave(uri, contentResolver)
+    }
+
   private val importLauncher =
     registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
       controller.importMarkdownUris(uris, contentResolver)
@@ -59,6 +65,9 @@ class MainActivity : ComponentActivity() {
       AuthorApp(
         controller = notesController,
         onExport = { notesController.prepareMarkdownExport { exportLauncher.launch(it) } },
+        onSaveRecoveryKit = {
+          notesController.prepareSignupRecoveryKitSave { recoveryKitLauncher.launch(it) }
+        },
         onImport = {
           importLauncher.launch(arrayOf("text/markdown", "text/plain", "application/octet-stream"))
         },

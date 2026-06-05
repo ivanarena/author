@@ -4,8 +4,12 @@ import android.content.Context
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -105,6 +109,50 @@ class AuthorAppInstrumentedTest {
 
     compose.waitForIdle()
     assertTrue(unlockRequested.get())
+  }
+
+  @Test
+  fun signupRecoveryPromptRequiresSavingConfirmation() {
+    val repository = newRepository()
+    val saveRequested = AtomicBoolean(false)
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      val controller = remember {
+        NotesController(repository, scope).also {
+          it.signupRecoveryOpen = true
+          it.signupRecoveryCodeValue = "author-recovery-v1-test-code"
+          it.signupRecoveryKitText = "{\"type\":\"author-recovery-kit\"}\n"
+        }
+      }
+
+      AuthorApp(
+        controller = controller,
+        onExport = {},
+        onSaveRecoveryKit = {
+          saveRequested.set(true)
+          controller.signupRecoveryMessage = "Recovery kit saved"
+        },
+        onImport = {},
+      )
+    }
+
+    compose.onNodeWithText("Save recovery key").assertIsDisplayed()
+    compose.onNodeWithText("Done").assertIsNotEnabled()
+    compose.onNodeWithText("Copy key").performClick()
+    compose.onNodeWithText("Recovery key copied").assertIsDisplayed()
+    compose.onNodeWithText("Hide key").performClick()
+    compose.onNodeWithText("Recovery key hidden").assertIsDisplayed()
+    compose.onNodeWithText("Show key").performClick()
+    compose.onNodeWithText("author-recovery-v1-test-code").assertIsDisplayed()
+    compose.onNodeWithText("Save kit").performClick()
+    compose.waitForIdle()
+    assertTrue(saveRequested.get())
+
+    compose.onNodeWithText("I saved the recovery key and kit").performClick()
+    compose.onNodeWithText("Done").assertIsEnabled().performClick()
+    compose.waitForIdle()
+    compose.onAllNodesWithText("Save recovery key").assertCountEquals(0)
   }
 
   private fun savedDraft(repository: NotesRepository, title: String): LocalNote? =

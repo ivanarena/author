@@ -313,6 +313,7 @@ data class LoginResponse(
   val e2eeKeyring: String?,
   val encryptionKeyMaterial: String? = null,
   val recoveryCode: String? = null,
+  val recoveryKitJson: String? = null,
 )
 
 private fun parseLoginResponse(json: JSONObject): LoginResponse {

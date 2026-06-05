@@ -15,7 +15,7 @@
   }
 </script>
 
-<div class="trusted-device-list" aria-label="Trusted devices">
+<div class="trusted-device-list account-section" aria-label="Trusted devices">
   <div class="settings-section-title">
     <MonitorSmartphone size={15} strokeWidth={1.8} />
     <strong>Trusted devices</strong>

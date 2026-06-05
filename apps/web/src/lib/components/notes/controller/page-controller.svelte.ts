@@ -81,6 +81,7 @@ import type {
   NoteHistoryDialogModel,
   NotesFilterId,
   NotificationStackModel,
+  SignupRecoveryModalModel,
   SettingsModalModel,
   SettingsSection,
   Theme
@@ -130,6 +131,7 @@ export type {
   NotebookSidebarModel,
   NotesFilterId,
   NotificationStackModel,
+  SignupRecoveryModalModel,
   SettingsModalModel,
   SettingsSection,
   Theme
@@ -145,6 +147,7 @@ export class NotesPageController
     EditorPaneModel,
     NoteHistoryDialogModel,
     SettingsModalModel,
+    SignupRecoveryModalModel,
     ContextMenuModel,
     ConflictDialogModel,
     NotificationStackModel
@@ -180,6 +183,12 @@ export class NotesPageController
   accountMessage = $state('');
   accountError = $state('');
   accountRecoveryCodeValue = $state('');
+  signupRecoveryOpen = $state(false);
+  signupRecoveryCodeValue = $state('');
+  signupRecoveryKitText = $state('');
+  signupRecoveryCodeVisible = $state(true);
+  signupRecoverySaved = $state(false);
+  signupRecoveryMessage = $state('');
   accountProfileEditing = $state(false);
   accountPasswordEditing = $state(false);
   accountTotpEditing = $state(false);
@@ -224,7 +233,7 @@ export class NotesPageController
   searchValue = $state('');
   compactView = $state(false);
   editorZoom = $state(1);
-  editorFont = $state<EditorFont>('kedebideri');
+  editorFont = $state<EditorFont>('figtree');
   editorTextSize = $state(16);
   editorLineHeight = $state(1.75);
   currentTime = $state(new Date());
@@ -1090,6 +1099,46 @@ export class NotesPageController
     await accountActions.downloadRecoveryKit(this);
   };
 
+  showSignupRecoveryPrompt = (
+    recoveryCode: string,
+    recoveryKitText: string
+  ) => {
+    if (!recoveryCode || !recoveryKitText) return;
+    this.signupRecoveryCodeValue = recoveryCode;
+    this.signupRecoveryKitText = recoveryKitText;
+    this.signupRecoveryCodeVisible = true;
+    this.signupRecoverySaved = false;
+    this.signupRecoveryMessage = '';
+    this.signupRecoveryOpen = true;
+  };
+
+  copySignupRecoveryCode = async () => {
+    if (!this.signupRecoveryCodeValue) return;
+    await navigator.clipboard.writeText(this.signupRecoveryCodeValue);
+    this.signupRecoveryMessage = 'Recovery key copied';
+  };
+
+  downloadSignupRecoveryKit = () => {
+    if (!this.signupRecoveryKitText) return;
+    this.downloadBlob(
+      new Blob([this.signupRecoveryKitText], {
+        type: 'application/json'
+      }),
+      'author-recovery-kit.json'
+    );
+    this.signupRecoveryMessage = 'Recovery kit saved';
+  };
+
+  completeSignupRecoveryPrompt = () => {
+    if (!this.signupRecoverySaved) return;
+    this.signupRecoveryOpen = false;
+    this.signupRecoveryCodeValue = '';
+    this.signupRecoveryKitText = '';
+    this.signupRecoveryCodeVisible = true;
+    this.signupRecoverySaved = false;
+    this.signupRecoveryMessage = '';
+  };
+
   saveAccountTotp = async () => {
     await accountActions.saveAccountTotp(this);
   };
@@ -1454,6 +1503,12 @@ export class NotesPageController
     this.accountMessage = accountMessage;
     this.accountError = '';
     this.accountRecoveryCodeValue = '';
+    this.signupRecoveryOpen = false;
+    this.signupRecoveryCodeValue = '';
+    this.signupRecoveryKitText = '';
+    this.signupRecoveryCodeVisible = true;
+    this.signupRecoverySaved = false;
+    this.signupRecoveryMessage = '';
     this.accountProfileEditing = false;
     this.accountPasswordEditing = false;
     this.accountTotpEditing = false;

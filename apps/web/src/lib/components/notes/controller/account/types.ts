@@ -80,6 +80,10 @@ export interface NotesAccountActionController {
   refreshAccount: (token?: string | null) => Promise<void>;
   refreshPublicConfig: () => Promise<void>;
   refreshRemoteSyncStatus: (token?: string | null) => Promise<void>;
+  showSignupRecoveryPrompt: (
+    recoveryCode: string,
+    recoveryKitText: string
+  ) => void;
   syncNow: () => Promise<void>;
   updateSyncProgress: (progress: SyncProgress) => void;
 }

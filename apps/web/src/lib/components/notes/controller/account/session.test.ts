@@ -89,6 +89,7 @@ function controller(
     refreshAccount: vi.fn(),
     refreshPublicConfig: vi.fn(),
     refreshRemoteSyncStatus: vi.fn(),
+    showSignupRecoveryPrompt: vi.fn(),
     syncNow: vi.fn(),
     updateSyncProgress: vi.fn(),
     ...overrides

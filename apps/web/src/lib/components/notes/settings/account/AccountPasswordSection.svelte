@@ -56,7 +56,7 @@
 
 {#if model.accountPasswordEditing}
   <form
-    class="menu-form account-form"
+    class="menu-form account-form account-section"
     aria-label="Change password"
     onsubmit={submitPasswordForm}
   >
@@ -113,12 +113,18 @@
     </div>
   </form>
 {:else}
-  <button
-    class="settings-action"
-    type="button"
-    onclick={model.startAccountPasswordEdit}
-  >
-    <KeyRound size={15} strokeWidth={1.8} />
-    <span>Change password</span>
-  </button>
+  <div class="account-section account-action-section">
+    <div class="settings-section-title">
+      <KeyRound size={15} strokeWidth={1.8} />
+      <strong>Password</strong>
+    </div>
+    <button
+      class="settings-action"
+      type="button"
+      onclick={model.startAccountPasswordEdit}
+    >
+      <KeyRound size={15} strokeWidth={1.8} />
+      <span>Change password</span>
+    </button>
+  </div>
 {/if}

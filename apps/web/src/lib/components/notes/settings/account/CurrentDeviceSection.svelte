@@ -5,7 +5,7 @@
   let { model }: { model: SettingsModalModel } = $props();
 </script>
 
-<div class="trusted-device-list" aria-label="This device">
+<div class="trusted-device-list account-section" aria-label="This device">
   <div class="settings-section-title">
     <MonitorSmartphone size={15} strokeWidth={1.8} />
     <strong>This device</strong>

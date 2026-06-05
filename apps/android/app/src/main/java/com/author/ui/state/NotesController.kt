@@ -111,6 +111,12 @@ class NotesController(private val repository: NotesRepository, private val scope
   var accountTrustedDevices by mutableStateOf<List<TrustedAuthDevice>>(emptyList())
   var accountMessage by mutableStateOf("")
   var accountError by mutableStateOf("")
+  var signupRecoveryOpen by mutableStateOf(false)
+  var signupRecoveryCodeValue by mutableStateOf("")
+  var signupRecoveryKitText by mutableStateOf("")
+  var signupRecoveryCodeVisible by mutableStateOf(true)
+  var signupRecoverySaved by mutableStateOf(false)
+  var signupRecoveryMessage by mutableStateOf("")
   var accountPanel by mutableStateOf<String?>(null)
   var accountProfileEditing by mutableStateOf(false)
   var accountPasswordEditing by mutableStateOf(false)
@@ -165,6 +171,7 @@ class NotesController(private val repository: NotesRepository, private val scope
   private var syncQueued = false
   private var lastSnapshot = "" to ""
   private var preparedExport: ByteArray? = null
+  private var preparedSignupRecoveryKit: ByteArray? = null
   private var closed = false
 
   override fun close() {
@@ -251,6 +258,7 @@ class NotesController(private val repository: NotesRepository, private val scope
   val canHandleBack: Boolean
     get() =
       loginOpen ||
+        signupRecoveryOpen ||
         noteSelectionMode ||
         selectedNoteIds.isNotEmpty() ||
         (currentPage == "settings" && settingsSection != "menu") ||
@@ -265,6 +273,7 @@ class NotesController(private val repository: NotesRepository, private val scope
   }
 
   fun handleBack() {
+    if (signupRecoveryOpen) return
     if (loginOpen) {
       if (!isLoggingIn) loginOpen = false
       return
@@ -1040,6 +1049,13 @@ class NotesController(private val repository: NotesRepository, private val scope
         deviceOtpLoginAvailable = repository.hasStoredEncryptionKeyMaterial()
         loginOpen = false
         hasToken = true
+        if (
+          wasSignup &&
+            !response.recoveryCode.isNullOrBlank() &&
+            !response.recoveryKitJson.isNullOrBlank()
+        ) {
+          showSignupRecoveryPrompt(response.recoveryCode, response.recoveryKitJson)
+        }
         authMode = "signin"
         loginPasswordValue = ""
         loginTotpCodeValue = ""
@@ -1438,6 +1454,52 @@ class NotesController(private val repository: NotesRepository, private val scope
     }
   }
 
+  fun showSignupRecoveryPrompt(recoveryCode: String, recoveryKitText: String) {
+    if (recoveryCode.isBlank() || recoveryKitText.isBlank()) return
+    signupRecoveryCodeValue = recoveryCode
+    signupRecoveryKitText = recoveryKitText
+    signupRecoveryCodeVisible = true
+    signupRecoverySaved = false
+    signupRecoveryMessage = ""
+    signupRecoveryOpen = true
+  }
+
+  fun completeSignupRecoveryPrompt() {
+    if (!signupRecoverySaved) return
+    signupRecoveryOpen = false
+    signupRecoveryCodeValue = ""
+    signupRecoveryKitText = ""
+    signupRecoveryCodeVisible = true
+    signupRecoverySaved = false
+    signupRecoveryMessage = ""
+    preparedSignupRecoveryKit = null
+  }
+
+  fun prepareSignupRecoveryKitSave(onReady: (String) -> Unit) {
+    val kit = signupRecoveryKitText
+    if (kit.isBlank()) return
+    preparedSignupRecoveryKit = kit.toByteArray(Charsets.UTF_8)
+    signupRecoveryMessage = "Recovery kit ready"
+    onReady(recoveryKitFileName())
+  }
+
+  fun completeSignupRecoveryKitSave(uri: Uri?, resolver: ContentResolver) {
+    val bytes = preparedSignupRecoveryKit ?: return
+    preparedSignupRecoveryKit = null
+    if (uri == null) return
+    scope.launch {
+      runCatching { resolver.openOutputStream(uri)?.use { it.write(bytes) } }
+        .onSuccess {
+          signupRecoveryMessage = "Recovery kit saved"
+          notify("success", "Recovery kit saved")
+        }
+        .onFailure {
+          signupRecoveryMessage = it.message ?: "Could not save recovery kit"
+          notify("error", "Recovery kit failed", signupRecoveryMessage)
+        }
+    }
+  }
+
   fun completeMarkdownExport(uri: Uri?, resolver: ContentResolver) {
     val bytes = preparedExport ?: return
     preparedExport = null
@@ -1608,6 +1670,13 @@ class NotesController(private val repository: NotesRepository, private val scope
     accountTrustedDevices = emptyList()
     accountMessage = message
     accountError = ""
+    signupRecoveryOpen = false
+    signupRecoveryCodeValue = ""
+    signupRecoveryKitText = ""
+    signupRecoveryCodeVisible = true
+    signupRecoverySaved = false
+    signupRecoveryMessage = ""
+    preparedSignupRecoveryKit = null
     accountPanel = null
     accountProfileEditing = false
     accountPasswordEditing = false
@@ -1735,4 +1804,7 @@ class NotesController(private val repository: NotesRepository, private val scope
       .map { it.replace('\\', '/').trim('/') }
       .firstOrNull { it.endsWith(displayName) } ?: displayName
   }
+
+  private fun recoveryKitFileName(): String =
+    "author-recovery-kit-${java.time.Instant.now().toString().take(10)}.json"
 }

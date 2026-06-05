@@ -374,6 +374,18 @@ export interface SettingsModalModel {
   closeSettings: () => void;
 }
 
+export interface SignupRecoveryModalModel {
+  signupRecoveryOpen: boolean;
+  signupRecoveryCodeValue: string;
+  signupRecoveryKitText: string;
+  signupRecoveryCodeVisible: boolean;
+  signupRecoverySaved: boolean;
+  signupRecoveryMessage: string;
+  copySignupRecoveryCode: () => void | Promise<void>;
+  downloadSignupRecoveryKit: () => void;
+  completeSignupRecoveryPrompt: () => void;
+}
+
 export interface ContextMenuModel {
   contextMenu: ContextMenuState;
   contextNote: LocalNote | null;

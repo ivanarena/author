@@ -435,7 +435,6 @@
   gap: 12px;
   align-items: center;
   min-width: 0;
-  padding-bottom: 14px;
 }
 
 .account-profile-card {
@@ -499,6 +498,25 @@
   font-size: 12px;
 }
 
+.account-settings-stack {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.account-section {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  background: transparent;
+}
+
+.account-action-section {
+  display: grid;
+  gap: 8px;
+}
+
 .settings-section-title {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -519,7 +537,6 @@
 .trusted-device-list {
   display: grid;
   gap: 8px;
-  padding-bottom: 14px;
 }
 
 .trusted-device-note {
@@ -931,8 +948,13 @@
   box-shadow: none;
 }
 
+.settings-panel .menu-form.account-section {
+  border: 1px solid var(--line);
+}
+
 .settings-panel .menu-form input,
-.login-modal .login-form input {
+.login-modal .login-form input,
+.recovery-modal input {
   border: 1px solid var(--line);
   background: transparent;
   -webkit-backdrop-filter: none;
@@ -1037,7 +1059,7 @@
 }
 
 .account-form {
-  padding-bottom: 14px;
+  gap: 10px;
 }
 
 .account-form input[readonly] {
@@ -1120,6 +1142,43 @@
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   margin-top: 2px;
+}
+
+.recovery-modal {
+  width: min(520px, 100%);
+}
+
+.recovery-modal-body {
+  display: grid;
+  gap: 14px;
+}
+
+.recovery-copy {
+  margin-bottom: 0;
+}
+
+.recovery-key-row {
+  align-items: stretch;
+}
+
+.recovery-key-row input {
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
+    monospace;
+  font-size: 12px;
+}
+
+.recovery-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.recovery-confirm {
+  margin-top: 2px;
+}
+
+.recovery-done {
+  justify-content: center;
+  text-align: center;
 }
 
 .login-modal .login-actions {

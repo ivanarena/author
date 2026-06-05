@@ -5,7 +5,7 @@
   let { model }: { model: SettingsModalModel } = $props();
 </script>
 
-<div class="account-summary account-profile-card">
+<div class="account-summary account-profile-card account-section">
   <UserRound size={20} strokeWidth={1.7} />
   <div>
     <strong>{model.accountUsername}</strong>

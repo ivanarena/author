@@ -35,11 +35,12 @@ import com.author.ui.theme.*
 internal fun AuthorApp(
   controller: NotesController,
   onExport: () -> Unit,
+  onSaveRecoveryKit: () -> Unit = {},
   onImport: () -> Unit,
   onUnlockApp: () -> Unit = {},
 ) {
   AuthorTheme(theme = controller.theme, font = controller.editorFont) {
-    AuthorScaffold(controller, onExport, onImport, onUnlockApp)
+    AuthorScaffold(controller, onExport, onSaveRecoveryKit, onImport, onUnlockApp)
   }
 }
 
@@ -47,6 +48,7 @@ internal fun AuthorApp(
 private fun AuthorScaffold(
   controller: NotesController,
   onExport: () -> Unit,
+  onSaveRecoveryKit: () -> Unit,
   onImport: () -> Unit,
   onUnlockApp: () -> Unit,
 ) {
@@ -60,7 +62,7 @@ private fun AuthorScaffold(
     floatingActionButton = { if (!controller.appLocked) PageFloatingAction(controller) },
   ) { innerPadding ->
     Box(Modifier.fillMaxSize().padding(innerPadding)) {
-      AppPage(controller, onExport, onImport, onUnlockApp)
+      AppPage(controller, onExport, onSaveRecoveryKit, onImport, onUnlockApp)
     }
   }
 }
@@ -69,6 +71,7 @@ private fun AuthorScaffold(
 private fun AppPage(
   controller: NotesController,
   onExport: () -> Unit,
+  onSaveRecoveryKit: () -> Unit,
   onImport: () -> Unit,
   onUnlockApp: () -> Unit,
 ) {
@@ -90,6 +93,7 @@ private fun AppPage(
         }
       }
       if (controller.loginOpen) LoginDialog(controller)
+      if (controller.signupRecoveryOpen) SignupRecoveryDialog(controller, onSaveRecoveryKit)
       controller.conflicts.firstOrNull()?.let { ConflictDialog(controller, it) }
       NotificationStack(controller)
     }

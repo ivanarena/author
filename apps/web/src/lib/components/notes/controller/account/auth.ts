@@ -2,7 +2,8 @@ import {
   commitEncryptionKeyMaterial,
   getEncryptionKeyMaterial,
   hasStoredEncryptionKeyMaterial,
-  prepareEncryptionPassword
+  prepareEncryptionPassword,
+  recoveryKitText
 } from '$lib/client/encryption';
 import {
   adoptLocalWorkspaceForAccount,
@@ -133,14 +134,14 @@ export async function submitLoginMenu(
     const storedUsername = getStoredSession()?.user.username ?? '';
     const previousUsername =
       storedUsername.trim() || getLoginHint().trim() || null;
-    const session =
-      controller.authMode === 'signup'
-        ? await signup(username, controller.signupEmailValue, password)
-        : await login(
-            username,
-            hasPassword ? password : null,
-            controller.loginTotpCodeValue.trim() || null
-          );
+    const wasSignup = controller.authMode === 'signup';
+    const session = wasSignup
+      ? await signup(username, controller.signupEmailValue, password)
+      : await login(
+          username,
+          hasPassword ? password : null,
+          controller.loginTotpCodeValue.trim() || null
+        );
     let workspaceCleared = false;
     try {
       const workspace = await prepareLocalWorkspaceForAccount(
@@ -199,10 +200,15 @@ export async function submitLoginMenu(
     controller.deviceOtpLoginAvailable = hasStoredEncryptionKeyMaterial();
     controller.accountError = '';
     controller.accountRecoveryCodeValue = session.recoveryCode ?? '';
-    controller.accountMessage =
-      controller.authMode === 'signup'
-        ? 'Account created. Save the recovery code.'
-        : 'Signed in';
+    controller.accountMessage = wasSignup
+      ? 'Account created. Save the recovery code.'
+      : 'Signed in';
+    if (wasSignup && session.recoveryCode && session.recoveryKit) {
+      controller.showSignupRecoveryPrompt(
+        session.recoveryCode,
+        recoveryKitText(session.recoveryKit)
+      );
+    }
     controller.loginOpen = false;
     controller.authMode = 'signin';
     controller.loginUsernameValue = session.user.username;

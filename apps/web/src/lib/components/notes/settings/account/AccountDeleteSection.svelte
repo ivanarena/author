@@ -13,7 +13,7 @@
 
 {#if model.accountDeleteEditing}
   <form
-    class="menu-form account-form danger-zone"
+    class="menu-form account-form account-section danger-zone"
     aria-label="Delete account"
     onsubmit={(event) => {
       event.preventDefault();
@@ -52,12 +52,18 @@
     </div>
   </form>
 {:else}
-  <button
-    class="settings-action danger-action"
-    type="button"
-    onclick={model.startAccountDeleteEdit}
-  >
-    <Trash2 size={15} strokeWidth={1.8} />
-    <span>Delete account</span>
-  </button>
+  <div class="account-section account-action-section danger-zone">
+    <div class="settings-section-title danger-title">
+      <Trash2 size={15} strokeWidth={1.8} />
+      <strong>Delete account</strong>
+    </div>
+    <button
+      class="settings-action danger-action"
+      type="button"
+      onclick={model.startAccountDeleteEdit}
+    >
+      <Trash2 size={15} strokeWidth={1.8} />
+      <span>Delete account</span>
+    </button>
+  </div>
 {/if}

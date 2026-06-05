@@ -11,7 +11,7 @@
   }
 </script>
 
-<div class="trusted-device-list" aria-label="Recovery">
+<div class="trusted-device-list account-section" aria-label="Recovery">
   <div class="settings-section-title">
     <ShieldCheck size={15} strokeWidth={1.8} />
     <strong>Recovery</strong>

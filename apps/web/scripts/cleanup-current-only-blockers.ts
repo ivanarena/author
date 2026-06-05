@@ -44,7 +44,6 @@ const BACKUP_TABLES = [
   'entity_tombstones',
   'schema_migrations',
   'sync_meta',
-  'invitation_codes',
   'signup_allowed_emails',
   'auth_rate_limits'
 ];

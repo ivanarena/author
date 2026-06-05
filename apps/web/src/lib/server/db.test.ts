@@ -114,6 +114,14 @@ describe('server database migrations', () => {
   it('creates account-scoped device constraints in fresh databases', async () => {
     const db = await openMemoryDatabase();
     try {
+      await expect(
+        get(
+          db,
+          `SELECT name FROM sqlite_master
+           WHERE type = 'table' AND name = 'invitation_codes'`
+        )
+      ).resolves.toBeNull();
+
       const deviceColumns = await all(db, 'PRAGMA table_info(devices)');
       const primaryKeyColumns = deviceColumns
         .filter((row) => Number(row.pk ?? 0) > 0)
@@ -285,6 +293,11 @@ describe('server database migrations', () => {
           name TEXT NOT NULL,
           applied_at TEXT NOT NULL
         );
+        CREATE TABLE invitation_codes (
+          code TEXT PRIMARY KEY,
+          created_at TEXT NOT NULL,
+          disabled_at TEXT
+        );
         INSERT INTO schema_migrations (version, name, applied_at)
         VALUES
           (1, 'applied', '${now}'),
@@ -369,6 +382,14 @@ describe('server database migrations', () => {
         client: { url: `file:${dbPath}` }
       });
       try {
+        await expect(
+          get(
+            upgraded,
+            `SELECT name FROM sqlite_master
+             WHERE type = 'table' AND name = 'invitation_codes'`
+          )
+        ).resolves.toBeNull();
+
         await expect(
           get(
             upgraded,

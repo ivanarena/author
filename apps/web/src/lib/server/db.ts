@@ -107,15 +107,6 @@ const schemaSql = `
   CREATE INDEX IF NOT EXISTS users_updated_at_idx
     ON users(updated_at);
 
-  CREATE TABLE IF NOT EXISTS invitation_codes (
-    code TEXT PRIMARY KEY,
-    created_at TEXT NOT NULL,
-    disabled_at TEXT
-  );
-
-  CREATE INDEX IF NOT EXISTS invitation_codes_active_idx
-    ON invitation_codes(disabled_at);
-
   CREATE TABLE IF NOT EXISTS signup_allowed_emails (
     email TEXT PRIMARY KEY,
     created_at TEXT NOT NULL
@@ -947,20 +938,11 @@ export const SERVER_MIGRATIONS: ServerMigration[] = [
   },
   {
     version: 6,
-    name: 'invitation-codes',
+    name: 'legacy-invitation-codes-removed',
     rollback:
-      'Restore from the pre-upgrade backup or disable codes by setting disabled_at on invitation_codes rows.',
+      'Restore from the pre-upgrade backup if legacy invitation code rows are needed.',
     up: async (db) => {
-      await exec(
-        db,
-        `CREATE TABLE IF NOT EXISTS invitation_codes (
-           code TEXT PRIMARY KEY,
-           created_at TEXT NOT NULL,
-           disabled_at TEXT
-         );
-         CREATE INDEX IF NOT EXISTS invitation_codes_active_idx
-           ON invitation_codes(disabled_at);`
-      );
+      await run(db, 'DROP TABLE IF EXISTS invitation_codes');
     }
   },
   {
@@ -1168,6 +1150,15 @@ export const SERVER_MIGRATIONS: ServerMigration[] = [
     rollback:
       'Restore from the pre-upgrade backup. Favorite state defaults to off for existing notes.',
     up: migrateNoteFavorites
+  },
+  {
+    version: 20,
+    name: 'drop-legacy-invitation-codes',
+    rollback:
+      'Restore from the pre-upgrade backup if legacy invitation code rows are needed.',
+    up: async (db) => {
+      await run(db, 'DROP TABLE IF EXISTS invitation_codes');
+    }
   }
 ];
 

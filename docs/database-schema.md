@@ -38,7 +38,7 @@ the active browser session.
 
 ## Server SQLite/libSQL
 
-Server schema migrations are tracked through version 19 in
+Server schema migrations are tracked through version 20 in
 `apps/web/src/lib/server/db.ts`.
 
 Tables:
@@ -49,7 +49,6 @@ Tables:
 - `auth_rate_limits`
 - `auth_challenges`
 - `trusted_auth_devices`
-- `invitation_codes` (legacy, unused by current signup)
 - `signup_allowed_emails`
 - `sync_meta`
 - `schema_migrations`

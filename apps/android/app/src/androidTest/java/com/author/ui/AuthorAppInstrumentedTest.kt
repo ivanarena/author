@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -16,6 +17,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -151,8 +153,13 @@ class AuthorAppInstrumentedTest {
     compose.waitForIdle()
     assertTrue(saveRequested.get())
 
-    compose.onNode(hasText("I saved the recovery key and kit") and hasClickAction()).performClick()
-    compose.onNode(hasText("Done") and hasClickAction()).assertIsEnabled().performClick()
+    compose
+      .onNode(hasText("I saved the recovery key and kit") and hasClickAction())
+      .performSemanticsAction(SemanticsActions.OnClick)
+    compose
+      .onNode(hasText("Done") and hasClickAction())
+      .assertIsEnabled()
+      .performSemanticsAction(SemanticsActions.OnClick)
     compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
       compose.onAllNodesWithText("Save recovery key").fetchSemanticsNodes().isEmpty()
     }

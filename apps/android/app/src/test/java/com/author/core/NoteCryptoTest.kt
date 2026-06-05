@@ -86,7 +86,10 @@ class NoteCryptoTest {
   fun derivesArgon2idOnlyPasswordMaterial() {
     val material = crypto.keyMaterialFromPassword("Owner", "test-password")
 
-    assertTrue(Regex("^password:v4:argon2id:m=19456,t=2,p=1:[A-Za-z0-9_-]+$").matches(material))
+    assertEquals(
+      "password:v4:argon2id:m=19456,t=2,p=1:MQMKSVOHRnCVVNRMaRVstcAMv4f8UHAA15dnnNaLIrc",
+      material,
+    )
     assertFalse(material.contains("pbkdf2"))
   }
 

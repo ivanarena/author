@@ -717,9 +717,15 @@ class NotesRepository(context: Context) : AutoCloseable {
   ) =
     withContext(Dispatchers.IO) {
       assertLocalWorkspaceCanUseAccountInternal(username, previousUsername)
-      val previous = crypto.getEncryptionKeyMaterial()
       val next =
         nextMaterialOverride ?: crypto.prepareEncryptionPassword(username, password, null).second
+      val previous = crypto.getStoredEncryptionKeyMaterial()
+      if (previous == null) {
+        crypto.commitEncryptionKeyMaterial(next)
+        ensureLocalNotesEncrypted()
+        rememberLocalWorkspaceAccount(username)
+        return@withContext
+      }
       reencryptLocalNotesInternal(previous, next)
       crypto.commitEncryptionKeyMaterial(next)
       rememberLocalWorkspaceAccount(username)

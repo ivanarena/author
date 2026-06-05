@@ -150,6 +150,8 @@ class NoteCrypto(
     return generated
   }
 
+  fun getStoredEncryptionKeyMaterial(): String? = securePrefs.getString(KEY_MATERIAL_KEY)
+
   fun hasStoredEncryptionKeyMaterial(): Boolean =
     securePrefs.getString(KEY_MATERIAL_KEY)?.let(::isSyncKeyMaterial) == true
 

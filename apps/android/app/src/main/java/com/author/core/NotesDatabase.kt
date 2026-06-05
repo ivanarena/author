@@ -13,6 +13,8 @@ private const val DATABASE_NAME = "author.db"
 private const val DATABASE_VERSION = 3
 private const val DATABASE_KEY_PREF = "author-database-key-material-v1"
 
+private data class DatabasePassword(val value: String, val generated: Boolean)
+
 class NotesDatabase(
   context: Context,
   securePrefs: SecurePreferenceStore = defaultSecurePreferences(context),
@@ -255,26 +257,37 @@ private fun defaultSecurePreferences(context: Context): SecurePreferenceStore =
 private fun prepareDatabase(context: Context, securePrefs: SecurePreferenceStore): String {
   System.loadLibrary("sqlcipher")
   val password = databasePassword(securePrefs)
-  migratePlaintextDatabaseIfNeeded(context, password)
-  return password
+  prepareExistingDatabase(context, password)
+  return password.value
 }
 
-private fun databasePassword(securePrefs: SecurePreferenceStore): String {
+private fun databasePassword(securePrefs: SecurePreferenceStore): DatabasePassword {
   securePrefs
     .getString(DATABASE_KEY_PREF)
     ?.takeIf { it.isNotBlank() }
     ?.let {
-      return it
+      return DatabasePassword(it, generated = false)
     }
   val key = ByteArray(32)
   SecureRandom().nextBytes(key)
-  return base64UrlEncode(key).also { securePrefs.putString(DATABASE_KEY_PREF, it) }
+  val password = base64UrlEncode(key).also { securePrefs.putString(DATABASE_KEY_PREF, it) }
+  return DatabasePassword(password, generated = true)
 }
 
-private fun migratePlaintextDatabaseIfNeeded(context: Context, password: String) {
+private fun prepareExistingDatabase(context: Context, password: DatabasePassword) {
   val dbFile = context.getDatabasePath(DATABASE_NAME)
-  if (!dbFile.exists() || canOpenEncryptedDatabase(dbFile, password)) return
+  if (!dbFile.exists() || canOpenEncryptedDatabase(dbFile, password.value)) return
+  if (!canOpenPlaintextDatabase(dbFile)) {
+    if (password.generated) {
+      quarantineUnreadableDatabase(dbFile)
+      return
+    }
+    throw IllegalStateException("Could not open encrypted Android database")
+  }
+  migratePlaintextDatabase(dbFile, password.value)
+}
 
+private fun migratePlaintextDatabase(dbFile: File, password: String) {
   val tempFile = File(dbFile.parentFile, "${dbFile.name}.sqlcipher-migrating")
   val backupFile = File(dbFile.parentFile, "${dbFile.name}.plaintext-backup")
   tempFile.delete()
@@ -314,6 +327,23 @@ private fun migratePlaintextDatabaseIfNeeded(context: Context, password: String)
   backupFile.delete()
 }
 
+private fun canOpenPlaintextDatabase(dbFile: File): Boolean {
+  var db: SQLiteDatabase? = null
+  return runCatching {
+      db =
+        SQLiteDatabase.openDatabase(
+          dbFile.absolutePath,
+          "",
+          null,
+          SQLiteDatabase.OPEN_READONLY,
+          null,
+        )
+      db.rawQuery("SELECT count(*) FROM sqlite_master", emptyArray<String>()).use {}
+    }
+    .also { db?.close() }
+    .isSuccess
+}
+
 private fun canOpenEncryptedDatabase(dbFile: File, password: String): Boolean {
   var db: SQLiteDatabase? = null
   return runCatching {
@@ -329,6 +359,15 @@ private fun canOpenEncryptedDatabase(dbFile: File, password: String): Boolean {
     }
     .also { db?.close() }
     .isSuccess
+}
+
+private fun quarantineUnreadableDatabase(dbFile: File) {
+  val quarantineFile =
+    File(dbFile.parentFile, "${dbFile.name}.unreadable-${System.currentTimeMillis()}")
+  if (!dbFile.renameTo(quarantineFile)) {
+    throw IllegalStateException("Could not move unreadable Android database aside")
+  }
+  deleteDatabaseSidecars(dbFile)
 }
 
 private fun deleteDatabaseSidecars(dbFile: File) {

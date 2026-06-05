@@ -63,6 +63,25 @@ class NotesRepositorySyncInstrumentedTest {
   }
 
   @Test
+  fun passwordLoginAdoptsAccountEncryptedRowsWhenLocalKeyMaterialWasLost() = runBlocking {
+    val note = repository.createBlankNote("Synced title", "Synced body")
+
+    crypto.clearStoredEncryptionKeyMaterial()
+
+    repository.rememberPasswordAndAdopt(
+      TEST_USERNAME,
+      TEST_PASSWORD,
+      previousUsername = TEST_USERNAME,
+      nextMaterialOverride = keyMaterial,
+    )
+
+    assertEquals(true, repository.hasStoredEncryptionKeyMaterial())
+    val restored = repository.loadWorkspaceSnapshot().notes.single { it.id == note.id }
+    assertEquals("Synced title", restored.title)
+    assertEquals("Synced body", restored.body)
+  }
+
+  @Test
   fun runSyncStoresEncryptedRemoteEditConflictAndResolvesLocalWinner() = runBlocking {
     FakeSyncServer().use { server ->
       server.start()

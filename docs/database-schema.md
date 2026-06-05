@@ -139,7 +139,11 @@ Database: `author.db`, current schema version: 3.
 Android uses SQLCipher through `SQLiteOpenHelper`, not Room. A random database
 key is generated locally and stored through Android secure preferences. On
 startup, legacy plaintext `author.db` files are exported into a SQLCipher
-database and the plaintext backup is removed after a successful migration.
+database and the plaintext backup is removed after a successful migration. If
+an encrypted database file survives but the local database key material is gone
+or undecryptable, Android moves the unreadable `author.db` aside with an
+`author.db.unreadable-*` suffix and starts a clean local database so a password
+login can pull synced remote data again.
 
 Tables:
 

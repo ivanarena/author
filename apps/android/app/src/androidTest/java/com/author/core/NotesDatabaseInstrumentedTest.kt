@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
@@ -18,12 +19,12 @@ class NotesDatabaseInstrumentedTest {
   @Before
   fun setUp() {
     context = ApplicationProvider.getApplicationContext()
-    context.deleteDatabase("author.db")
+    deleteDatabaseArtifacts()
   }
 
   @After
   fun tearDown() {
-    context.deleteDatabase("author.db")
+    deleteDatabaseArtifacts()
   }
 
   @Test
@@ -74,6 +75,32 @@ class NotesDatabaseInstrumentedTest {
     }
   }
 
+  @Test
+  fun startsFreshWhenDatabaseKeyMaterialIsLost() {
+    val first = NotesDatabase(context)
+    try {
+      first.putDevice(Device("device-1", "Android test"))
+    } finally {
+      first.close()
+    }
+
+    context.getSharedPreferences("author", Context.MODE_PRIVATE).edit().clear().commit()
+
+    val second = NotesDatabase(context)
+    try {
+      assertEquals(emptyList<Device>(), second.allDevices())
+      second.putDevice(Device("device-2", "Recovered Android test"))
+      assertEquals(Device("device-2", "Recovered Android test"), second.getDevice("device-2"))
+    } finally {
+      second.close()
+    }
+
+    val databaseDir = context.getDatabasePath("author.db").parentFile
+    assertTrue(
+      databaseDir?.listFiles()?.any { it.name.startsWith("author.db.unreadable-") } == true
+    )
+  }
+
   private fun note(id: String) =
     LocalNote(
       id = id,
@@ -108,4 +135,14 @@ class NotesDatabaseInstrumentedTest {
       lastSyncedVersion = 0,
       lastSyncedAt = null,
     )
+
+  private fun deleteDatabaseArtifacts() {
+    context.deleteDatabase("author.db")
+    context
+      .getDatabasePath("author.db")
+      .parentFile
+      ?.listFiles()
+      ?.filter { it.name.startsWith("author.db.unreadable-") }
+      ?.forEach { it.delete() }
+  }
 }

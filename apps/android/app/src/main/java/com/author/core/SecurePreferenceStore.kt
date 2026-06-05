@@ -14,18 +14,31 @@ private const val ANDROID_KEYSTORE = "AndroidKeyStore"
 private const val SECURE_PREF_ALIAS = "author_secure_preferences_v1"
 private const val SECURE_PREFIX = "secure:v1:"
 
-class SecurePreferenceStore(private val prefs: SharedPreferences) {
+interface SecurePreferenceCodec {
+  fun encrypt(value: String): String
+
+  fun decrypt(payload: String): String
+}
+
+class SecurePreferenceStore(
+  private val prefs: SharedPreferences,
+  private val codec: SecurePreferenceCodec = AndroidKeystoreSecurePreferenceCodec(),
+) {
   fun getString(key: String): String? {
     val stored = prefs.getString(key, null) ?: return null
     if (!stored.startsWith(SECURE_PREFIX)) {
       putString(key, stored)
       return stored
     }
-    return decrypt(stored).getOrNull()
+    return runCatching { codec.decrypt(stored.removePrefix(SECURE_PREFIX)) }
+      .getOrElse {
+        prefs.edit { remove(key) }
+        null
+      }
   }
 
   fun putString(key: String, value: String) {
-    prefs.edit { putString(key, encrypt(value)) }
+    prefs.edit { putString(key, "$SECURE_PREFIX${codec.encrypt(value)}") }
   }
 
   fun remove(key: String) {
@@ -33,22 +46,23 @@ class SecurePreferenceStore(private val prefs: SharedPreferences) {
   }
 
   fun contains(key: String): Boolean = prefs.contains(key)
+}
 
-  private fun encrypt(value: String): String {
+private class AndroidKeystoreSecurePreferenceCodec : SecurePreferenceCodec {
+  override fun encrypt(value: String): String {
     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
     cipher.init(Cipher.ENCRYPT_MODE, secretKey())
     val iv = cipher.iv
     val encrypted = cipher.doFinal(value.toByteArray(Charsets.UTF_8))
-    return "$SECURE_PREFIX${base64UrlEncode(iv)}:${base64UrlEncode(encrypted)}"
+    return "${base64UrlEncode(iv)}:${base64UrlEncode(encrypted)}"
   }
 
-  private fun decrypt(value: String): Result<String> = runCatching {
-    val payload = value.removePrefix(SECURE_PREFIX)
+  override fun decrypt(payload: String): String {
     val parts = payload.split(":")
     require(parts.size == 2) { "Invalid secure preference payload" }
     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
     cipher.init(Cipher.DECRYPT_MODE, secretKey(), GCMParameterSpec(128, base64UrlDecode(parts[0])))
-    String(cipher.doFinal(base64UrlDecode(parts[1])), Charsets.UTF_8)
+    return String(cipher.doFinal(base64UrlDecode(parts[1])), Charsets.UTF_8)
   }
 
   private fun secretKey(): SecretKey {

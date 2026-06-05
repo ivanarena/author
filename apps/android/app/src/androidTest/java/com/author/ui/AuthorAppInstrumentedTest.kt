@@ -8,6 +8,8 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -149,8 +151,8 @@ class AuthorAppInstrumentedTest {
     compose.waitForIdle()
     assertTrue(saveRequested.get())
 
-    compose.onNodeWithText("I saved the recovery key and kit").performClick()
-    compose.onNodeWithText("Done").assertIsEnabled().performClick()
+    compose.onNode(hasText("I saved the recovery key and kit") and hasClickAction()).performClick()
+    compose.onNode(hasText("Done") and hasClickAction()).assertIsEnabled().performClick()
     compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
       compose.onAllNodesWithText("Save recovery key").fetchSemanticsNodes().isEmpty()
     }

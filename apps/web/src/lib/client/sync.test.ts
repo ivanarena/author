@@ -10,6 +10,16 @@ import {
   validateSession
 } from './sync';
 import {
+  E2EE_KEYRING_UNLOCK_FAILED_MESSAGE,
+  hasStoredEncryptionKeyMaterial,
+  prepareNewAccountKeyring
+} from './encryption';
+import {
+  authProofFromPassword,
+  passwordVerifierFromPassword,
+  randomAuthNonce
+} from '$lib/shared/auth-proof';
+import {
   absorbSameDevicePushConflict,
   applyRemoteDeletes,
   ensureLocalNotesEncrypted,
@@ -21,11 +31,11 @@ import {
   saveConflict,
   saveDevices
 } from './store';
-import { hasStoredEncryptionKeyMaterial } from './encryption';
 import { localDb } from './db';
 import { recordDebugLog } from './debug-log';
 
-vi.mock('./encryption', () => ({
+vi.mock('./encryption', async () => ({
+  ...(await vi.importActual<typeof import('./encryption')>('./encryption')),
   hasStoredEncryptionKeyMaterial: vi.fn()
 }));
 
@@ -913,6 +923,99 @@ describe('client sync orchestration', () => {
 
     await expect(validateSession('expired-token')).rejects.toBeInstanceOf(
       AuthError
+    );
+  });
+
+  it('completes password proof login and unwraps the returned account keyring', async () => {
+    const password = 'correct-password-2026';
+    const verifier = await passwordVerifierFromPassword(password);
+    const challenge = {
+      mode: 'proof' as const,
+      challengeId: randomAuthNonce(24),
+      username: 'owner@example.com',
+      purpose: 'login' as const,
+      clientNonce: randomAuthNonce(),
+      serverNonce: randomAuthNonce(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      salt: verifier.salt,
+      params: verifier.params
+    };
+    const proofMaterial = await authProofFromPassword(password, challenge);
+    const keyring = await prepareNewAccountKeyring('owner', password);
+    const fetchMock = mockFetch(
+      jsonResponse(challenge),
+      jsonResponse({
+        token: 'session-token',
+        user: {
+          username: 'owner',
+          email: 'owner@example.com',
+          displayName: null,
+          twoFactorEnabled: false
+        },
+        device,
+        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+        serverProof: proofMaterial.expectedServerProof,
+        e2eeKeyring: keyring.e2eeKeyring
+      })
+    );
+
+    await expect(login('owner@example.com', password)).resolves.toMatchObject({
+      token: 'session-token',
+      user: { username: 'owner' },
+      encryptionKeyMaterial: keyring.keyMaterial
+    });
+
+    const loginPayload = JSON.parse(
+      String(fetchMock.mock.calls[1]?.[1]?.body ?? '{}')
+    ) as Record<string, unknown>;
+    expect(loginPayload).toMatchObject({
+      username: 'owner@example.com',
+      proof: proofMaterial.proof,
+      device
+    });
+    expect(loginPayload.password).toBeUndefined();
+    expect(loginPayload.passwordVerifier).toBeUndefined();
+    expect(loginPayload.bootstrapPassword).toBeUndefined();
+  });
+
+  it('reports accepted passwords that cannot unlock the encrypted keyring', async () => {
+    const password = 'new-password-2026';
+    const verifier = await passwordVerifierFromPassword(password);
+    const challenge = {
+      mode: 'proof' as const,
+      challengeId: randomAuthNonce(24),
+      username: 'owner',
+      purpose: 'login' as const,
+      clientNonce: randomAuthNonce(),
+      serverNonce: randomAuthNonce(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      salt: verifier.salt,
+      params: verifier.params
+    };
+    const proofMaterial = await authProofFromPassword(password, challenge);
+    const staleKeyring = await prepareNewAccountKeyring(
+      'owner',
+      'old-password-2026'
+    );
+    mockFetch(
+      jsonResponse(challenge),
+      jsonResponse({
+        token: 'session-token',
+        user: {
+          username: 'owner',
+          email: null,
+          displayName: null,
+          twoFactorEnabled: false
+        },
+        device,
+        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+        serverProof: proofMaterial.expectedServerProof,
+        e2eeKeyring: staleKeyring.e2eeKeyring
+      })
+    );
+
+    await expect(login('owner', password)).rejects.toThrow(
+      E2EE_KEYRING_UNLOCK_FAILED_MESSAGE
     );
   });
 

@@ -1,0 +1,14 @@
+# Wrangler local dev against the separate staging Turso database.
+# Copy to apps/web/.dev.vars only when you intentionally want staging data.
+
+NOTES_DB_PROVIDER=turso
+NOTES_REMOTE_SYNC_ENABLED=false
+NOTES_CLEANUP_ENABLED=false
+NOTES_TRUST_PROXY_HEADERS=false
+NOTES_LOGIN_USERNAME=owner
+TURSO_DATABASE_URL=libsql://your-staging-database.turso.io
+TURSO_AUTH_TOKEN=your-staging-turso-token
+NOTES_LOGIN_PASSWORD=change-this-long-random-staging-bootstrap-password
+NOTES_SERVER_SECRET=change-this-long-random-staging-server-secret
+NOTES_AUTH_SESSION_DAYS=90
+NOTES_SIGNUP_ALLOWED_EMAILS=author-remote-test@example.invalid

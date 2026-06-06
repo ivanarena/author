@@ -36,6 +36,8 @@ const val ENCRYPTION_UPGRADE_REQUIRED_MESSAGE =
   "This workspace uses an older encryption format. Open it with the migration-capable release first, then return to this version."
 const val ENCRYPTION_DECRYPT_FAILED_MESSAGE =
   "Encrypted note data cannot be decrypted with the active key material. Sign in again before syncing or changing this workspace."
+const val E2EE_KEYRING_UNLOCK_FAILED_MESSAGE =
+  "Password accepted, but this password cannot unlock the encrypted note keyring. Use the current account password or restore with your recovery key and kit."
 
 data class AuthKdfParams(
   val algorithm: String = "argon2id",

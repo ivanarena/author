@@ -15,6 +15,8 @@ import {
 } from './api-client';
 import { localDb, type LocalNote, type LocalNotebook } from './db';
 import {
+  E2EE_KEYRING_UNLOCK_FAILED_MESSAGE,
+  ENCRYPTION_DECRYPT_FAILED_MESSAGE,
   hasStoredEncryptionKeyMaterial,
   keyMaterialFromPassword,
   keyringMaterialFromWrapped,
@@ -616,7 +618,7 @@ export async function login(
   if (response.e2eeKeyring) {
     return {
       ...response,
-      encryptionKeyMaterial: await keyringMaterialFromWrapped(
+      encryptionKeyMaterial: await unlockLoginKeyring(
         response.e2eeKeyring,
         response.user.username,
         password
@@ -640,6 +642,24 @@ export async function login(
     recoveryCode: migrated.recoveryCode,
     recoveryKit: migrated.recoveryKit
   };
+}
+
+async function unlockLoginKeyring(
+  e2eeKeyring: string,
+  username: string,
+  password: string
+): Promise<string> {
+  try {
+    return await keyringMaterialFromWrapped(e2eeKeyring, username, password);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === ENCRYPTION_DECRYPT_FAILED_MESSAGE
+    ) {
+      throw new Error(E2EE_KEYRING_UNLOCK_FAILED_MESSAGE, { cause: error });
+    }
+    throw error;
+  }
 }
 
 export async function signup(

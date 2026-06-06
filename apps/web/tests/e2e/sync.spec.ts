@@ -521,9 +521,12 @@ test('signs up and manages trusted-device sign-in without ending the active sess
       email: string;
       displayName?: string | null;
       passwordVerifier?: unknown;
+      e2eeKeyring?: unknown;
       device: { id: string; name: string };
     };
     expect(body.passwordVerifier).toBeTruthy();
+    expect(typeof body.e2eeKeyring).toBe('string');
+    expect(String(body.e2eeKeyring)).toContain('"passwordWrap"');
     signedUpUser = {
       username: body.username,
       email: body.email,

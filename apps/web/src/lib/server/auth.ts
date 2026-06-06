@@ -955,8 +955,14 @@ export async function setUserPasswordVerifier(
   const normalized = requireUsername(username);
   const now = new Date().toISOString();
   const passwordHash = passwordHashFromVerifier(verifier);
+  const existing = await getUserRow(db, normalized);
   const nextE2eeKeyring =
-    e2eeKeyring === undefined ? null : cleanE2eeKeyring(e2eeKeyring);
+    e2eeKeyring === undefined ? undefined : cleanE2eeKeyring(e2eeKeyring);
+  if (existing?.e2ee_keyring && !nextE2eeKeyring) {
+    throw new Error(
+      'Password reset for an encrypted account requires a replacement encrypted keyring. Use the E2EE recovery flow.'
+    );
+  }
 
   await run(db, 'DELETE FROM auth_sessions WHERE username = ?', [normalized]);
   await run(db, 'DELETE FROM trusted_auth_devices WHERE username = ?', [
@@ -979,7 +985,7 @@ export async function setUserPasswordVerifier(
       null,
       passwordHash.hash,
       passwordHash.salt,
-      nextE2eeKeyring,
+      nextE2eeKeyring ?? null,
       null,
       null,
       now,

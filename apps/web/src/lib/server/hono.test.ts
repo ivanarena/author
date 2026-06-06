@@ -19,6 +19,12 @@ import {
   randomAuthNonce
 } from '../shared/auth-proof';
 import { MIN_PASSWORD_LENGTH } from '../shared/password-policy';
+import {
+  decryptNoteFields,
+  encryptNoteFields,
+  keyringMaterialFromWrapped,
+  prepareNewAccountKeyring
+} from '../client/encryption';
 
 let tempDir: string;
 const fixtureDeviceTrustSecret = 'test-device-trust-secret-0123456789';
@@ -774,6 +780,107 @@ describe('Hono API', () => {
     expect(duplicate.status).toBe(409);
   });
 
+  it('signs up, logs in again, and decrypts synced notes with the same keyring', async () => {
+    const remotePath = join(tempDir, 'signup-login-keyring.sqlite');
+    const username = 'new-user';
+    const email = 'new@example.com';
+    const password = 'new-user-password';
+    process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
+    process.env.TURSO_AUTH_TOKEN = 'test-token';
+    process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
+    process.env.NOTES_SIGNUP_ALLOWED_EMAILS = email;
+
+    const keyring = await prepareNewAccountKeyring(username, password);
+    const signup = await api.fetch(
+      new Request('http://localhost/api/auth/signup', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(
+          await signupBody(username, email, password, {
+            e2eeKeyring: keyring.e2eeKeyring
+          })
+        )
+      })
+    );
+    expect(signup.status).toBe(200);
+    const signupSession = (await signup.json()) as { token: string };
+    const note = {
+      ...fixtureNote,
+      id: 'signup-keyring-note',
+      title: 'Signup keyring title',
+      body: 'Signup keyring body',
+      titleHash: null,
+      bodyHash: null,
+      version: 1,
+      syncStatus: 'pending' as const
+    };
+    const push = await post(
+      '/api/sync/push',
+      {
+        device: fixtureDevice,
+        notebooks: [],
+        notes: [
+          {
+            record: await encryptNoteFields(note, keyring.keyMaterial),
+            baseVersion: 0
+          }
+        ]
+      },
+      signupSession.token
+    );
+    expect(push.status).toBe(200);
+
+    const challenge = await authChallenge(email, 'login');
+    const proof = await authProofFromPassword(password, challenge);
+    const relogin = await api.fetch(
+      new Request('http://localhost/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: email,
+          proof: proof.proof,
+          device: { id: 'second-device', name: 'Second browser' },
+          deviceTrustSecret: `${fixtureDeviceTrustSecret}-second`
+        })
+      })
+    );
+    expect(relogin.status).toBe(200);
+    const reloginBody = (await relogin.json()) as {
+      token: string;
+      e2eeKeyring: string;
+      serverProof: string;
+      user: { username: string };
+    };
+    expect(reloginBody.serverProof).toBe(proof.expectedServerProof);
+    const loginMaterial = await keyringMaterialFromWrapped(
+      reloginBody.e2eeKeyring,
+      reloginBody.user.username,
+      password
+    );
+    expect(loginMaterial).toBe(keyring.keyMaterial);
+
+    const pull = await post(
+      '/api/sync/pull',
+      { since: null, sinceRevision: 0 },
+      reloginBody.token
+    );
+    expect(pull.status).toBe(200);
+    const pullBody = (await pull.json()) as { notes: Array<typeof note> };
+    await expect(
+      Promise.all(
+        pullBody.notes.map((remoteNote) =>
+          decryptNoteFields(remoteNote, loginMaterial)
+        )
+      )
+    ).resolves.toContainEqual(
+      expect.objectContaining({
+        id: note.id,
+        title: note.title,
+        body: note.body
+      })
+    );
+  });
+
   it('rejects signup payloads without a client password verifier', async () => {
     const remotePath = join(tempDir, 'missing-verifier-remote.sqlite');
     process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
@@ -1210,6 +1317,30 @@ describe('Hono API', () => {
     await expect(
       loginToken('owner', 'new-test-password-2026')
     ).resolves.toEqual(expect.any(String));
+  });
+
+  it('refuses password resets that would strand an encrypted account keyring', async () => {
+    const db = await openDatabase();
+    try {
+      await setUserPassword(db, 'owner', 'test-password-2026');
+      await updateUserProfile(
+        db,
+        'owner',
+        undefined,
+        undefined,
+        'wrapped-keyring-v1'
+      );
+
+      await expect(
+        setUserPassword(db, 'owner', 'new-test-password-2026')
+      ).rejects.toThrow('requires a replacement encrypted keyring');
+    } finally {
+      db.close();
+    }
+
+    await expect(loginToken('owner', 'test-password-2026')).resolves.toEqual(
+      expect.any(String)
+    );
   });
 
   it('revokes trusted device OTP login when a password is reset', async () => {

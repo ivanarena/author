@@ -8,6 +8,8 @@ export const ENCRYPTION_UPGRADE_REQUIRED_MESSAGE =
   'This workspace uses an older encryption format. Open it with the migration-capable release first, then return to this version.';
 export const ENCRYPTION_DECRYPT_FAILED_MESSAGE =
   'Encrypted note data cannot be decrypted with the active key material. Sign in again before syncing or changing this workspace.';
+export const E2EE_KEYRING_UNLOCK_FAILED_MESSAGE =
+  'Password accepted, but this password cannot unlock the encrypted note keyring. Use the current account password or restore with your recovery key and kit.';
 
 export const HASH_V3_PREFIX = 'hash:v3:';
 export const KEYRING_MATERIAL_PREFIX = 'keyring:v1:';

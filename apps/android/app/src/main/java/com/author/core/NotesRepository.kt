@@ -659,8 +659,7 @@ class NotesRepository(context: Context) : AutoCloseable {
 
       response.e2eeKeyring?.let {
         return@withContext response.copy(
-          encryptionKeyMaterial =
-            crypto.keyringMaterialFromWrapped(it, response.user.username, password)
+          encryptionKeyMaterial = unlockLoginKeyring(it, response.user.username, password)
         )
       }
 
@@ -674,6 +673,16 @@ class NotesRepository(context: Context) : AutoCloseable {
         recoveryCode = migrated.recoveryCode,
         recoveryKitJson = migrated.recoveryKitJson,
       )
+    }
+
+  private fun unlockLoginKeyring(e2eeKeyring: String, username: String, password: String): String =
+    try {
+      crypto.keyringMaterialFromWrapped(e2eeKeyring, username, password)
+    } catch (error: IllegalStateException) {
+      if (error.message == ENCRYPTION_DECRYPT_FAILED_MESSAGE) {
+        throw IllegalStateException(E2EE_KEYRING_UNLOCK_FAILED_MESSAGE, error)
+      }
+      throw error
     }
 
   suspend fun signup(username: String, email: String, password: String): LoginResponse =

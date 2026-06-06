@@ -17,6 +17,15 @@ class NoteCryptoTest {
   private val crypto =
     NoteCrypto(FakeSharedPreferences(), SecurePreferenceStore(FakeSharedPreferences()))
 
+  private val crossDeviceKeyMaterial =
+    "keyring:v1:eyJ2ZXJzaW9uIjoxLCJzY29wZSI6ImFjY291bnQiLCJhY2NvdW50VXNlcm5hbWUiOiJpdmFua25vd3N3aGF0IiwiYWN0aXZlS2V5SWQiOiJka19jcm9zc19kZXZpY2VfdGVzdCIsImtleXMiOlt7ImlkIjoiZGtfY3Jvc3NfZGV2aWNlX3Rlc3QiLCJtYXRlcmlhbCI6IkFRSURCQVVHQndnSkNnc01EUTRQRUJFU0V4UVZGaGNZR1JvYkhCMGVIeUEiLCJjcmVhdGVkQXQiOiIyMDI2LTA2LTA2VDAwOjAwOjAwLjAwMFoiLCJzdGF0dXMiOiJhY3RpdmUifV0sImNyZWF0ZWRBdCI6IjIwMjYtMDYtMDZUMDA6MDA6MDAuMDAwWiIsInVwZGF0ZWRBdCI6IjIwMjYtMDYtMDZUMDA6MDA6MDAuMDAwWiJ9"
+  private val crossDeviceE2eeKeyring =
+    "{\"version\":1,\"activeKeyId\":\"dk_cross_device_test\",\"wrappedAt\":\"2026-06-06T00:00:00.000Z\",\"passwordWrap\":{\"alg\":\"AES-256-GCM\",\"kdf\":\"sha256\",\"context\":\"password\",\"iv\":\"EBESExQVFhcYGRob\",\"ciphertext\":\"y7APgNIh9IA6rt6GuOe7pTGfT09DNii7F9Fi5eB8-GewVRoZKmYvcKmmS-mJsqSfx2Ho6ZzGr2HH6-J3xIj40UakTLjxksoG2O_pb4utD0dNh-Ls7rtvyE4SvNMPgEYmjAsHo7K9ChBYMLLblaOvBvEAPENlqBbURKvefwAAKYGrzdSOGpm728cV5_IBnx4RAuPZzYprhwKHlPSKhmSkaxOBPSr9aHLIGWwv9DAklpMfDmJReUibWbsY6DLI1-9RGC3taBrD08dvPk4uEr2866ansAl3_mqSKHMszDM4LIMKKljWc09n-ZGFN-KsCkbiGMX0cbaAXLH6e40Nri0oqKtzZKAgGAh6IKcHO8iTTs3lbucdI6BS9BGph8BcpcntjwV4EUuDJVg4EWOTcMJyRUwTV-wb1TI7ixzCKqLbywU3GTfECAp_6Zc6qMZMYY2Idolmnw2ZOqnEUskZnZpAMzAN33x3Q1PBj62xa6Eo0S4MWrl-o5Wdm4USBu6JAdLylzcaGPtwm2ohmefC_WyGpf26S6qa7qSoSH9vzDS3nXLjlDrnBeLBLp-nQMa1PJjmRQYADDuohUdON5h0LMniZpdYYIxf_dUiEPEfnxL_xG3-yPgxzhLY\"}}"
+  private val crossDeviceTitle =
+    "enc:v4:dk_cross_device_test:ICEiIyQlJicoKSor:NIHVEIZ2taJuy2T8Z22wyD3wFxOWxToCV1ChoQPZkEEEFQ"
+  private val crossDeviceBody =
+    "enc:v4:dk_cross_device_test:MDEyMzQ1Njc4OTo7:Ogt4VSKzR-umq82mqNrCHbF661Qoz4GMjc30m1di5H1q"
+
   @Test
   fun encryptsLiteralTextThatOnlyImitatesEncryptedPrefix() {
     val prefixedPlaintext = "enc:v3:ZmFrZS1pdg:bm90LWFlcy1nY20"
@@ -115,6 +124,33 @@ class NoteCryptoTest {
     )
     assertThrowsEncryptionDecryptFailure {
       crypto.keyringMaterialFromWrapped(rewrapped, "owner", "test-password")
+    }
+  }
+
+  @Test
+  fun matchesWebKeyringAndEncryptedFieldFixture() {
+    assertEquals(
+      crossDeviceKeyMaterial,
+      crypto.keyringMaterialFromWrapped(
+        crossDeviceE2eeKeyring,
+        "ivanknowswhat",
+        "cross-device-password-2026",
+      ),
+    )
+    assertEquals(
+      "Cross-device title",
+      crypto.decryptText(crossDeviceTitle, crossDeviceKeyMaterial, "note:fixture-note:title"),
+    )
+    assertEquals(
+      "Cross-device body",
+      crypto.decryptText(crossDeviceBody, crossDeviceKeyMaterial, "note:fixture-note:body"),
+    )
+    assertThrowsEncryptionDecryptFailure {
+      crypto.keyringMaterialFromWrapped(
+        crossDeviceE2eeKeyring,
+        "ivanknowswhat",
+        "wrong-password-2026",
+      )
     }
   }
 

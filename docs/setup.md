@@ -31,14 +31,19 @@ aube --version
 There are three checked-in env templates:
 
 - `.env.example` at the repo root is the canonical production/self-host template. Android builds read only Android-relevant values from the ignored root `.env`, such as `AUTHOR_API_URL`, update URLs, and release signing settings; server and deploy tokens are ignored.
+- `.env.staging.example` at the repo root is the staging-only Turso and Cloudflare template. Keep these values pointed at `author-staging` resources, never production.
 - `apps/web/.env.example` is the small local web-dev template used by Vite/SvelteKit.
 - `apps/web/.dev.vars.example` is only for local Cloudflare Worker runs with Wrangler.
+- `apps/web/.dev.vars.staging.example` is only for local Wrangler runs that intentionally use the staging Turso database.
 
 For local web development, copy `apps/web/.env.example` to `apps/web/.env`.
 The web dev/build config also loads the repo-root `.env` as defaults for known
 Author server and Android keys before Vite reads `apps/web/.env`, so shared
 values such as `NOTES_LOGIN_PASSWORD`, `TURSO_DATABASE_URL`, and
 `AUTHOR_API_URL` can live in the root file and stay aligned with Android.
+For day-to-day local testing, keep `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`
+out of the root `.env`; local web dev should stay SQLite-only unless you are
+intentionally running a staging or production check.
 
 ```env
 NOTES_DB_PATH=.data/notes.sqlite
@@ -155,10 +160,17 @@ aube run cf:secrets
 ```
 
 `apps/web/wrangler.jsonc` sets `NOTES_DB_PROVIDER=turso`, so Cloudflare Workers use Turso directly as the primary database. The app initializes the Turso schema on first API access, using the same idempotent schema/migration code as local SQLite. The Worker build wraps SvelteKit's generated `fetch` handler with a Cloudflare Cron `scheduled` handler, so the default `NOTES_CLEANUP_ENABLED=true` setting runs trash cleanup directly against Turso once a day. Password authentication uses a client-side Argon2id challenge/proof verifier, so Worker login and signup requests do not run Argon2 and can stay inside the free plan CPU budget without weakening the password KDF.
-`cf:secrets` reads the ignored repo-root `.env` and uploads only Worker runtime
-keys with `wrangler secret bulk`; it never prints secret values. In
+`cf:secrets` reads the ignored repo-root `.env` and uploads only production
+Worker runtime keys with `wrangler secret bulk`; it never prints secret values.
+Keep production Turso values out of your local `.env` unless you are actively
+deploying production. It requires `AUTHOR_DEPLOY_TARGET=production` so a local
+or staging env cannot accidentally upload production-shaped secrets. In
 non-interactive shells, set `CLOUDFLARE_API_TOKEN` first or run
 `aube exec wrangler login` locally.
+If production Turso values are inherited only from the shell and not present in
+the ignored root `.env`, `cf:secrets` refuses to run unless
+`AUTHOR_ALLOW_SHELL_PRODUCTION_SECRETS=true` is set for an intentional one-off
+deploy.
 
 Then deploy:
 
@@ -195,10 +207,35 @@ unless `AUTHOR_REMOTE_TEST_ALLOW_NON_TEST_TARGET=true` is set.
 Create the staging database and token:
 
 ```sh
+turso auth login
 turso db create author-staging
 turso db show --url author-staging
 turso db tokens create author-staging
 ```
+
+Copy `.env.staging.example` into your ignored root `.env` or export the same
+`STAGING_*` values, then dry-run the staging secret upload:
+
+```sh
+cd apps/web
+aube run cf:secrets:staging -- --dry-run
+```
+
+After confirming the output says `author-staging`, upload staging Worker
+secrets and deploy the staging Worker:
+
+```sh
+cd apps/web
+aube run cf:secrets:staging
+aube run cf:deploy:staging
+```
+
+The staging command maps `STAGING_TURSO_DATABASE_URL`,
+`STAGING_TURSO_AUTH_TOKEN`, `STAGING_NOTES_LOGIN_PASSWORD`,
+`STAGING_NOTES_SERVER_SECRET`, and `STAGING_AUTHOR_API_URL` into the Worker
+runtime secret names expected by the app. It defaults the Worker name to
+`author-staging`; set `STAGING_CLOUDFLARE_WORKER_NAME` only for another
+non-production Worker.
 
 Add these GitHub secrets for the `Remote Staging Smoke` workflow:
 
@@ -224,14 +261,14 @@ pull/push, stale-write conflicts, and cleanup.
 For local operator checks:
 
 ```sh
-AUTHOR_REMOTE_TEST_DATABASE_URL=libsql://your-staging-database.turso.io \
-AUTHOR_REMOTE_TEST_AUTH_TOKEN=your-staging-turso-token \
+STAGING_TURSO_DATABASE_URL=libsql://your-staging-database.turso.io \
+STAGING_TURSO_AUTH_TOKEN=your-staging-turso-token \
 AUTHOR_REMOTE_TEST_PASSWORD=use-a-long-random-test-password \
 aube run remote:test:seed
 
-AUTHOR_REMOTE_TEST_API_URL=https://author-staging.example.com \
-AUTHOR_REMOTE_TEST_DATABASE_URL=libsql://your-staging-database.turso.io \
-AUTHOR_REMOTE_TEST_AUTH_TOKEN=your-staging-turso-token \
+STAGING_AUTHOR_API_URL=https://author-staging.example.com \
+STAGING_TURSO_DATABASE_URL=libsql://your-staging-database.turso.io \
+STAGING_TURSO_AUTH_TOKEN=your-staging-turso-token \
 AUTHOR_REMOTE_TEST_PASSWORD=use-a-long-random-test-password \
 aube run remote:test
 ```
@@ -362,13 +399,15 @@ Point `ANDROID_UPDATE_CHECK_URL` at that JSON file. Clients need to launch the a
 
 ## Users
 
-Create or reset a DB-backed user with:
+Create a DB-backed user with:
 
 ```sh
 aube -F @author/web run user:create -- iarena --random
 ```
 
-Use the printed password once in the web UI. Resetting a password revokes that user's existing sessions; sign in again on each browser after a reset.
+Use the printed password once in the web UI. For encrypted accounts that
+already have an `e2ee_keyring`, use the E2EE recovery flow above instead of a
+plain password reset so the note keyring remains unlockable.
 
 ## TLS Reverse Proxy
 
@@ -465,6 +504,9 @@ aube -F @author/web run e2ee:recover
 The script prints SQL that resets the account password verifier, revokes active
 sessions and trusted-device login, and stores a password-wrapped replacement
 `e2ee_keyring`.
+Plain password resets are rejected for accounts that already have an
+`e2ee_keyring`; reset the password and rewrap the keyring together with this
+recovery flow.
 
 ## Development
 

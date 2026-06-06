@@ -42,6 +42,10 @@ For recovery drills or operator-assisted repair, the web package includes
 prints SQL to reset that account's password verifier, revoke active
 sessions/trusted-device login, and update `users.e2ee_keyring`, or JSON when
 `AUTHOR_RECOVERY_OUTPUT=json`.
+Do not use a plain password reset for an account that already has an
+`e2ee_keyring`: the server rejects that path because it would leave note keys
+wrapped by the old password. Use the recovery script so the replacement
+password verifier and replacement keyring wrap are updated together.
 
 ## Instances
 
@@ -93,6 +97,14 @@ and removes each run-specific smoke note after the check. Do not point
 `AUTHOR_REMOTE_TEST_DATABASE_URL` or `AUTHOR_REMOTE_TEST_API_URL` at production;
 the scripts fail closed unless the target name looks like test, staging,
 preview, smoke, or CI.
+
+For manual staging deploys, use the `STAGING_*` variables from
+`.env.staging.example` and `aube -F @author/web run cf:secrets:staging`. The
+secret upload dry-run should name `author-staging`; never upload production
+Turso values through the staging path or staging values through `cf:secrets`.
+The production `cf:secrets` path requires `AUTHOR_DEPLOY_TARGET=production` and
+also refuses inherited shell-only production Turso values by default, which
+prevents stale direnv/session exports from being used accidentally.
 
 ## Backups
 

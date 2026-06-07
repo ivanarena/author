@@ -2,6 +2,7 @@ import type { APIRequestContext, Locator, Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import {
+  ENCRYPTION_UPGRADE_REQUIRED_MESSAGE,
   decryptNoteFields,
   ENCRYPTION_KEY_MATERIAL_STORAGE_KEY,
   encryptNoteFields,
@@ -25,14 +26,14 @@ let e2eKeyMaterial = '';
 const testsWithoutPreloadedSession = new Set([
   'recovers editor text when reload interrupts the debounced save',
   'logs in from the profile menu when no session is stored',
-  'signs up and manages trusted-device sign-in without ending the active session',
+  'signs up with the real API and logs in again with the same password',
   'keeps local drafts when signing in and then syncs them remote'
 ]);
 
 const testsWithoutRemoteTokenSetup = new Set([
   'recovers editor text when reload interrupts the debounced save',
   'logs in from the profile menu when no session is stored',
-  'signs up and manages trusted-device sign-in without ending the active session'
+  'signs up with the real API and logs in again with the same password'
 ]);
 
 type RemoteNote = {
@@ -464,27 +465,18 @@ test('logs in from the profile menu when no session is stored', async ({
   await expect(page.getByRole('dialog', { name: 'Sign in' })).toBeVisible();
 });
 
-test('signs up and manages trusted-device sign-in without ending the active session', async ({
+test('signs up with the real API and logs in again with the same password', async ({
+  browser,
   context,
   page
 }, testInfo) => {
   const signupDeviceId = `e2e-signup-device-${testInfo.retry}`;
+  const loginDeviceId = `e2e-signup-login-device-${testInfo.retry}`;
   const signupUsername = `e2e-signup-${testInfo.retry}-${Date.now()}`;
-  const signupEmail = `${signupUsername}@example.com`;
+  const signupEmail = `e2e-signup-${testInfo.retry}@example.com`;
   const signupPassword = 'e2e-signup-password';
-  let signedUpUser = {
-    username: signupUsername,
-    email: signupEmail,
-    displayName: null as string | null,
-    twoFactorEnabled: false
-  };
-  let trustedDevice = {
-    deviceId: signupDeviceId,
-    deviceName: 'This browser',
-    createdAt: new Date().toISOString(),
-    lastUsedAt: new Date().toISOString(),
-    current: true
-  };
+  const noteTitle = `Signup relogin note ${Date.now()}`;
+  const noteBody = 'Created after signup and decrypted after relogin';
   await page.close();
   const signupPage = await context.newPage();
 
@@ -501,131 +493,6 @@ test('signs up and manages trusted-device sign-in without ending the active sess
       }
     });
   }, signupDeviceId);
-  await signupPage.route('**/api/config', async (route) => {
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        apiBaseUrl: 'http://127.0.0.1:5179',
-        remote: { enabled: false, configured: false },
-        signup: {
-          enabled: true,
-          emailRequired: true,
-          emailAllowListRequired: true
-        }
-      })
-    });
-  });
-  await signupPage.route('**/api/auth/signup', async (route) => {
-    const body = route.request().postDataJSON() as {
-      username: string;
-      email: string;
-      displayName?: string | null;
-      passwordVerifier?: unknown;
-      e2eeKeyring?: unknown;
-      device: { id: string; name: string };
-    };
-    expect(body.passwordVerifier).toBeTruthy();
-    expect(typeof body.e2eeKeyring).toBe('string');
-    expect(String(body.e2eeKeyring)).toContain('"passwordWrap"');
-    signedUpUser = {
-      username: body.username,
-      email: body.email,
-      displayName: body.displayName ?? null,
-      twoFactorEnabled: false
-    };
-    trustedDevice = {
-      deviceId: body.device.id,
-      deviceName: body.device.name,
-      createdAt: new Date().toISOString(),
-      lastUsedAt: new Date().toISOString(),
-      current: true
-    };
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        token: 'signup-session-token',
-        user: signedUpUser,
-        device: body.device,
-        expiresAt: new Date(Date.now() + 86_400_000).toISOString()
-      })
-    });
-  });
-  await signupPage.route('**/api/account/trusted-devices/**', async (route) => {
-    trustedDevice = { ...trustedDevice, current: false };
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({ user: signedUpUser, trustedDevices: [] })
-    });
-  });
-  await signupPage.route('**/api/account', async (route) => {
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        user: signedUpUser,
-        trustedDevices: trustedDevice.current ? [trustedDevice] : []
-      })
-    });
-  });
-  await signupPage.route('**/api/account/totp/setup', async (route) => {
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        secret: 'JBSWY3DPEHPK3PXP',
-        otpauthUrl:
-          'otpauth://totp/Author:owner?secret=JBSWY3DPEHPK3PXP&issuer=Author'
-      })
-    });
-  });
-  await signupPage.route('**/api/sync/push', async (route) => {
-    const body = route.request().postDataJSON() as {
-      device?: { id: string; name: string };
-    };
-    if (body.device?.id === trustedDevice.deviceId) {
-      trustedDevice = {
-        ...trustedDevice,
-        deviceName: body.device.name,
-        lastUsedAt: new Date().toISOString()
-      };
-    }
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        accepted: [],
-        conflicts: [],
-        serverTime: new Date().toISOString()
-      })
-    });
-  });
-  await signupPage.route('**/api/sync/pull', async (route) => {
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        notes: [],
-        notebooks: [],
-        devices: [],
-        deletedNoteIds: [],
-        deletedNotebookIds: [],
-        deletedDeviceIds: [],
-        serverTime: new Date().toISOString(),
-        serverRevision: 0
-      })
-    });
-  });
-  await signupPage.route('**/api/sync/status', async (route) => {
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        remote: {
-          enabled: false,
-          state: 'disabled',
-          pendingSince: null,
-          lastStartedAt: null,
-          lastSyncedAt: null,
-          lastError: null
-        }
-      })
-    });
-  });
 
   await signupPage.goto('/');
 
@@ -705,7 +572,22 @@ test('signs up and manages trusted-device sign-in without ending the active sess
     .toBe(signupUsername);
   await expect
     .poll(() => browserEncryptionKeyMaterial(signupPage))
-    .toEqual(expect.any(String));
+    .not.toBe('');
+  const signupMaterial = await browserEncryptionKeyMaterial(signupPage);
+  expect(signupMaterial).toMatch(/^keyring:v1:/);
+  await expect(
+    signupPage.getByText(ENCRYPTION_UPGRADE_REQUIRED_MESSAGE)
+  ).toHaveCount(0);
+
+  await signupPage.getByLabel('Note title').fill(noteTitle);
+  await signupPage.getByLabel('Note body').fill(noteBody);
+  await expectBrowserStoredEncryptedNote(
+    signupPage,
+    noteTitle,
+    noteBody,
+    signupMaterial
+  );
+  await waitForVisibleSyncedStatus(signupPage);
 
   await signupPage
     .getByRole('button', { name: 'Profile and settings' })
@@ -737,7 +619,7 @@ test('signs up and manages trusted-device sign-in without ending the active sess
     totpForm.getByText('Authenticator 2FA', { exact: true })
   ).toBeVisible();
   await expect(totpForm.getByLabel('Authenticator secret')).toHaveValue(
-    'JBSWY3DPEHPK3PXP'
+    /^[A-Z2-7]+$/
   );
   const totpOverflow = await totpForm.evaluate(
     (form) => form.scrollWidth > form.clientWidth + 1
@@ -755,6 +637,48 @@ test('signs up and manages trusted-device sign-in without ending the active sess
       signupPage.evaluate(() => localStorage.getItem('author-username'))
     )
     .toBe(signupUsername);
+
+  const loginContext = await browser.newContext();
+  try {
+    const loginPage = await loginContext.newPage();
+    await loginPage.addInitScript((deviceId) => {
+      localStorage.setItem('author-device-id', deviceId);
+    }, loginDeviceId);
+
+    await loginPage.goto('/');
+    await waitForDraftEditorReady(loginPage);
+    await openProfileMenu(loginPage);
+    await loginPage.getByRole('menuitem', { name: 'Sign in to sync' }).click();
+    const loginDialog = loginPage.getByRole('dialog', { name: 'Sign in' });
+    await loginDialog.getByLabel('Username').fill(signupUsername);
+    await loginDialog
+      .getByLabel('Password', { exact: true })
+      .fill(signupPassword);
+    await clickSignInSubmit(loginPage);
+
+    await expect(loginDialog).toBeHidden({ timeout: 30_000 });
+    await expect
+      .poll(() =>
+        loginPage.evaluate(() => localStorage.getItem('author-username'))
+      )
+      .toBe(signupUsername);
+    await expect
+      .poll(() => browserEncryptionKeyMaterial(loginPage), {
+        timeout: 30_000
+      })
+      .toBe(signupMaterial);
+    await expect(
+      loginPage.getByText(ENCRYPTION_UPGRADE_REQUIRED_MESSAGE)
+    ).toHaveCount(0);
+    await expectBrowserStoredEncryptedNote(
+      loginPage,
+      noteTitle,
+      noteBody,
+      signupMaterial
+    );
+  } finally {
+    await loginContext.close();
+  }
 });
 
 test('keeps local drafts when signing in and then syncs them remote', async ({

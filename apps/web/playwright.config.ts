@@ -8,10 +8,21 @@ const e2eBaseUrl = 'http://127.0.0.1:5179';
 const e2eEnvVars: Array<[string, string]> = [
   ['AUTHOR_E2E_ENV', 'true'],
   ['AUTHOR_API_URL', e2eBaseUrl],
+  ['NOTES_DB_PROVIDER', 'turso'],
   ['NOTES_DB_PATH', e2eDbPath],
+  ['TURSO_DATABASE_URL', `file:${e2eDbPath}`],
+  ['TURSO_AUTH_TOKEN', 'e2e-turso-token'],
   ['NOTES_REMOTE_SYNC_ENABLED', 'false'],
   ['NOTES_LOGIN_USERNAME', 'owner'],
   ['NOTES_LOGIN_PASSWORD', 'e2e-password-2026'],
+  [
+    'NOTES_SIGNUP_ALLOWED_EMAILS',
+    [
+      'e2e-signup-0@example.com',
+      'e2e-signup-1@example.com',
+      'e2e-signup-2@example.com'
+    ].join(',')
+  ],
   ['NOTES_SERVER_SECRET', 'e2e-server-secret'],
   ['NOTES_CLEANUP_ENABLED', 'false'],
   ['NOTES_BACKUP_ENABLED', 'false']

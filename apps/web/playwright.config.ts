@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 
 const repoRoot = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const e2eDbPath = resolve(repoRoot, 'apps/web/.data/e2e-notes.sqlite');
@@ -33,6 +33,7 @@ function shellQuote(value: string): string {
 }
 
 const e2eWebServerCommand = [
+  `mkdir -p ${shellQuote(dirname(e2eDbPath))}`,
   `rm -f ${shellQuote(e2eDbPath)}*`,
   [
     'env -i PATH="$PATH" HOME="$HOME" TMPDIR="${TMPDIR:-/tmp}"',

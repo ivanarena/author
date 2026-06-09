@@ -143,7 +143,6 @@ class NotesController(private val repository: NotesRepository, private val scope
   var syncActivityLabel by mutableStateOf("")
   var syncActivityDetail by mutableStateOf("")
   var isSyncing by mutableStateOf(false)
-  var isWorkspaceLoading by mutableStateOf(true)
   var pendingSyncCount by mutableIntStateOf(0)
   var lastSyncPassTitle by mutableStateOf("No completed pass yet")
   var lastSyncPassDetail by mutableStateOf("No sync pass has completed on this device.")
@@ -172,6 +171,7 @@ class NotesController(private val repository: NotesRepository, private val scope
   private var lastSnapshot = "" to ""
   private var preparedExport: ByteArray? = null
   private var preparedSignupRecoveryKit: ByteArray? = null
+  private var notificationActions = emptyMap<String, () -> Unit>()
   private var closed = false
 
   override fun close() {
@@ -227,10 +227,9 @@ class NotesController(private val repository: NotesRepository, private val scope
 
   fun initialize() {
     scope.launch {
-      repository.recordDebugLog("info", "App", "Opening workspace")
       try {
         refresh()
-        isWorkspaceLoading = false
+        repository.recordDebugLog("info", "App", "Opening workspace")
         runCatching {
             repository.ensureLocalNotesEncrypted()
             refresh()
@@ -245,7 +244,6 @@ class NotesController(private val repository: NotesRepository, private val scope
         throw error
       } catch (error: Throwable) {
         repository.recordDebugLog("error", "App", "Startup failed", error.stackTraceToString())
-        isWorkspaceLoading = false
         notify("error", "Startup failed", error.message ?: "Could not open notes")
       }
     }
@@ -749,10 +747,6 @@ class NotesController(private val repository: NotesRepository, private val scope
     selectedNoteIds = if (selected) selectedNoteIds + note.id else selectedNoteIds - note.id
   }
 
-  fun enterNoteSelectionMode() {
-    noteSelectionMode = true
-  }
-
   fun toggleAllVisible(selected: Boolean) {
     noteSelectionMode = true
     selectedNoteIds =
@@ -871,11 +865,13 @@ class NotesController(private val repository: NotesRepository, private val scope
 
   fun trashNote(note: LocalNote) {
     scope.launch {
+      val shouldReopenRestoredNote = currentPage == "editor" && selectedNote?.id == note.id
       flushPendingSave()
       repository.moveNoteToTrash(note.id)
       refresh()
       if (selectedNote?.id == note.id)
         notes.firstOrNull { it.id != note.id }?.let(::selectNote) ?: openDraftNote()
+      notifyNotesMovedToTrash(listOf(note.id), shouldReopenRestoredNote)
       scheduleSyncAfterLocalChange()
     }
   }
@@ -907,6 +903,8 @@ class NotesController(private val repository: NotesRepository, private val scope
     val targets = selectedNotes.filter { it.trashedAt == null }
     if (targets.isEmpty()) return
     scope.launch {
+      val shouldReopenRestoredNote =
+        currentPage == "editor" && targets.any { it.id == selectedNote?.id }
       flushPendingSave()
       val targetIds = targets.map { it.id }.toSet()
       targets.forEach { repository.moveNoteToTrash(it.id) }
@@ -915,6 +913,7 @@ class NotesController(private val repository: NotesRepository, private val scope
       if (selectedNote?.id in targetIds) {
         notes.firstOrNull { it.id !in targetIds }?.let(::selectNote) ?: openDraftNote()
       }
+      notifyNotesMovedToTrash(targets.map { it.id }, shouldReopenRestoredNote)
       scheduleSyncAfterLocalChange()
     }
   }
@@ -1763,14 +1762,57 @@ class NotesController(private val repository: NotesRepository, private val scope
 
   fun dismissNotification(id: String) {
     notifications = notifications.filterNot { it.id == id }
+    notificationActions = notificationActions - id
   }
 
-  private fun notify(kind: String, title: String, message: String = "") {
+  fun runNotificationAction(id: String) {
+    val action = notificationActions[id] ?: return
+    dismissNotification(id)
+    action()
+  }
+
+  private fun notify(
+    kind: String,
+    title: String,
+    message: String = "",
+    actionLabel: String = "",
+    action: (() -> Unit)? = null,
+  ) {
     val id = java.util.UUID.randomUUID().toString()
-    notifications = (notifications.takeLast(2) + AppNotification(id, kind, title, message))
+    val next = notifications.takeLast(2) + AppNotification(id, kind, title, message, actionLabel)
+    val nextIds = next.map { it.id }.toSet()
+    notificationActions = notificationActions.filterKeys { it in nextIds }
+    if (action != null) notificationActions = notificationActions + (id to action)
+    notifications = next
     scope.launch {
       delay(if (kind == "error") 7000 else 4200)
       dismissNotification(id)
+    }
+  }
+
+  private fun notifyNotesMovedToTrash(noteIds: List<String>, reopenFirstRestoredNote: Boolean) {
+    val ids = noteIds.distinct()
+    if (ids.isEmpty()) return
+    notify(
+      "info",
+      if (ids.size == 1) "Moved to Trash" else "${ids.size} notes moved to Trash",
+      actionLabel = "Undo",
+    ) {
+      restoreTrashedNotes(ids, reopenFirstRestoredNote)
+    }
+  }
+
+  private fun restoreTrashedNotes(noteIds: List<String>, reopenFirstRestoredNote: Boolean) {
+    if (noteIds.isEmpty()) return
+    scope.launch {
+      noteIds.forEach { repository.restoreNote(it) }
+      selectedNoteIds = selectedNoteIds - noteIds.toSet()
+      filterId = "all"
+      refresh()
+      if (reopenFirstRestoredNote) {
+        noteIds.firstOrNull()?.let { id -> notes.firstOrNull { it.id == id }?.let(::selectNote) }
+      }
+      scheduleSyncAfterLocalChange()
     }
   }
 

@@ -51,7 +51,7 @@ internal fun NotebookSidebar(
         NavRow(
           Icons.AutoMirrored.Outlined.Article,
           "All notes",
-          notebookCountLabel(controller.notes.size, controller),
+          notebookCountLabel(controller.notes.size),
           controller.filterId == "all",
         ) {
           controller.filterId = "all"
@@ -62,7 +62,7 @@ internal fun NotebookSidebar(
         NavRow(
           Icons.Outlined.StarBorder,
           "Favorites",
-          notebookCountLabel(controller.favoriteCount, controller),
+          notebookCountLabel(controller.favoriteCount),
           controller.filterId == NOTE_FILTER_FAVORITES_ID,
         ) {
           controller.filterId = NOTE_FILTER_FAVORITES_ID
@@ -73,7 +73,7 @@ internal fun NotebookSidebar(
         NavRow(
           Icons.Outlined.BookmarkBorder,
           "Unfiled",
-          notebookCountLabel(controller.unfiledCount, controller),
+          notebookCountLabel(controller.unfiledCount),
           controller.filterId == "unfiled",
         ) {
           controller.filterId = "unfiled"
@@ -91,7 +91,7 @@ internal fun NotebookSidebar(
         NavRow(
           Icons.Outlined.Delete,
           "Trash",
-          notebookCountLabel(controller.trash.size, controller),
+          notebookCountLabel(controller.trash.size),
           controller.filterId == "trash",
         ) {
           controller.filterId = "trash"
@@ -102,8 +102,7 @@ internal fun NotebookSidebar(
   }
 }
 
-private fun notebookCountLabel(count: Int, controller: NotesController): String =
-  if (controller.isWorkspaceLoading) "..." else count.toString()
+private fun notebookCountLabel(count: Int): String = count.toString()
 
 @Composable
 private fun NewNotebookDialog(controller: NotesController) {

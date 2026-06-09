@@ -26,6 +26,7 @@ import com.author.core.NotesRepository
 import com.author.ui.app.AuthorApp
 import com.author.ui.state.NotesController
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -113,6 +114,62 @@ class AuthorAppInstrumentedTest {
 
     compose.waitForIdle()
     assertTrue(unlockRequested.get())
+  }
+
+  @Test
+  fun longPressNoteSelectsAndOpensSelectedNotesMenu() {
+    val repository = newRepository()
+    val note = runBlocking { repository.createBlankNote("Long press note", "Menu body") }
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      val controller = remember {
+        NotesController(repository, scope).also { it.currentPage = "notes" }
+      }
+
+      LaunchedEffect(Unit) { controller.initialize() }
+      AuthorApp(controller = controller, onExport = {}, onImport = {})
+    }
+
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      compose.onAllNodesWithText(note.title).fetchSemanticsNodes().isNotEmpty()
+    }
+    compose
+      .onNodeWithTag("note-row-${note.id}")
+      .performSemanticsAction(SemanticsActions.OnLongClick)
+
+    compose.onNodeWithText("1 selected").assertIsDisplayed()
+    compose.onNodeWithText("Move selected to Trash").assertIsDisplayed()
+  }
+
+  @Test
+  fun trashingSelectedNoteOffersImmediateUndo() {
+    val repository = newRepository()
+    val note = runBlocking { repository.createBlankNote("Undo trash note", "Restore me") }
+    lateinit var controller: NotesController
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      controller = remember { NotesController(repository, scope).also { it.currentPage = "notes" } }
+
+      LaunchedEffect(Unit) { controller.initialize() }
+      AuthorApp(controller = controller, onExport = {}, onImport = {})
+    }
+
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      compose.onAllNodesWithText(note.title).fetchSemanticsNodes().isNotEmpty()
+    }
+    compose
+      .onNodeWithTag("note-row-${note.id}")
+      .performSemanticsAction(SemanticsActions.OnLongClick)
+    compose.onNodeWithText("Move selected to Trash").performClick()
+    compose.onNodeWithText("Undo").assertIsDisplayed().performClick()
+
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      val workspace = repository.loadWorkspaceSnapshot()
+      workspace.notes.any { it.id == note.id } && workspace.trash.none { it.id == note.id }
+    }
+    assertTrue("Undo should keep the notes page open", controller.currentPage == "notes")
   }
 
   @Test

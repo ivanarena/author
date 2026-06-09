@@ -5,4 +5,5 @@ data class AppNotification(
   val kind: String,
   val title: String,
   val message: String = "",
+  val actionLabel: String = "",
 )

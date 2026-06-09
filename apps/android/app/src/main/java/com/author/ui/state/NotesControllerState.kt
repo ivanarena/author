@@ -47,7 +47,6 @@ val NotesController.wordCount: Int
 val NotesController.syncLabel: String
   get() =
     when {
-      isWorkspaceLoading -> "Loading local notes"
       isSyncing -> syncActivityLabel.ifBlank { "Syncing changes" }
       conflicts.isNotEmpty() -> "${conflicts.size} conflict${if (conflicts.size == 1) "" else "s"}"
       !hasToken -> "Local only"
@@ -63,7 +62,6 @@ val NotesController.syncLabel: String
 val NotesController.syncDetail: String
   get() =
     when {
-      isWorkspaceLoading -> "Reading saved notes on this device"
       isSyncing -> syncActivityDetail
       !hasToken -> "Sign in to sync"
       remoteSyncState == "error" -> remoteSyncError

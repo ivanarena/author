@@ -24,6 +24,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -417,6 +418,17 @@ private fun NotificationContent(notification: AppNotification, controller: Notes
           lineHeight = AppTextSize.Body,
           maxLines = 3,
           overflow = TextOverflow.Ellipsis,
+        )
+      }
+    }
+    if (notification.actionLabel.isNotBlank()) {
+      TextButton(onClick = { controller.runNotificationAction(notification.id) }) {
+        Text(
+          notification.actionLabel,
+          color = colors.content,
+          fontWeight = FontWeight.SemiBold,
+          fontSize = AppTextSize.Label,
+          maxLines = 1,
         )
       }
     }

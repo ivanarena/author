@@ -56,6 +56,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -460,6 +461,7 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
     Surface(
       modifier =
         Modifier.fillMaxWidth()
+          .testTag("note-row-${note.id}")
           .clip(AppShape.NoteRow)
           .animateContentSize(appTween(AppMotion.Medium))
           .combinedClickable(
@@ -471,14 +473,9 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
               }
             },
             onLongClick = {
-              val wasSelecting =
-                controller.noteSelectionMode || controller.selectedNoteIds.isNotEmpty()
-              val hasSelection = controller.selectedNoteIds.isNotEmpty()
-              controller.enterNoteSelectionMode()
-              if (wasSelecting) {
-                menuMode = if (hasSelection) "bulk" else "note"
-                menuOpen = true
-              }
+              controller.toggleSelection(note, true)
+              menuMode = "bulk"
+              menuOpen = true
             },
           ),
       color = if (highlighted) rowColor(active = true) else Color.Transparent,

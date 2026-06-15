@@ -90,7 +90,7 @@ class AuthorAppInstrumentedTest {
   @Test
   fun editorStepwiseTypingKeepsLatestDraftVisibleAndSaved() {
     val repository = newRepository()
-    val titleChunks = listOf("Android", " stepwise", " draft")
+    val titleChunks = listOf("Android", " UI", " draft")
     val bodyChunks = listOf("First chunk", " typed slowly", " while autosave", " keeps up")
 
     compose.setContent {

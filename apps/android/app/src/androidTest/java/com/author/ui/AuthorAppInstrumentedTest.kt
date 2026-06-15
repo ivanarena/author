@@ -9,6 +9,7 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -84,6 +85,41 @@ class AuthorAppInstrumentedTest {
     compose.onNodeWithContentDescription("Notes").performClick()
     compose.onNodeWithText(title).assertIsDisplayed()
     compose.onNodeWithText(body).assertIsDisplayed()
+  }
+
+  @Test
+  fun editorStepwiseTypingKeepsLatestDraftVisibleAndSaved() {
+    val repository = newRepository()
+    val titleChunks = listOf("Android", " stepwise", " draft")
+    val bodyChunks = listOf("First chunk", " typed slowly", " while autosave", " keeps up")
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      val controller = remember { NotesController(repository, scope) }
+
+      LaunchedEffect(Unit) { controller.initialize() }
+      AuthorApp(controller = controller, onExport = {}, onImport = {})
+    }
+
+    var expectedTitle = ""
+    titleChunks.forEach { chunk ->
+      expectedTitle += chunk
+      compose.onNodeWithTag("note-title-field").assertIsDisplayed().performTextInput(chunk)
+      compose.onNodeWithTag("note-title-field").assertTextEquals(expectedTitle)
+    }
+
+    var expectedBody = ""
+    bodyChunks.forEach { chunk ->
+      expectedBody += chunk
+      compose.onNodeWithTag("note-body-field").assertIsDisplayed().performTextInput(chunk)
+      compose.onNodeWithTag("note-body-field").assertTextEquals(expectedBody)
+    }
+
+    compose.mainClock.advanceTimeBy(SAVE_DELAY_ADVANCE_MS)
+    compose.waitForIdle()
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      savedDraft(repository, expectedTitle)?.body == expectedBody
+    }
   }
 
   @Test

@@ -12,8 +12,11 @@ import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.nio.charset.StandardCharsets.UTF_8
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
@@ -21,6 +24,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -189,6 +193,52 @@ class NotesRepositorySyncInstrumentedTest {
     }
   }
 
+  @Test
+  fun runSyncKeepsStepwiseEditsPendingUntilNewestBodyReachesRemote() = runBlocking {
+    FakeSyncServer().use { server ->
+      server.start()
+      repository.setApiBaseUrl(server.baseUrl)
+
+      val note = repository.createBlankNote("Stepwise Android sync", "")
+      val firstBody = "First chunk"
+      val secondBody = "$firstBody typed while sync waits"
+      val finalBody = "$secondBody and final local text"
+
+      requireNotNull(repository.updateNoteContent(note.id, note.title, firstBody))
+      server.pushDelayMillis = 700L
+      val delayedSync = async(Dispatchers.IO) { repository.runSync(TOKEN) }
+      assertTrue(
+        "Expected the fake server to receive the first note push",
+        server.awaitNotePushStarted(),
+      )
+
+      requireNotNull(repository.updateNoteContent(note.id, note.title, secondBody))
+      assertEquals(
+        secondBody,
+        repository.loadWorkspaceSnapshot().notes.single { it.id == note.id }.body,
+      )
+      requireNotNull(repository.updateNoteContent(note.id, note.title, finalBody))
+      assertEquals(
+        finalBody,
+        repository.loadWorkspaceSnapshot().notes.single { it.id == note.id }.body,
+      )
+
+      assertEquals(SyncRunResult(pushed = 1, pulled = 0, conflicts = 0), delayedSync.await())
+      val afterDelayedPush = repository.loadWorkspaceSnapshot().notes.single { it.id == note.id }
+      assertEquals(finalBody, afterDelayedPush.body)
+      assertEquals("pending", afterDelayedPush.syncStatus)
+
+      server.pushDelayMillis = 0L
+      assertEquals(SyncRunResult(pushed = 1, pulled = 0, conflicts = 0), repository.runSync(TOKEN))
+
+      val remoteAfterFinalPush = requireNotNull(server.remoteNote)
+      assertEquals(finalBody, crypto.decryptNoteFields(remoteAfterFinalPush, keyMaterial).body)
+      val localAfterFinalPush = repository.loadWorkspaceSnapshot().notes.single { it.id == note.id }
+      assertEquals(finalBody, localAfterFinalPush.body)
+      assertEquals("synced", localAfterFinalPush.syncStatus)
+    }
+  }
+
   private fun rawConflict(id: String): RawConflict? {
     val db = NotesDatabase(context)
     try {
@@ -237,12 +287,14 @@ class NotesRepositorySyncInstrumentedTest {
 private class FakeSyncServer : Closeable {
   private val server = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
   private val executor = Executors.newSingleThreadExecutor()
+  private val notePushStarted = CountDownLatch(1)
   private var revision = 0L
 
   @Volatile
   var remoteNote: LocalNote? = null
     private set
 
+  @Volatile var pushDelayMillis: Long = 0L
   @Volatile private var conflictNextPush = false
   @Volatile private var pullRemoteOnce = false
   @Volatile private var queuedConflictReason = "remote_changed"
@@ -276,6 +328,9 @@ private class FakeSyncServer : Closeable {
     pullRemoteOnce = true
     revision += 1
   }
+
+  fun awaitNotePushStarted(timeoutMillis: Long = 5_000): Boolean =
+    notePushStarted.await(timeoutMillis, TimeUnit.MILLISECONDS)
 
   private fun handle(socket: Socket) {
     socket.use {
@@ -311,7 +366,13 @@ private class FakeSyncServer : Closeable {
   private fun handlePush(body: JSONObject): JSONObject {
     val accepted = JSONArray()
     val conflicts = JSONArray()
-    body.optJSONArray("notes")?.forEachObject { item ->
+    val notes = body.optJSONArray("notes")
+    if (notes != null && notes.length() > 0) {
+      notePushStarted.countDown()
+      val delayMillis = pushDelayMillis
+      if (delayMillis > 0) Thread.sleep(delayMillis)
+    }
+    notes?.forEachObject { item ->
       val record = noteFromJson(item.getJSONObject("record"))
       val baseVersion = item.optInt("baseVersion", 0)
       val current = remoteNote

@@ -788,6 +788,77 @@ test('keeps edits made during an online sync pending until the latest local vers
     .toBe(secondBody);
 });
 
+test('keeps stepwise typing visible while a delayed note sync finishes stale', async ({
+  page,
+  request
+}) => {
+  const titleText = `Stepwise local edit ${Date.now()}`;
+  let sawFirstNotePush: () => void = () => undefined;
+  const firstNotePushStarted = new Promise<void>((resolve) => {
+    sawFirstNotePush = resolve;
+  });
+  let delayedFirstNotePush = false;
+
+  await page.route('**/api/sync/push', async (route) => {
+    let hasNotes = false;
+    try {
+      const payload = JSON.parse(route.request().postData() ?? '{}') as {
+        notes?: unknown[];
+      };
+      hasNotes = Array.isArray(payload.notes) && payload.notes.length > 0;
+    } catch {
+      // Ignore non-JSON probes; they are not note pushes.
+    }
+
+    if (hasNotes && !delayedFirstNotePush) {
+      delayedFirstNotePush = true;
+      sawFirstNotePush();
+      await page.waitForTimeout(700);
+    }
+    await route.continue();
+  });
+
+  await page.goto('/');
+  await waitForVisibleSyncedStatus(page);
+
+  const title = page.getByLabel('Note title');
+  const body = page.getByLabel('Note body');
+  const chunks = [
+    'First chunk',
+    ' typed while sync is delayed',
+    ' and this newest local text must remain'
+  ];
+
+  await title.fill(titleText);
+  await body.pressSequentially(chunks[0], { delay: 10 });
+  await expect(body).toHaveValue(chunks[0]);
+  await expectBrowserStoredEncryptedNote(page, titleText, chunks[0]);
+  await Promise.race([
+    firstNotePushStarted,
+    page.waitForTimeout(10_000).then(() => {
+      throw new Error('Timed out waiting for the first note sync push');
+    })
+  ]);
+
+  let expectedBody = chunks[0];
+  for (const chunk of chunks.slice(1)) {
+    expectedBody += chunk;
+    await body.pressSequentially(chunk, { delay: 10 });
+    await expect(body).toHaveValue(expectedBody);
+  }
+
+  await expectBrowserStoredEncryptedNote(page, titleText, expectedBody);
+  await expect
+    .poll(
+      async () =>
+        (await pullRemoteNotes(request)).find(
+          (note) => note.title === titleText
+        )?.body ?? null,
+      { timeout: 15_000 }
+    )
+    .toBe(expectedBody);
+});
+
 test('keeps local offline edits and reports conflicts when the online session returns', async ({
   page,
   request

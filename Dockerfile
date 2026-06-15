@@ -28,6 +28,7 @@ FROM node:24-alpine@sha256:2bdb65ed1dab192432bc31c95f94155ca5ad7fc1392fb7eb7526a
 
 WORKDIR /app
 
+RUN apk upgrade --no-cache libcrypto3 libssl3
 RUN npm install -g @endevco/aube@1.16.0
 RUN aube config set enableGlobalVirtualStore false --location project
 

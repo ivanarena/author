@@ -2,6 +2,7 @@ package com.author.ui.state
 
 import android.content.ContentResolver
 import android.net.Uri
+import android.os.SystemClock
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
@@ -42,6 +43,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 
 class NotesController(private val repository: NotesRepository, private val scope: CoroutineScope) :
   AutoCloseable {
@@ -49,6 +51,7 @@ class NotesController(private val repository: NotesRepository, private val scope
     const val MIN_PASSWORD_LENGTH = 15
     const val MAX_MARKDOWN_IMPORT_FILE_BYTES = 2L * 1024L * 1024L
     const val MAX_MARKDOWN_IMPORT_TOTAL_BYTES = 20L * 1024L * 1024L
+    const val UNDO_SNAPSHOT_INTERVAL_MS = 1_500L
 
     fun passwordMeetsMinimumLength(password: String): Boolean =
       password.codePointCount(0, password.length) >= MIN_PASSWORD_LENGTH
@@ -169,6 +172,8 @@ class NotesController(private val repository: NotesRepository, private val scope
   private var autoSyncJob: Job? = null
   private var syncQueued = false
   private var lastSnapshot = "" to ""
+  private var lastUndoSnapshotAt = 0L
+  private var lastUndoSnapshotField = ""
   private var preparedExport: ByteArray? = null
   private var preparedSignupRecoveryKit: ByteArray? = null
   private var notificationActions = emptyMap<String, () -> Unit>()
@@ -228,7 +233,8 @@ class NotesController(private val repository: NotesRepository, private val scope
   fun initialize() {
     scope.launch {
       try {
-        refresh()
+        refresh(preview = true)
+        yield()
         repository.recordDebugLog("info", "App", "Opening workspace")
         runCatching {
             repository.ensureLocalNotesEncrypted()
@@ -395,18 +401,21 @@ class NotesController(private val repository: NotesRepository, private val scope
     }
   }
 
-  suspend fun refresh() {
+  suspend fun refresh(preview: Boolean = false) {
     val selectedId = selectedNote?.id
-    val currentDevice = repository.getOrCreateDevice()
-    val workspace = repository.loadWorkspace()
+    val workspace = if (preview) repository.loadWorkspacePreview() else repository.loadWorkspace()
+    val currentDevice = if (preview) null else repository.getOrCreateDevice()
     notes = workspace.notes
     notebooks = workspace.notebooks
     trash = workspace.trash
     devices =
-      if (workspace.devices.any { it.id == currentDevice.id }) workspace.devices
+      if (currentDevice == null) workspace.devices
+      else if (workspace.devices.any { it.id == currentDevice.id }) workspace.devices
       else listOf(currentDevice) + workspace.devices
-    currentDeviceName = currentDevice.name
-    if (!deviceNameEditing) deviceNameValue = currentDevice.name
+    if (currentDevice != null) {
+      currentDeviceName = currentDevice.name
+      if (!deviceNameEditing) deviceNameValue = currentDevice.name
+    }
     conflicts = workspace.conflicts
     pendingSyncCount = workspace.pendingSyncCount
     lastSyncPassTitle =
@@ -437,7 +446,7 @@ class NotesController(private val repository: NotesRepository, private val scope
     noteFilterNotebookIds = noteFilterNotebookIds.filter { it in validNotebookFilterIds }.toSet()
     noteFilterDateRanges = noteFilterDateRanges.filter { it in NOTE_DATE_FILTERS }.toSet()
     selectedNoteIds = selectedNoteIds.filter { id -> (notes + trash).any { it.id == id } }.toSet()
-    if (selectedId != null) {
+    if (!preview && selectedId != null) {
       val refreshed = (notes + trash).firstOrNull { it.id == selectedId }
       selectedNote = refreshed
       if (saveJob == null && refreshed != null) {
@@ -586,9 +595,15 @@ class NotesController(private val repository: NotesRepository, private val scope
     navigateTo("editor")
     scope.launch {
       flushPendingSave()
-      selectedNote = note
-      titleValue = note.title
-      bodyValue = note.body
+      val fullNote = repository.loadNote(note.id)
+      if (fullNote == null) {
+        refresh()
+        openDraftNote()
+        return@launch
+      }
+      selectedNote = fullNote
+      titleValue = fullNote.title
+      bodyValue = fullNote.body
       resetHistory()
     }
   }
@@ -630,13 +645,26 @@ class NotesController(private val repository: NotesRepository, private val scope
   }
 
   fun updateEditor(field: String, value: String) {
-    val next = if (field == "title") value to bodyValue else titleValue to value
-    if (field == "title") titleValue = value else bodyValue = value
-    if (lastSnapshot != next) {
-      undoStack = (undoStack + lastSnapshot).takeLast(120)
+    val normalizedField = if (field == "title") "title" else "body"
+    if (normalizedField == "title" && titleValue == value) return
+    if (normalizedField == "body" && bodyValue == value) return
+
+    val before = titleValue to bodyValue
+    if (normalizedField == "title") titleValue = value else bodyValue = value
+    val now = SystemClock.uptimeMillis()
+    val shouldCaptureUndo =
+      undoStack.isEmpty() ||
+        lastUndoSnapshotField != normalizedField ||
+        now - lastUndoSnapshotAt >= UNDO_SNAPSHOT_INTERVAL_MS
+    if (shouldCaptureUndo) {
+      undoStack = (undoStack + before).takeLast(120)
       redoStack = emptyList()
-      lastSnapshot = next
+      lastUndoSnapshotAt = now
+      lastUndoSnapshotField = normalizedField
+    } else if (redoStack.isNotEmpty()) {
+      redoStack = emptyList()
     }
+    lastSnapshot = titleValue to bodyValue
     scheduleSave()
   }
 
@@ -647,6 +675,8 @@ class NotesController(private val repository: NotesRepository, private val scope
     titleValue = snapshot.first
     bodyValue = snapshot.second
     lastSnapshot = snapshot
+    lastUndoSnapshotAt = SystemClock.uptimeMillis()
+    lastUndoSnapshotField = ""
     scheduleSave()
   }
 
@@ -657,6 +687,8 @@ class NotesController(private val repository: NotesRepository, private val scope
     titleValue = snapshot.first
     bodyValue = snapshot.second
     lastSnapshot = snapshot
+    lastUndoSnapshotAt = SystemClock.uptimeMillis()
+    lastUndoSnapshotField = ""
     scheduleSave()
   }
 
@@ -1097,7 +1129,7 @@ class NotesController(private val repository: NotesRepository, private val scope
         syncQueued = true
         return@launch
       }
-      if (!repository.hasStoredEncryptionKeyMaterial()) {
+      if (!repository.hasUsableStoredEncryptionKeyMaterial()) {
         repository.recordSyncError(
           IllegalStateException("Sign in again to sync encrypted notes"),
           "Sync",
@@ -1557,9 +1589,7 @@ class NotesController(private val repository: NotesRepository, private val scope
   private fun scheduleSave() {
     if (selectedNote?.trashedAt != null) return
     saveJob?.cancel()
-    selectedNote?.let {
-      selectedNote = it.copy(title = titleValue.trim(), body = bodyValue, syncStatus = "pending")
-    }
+    selectedNote?.let { selectedNote = it.copy(title = titleValue.trim(), syncStatus = "pending") }
     saveJob =
       scope.launch {
         delay(120)
@@ -1577,13 +1607,42 @@ class NotesController(private val repository: NotesRepository, private val scope
 
   private suspend fun saveEditorNow() {
     val current = selectedNote
-    if (current != null) {
-      selectedNote = repository.updateNoteContent(current.id, titleValue, bodyValue)
-    } else if (titleValue.trim().isNotEmpty() || bodyValue.trim().isNotEmpty()) {
-      selectedNote = repository.createBlankNote(titleValue, bodyValue, draftNotebookId())
+    val saved =
+      if (current != null) {
+        repository.updateNoteContent(current.id, titleValue, bodyValue)
+      } else if (titleValue.trim().isNotEmpty() || bodyValue.trim().isNotEmpty()) {
+        repository.createBlankNote(titleValue, bodyValue, draftNotebookId())
+      } else {
+        null
+      }
+    if (saved != null) {
+      selectedNote = saved
+      mergeSavedNote(saved)
+      if (saved.syncStatus == "pending") pendingSyncCount = maxOf(pendingSyncCount, 1)
+      scheduleSyncAfterLocalChange()
+    } else if (current != null) {
+      refresh()
+      scheduleSyncAfterLocalChange()
     }
-    refresh()
-    scheduleSyncAfterLocalChange()
+  }
+
+  private fun mergeSavedNote(note: LocalNote) {
+    if (note.deletedAt != null) {
+      notes = notes.filterNot { it.id == note.id }
+      trash = trash.filterNot { it.id == note.id }
+      return
+    }
+    if (note.trashedAt != null) {
+      notes = notes.filterNot { it.id == note.id }
+      trash =
+        (listOf(note) + trash.filterNot { it.id == note.id }).sortedByDescending {
+          it.trashedAt ?: ""
+        }
+    } else {
+      trash = trash.filterNot { it.id == note.id }
+      notes =
+        (listOf(note) + notes.filterNot { it.id == note.id }).sortedByDescending { it.updatedAt }
+    }
   }
 
   private fun draftNotebookId(): String? =
@@ -1593,6 +1652,8 @@ class NotesController(private val repository: NotesRepository, private val scope
     undoStack = emptyList()
     redoStack = emptyList()
     lastSnapshot = titleValue to bodyValue
+    lastUndoSnapshotAt = 0L
+    lastUndoSnapshotField = ""
   }
 
   private fun scheduleSyncAfterLocalChange() {
@@ -1616,7 +1677,7 @@ class NotesController(private val repository: NotesRepository, private val scope
   }
 
   private suspend fun resumeSession(token: String) {
-    if (!repository.hasStoredEncryptionKeyMaterial()) {
+    if (!repository.hasUsableStoredEncryptionKeyMaterial()) {
       expireSession("Sign in again to sync encrypted notes")
       return
     }

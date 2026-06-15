@@ -246,7 +246,9 @@ class NotesDatabase(
   fun rawConflict(id: String): RawConflict? =
     readableDatabase.queryOne("conflicts", "id = ?", arrayOf(id)) { it.toRawConflict() }
 
-  fun pendingSyncCount(): Int = pendingNotes().size + pendingNotebooks().size
+  fun pendingSyncCount(): Int =
+    readableDatabase.countRows("notes", "sync_status = ?", arrayOf("pending")) +
+      readableDatabase.countRows("notebooks", "sync_status = ?", arrayOf("pending"))
 }
 
 private fun defaultSecurePreferences(context: Context): SecurePreferenceStore =
@@ -503,6 +505,15 @@ private fun <T> SQLiteDatabase.queryAll(
 ): List<T> =
   query(table, null, selection, selectionArgs, null, null, null).use { cursor ->
     buildList { while (cursor.moveToNext()) add(map(cursor)) }
+  }
+
+private fun SQLiteDatabase.countRows(
+  table: String,
+  selection: String? = null,
+  selectionArgs: Array<String>? = null,
+): Int =
+  query(table, arrayOf("COUNT(*)"), selection, selectionArgs, null, null, null).use { cursor ->
+    if (cursor.moveToFirst()) cursor.getInt(0) else 0
   }
 
 private inline fun SQLiteDatabase.transaction(block: SQLiteDatabase.() -> Unit) {

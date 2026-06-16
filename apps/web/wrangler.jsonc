@@ -20,6 +20,7 @@
     "NOTES_REMOTE_SYNC_ENABLED": "false",
     "NOTES_CLEANUP_ENABLED": "true",
     "NOTES_TRUST_PROXY_HEADERS": "false",
+    "NOTES_TRUST_CLOUDFLARE_HEADERS": "true",
     "NOTES_LOGIN_USERNAME": "owner"
   }
 }

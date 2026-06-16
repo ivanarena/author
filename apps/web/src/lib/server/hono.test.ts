@@ -45,6 +45,7 @@ beforeEach(() => {
   delete process.env.NOTES_RECORD_LIMIT_SAFETY_RATIO;
   delete process.env.NOTES_RECORD_LIMIT_NOTE_BYTES;
   delete process.env.NOTES_RECORD_LIMIT_NOTEBOOK_BYTES;
+  delete process.env.NOTES_TRUST_CLOUDFLARE_HEADERS;
   process.env.NOTES_DB_PATH = join(tempDir, 'notes.sqlite');
   process.env.NOTES_REMOTE_SYNC_ENABLED = 'false';
   process.env.NOTES_LOGIN_USERNAME = 'owner';
@@ -77,6 +78,7 @@ afterEach(async () => {
   delete process.env.NOTES_RECORD_LIMIT_SAFETY_RATIO;
   delete process.env.NOTES_RECORD_LIMIT_NOTE_BYTES;
   delete process.env.NOTES_RECORD_LIMIT_NOTEBOOK_BYTES;
+  delete process.env.NOTES_TRUST_CLOUDFLARE_HEADERS;
 });
 
 async function loginToken(
@@ -101,13 +103,15 @@ async function authChallenge(
 async function authChallengeResponse(
   username: string | null,
   purpose: AuthProofPurpose,
-  token?: string
+  token?: string,
+  extraHeaders: Record<string, string> = {}
 ): Promise<Response> {
   return await api.fetch(
     new Request('http://localhost/api/auth/challenge', {
       method: 'POST',
       headers: {
         ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...extraHeaders,
         'content-type': 'application/json'
       },
       body: JSON.stringify({
@@ -682,6 +686,39 @@ describe('Hono API', () => {
       error: 'Too many auth challenge attempts. Try again shortly.'
     });
     expect(await authChallengeRowCount()).toBe(before);
+  });
+
+  it('separates auth challenge client buckets by trusted Cloudflare IP', async () => {
+    process.env.NOTES_TRUST_CLOUDFLARE_HEADERS = 'true';
+    await loginToken();
+
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const response = await authChallengeResponse(
+        `spray-${attempt}`,
+        'login',
+        undefined,
+        { 'cf-connecting-ip': '203.0.113.10' }
+      );
+      expect(response.status).toBe(200);
+    }
+
+    const sameClient = await authChallengeResponse(
+      'owner',
+      'login',
+      undefined,
+      {
+        'cf-connecting-ip': '203.0.113.10'
+      }
+    );
+    expect(sameClient.status).toBe(429);
+
+    const otherClient = await authChallengeResponse(
+      'owner',
+      'login',
+      undefined,
+      { 'cf-connecting-ip': '198.51.100.10' }
+    );
+    expect(otherClient.status).toBe(200);
   });
 
   it('rejects malformed login challenge nonces', async () => {
@@ -2143,6 +2180,150 @@ describe('Hono API', () => {
     await expect(push.json()).resolves.toMatchObject({
       error: 'Too many changes in one sync push; refresh Author and try again.'
     });
+  });
+
+  it('rejects sync pushes whose projected active bytes exceed storage limits', async () => {
+    process.env.NOTES_RECORD_LIMITS_ENABLED = 'true';
+    process.env.NOTES_RECORD_LIMIT_STORAGE_BYTES = '2000';
+    process.env.NOTES_RECORD_LIMIT_SAFETY_RATIO = '1';
+    process.env.NOTES_RECORD_LIMIT_NOTE_BYTES = '450';
+    process.env.NOTES_RECORD_LIMIT_NOTEBOOK_BYTES = '50';
+
+    const token = await loginToken();
+    const push = await post(
+      '/api/sync/push',
+      {
+        device: fixtureDevice,
+        notebooks: [],
+        notes: [
+          {
+            record: {
+              ...fixtureNote,
+              id: 'quota-huge-note',
+              title: 'Huge valid note',
+              body: 'x'.repeat(5_000),
+              notebookIds: [],
+              notebookId: null,
+              deviceId: fixtureDevice.id
+            },
+            baseVersion: 0
+          }
+        ]
+      },
+      token
+    );
+
+    expect(push.status).toBe(409);
+    await expect(push.json()).resolves.toMatchObject({
+      error: expect.stringContaining('Server storage limit estimate reached'),
+      limits: {
+        activeUsers: 1,
+        maxNotes: 4,
+        estimatedNotes: 1,
+        projectedNoteBytes: expect.any(Number)
+      }
+    });
+
+    const db = await openDatabase();
+    try {
+      const stored = await get(db, 'SELECT id FROM notes WHERE id = ?', [
+        'quota-huge-note'
+      ]);
+      expect(stored).toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+
+  it('allows over-limit sync pushes that reduce projected active storage', async () => {
+    const token = await loginToken();
+    const seed = await post(
+      '/api/sync/push',
+      {
+        device: fixtureDevice,
+        notebooks: [],
+        notes: [
+          {
+            record: {
+              ...fixtureNote,
+              id: 'quota-large-note-1',
+              title: 'Huge valid note 1',
+              body: 'x'.repeat(5_000),
+              notebookIds: [],
+              notebookId: null,
+              deviceId: fixtureDevice.id
+            },
+            baseVersion: 0
+          },
+          {
+            record: {
+              ...fixtureNote,
+              id: 'quota-large-note-2',
+              title: 'Huge valid note 2',
+              body: 'y'.repeat(5_000),
+              notebookIds: [],
+              notebookId: null,
+              deviceId: fixtureDevice.id
+            },
+            baseVersion: 0
+          }
+        ]
+      },
+      token
+    );
+    expect(seed.status).toBe(200);
+
+    process.env.NOTES_RECORD_LIMITS_ENABLED = 'true';
+    process.env.NOTES_RECORD_LIMIT_STORAGE_BYTES = '2000';
+    process.env.NOTES_RECORD_LIMIT_SAFETY_RATIO = '1';
+    process.env.NOTES_RECORD_LIMIT_NOTE_BYTES = '450';
+    process.env.NOTES_RECORD_LIMIT_NOTEBOOK_BYTES = '50';
+
+    const deletedAt = '2026-04-26T08:00:00.000Z';
+    const deletion = await post(
+      '/api/sync/push',
+      {
+        device: fixtureDevice,
+        notebooks: [],
+        notes: [
+          {
+            record: {
+              ...fixtureNote,
+              id: 'quota-large-note-1',
+              title: 'Huge valid note 1',
+              body: 'x'.repeat(5_000),
+              notebookIds: [],
+              notebookId: null,
+              updatedAt: deletedAt,
+              deletedAt,
+              deviceId: fixtureDevice.id,
+              version: 2,
+              syncStatus: 'deleted'
+            },
+            baseVersion: 1
+          }
+        ]
+      },
+      token
+    );
+
+    expect(deletion.status).toBe(200);
+    const db = await openDatabase();
+    try {
+      const deleted = await get(
+        db,
+        'SELECT deleted_at FROM notes WHERE id = ?',
+        ['quota-large-note-1']
+      );
+      const remainingActive = await get(
+        db,
+        'SELECT count(*) AS count FROM notes WHERE deleted_at IS NULL'
+      );
+      expect(deleted?.deleted_at).toBe(deletedAt);
+      expect(Number(remainingActive?.count ?? 0)).toBe(1);
+    } finally {
+      db.close();
+    }
   });
 
   it('updates storage-limit estimates when the number of users changes', async () => {

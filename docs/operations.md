@@ -11,7 +11,7 @@ Mutating API requests with an `Origin` header must match the configured public
 API origin. Requests without `Origin` remain valid for Android and command-line
 clients.
 
-Set `NOTES_TRUST_PROXY_HEADERS=true` only behind a proxy that overwrites incoming forwarding headers. Otherwise keep it false.
+Set `NOTES_TRUST_PROXY_HEADERS=true` only behind a proxy that overwrites incoming forwarding headers. Otherwise keep it false. Cloudflare Worker deploys use `NOTES_TRUST_CLOUDFLARE_HEADERS=true` so auth throttles can trust Cloudflare's `CF-Connecting-IP`; keep that false unless Cloudflare is the trusted edge.
 Login and signup throttles are stored as hashed keys in the database so they
 survive restarts and Worker isolate changes. Use platform-level protection as
 an additional layer for public deployments.
@@ -80,9 +80,11 @@ When a Turso database is configured, sync pushes are checked against an
 estimated shared storage budget before writing remote rows. The estimate uses
 `NOTES_RECORD_LIMIT_STORAGE_BYTES`, `NOTES_RECORD_LIMIT_SAFETY_RATIO`,
 `NOTES_RECORD_LIMIT_NOTE_BYTES`, and `NOTES_RECORD_LIMIT_NOTEBOOK_BYTES`, then
-divides the usable budget by the current number of accounts. This is a guardrail
-for free-plan storage, not a precise billing meter; Turso row-read and
-row-write quotas still depend on query patterns and monthly activity.
+divides the usable budget by the current number of accounts. Pushes must fit
+both the active record-count estimate and the projected active row-byte
+estimate. This is a guardrail for free-plan storage, not a precise billing
+meter; Turso row-read and row-write quotas still depend on query patterns and
+monthly activity.
 
 If users hit the estimate, they can keep editing locally but sync reports an
 explicit limit error until data is deleted/exported or the operator raises the

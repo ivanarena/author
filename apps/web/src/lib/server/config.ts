@@ -275,6 +275,10 @@ export function shouldTrustProxyHeaders(): boolean {
   return envValue('NOTES_TRUST_PROXY_HEADERS') === 'true';
 }
 
+export function shouldTrustCloudflareHeaders(): boolean {
+  return envValue('NOTES_TRUST_CLOUDFLARE_HEADERS') === 'true';
+}
+
 export function isCleanupSchedulerEnabled(env?: RuntimeEnv | null): boolean {
   return envValue('NOTES_CLEANUP_ENABLED', env) === 'true';
 }

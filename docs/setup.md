@@ -51,6 +51,7 @@ NOTES_LOGIN_USERNAME=owner
 NOTES_LOGIN_PASSWORD=change-this-local-password
 NOTES_AUTH_SESSION_DAYS=90
 NOTES_TRUST_PROXY_HEADERS=false
+NOTES_TRUST_CLOUDFLARE_HEADERS=false
 NOTES_SERVER_SECRET=change-this-server-secret
 NOTES_METRICS_PUBLIC=false
 NOTES_REMOTE_SYNC_ENABLED=true
@@ -72,14 +73,15 @@ Signup is email allow-list only when a remote database is configured. Allowed ad
 
 `NOTES_AUTH_TOKEN` is no longer used by default. If an older client still depends on the old static bearer token, set `NOTES_LEGACY_AUTH_TOKEN_ENABLED=true` temporarily and rotate away from it.
 
-Leave `NOTES_TRUST_PROXY_HEADERS=false` unless your reverse proxy strips incoming `X-Forwarded-For` / `X-Real-IP` headers and sets trusted ones itself. It only affects login throttling.
+Leave `NOTES_TRUST_PROXY_HEADERS=false` unless your reverse proxy strips incoming `X-Forwarded-For` / `X-Real-IP` headers and sets trusted ones itself. It affects login throttling and secure-request detection behind that proxy. Cloudflare Worker deploys set `NOTES_TRUST_CLOUDFLARE_HEADERS=true` in `wrangler.jsonc` so auth throttles can use Cloudflare's `CF-Connecting-IP`; keep it false for direct self-hosted Node unless Cloudflare is the trusted edge.
 
 In Node/self-hosted runs, when Turso variables are present, the server keeps local SQLite active and mirrors local/remote records in both directions before reads and after writes. Set `NOTES_REMOTE_SYNC_ENABLED=false` to force local-only behavior temporarily.
 
 When Turso is configured, Author enables a conservative record-limit estimate by
 default to help stay within Turso's free storage budget. The per-user note and
-notebook limits are recalculated from the current `users` count on each sync
-push, so adding accounts lowers the estimate and deleting accounts raises it.
+notebook limits and projected active row bytes are recalculated from the
+current `users` count on each sync push, so adding accounts lowers the estimate
+and deleting accounts raises it.
 Tune or disable the estimate with:
 
 ```env
@@ -333,6 +335,7 @@ NOTES_LOGIN_USERNAME=owner
 NOTES_LOGIN_PASSWORD=change-this-login-password
 NOTES_AUTH_SESSION_DAYS=90
 NOTES_TRUST_PROXY_HEADERS=false
+NOTES_TRUST_CLOUDFLARE_HEADERS=false
 NOTES_SERVER_SECRET=change-this-server-secret
 NOTES_METRICS_PUBLIC=false
 NOTES_REMOTE_SYNC_ENABLED=true
@@ -445,7 +448,7 @@ server {
 }
 ```
 
-Set `NOTES_TRUST_PROXY_HEADERS=true` only when the proxy strips untrusted incoming `X-Forwarded-*` / `X-Real-IP` headers and sets its own. This affects login/signup throttling and HSTS detection behind a proxy.
+Set `NOTES_TRUST_PROXY_HEADERS=true` only when the proxy strips untrusted incoming `X-Forwarded-*` / `X-Real-IP` headers and sets its own. This affects login/signup throttling and HSTS detection behind a proxy. Set `NOTES_TRUST_CLOUDFLARE_HEADERS=true` only when Cloudflare is the trusted edge; the checked-in Worker config enables it for Cloudflare deploys.
 
 ## Health and Metrics
 

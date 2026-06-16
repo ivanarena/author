@@ -64,6 +64,7 @@ import {
   isTursoPrimaryDatabase,
   setRuntimeEnv,
   shouldSyncRemoteDatabase,
+  shouldTrustCloudflareHeaders,
   shouldTrustProxyHeaders,
   type RuntimeEnv
 } from './config';
@@ -649,6 +650,11 @@ function scheduleRemoteSyncRetry(env?: RuntimeEnv | null): void {
 }
 
 function requestClientKey(request: Request): string {
+  const cloudflareIp = shouldTrustCloudflareHeaders()
+    ? request.headers.get('cf-connecting-ip')?.trim()
+    : null;
+  if (cloudflareIp) return `cf:${cloudflareIp}`;
+
   const forwardedFor = shouldTrustProxyHeaders()
     ? request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
     : null;

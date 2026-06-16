@@ -327,10 +327,17 @@ private fun migratePlaintextDatabase(dbFile: File, password: String) {
     tempFile.delete()
     throw IllegalStateException("Could not prepare encrypted Android database")
   }
-  if (!tempFile.renameTo(dbFile)) {
+  try {
+    tempFile.copyTo(dbFile, overwrite = true)
+    if (!tempFile.delete()) {
+      throw IllegalStateException("Could not remove temporary encrypted Android database")
+    }
+    deleteDatabaseSidecars(tempFile)
+  } catch (error: Exception) {
     backupFile.renameTo(dbFile)
     tempFile.delete()
-    throw IllegalStateException("Could not install encrypted Android database")
+    deleteDatabaseSidecars(tempFile)
+    throw IllegalStateException("Could not install encrypted Android database", error)
   }
   deleteDatabaseSidecars(dbFile)
   deletePlaintextBackupIfPresent(dbFile)

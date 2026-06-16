@@ -156,6 +156,7 @@ class NotesController(private val repository: NotesRepository, private val scope
   var repairDiagnosticsDetail by mutableStateOf(formatRepairDiagnosticsDetail(null))
   var repairDiagnosticsLog by mutableStateOf(formatRepairDiagnosticsLog(null))
   var canResetPullCursor by mutableStateOf(false)
+  var canResetDeviceSync by mutableStateOf(false)
   var appDebugTitle by mutableStateOf(formatAppDebugTitle(emptyList()))
   var appDebugDetail by mutableStateOf(formatAppDebugDetail(emptyList()))
   var appDebugLog by mutableStateOf(DebugLogStore.format(emptyList()))
@@ -486,6 +487,33 @@ class NotesController(private val repository: NotesRepository, private val scope
     }
   }
 
+  fun resetDeviceSyncState() {
+    scope.launch {
+      try {
+        repository.resetDeviceSyncState()
+        clearLocalSession(
+          "Device sync reset. Sign in again to reestablish encrypted sync.",
+          openLogin = true,
+        )
+        refresh()
+        refreshRepairDiagnosticsNow()
+        notify(
+          "success",
+          "Device sync reset",
+          "Sign in with your password to restore encrypted sync.",
+        )
+      } catch (error: Throwable) {
+        repository.recordDebugLog(
+          "error",
+          "Sync",
+          "Could not reset device sync",
+          error.stackTraceToString(),
+        )
+        notify("error", "Repair failed", error.message ?: "Could not reset device sync")
+      }
+    }
+  }
+
   fun refreshRepairDiagnostics() {
     scope.launch {
       try {
@@ -553,6 +581,7 @@ class NotesController(private val repository: NotesRepository, private val scope
     repairDiagnosticsDetail = formatRepairDiagnosticsDetail(diagnostics)
     repairDiagnosticsLog = formatRepairDiagnosticsLog(diagnostics)
     canResetPullCursor = diagnostics.canResetPullCursor
+    canResetDeviceSync = diagnostics.canResetDeviceSync
   }
 
   private fun pluralizeSyncCount(value: Int, singular: String): String =

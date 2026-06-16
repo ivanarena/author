@@ -200,7 +200,10 @@ class NotesRepository(context: Context) : AutoCloseable {
     }
   }
 
-  fun clearStoredSession(clearEncryptionKeyMaterial: Boolean = false) {
+  fun clearStoredSession(
+    clearEncryptionKeyMaterial: Boolean = false,
+    clearDeviceTrustSecret: Boolean = false,
+  ) {
     prefs.edit {
       remove(USERNAME_KEY)
       remove(EMAIL_KEY)
@@ -210,6 +213,7 @@ class NotesRepository(context: Context) : AutoCloseable {
     }
     securePrefs.remove(TOKEN_KEY)
     if (clearEncryptionKeyMaterial) crypto.clearStoredEncryptionKeyMaterial()
+    if (clearDeviceTrustSecret) securePrefs.remove(DEVICE_TRUST_SECRET_KEY)
   }
 
   fun hasStoredEncryptionKeyMaterial(): Boolean = crypto.hasStoredEncryptionKeyMaterial()
@@ -704,6 +708,19 @@ class NotesRepository(context: Context) : AutoCloseable {
       )
     }
 
+  suspend fun resetDeviceSyncState() =
+    withContext(Dispatchers.IO) {
+      clearStoredSession(clearDeviceTrustSecret = true)
+      crypto.resetStoredEncryptionKeyMaterialForDeviceSync()
+      runCatching { withOpenDatabase { db.deleteMeta(LAST_PUSHED_DEVICE_SIGNATURE_KEY) } }
+      recordDebugLog(
+        "warn",
+        "Sync",
+        "Device sync state reset",
+        "Stored session and trusted-login secret were cleared on this device. Active note key material was reset for the next password sign-in. Local notes and sync metadata were kept.",
+      )
+    }
+
   fun enqueueUpdateCheck() {
     UpdateCheckWorker.checkNow(appContext)
   }
@@ -903,33 +920,41 @@ class NotesRepository(context: Context) : AutoCloseable {
         assertLocalWorkspaceCanUseAccountInternal(username, previousUsername)
         val next =
           nextMaterialOverride ?: crypto.prepareEncryptionPassword(username, password, null).second
-        val previous = crypto.getStoredEncryptionKeyMaterial()
+        val previousMaterials =
+          listOfNotNull(
+              crypto.getStoredEncryptionKeyMaterial(),
+              crypto.getResetEncryptionKeyMaterial(),
+            )
+            .distinct()
         val notes = db.allNotes()
         val notebooks = db.allNotebooks()
         val conflicts = db.rawConflicts()
         val nextCanReadWorkspace = workspaceCanUseKeyMaterial(notes, notebooks, conflicts, next)
-        if (previous == null) {
-          if (!nextCanReadWorkspace) throw IllegalStateException(ENCRYPTION_DECRYPT_FAILED_MESSAGE)
+        if (nextCanReadWorkspace) {
           crypto.commitEncryptionKeyMaterial(next)
           ensureLocalNotesEncryptedInternal()
+          crypto.clearResetEncryptionKeyMaterial()
           rememberLocalWorkspaceAccount(username)
           return@withOpenDatabase
         }
-        if (previous == next) {
+        val previousThatCanReadWorkspace =
+          previousMaterials.firstOrNull {
+            workspaceCanUseKeyMaterial(notes, notebooks, conflicts, it)
+          }
+        if (previousThatCanReadWorkspace == null) {
+          if (previousMaterials.isEmpty()) {
+            throw IllegalStateException(ENCRYPTION_DECRYPT_FAILED_MESSAGE)
+          }
+          reencryptLocalRecordsReadableByPreviousOrNextInternal(previousMaterials, next)
           crypto.commitEncryptionKeyMaterial(next)
           ensureLocalNotesEncryptedInternal()
+          crypto.clearResetEncryptionKeyMaterial()
           rememberLocalWorkspaceAccount(username)
           return@withOpenDatabase
         }
-        if (!workspaceCanUseKeyMaterial(notes, notebooks, conflicts, previous)) {
-          if (!nextCanReadWorkspace) throw IllegalStateException(ENCRYPTION_DECRYPT_FAILED_MESSAGE)
-          crypto.commitEncryptionKeyMaterial(next)
-          ensureLocalNotesEncryptedInternal()
-          rememberLocalWorkspaceAccount(username)
-          return@withOpenDatabase
-        }
-        reencryptLocalNotesInternal(previous, next)
+        reencryptLocalNotesInternal(previousThatCanReadWorkspace, next)
         crypto.commitEncryptionKeyMaterial(next)
+        crypto.clearResetEncryptionKeyMaterial()
         rememberLocalWorkspaceAccount(username)
       }
     }
@@ -1423,20 +1448,36 @@ class NotesRepository(context: Context) : AutoCloseable {
     val encryptionAudit = db.getMeta(ENCRYPTION_AUDIT_VERSION_KEY)
     val workspaceOwner = db.getMeta(LOCAL_WORKSPACE_OWNER_KEY)
     val hasSession = getStoredSession() != null
-    val hasKeyMaterial = hasStoredEncryptionKeyMaterial()
+    val storedKeyMaterial = crypto.getStoredEncryptionKeyMaterial()
+    val hasKeyMaterial = storedKeyMaterial != null && crypto.hasStoredEncryptionKeyMaterial()
     val hasLocalRecords = notes.isNotEmpty() || notebooks.isNotEmpty() || conflicts.isNotEmpty()
+    val keyMaterialCanReadWorkspace =
+      storedKeyMaterial != null &&
+        (!hasLocalRecords ||
+          workspaceCanUseKeyMaterial(notes, notebooks, conflicts, storedKeyMaterial))
+    val storedKeyMaterialCannotReadWorkspace =
+      storedKeyMaterial != null && hasLocalRecords && !keyMaterialCanReadWorkspace
     val pendingCount =
       notes.count { it.syncStatus == "pending" } + notebooks.count { it.syncStatus == "pending" }
     val pendingConflictCount = conflicts.count { it.status == "pending" }
     val canResetPullCursor =
       !lastPulledAt.isNullOrBlank() || (revisionRaw != null && revisionRaw != "0") || !revisionValid
+    val canResetDeviceSync =
+      hasSession ||
+        storedKeyMaterial != null ||
+        workspaceOwner != null ||
+        prefs.getString(LAST_USERNAME_KEY, null) != null ||
+        securePrefs.contains(DEVICE_TRUST_SECRET_KEY)
 
     val entries =
       listOf(
         repairDiagnosticEntry(
           "Encryption key material",
-          if (hasSession && !hasKeyMaterial) "error" else "ok",
+          if (storedKeyMaterialCannotReadWorkspace || (hasSession && !hasKeyMaterial)) "error"
+          else "ok",
           when {
+            storedKeyMaterialCannotReadWorkspace ->
+              "Stored note key material cannot unlock this workspace. Reset device sync, then sign in with your password to restore the account key."
             hasSession && !hasKeyMaterial ->
               "A signed-in device has no note key material. Sign in again before syncing encrypted notes."
             hasKeyMaterial -> "Key material is available for local encryption checks and sync."
@@ -1512,6 +1553,7 @@ class NotesRepository(context: Context) : AutoCloseable {
       checkedAt = checkedAt,
       issueCount = entries.count { it.status != "ok" },
       canResetPullCursor = canResetPullCursor,
+      canResetDeviceSync = canResetDeviceSync,
       entries = entries,
     )
   }
@@ -2264,41 +2306,109 @@ class NotesRepository(context: Context) : AutoCloseable {
     db.putMeta(ENCRYPTION_AUDIT_VERSION_KEY, ENCRYPTION_AUDIT_VERSION)
   }
 
+  private fun reencryptLocalRecordsReadableByPreviousOrNextInternal(
+    previousMaterials: List<String>,
+    nextMaterial: String,
+  ) {
+    if (previousMaterials.isEmpty()) throw IllegalStateException(ENCRYPTION_DECRYPT_FAILED_MESSAGE)
+    val device = runCatching { db.getDevice(prefs.getString(DEVICE_KEY, "") ?: "") }.getOrNull()
+    val deviceId = device?.id ?: prefs.getString(DEVICE_KEY, null) ?: newId()
+    db.allNotes().forEach { note ->
+      if (noteCanUseKeyMaterial(note, nextMaterial)) return@forEach
+      val previousMaterial =
+        previousMaterials.firstOrNull { noteCanUseKeyMaterial(note, it) }
+          ?: throw IllegalStateException(ENCRYPTION_DECRYPT_FAILED_MESSAGE)
+      if (previousMaterial == nextMaterial) {
+        throw IllegalStateException(ENCRYPTION_DECRYPT_FAILED_MESSAGE)
+      }
+      val updated =
+        crypto
+          .reencryptNoteFields(note, previousMaterial, nextMaterial)
+          .copy(
+            deviceId = deviceId,
+            version = note.version + 1,
+            syncStatus =
+              if (note.syncStatus == "conflict" || note.syncStatus == "deleted") note.syncStatus
+              else "pending",
+          )
+      db.putNote(updated)
+    }
+    db.allNotebooks().forEach { notebook ->
+      if (notebookCanUseKeyMaterial(notebook, nextMaterial)) return@forEach
+      val previousMaterial =
+        previousMaterials.firstOrNull { notebookCanUseKeyMaterial(notebook, it) }
+          ?: throw IllegalStateException(ENCRYPTION_DECRYPT_FAILED_MESSAGE)
+      if (previousMaterial == nextMaterial) {
+        throw IllegalStateException(ENCRYPTION_DECRYPT_FAILED_MESSAGE)
+      }
+      val updated =
+        crypto
+          .reencryptNotebookFields(notebook, previousMaterial, nextMaterial)
+          .copy(
+            deviceId = deviceId,
+            version = notebook.version + 1,
+            syncStatus =
+              if (notebook.syncStatus == "conflict" || notebook.syncStatus == "deleted")
+                notebook.syncStatus
+              else "pending",
+          )
+      db.putNotebook(updated)
+    }
+    db.rawConflicts().forEach { raw ->
+      if (conflictCanUseKeyMaterial(raw, nextMaterial)) return@forEach
+      val previousMaterial =
+        previousMaterials.firstOrNull { conflictCanUseKeyMaterial(raw, it) }
+          ?: throw IllegalStateException(ENCRYPTION_DECRYPT_FAILED_MESSAGE)
+      if (previousMaterial == nextMaterial) {
+        throw IllegalStateException(ENCRYPTION_DECRYPT_FAILED_MESSAGE)
+      }
+      reencryptLocalConflictInternal(raw, previousMaterial, nextMaterial)
+    }
+  }
+
   private fun reencryptLocalConflictsInternal(previousMaterial: String, nextMaterial: String) {
     db.rawConflicts().forEach { raw ->
-      when (raw.entityType) {
-        "note" -> {
-          val decrypted =
-            decryptNoteConflictForDisplay(
-              noteConflictFromJson(JSONObject(raw.conflictJson)),
-              previousMaterial,
-            )
-          val stored = encryptNoteConflictForStorage(decrypted, nextMaterial)
-          db.putConflict(
-            raw.id,
-            raw.entityType,
-            raw.entityId,
-            raw.status,
-            raw.createdAt,
-            noteConflictToJson(stored).toString(),
+      reencryptLocalConflictInternal(raw, previousMaterial, nextMaterial)
+    }
+  }
+
+  private fun reencryptLocalConflictInternal(
+    raw: RawConflict,
+    previousMaterial: String,
+    nextMaterial: String,
+  ) {
+    when (raw.entityType) {
+      "note" -> {
+        val decrypted =
+          decryptNoteConflictForDisplay(
+            noteConflictFromJson(JSONObject(raw.conflictJson)),
+            previousMaterial,
           )
-        }
-        "notebook" -> {
-          val decrypted =
-            decryptNotebookConflictForDisplay(
-              notebookConflictFromJson(JSONObject(raw.conflictJson)),
-              previousMaterial,
-            )
-          val stored = encryptNotebookConflictForStorage(decrypted, nextMaterial)
-          db.putConflict(
-            raw.id,
-            raw.entityType,
-            raw.entityId,
-            raw.status,
-            raw.createdAt,
-            notebookConflictToJson(stored).toString(),
+        val stored = encryptNoteConflictForStorage(decrypted, nextMaterial)
+        db.putConflict(
+          raw.id,
+          raw.entityType,
+          raw.entityId,
+          raw.status,
+          raw.createdAt,
+          noteConflictToJson(stored).toString(),
+        )
+      }
+      "notebook" -> {
+        val decrypted =
+          decryptNotebookConflictForDisplay(
+            notebookConflictFromJson(JSONObject(raw.conflictJson)),
+            previousMaterial,
           )
-        }
+        val stored = encryptNotebookConflictForStorage(decrypted, nextMaterial)
+        db.putConflict(
+          raw.id,
+          raw.entityType,
+          raw.entityId,
+          raw.status,
+          raw.createdAt,
+          notebookConflictToJson(stored).toString(),
+        )
       }
     }
   }

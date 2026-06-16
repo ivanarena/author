@@ -753,6 +753,16 @@ private fun TroubleshootingDetailPanel(
             controller.resetPullCursorRecovery()
           }
         }
+        if (controller.canResetDeviceSync) {
+          ActionRow(
+            Icons.Outlined.Security,
+            "Reset device sync",
+            enabled = !controller.isSyncing,
+            destructive = true,
+          ) {
+            controller.resetDeviceSyncState()
+          }
+        }
       }
       "sync" -> SyncErrorTile(controller)
       "app" -> {

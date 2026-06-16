@@ -114,6 +114,7 @@ diagnostics are intentionally local-only and do not upload note contents,
 tokens, key material, or database rows. They check for:
 
 - a signed-in session without encryption key material,
+- stored encryption key material that cannot unlock local encrypted records,
 - an incomplete local encryption audit,
 - stale or invalid pull cursor metadata,
 - queued local changes and explicit conflicts,
@@ -125,6 +126,17 @@ sets `lastPulledRevision` to `0`, clears `lastPulledAt`, records
 `lastPullCursorResetAt`, and leaves notes/notebooks untouched. The next sync
 then performs a revision-0 recovery pull and still preserves pending local
 records and explicit conflicts.
+
+Android repair diagnostics also expose a local device sync reset when stored
+session or encryption material is missing or cannot unlock the local workspace.
+Resetting clears the saved session, trusted-login secret, and last pushed device
+signature on that install only. It removes the active note key material from
+normal sync use but keeps a local reset copy until the next password sign-in, so
+local drafts written during the broken-key window can be re-encrypted into the
+restored account key when possible. It leaves notes, notebooks, conflicts, pull
+cursors, API configuration, and workspace owner metadata in place so the next
+password sign-in can unlock the account keyring and resume normal conflict-safe
+sync.
 
 ## Ownership
 

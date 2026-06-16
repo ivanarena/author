@@ -81,6 +81,54 @@ class NotesRepositoryStartupInstrumentedTest {
     }
   }
 
+  @Test
+  fun resetDeviceSyncStateRestoresAccountKeyAndPreservesWrongKeyDrafts() = runBlocking {
+    val prefs = context.getSharedPreferences("author", Context.MODE_PRIVATE)
+    val password = "correct horse battery staple"
+    val accountKeyMaterial =
+      NoteCrypto(prefs, SecurePreferenceStore(prefs))
+        .prepareNewAccountKeyring("owner", password)
+        .keyMaterial
+    val repository = NotesRepository(context)
+    try {
+      repository.rememberPasswordAndAdopt(
+        "owner",
+        password,
+        previousUsername = null,
+        nextMaterialOverride = accountKeyMaterial,
+      )
+      val syncedNote = repository.createBlankNote("Recover title", "Recover body")
+
+      repository.clearStoredSession(clearEncryptionKeyMaterial = true)
+      NoteCrypto(prefs, SecurePreferenceStore(prefs)).getEncryptionKeyMaterial()
+      val localDraft = repository.createBlankNote("Broken local draft", "Draft body")
+
+      assertEquals(false, repository.hasUsableStoredEncryptionKeyMaterial())
+      val brokenDiagnostics = repository.loadRepairDiagnostics()
+      val keyDiagnostic = brokenDiagnostics.entries.single { it.label == "Encryption key material" }
+      assertEquals("error", keyDiagnostic.status)
+      assertEquals(true, brokenDiagnostics.canResetDeviceSync)
+
+      repository.resetDeviceSyncState()
+
+      assertEquals(false, repository.hasStoredEncryptionKeyMaterial())
+      val postResetDraft = repository.createBlankNote("Post-reset draft", "Post-reset body")
+      repository.rememberPasswordAndAdopt(
+        "owner",
+        password,
+        previousUsername = "owner",
+        nextMaterialOverride = accountKeyMaterial,
+      )
+
+      val restored = repository.loadWorkspaceSnapshot().notes.associateBy { it.id }
+      assertEquals("Recover body", restored[syncedNote.id]?.body)
+      assertEquals("Draft body", restored[localDraft.id]?.body)
+      assertEquals("Post-reset body", restored[postResetDraft.id]?.body)
+    } finally {
+      repository.close()
+    }
+  }
+
   private fun resetWorkspace() {
     context.deleteDatabase("author.db")
     context.getSharedPreferences("author", Context.MODE_PRIVATE).edit().clear().commit()

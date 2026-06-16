@@ -99,6 +99,7 @@ data class RepairDiagnostics(
   val checkedAt: String,
   val issueCount: Int,
   val canResetPullCursor: Boolean,
+  val canResetDeviceSync: Boolean,
   val entries: List<RepairDiagnosticEntry>,
 )
 

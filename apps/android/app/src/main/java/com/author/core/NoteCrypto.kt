@@ -17,6 +17,7 @@ import org.json.JSONObject
 private const val ENCRYPTION_PREFIX = "enc:v4:"
 private const val HASH_V3_PREFIX = "hash:v3:"
 private const val KEY_MATERIAL_KEY = "author-encryption-key-material-v1"
+private const val RESET_KEY_MATERIAL_KEY = "author-encryption-key-material-reset-v1"
 private const val KEYRING_MATERIAL_PREFIX = "keyring:v1:"
 private const val RECOVERY_CODE_PREFIX = "author-recovery-v1-"
 private const val PASSWORD_ARGON2_MEMORY_KIB = 19_456
@@ -178,6 +179,20 @@ class NoteCrypto(
 
   fun clearStoredEncryptionKeyMaterial() {
     securePrefs.remove(KEY_MATERIAL_KEY)
+    securePrefs.remove(RESET_KEY_MATERIAL_KEY)
+  }
+
+  fun resetStoredEncryptionKeyMaterialForDeviceSync() {
+    securePrefs.getString(KEY_MATERIAL_KEY)?.let {
+      securePrefs.putString(RESET_KEY_MATERIAL_KEY, it)
+    }
+    securePrefs.remove(KEY_MATERIAL_KEY)
+  }
+
+  fun getResetEncryptionKeyMaterial(): String? = securePrefs.getString(RESET_KEY_MATERIAL_KEY)
+
+  fun clearResetEncryptionKeyMaterial() {
+    securePrefs.remove(RESET_KEY_MATERIAL_KEY)
   }
 
   fun prepareEncryptionPassword(

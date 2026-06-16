@@ -103,18 +103,15 @@ class NotesDatabaseInstrumentedTest {
   }
 
   @Test
-  fun deletesPlaintextBackupAfterMigratingPlaintextDatabase() {
+  fun deletesPlaintextBackupAfterOpeningEncryptedDatabase() {
     val dbFile = context.getDatabasePath("author.db")
-    dbFile.parentFile?.mkdirs()
-    val plaintext = SQLiteDatabase.openOrCreateDatabase(dbFile, null)
-    try {
-      plaintext.execSQL("CREATE TABLE migrated_marker (id TEXT PRIMARY KEY)")
-    } finally {
-      plaintext.close()
-    }
+    val first = NotesDatabase(context)
+    first.close()
 
-    val migrated = NotesDatabase(context)
-    migrated.close()
+    dbFile.parentFile?.resolve("author.db.plaintext-backup")?.writeText("stale backup")
+
+    val reopened = NotesDatabase(context)
+    reopened.close()
 
     assertFalse(dbFile.parentFile?.resolve("author.db.plaintext-backup")?.exists() == true)
   }

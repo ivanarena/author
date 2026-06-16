@@ -313,10 +313,10 @@ private fun migratePlaintextDatabase(dbFile: File, password: String) {
         null,
       )
     source.rawQuery("PRAGMA wal_checkpoint(FULL)", emptyArray<String>()).use {}
+    source.rawExecSQL("PRAGMA user_version = $DATABASE_VERSION")
     source.rawExecSQL(
       "ATTACH DATABASE ${sqlString(tempFile.absolutePath)} AS encrypted KEY ${sqlString(password)}"
     )
-    source.rawExecSQL("PRAGMA encrypted.user_version = $DATABASE_VERSION")
     source.rawQuery("SELECT sqlcipher_export('encrypted')", emptyArray<String>()).use {}
     source.rawExecSQL("DETACH DATABASE encrypted")
   } finally {

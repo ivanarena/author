@@ -7,6 +7,7 @@ settings:
 overrides:
   brace-expansion: 5.0.6
   esbuild: 0.28.1
+  ws: 8.21.0
 
 time:
   '@axe-core/playwright@4.11.3': 2026-04-30T11:05:25.824Z
@@ -344,7 +345,7 @@ time:
   wrangler@4.96.0: 2026-06-01T14:41:48.692Z
   wrap-ansi@10.0.0: 2026-02-20T10:03:54.703Z
   wrap-ansi@9.0.2: 2025-09-08T15:10:49.479Z
-  ws@8.20.1: 2026-05-12T15:54:40.187Z
+  ws@8.21.0: 2026-05-22T17:59:59.453Z
   yaml@1.10.3: 2026-03-21T10:28:32.082Z
   yaml@2.9.0: 2026-05-11T10:16:24.045Z
   yocto-queue@0.1.0: 2020-11-24T06:05:35.875Z
@@ -2250,8 +2251,8 @@ packages:
     resolution: {integrity: sha512-42AtmgqjV+X1VpdOfyTGOYRi0/zsoLqtXQckTmqTeybT+BDIbM/Guxo7x3pE2vtpr1ok6xRqM9OpBe+Jyoqyww==}
     engines: {node: '>=18'}
 
-  ws@8.20.1:
-    resolution: {integrity: sha512-It4dO0K5v//JtTXuPkfEOaI3uUN87iYPnqo/ZzqCoG3g8uhA66QUMs/SrM0YK7/NAu+r4LMh/9dq2A7k+rHs+w==}
+  ws@8.21.0:
+    resolution: {integrity: sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g==}
     engines: {node: '>=10.0.0'}
     peerDependencies:
       bufferutil: ^4.0.1
@@ -2469,7 +2470,7 @@ snapshots:
   '@libsql/isomorphic-ws@0.1.5':
     dependencies:
       '@types/ws': 8.18.1
-      ws: 8.20.1
+      ws: 8.21.0
 
   '@libsql/linux-arm64-gnu@0.5.29': {}
 
@@ -3218,7 +3219,7 @@ snapshots:
       sharp: 0.34.5
       undici: 7.24.8
       workerd: 1.20260529.1
-      ws: 8.20.1
+      ws: 8.21.0
       youch: 4.1.0-beta.10
 
   minimatch@10.2.5:
@@ -3633,7 +3634,7 @@ snapshots:
       string-width: 7.2.0
       strip-ansi: 7.2.0
 
-  ws@8.20.1: {}
+  ws@8.21.0: {}
 
   yaml@1.10.3: {}
 

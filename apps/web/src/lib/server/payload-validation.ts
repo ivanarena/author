@@ -90,3 +90,14 @@ export function hasEntityChanges<T>(
     })
   );
 }
+
+export function hasUniqueEntityChangeIds<T extends { id: string }>(
+  changes: Array<{ record: T }>
+): boolean {
+  const ids = new Set<string>();
+  for (const change of changes) {
+    if (ids.has(change.record.id)) return false;
+    ids.add(change.record.id);
+  }
+  return true;
+}

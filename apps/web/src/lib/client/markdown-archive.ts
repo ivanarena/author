@@ -4,8 +4,15 @@ import { deriveTitle, noteDisplayTitle, noteNotebookIds } from './note-utils';
 
 export interface MarkdownImportFile {
   name: string;
+  size?: number;
   webkitRelativePath?: string;
   text: () => Promise<string>;
+}
+
+export interface MarkdownImportOptions {
+  maxFiles?: number;
+  maxFileBytes?: number;
+  maxTotalBytes?: number;
 }
 
 export interface MarkdownExportFile {
@@ -21,32 +28,55 @@ export interface MarkdownExportArchive {
 const MARKDOWN_EXTENSION = /\.md$/i;
 const FRONTMATTER_DELIMITER = '---';
 const encoder = new TextEncoder();
+export const MARKDOWN_IMPORT_MAX_FILES = 1000;
+export const MARKDOWN_IMPORT_MAX_FILE_BYTES = 2 * 1024 * 1024;
+export const MARKDOWN_IMPORT_MAX_TOTAL_BYTES = 20 * 1024 * 1024;
 
 export async function parseNotesMarkdownImportFiles(
-  files: Iterable<MarkdownImportFile>
+  files: Iterable<MarkdownImportFile>,
+  options: MarkdownImportOptions = {}
 ): Promise<ParsedImportPayload> {
+  const maxFiles = options.maxFiles ?? MARKDOWN_IMPORT_MAX_FILES;
+  const maxFileBytes = options.maxFileBytes ?? MARKDOWN_IMPORT_MAX_FILE_BYTES;
+  const maxTotalBytes =
+    options.maxTotalBytes ?? MARKDOWN_IMPORT_MAX_TOTAL_BYTES;
   const markdownFiles = [...files].filter((file) =>
     MARKDOWN_EXTENSION.test(file.name)
   );
+  if (markdownFiles.length > maxFiles) {
+    throw new Error(
+      `Markdown import supports up to ${maxFiles} Markdown files at a time.`
+    );
+  }
   const relativePaths = markdownFiles.map((file) => filePath(file));
   const strippedPaths = stripCommonLeadingDirectories(relativePaths);
   const notebookNames = [
     ...new Set(strippedPaths.flatMap((path) => parentSegments(path)))
   ];
 
-  const notes = await Promise.all(
-    markdownFiles.map(async (file, index) => {
-      const path = strippedPaths[index] ?? file.name;
-      const parsed = parseMarkdownNote(await file.text(), file.name);
+  const notes: ParsedImportPayload['notes'] = [];
+  let totalBytes = 0;
+  for (const [index, file] of markdownFiles.entries()) {
+    assertMarkdownFileWithinLimit(file, maxFileBytes);
+    const path = strippedPaths[index] ?? file.name;
+    const content = await file.text();
+    const fileBytes = encoder.encode(content).byteLength;
+    if (fileBytes > maxFileBytes) {
+      throw new Error(`Markdown file "${file.name}" is too large to import.`);
+    }
+    totalBytes += fileBytes;
+    if (totalBytes > maxTotalBytes) {
+      throw new Error('Markdown import is too large. Choose a smaller folder.');
+    }
+    const parsed = parseMarkdownNote(content, file.name);
 
-      return {
-        ...parsed,
-        sourceNotebookIds: [],
-        sourceNotebookNames: parentSegments(path),
-        trashedAt: null
-      };
-    })
-  );
+    notes.push({
+      ...parsed,
+      sourceNotebookIds: [],
+      sourceNotebookNames: parentSegments(path),
+      trashedAt: null
+    });
+  }
 
   return {
     notebooks: notebookNames.map((name) => ({
@@ -57,6 +87,19 @@ export async function parseNotesMarkdownImportFiles(
     })),
     notes
   };
+}
+
+function assertMarkdownFileWithinLimit(
+  file: MarkdownImportFile,
+  maxFileBytes: number
+): void {
+  if (
+    typeof file.size === 'number' &&
+    Number.isFinite(file.size) &&
+    file.size > maxFileBytes
+  ) {
+    throw new Error(`Markdown file "${file.name}" is too large to import.`);
+  }
 }
 
 export function parseMarkdownNote(

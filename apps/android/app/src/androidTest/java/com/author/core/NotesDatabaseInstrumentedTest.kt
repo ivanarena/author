@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
@@ -101,6 +102,23 @@ class NotesDatabaseInstrumentedTest {
     )
   }
 
+  @Test
+  fun deletesPlaintextBackupAfterMigratingPlaintextDatabase() {
+    val dbFile = context.getDatabasePath("author.db")
+    dbFile.parentFile?.mkdirs()
+    val plaintext = SQLiteDatabase.openOrCreateDatabase(dbFile, null)
+    try {
+      plaintext.execSQL("CREATE TABLE migrated_marker (id TEXT PRIMARY KEY)")
+    } finally {
+      plaintext.close()
+    }
+
+    val migrated = NotesDatabase(context)
+    migrated.close()
+
+    assertFalse(dbFile.parentFile?.resolve("author.db.plaintext-backup")?.exists() == true)
+  }
+
   private fun note(id: String) =
     LocalNote(
       id = id,
@@ -143,6 +161,14 @@ class NotesDatabaseInstrumentedTest {
       .parentFile
       ?.listFiles()
       ?.filter { it.name.startsWith("author.db.unreadable-") }
+      ?.forEach { it.delete() }
+    context
+      .getDatabasePath("author.db")
+      .parentFile
+      ?.listFiles()
+      ?.filter {
+        it.name == "author.db.plaintext-backup" || it.name == "author.db.sqlcipher-migrating"
+      }
       ?.forEach { it.delete() }
   }
 }

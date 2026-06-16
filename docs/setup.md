@@ -380,6 +380,10 @@ ANDROID_UPDATE_STARTUP_DELAY_MINUTES=10
 ANDROID_UPDATE_CHECK_INTERVAL_HOURS=12
 ```
 
+Release builds require HTTPS update URLs. Feed-provided APK URLs must also stay
+on the configured update check/download origin, or a subdomain of it; otherwise
+the app falls back to `ANDROID_UPDATE_DOWNLOAD_URL`.
+
 When the remote `versionCode` is higher than the installed APK's `versionCode`,
 or the latest GitHub Android release version is newer than the installed
 `versionName`, the app posts a local notification. Tapping it opens the APK asset

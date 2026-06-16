@@ -90,6 +90,50 @@ describe('Markdown archive import and export', () => {
     ]);
   });
 
+  it('rejects Markdown imports with too many files', async () => {
+    await expect(
+      parseNotesMarkdownImportFiles(
+        [
+          markdownFile('Export/One.md', 'one'),
+          markdownFile('Export/Two.md', 'two')
+        ],
+        { maxFiles: 1 }
+      )
+    ).rejects.toThrow('Markdown import supports up to 1 Markdown files');
+  });
+
+  it('rejects oversized Markdown files before reading when size is available', async () => {
+    let read = false;
+    await expect(
+      parseNotesMarkdownImportFiles(
+        [
+          {
+            name: 'Large.md',
+            size: 20,
+            text: async () => {
+              read = true;
+              return 'large';
+            }
+          }
+        ],
+        { maxFileBytes: 10 }
+      )
+    ).rejects.toThrow('Markdown file "Large.md" is too large to import.');
+    expect(read).toBe(false);
+  });
+
+  it('rejects Markdown imports after the total byte limit is reached', async () => {
+    await expect(
+      parseNotesMarkdownImportFiles(
+        [
+          markdownFile('Export/One.md', '12345'),
+          markdownFile('Export/Two.md', '67890')
+        ],
+        { maxFileBytes: 10, maxTotalBytes: 9 }
+      )
+    ).rejects.toThrow('Markdown import is too large');
+  });
+
   it('builds Markdown files with frontmatter, notebook folders, and unique names', () => {
     const exportedAt = '2026-04-30T10:00:00.000Z';
     const archive = buildNotesMarkdownArchive(

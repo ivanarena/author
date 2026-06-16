@@ -109,6 +109,18 @@ require(defaultApiBaseUrl.startsWith("http://") || defaultApiBaseUrl.startsWith(
   "The Android sync API URL must start with http:// or https://."
 }
 
+require(
+  androidUpdateCheckUrl.startsWith("http://") || androidUpdateCheckUrl.startsWith("https://")
+) {
+  "The Android update check URL must start with http:// or https://."
+}
+
+require(
+  androidUpdateDownloadUrl.startsWith("http://") || androidUpdateDownloadUrl.startsWith("https://")
+) {
+  "The Android update download URL must start with http:// or https://."
+}
+
 val requestedTasks = gradle.startParameter.taskNames.map { it.substringAfterLast(':') }
 val releaseBuildRequested =
   requestedTasks.any {
@@ -124,6 +136,12 @@ if (releaseBuildRequested) {
   require(defaultApiBaseUrl.startsWith("https://")) {
     "Release Android builds require an https:// Author API URL. Use debug builds for local http:// emulator sync."
   }
+  require(androidUpdateCheckUrl.startsWith("https://")) {
+    "Release Android builds require an https:// update check URL."
+  }
+  require(androidUpdateDownloadUrl.startsWith("https://")) {
+    "Release Android builds require an https:// update download URL."
+  }
 }
 
 android {
@@ -134,8 +152,8 @@ android {
     applicationId = "com.author"
     minSdk = 26
     targetSdk = 37
-    versionCode = 15
-    versionName = "1.0.15"
+    versionCode = 16
+    versionName = "1.0.16"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

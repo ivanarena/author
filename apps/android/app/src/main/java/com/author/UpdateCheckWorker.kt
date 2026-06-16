@@ -231,14 +231,20 @@ internal fun parseUpdateInfo(
   if (trimmed.startsWith("{")) {
     val json = JSONObject(trimmed)
     if (json.has("tag_name") || json.has("assets")) {
-      return parseGithubRelease(json, fallbackDownloadUrl)
+      return parseGithubRelease(json, fallbackDownloadUrl, sourceUrl)
     }
 
     val versionCode = json.optInt("versionCode").takeIf { it > 0 }
+    val downloadUrl =
+      trustedUpdateDownloadUrl(
+        json.optString("apkUrl", fallbackDownloadUrl),
+        fallbackDownloadUrl,
+        sourceUrl,
+      )
     return UpdateInfo(
       versionCode = versionCode,
       versionName = json.optString("versionName").ifBlank { versionCode?.toString().orEmpty() },
-      downloadUrl = json.optString("apkUrl", fallbackDownloadUrl),
+      downloadUrl = downloadUrl,
     )
   }
 
@@ -258,7 +264,11 @@ internal fun parseUpdateInfo(
 
 private data class GithubReleaseLink(val tag: String, val href: String)
 
-private fun parseGithubRelease(json: JSONObject, fallbackDownloadUrl: String): UpdateInfo {
+private fun parseGithubRelease(
+  json: JSONObject,
+  fallbackDownloadUrl: String,
+  sourceUrl: String,
+): UpdateInfo {
   val releaseName = json.optString("tag_name").ifBlank { json.optString("name") }
   val versionName = normalizeReleaseVersion(releaseName)
   val releaseUrl = json.optString("html_url", fallbackDownloadUrl)
@@ -277,7 +287,11 @@ private fun parseGithubRelease(json: JSONObject, fallbackDownloadUrl: String): U
       }
     }
   }
-  return UpdateInfo(null, versionName, apkUrl.ifBlank { releaseUrl })
+  return UpdateInfo(
+    null,
+    versionName,
+    trustedUpdateDownloadUrl(apkUrl.ifBlank { releaseUrl }, fallbackDownloadUrl, sourceUrl),
+  )
 }
 
 private fun parseGithubReleasePage(
@@ -299,7 +313,12 @@ private fun parseGithubReleasePage(
   return UpdateInfo(
     versionCode = null,
     versionName = versionName,
-    downloadUrl = apkUrl.ifBlank { releaseUrl.ifBlank { fallbackDownloadUrl } },
+    downloadUrl =
+      trustedUpdateDownloadUrl(
+        apkUrl.ifBlank { releaseUrl.ifBlank { fallbackDownloadUrl } },
+        fallbackDownloadUrl,
+        sourceUrl,
+      ),
   )
 }
 
@@ -334,6 +353,39 @@ private fun decodeHtmlAttribute(value: String): String = value.replace("&amp;", 
 
 private fun decodeUrlComponent(value: String): String =
   runCatching { URLDecoder.decode(value, "UTF-8") }.getOrElse { value }
+
+private fun trustedUpdateDownloadUrl(
+  candidateUrl: String,
+  fallbackDownloadUrl: String,
+  sourceUrl: String,
+): String {
+  val trustedUrls = listOf(fallbackDownloadUrl, sourceUrl)
+  if (isAllowedUpdateDownloadUrl(candidateUrl, trustedUrls)) return candidateUrl
+  if (isAllowedUpdateDownloadUrl(fallbackDownloadUrl, trustedUrls)) return fallbackDownloadUrl
+  return ""
+}
+
+internal fun isAllowedUpdateDownloadUrl(
+  downloadUrl: String,
+  trustedUrls: List<String> = listOf(BuildConfig.UPDATE_DOWNLOAD_URL, BuildConfig.UPDATE_CHECK_URL),
+): Boolean {
+  val url = runCatching { URL(downloadUrl) }.getOrNull() ?: return false
+  val protocol = url.protocol.lowercase()
+  if (protocol != "https" && !(BuildConfig.DEBUG && protocol == "http")) return false
+  val trustedHosts =
+    trustedUrls
+      .mapNotNull { trustedUrl -> runCatching { URL(trustedUrl).host.lowercase() }.getOrNull() }
+      .filter { it.isNotBlank() }
+      .distinct()
+  if (trustedHosts.isEmpty()) return false
+  val host = url.host.lowercase()
+  return trustedHosts.any { trustedHost -> updateHostsMatch(host, trustedHost) }
+}
+
+private fun updateHostsMatch(host: String, trustedHost: String): Boolean =
+  host == trustedHost ||
+    host.endsWith(".$trustedHost") ||
+    (host == "github.com" && trustedHost == "api.github.com")
 
 internal data class UpdateInfo(
   val versionCode: Int?,

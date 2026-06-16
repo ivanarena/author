@@ -2082,6 +2082,42 @@ describe('Hono API', () => {
     });
   });
 
+  it('rejects duplicate entity ids in authenticated push payloads', async () => {
+    const token = await loginToken();
+    const push = await post(
+      '/api/sync/push',
+      {
+        device: fixtureDevice,
+        notebooks: [],
+        notes: [
+          {
+            record: {
+              ...fixtureNote,
+              id: 'duplicate-api-note',
+              deviceId: fixtureDevice.id
+            },
+            baseVersion: 0
+          },
+          {
+            record: {
+              ...fixtureNote,
+              id: 'duplicate-api-note',
+              body: 'Second body',
+              deviceId: fixtureDevice.id
+            },
+            baseVersion: 0
+          }
+        ]
+      },
+      token
+    );
+
+    expect(push.status).toBe(400);
+    await expect(push.json()).resolves.toMatchObject({
+      error: 'Invalid push payload'
+    });
+  });
+
   it('rejects oversized sync push batches before they hit storage', async () => {
     const token = await loginToken();
     const notes = Array.from({ length: 21 }, (_, index) => ({

@@ -18,12 +18,11 @@ class UpdateDownloadActivity : Activity() {
 
   private fun openDownload(rawUrl: String?) {
     val downloadUrl = rawUrl?.takeIf { it.isNotBlank() } ?: BuildConfig.UPDATE_DOWNLOAD_URL
-    val uri = downloadUrl.toUri()
-    val scheme = uri.scheme?.lowercase()
-    if (scheme != "https" && scheme != "http") {
+    if (!isAllowedUpdateDownloadUrl(downloadUrl)) {
       DebugLogStore.record(this, "warn", "Update download", "Ignored unsupported URL", downloadUrl)
       return
     }
+    val uri = downloadUrl.toUri()
 
     val viewIntent =
       Intent(Intent.ACTION_VIEW, uri)

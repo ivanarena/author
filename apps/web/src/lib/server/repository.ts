@@ -46,6 +46,7 @@ export interface EntityTombstone {
 
 export interface PushChangesOptions {
   allowTombstoneOverwrite?: boolean;
+  preserveNewRecordVersions?: boolean;
 }
 
 export interface VersionSnapshotPruneResponse {
@@ -136,10 +137,18 @@ function noteNotebookRefsChanged(original: Note, normalized: Note): boolean {
   );
 }
 
-function notebookDuplicateKey(notebook: Notebook): string {
-  return notebook.nameHash
-    ? `hash:${notebook.nameHash}`
-    : `name:${notebookDuplicateNameKey(notebook.name)}`;
+function isEncryptedNotebookName(name: string): boolean {
+  return /^enc:v[34]:/.test(name);
+}
+
+function notebookDuplicateKeys(notebook: Notebook): string[] {
+  const keys: string[] = [];
+  const nameHash = notebook.nameHash?.trim();
+  if (nameHash) keys.push(`hash:${nameHash}`);
+  if (!isEncryptedNotebookName(notebook.name)) {
+    keys.push(`name:${notebookDuplicateNameKey(notebook.name)}`);
+  }
+  return keys;
 }
 
 function notebookDuplicateNameKey(name: string): string {
@@ -732,7 +741,7 @@ async function getActiveNotebookDuplicateCandidates(
   const names = [
     ...new Set(
       activeNotebooks
-        .filter((notebook) => !notebook.nameHash)
+        .filter((notebook) => !isEncryptedNotebookName(notebook.name))
         .map((notebook) => notebookDuplicateNameKey(notebook.name))
         .filter(Boolean)
     )
@@ -785,8 +794,53 @@ function firstNotebookDuplicate(
   notebook: Notebook,
   candidates: Map<string, Notebook[]>
 ): Notebook | null {
-  const matches = candidates.get(notebookDuplicateKey(notebook)) ?? [];
-  return matches.find((candidate) => candidate.id !== notebook.id) ?? null;
+  for (const key of notebookDuplicateKeys(notebook)) {
+    const matches = candidates.get(key) ?? [];
+    const duplicate = matches.find((candidate) => candidate.id !== notebook.id);
+    if (duplicate) return duplicate;
+  }
+  return null;
+}
+
+function firstAcceptedNotebookDuplicate(
+  notebooks: Map<string, Notebook>,
+  notebook: Notebook
+): Notebook | null {
+  for (const key of notebookDuplicateKeys(notebook)) {
+    const duplicate = notebooks.get(key);
+    if (duplicate && duplicate.id !== notebook.id) return duplicate;
+  }
+  return null;
+}
+
+function rememberAcceptedNotebook(
+  notebooks: Map<string, Notebook>,
+  notebook: Notebook
+): void {
+  for (const key of notebookDuplicateKeys(notebook)) {
+    notebooks.set(key, notebook);
+  }
+}
+
+function assertUniquePushChangeIds(request: PushRequest): void {
+  assertUniqueEntityIds(
+    'notebook',
+    request.notebooks.map((change) => change.record.id)
+  );
+  assertUniqueEntityIds(
+    'note',
+    request.notes.map((change) => change.record.id)
+  );
+}
+
+function assertUniqueEntityIds(entityType: 'note' | 'notebook', ids: string[]) {
+  const seen = new Set<string>();
+  for (const id of ids) {
+    if (seen.has(id)) {
+      throw new Error(`Duplicate ${entityType} id in sync push`);
+    }
+    seen.add(id);
+  }
 }
 
 export async function listNotes(
@@ -1393,6 +1447,13 @@ function tombstoneOverwriteAllowed(
   return record.deviceId.localeCompare(tombstone.deviceId) >= 0;
 }
 
+function acceptedNewRecordVersion(
+  record: Note | Notebook,
+  options: PushChangesOptions
+): number {
+  return options.preserveNewRecordVersions ? Math.max(record.version, 1) : 1;
+}
+
 function noteWithSyncableNotebookRefsFromMap(
   note: Note,
   notebooks: Map<string, Notebook>
@@ -1421,6 +1482,7 @@ export async function pushChanges(
   ownerUsername = LEGACY_OWNER_USERNAME,
   options: PushChangesOptions = {}
 ): Promise<PushResponse> {
+  assertUniquePushChangeIds(request);
   const now = new Date().toISOString();
   const acceptedChanges: AcceptedChange[] = [];
   const conflicts: PushResponse['conflicts'] = [];
@@ -1502,8 +1564,9 @@ export async function pushChanges(
         continue;
       }
 
-      const inRequestDuplicate = acceptedActiveNotebooks.get(
-        notebookDuplicateKey(change.record)
+      const inRequestDuplicate = firstAcceptedNotebookDuplicate(
+        acceptedActiveNotebooks,
+        change.record
       );
       const duplicateCandidate = change.record.deletedAt
         ? null
@@ -1543,17 +1606,14 @@ export async function pushChanges(
                 ? remote.version + 1
                 : tombstone
                   ? nextVersionAfter(tombstone.version)
-                  : Math.max(change.record.version, 1),
+                  : acceptedNewRecordVersion(change.record, options),
               syncStatus: 'synced' as const
             };
       acceptedChanges.push(accepted('notebook', acceptedNotebook));
       if (acceptedNotebook.deletedAt) {
         acceptedDeletedNotebookIds.add(acceptedNotebook.id);
       } else {
-        acceptedActiveNotebooks.set(
-          notebookDuplicateKey(acceptedNotebook),
-          acceptedNotebook
-        );
+        rememberAcceptedNotebook(acceptedActiveNotebooks, acceptedNotebook);
       }
       if (acceptedNotebook !== remote) {
         notebooksToWrite.push(acceptedNotebook);
@@ -1662,7 +1722,7 @@ export async function pushChanges(
                 ? remote.version + 1
                 : tombstone
                   ? nextVersionAfter(tombstone.version)
-                  : Math.max(syncableNote.note.version, 1),
+                  : acceptedNewRecordVersion(syncableNote.note, options),
               syncStatus: 'synced' as const
             };
       acceptedChanges.push(accepted('note', acceptedNote));

@@ -123,6 +123,100 @@ describe('server repository', () => {
     }
   });
 
+  it('rejects duplicate entity ids in a single push batch', async () => {
+    const db = await openMemoryDatabase();
+    try {
+      const first = {
+        ...fixtureNote,
+        id: 'duplicate-batch-note',
+        body: 'first body'
+      };
+      const second = {
+        ...fixtureNote,
+        id: first.id,
+        body: 'second body',
+        updatedAt: '2026-01-01T01:00:00.000Z'
+      };
+
+      await expect(
+        pushChanges(db, {
+          device: fixtureDevice,
+          notebooks: [],
+          notes: [
+            { record: first, baseVersion: 0 },
+            { record: second, baseVersion: 0 }
+          ]
+        })
+      ).rejects.toThrow('Duplicate note id in sync push');
+      expect(await getNote(db, first.id)).toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+
+  it('assigns server-owned versions to new public push records', async () => {
+    const db = await openMemoryDatabase();
+    try {
+      const inflatedNote = {
+        ...fixtureNote,
+        id: 'inflated-version-note',
+        version: 12345
+      };
+      const result = await pushChanges(db, {
+        device: fixtureDevice,
+        notebooks: [],
+        notes: [{ record: inflatedNote, baseVersion: 0 }]
+      });
+
+      expect(result.accepted).toEqual([
+        expect.objectContaining({
+          entityType: 'note',
+          id: inflatedNote.id,
+          version: 1
+        })
+      ]);
+      await expect(getNote(db, inflatedNote.id)).resolves.toMatchObject({
+        version: 1
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('can preserve new record versions for mirror replication', async () => {
+    const db = await openMemoryDatabase();
+    try {
+      const mirroredNote = {
+        ...fixtureNote,
+        id: 'mirrored-version-note',
+        version: 12345
+      };
+      const result = await pushChanges(
+        db,
+        {
+          device: fixtureDevice,
+          notebooks: [],
+          notes: [{ record: mirroredNote, baseVersion: 0 }]
+        },
+        LEGACY_OWNER_USERNAME,
+        { preserveNewRecordVersions: true }
+      );
+
+      expect(result.accepted).toEqual([
+        expect.objectContaining({
+          entityType: 'note',
+          id: mirroredNote.id,
+          version: 12345
+        })
+      ]);
+      await expect(getNote(db, mirroredNote.id)).resolves.toMatchObject({
+        version: 12345
+      });
+    } finally {
+      db.close();
+    }
+  });
+
   it('rejects a stale local note push with a conflict instead of overwriting remote data', async () => {
     const db = await openMemoryDatabase();
     try {
@@ -195,6 +289,49 @@ describe('server repository', () => {
       expect(result.conflicts).toHaveLength(1);
       expect(result.conflicts[0].reason).toBe('duplicate_name');
       expect(await listNotebooks(db)).toHaveLength(1);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('rejects duplicate plaintext notebook names even when hashes differ', async () => {
+    const db = await openMemoryDatabase();
+    try {
+      const firstNotebook = {
+        ...fixtureNotebook,
+        id: 'hashed-plaintext-a',
+        name: 'Inbox',
+        nameHash: 'hash-one'
+      };
+      const secondNotebook = {
+        ...fixtureNotebook,
+        id: 'hashed-plaintext-b',
+        name: 'inbox',
+        nameHash: 'hash-two',
+        updatedAt: '2026-01-01T01:00:00.000Z'
+      };
+
+      const result = await pushChanges(db, {
+        device: fixtureDevice,
+        notebooks: [
+          { record: firstNotebook, baseVersion: 0 },
+          { record: secondNotebook, baseVersion: 0 }
+        ],
+        notes: []
+      });
+
+      expect(result.accepted).toEqual([
+        expect.objectContaining({ id: firstNotebook.id })
+      ]);
+      expect(result.conflicts).toEqual([
+        expect.objectContaining({
+          entityType: 'notebook',
+          entityId: secondNotebook.id,
+          reason: 'duplicate_name'
+        })
+      ]);
+      expect(await getNotebook(db, firstNotebook.id)).not.toBeNull();
+      expect(await getNotebook(db, secondNotebook.id)).toBeNull();
     } finally {
       db.close();
     }
@@ -943,16 +1080,26 @@ describe('server repository', () => {
         syncStatus: 'pending' as const
       };
 
-      await pushChanges(local, {
-        device: fixtureDevice,
-        notebooks: [{ record: localNotebook, baseVersion: 0 }],
-        notes: [{ record: localNote, baseVersion: 0 }]
-      });
-      await pushChanges(remote, {
-        device: { id: 'remote-device', name: 'Remote device' },
-        notebooks: [{ record: remoteNotebook, baseVersion: 0 }],
-        notes: [{ record: remoteNote, baseVersion: 0 }]
-      });
+      await pushChanges(
+        local,
+        {
+          device: fixtureDevice,
+          notebooks: [{ record: localNotebook, baseVersion: 0 }],
+          notes: [{ record: localNote, baseVersion: 0 }]
+        },
+        LEGACY_OWNER_USERNAME,
+        { preserveNewRecordVersions: true }
+      );
+      await pushChanges(
+        remote,
+        {
+          device: { id: 'remote-device', name: 'Remote device' },
+          notebooks: [{ record: remoteNotebook, baseVersion: 0 }],
+          notes: [{ record: remoteNote, baseVersion: 0 }]
+        },
+        LEGACY_OWNER_USERNAME,
+        { preserveNewRecordVersions: true }
+      );
 
       await expect(syncDatabases(local, remote)).rejects.toThrow(
         /Remote mirror divergent/
@@ -1015,16 +1162,26 @@ describe('server repository', () => {
         syncStatus: 'pending' as const
       };
 
-      await pushChanges(local, {
-        device: fixtureDevice,
-        notebooks: [{ record: localNotebook, baseVersion: 0 }],
-        notes: [{ record: localNote, baseVersion: 0 }]
-      });
-      await pushChanges(remote, {
-        device: { id: 'remote-device', name: 'Remote device' },
-        notebooks: [{ record: remoteNotebook, baseVersion: 0 }],
-        notes: [{ record: remoteNote, baseVersion: 0 }]
-      });
+      await pushChanges(
+        local,
+        {
+          device: fixtureDevice,
+          notebooks: [{ record: localNotebook, baseVersion: 0 }],
+          notes: [{ record: localNote, baseVersion: 0 }]
+        },
+        LEGACY_OWNER_USERNAME,
+        { preserveNewRecordVersions: true }
+      );
+      await pushChanges(
+        remote,
+        {
+          device: { id: 'remote-device', name: 'Remote device' },
+          notebooks: [{ record: remoteNotebook, baseVersion: 0 }],
+          notes: [{ record: remoteNote, baseVersion: 0 }]
+        },
+        LEGACY_OWNER_USERNAME,
+        { preserveNewRecordVersions: true }
+      );
 
       await syncDatabases(local, remote);
 
@@ -1355,23 +1512,28 @@ describe('server repository', () => {
         ]
       });
 
-      await pushChanges(remote, {
-        device: fixtureDevice,
-        notebooks: [],
-        notes: [
-          {
-            record: {
-              ...noteWithoutNotebook,
-              deletedAt: '2026-05-26T07:59:24.903Z',
-              trashedAt: '2026-05-26T07:59:07.376Z',
-              updatedAt: '2026-05-26T07:59:24.903Z',
-              version: 4,
-              syncStatus: 'pending' as const
-            },
-            baseVersion: 0
-          }
-        ]
-      });
+      await pushChanges(
+        remote,
+        {
+          device: fixtureDevice,
+          notebooks: [],
+          notes: [
+            {
+              record: {
+                ...noteWithoutNotebook,
+                deletedAt: '2026-05-26T07:59:24.903Z',
+                trashedAt: '2026-05-26T07:59:07.376Z',
+                updatedAt: '2026-05-26T07:59:24.903Z',
+                version: 4,
+                syncStatus: 'pending' as const
+              },
+              baseVersion: 0
+            }
+          ]
+        },
+        LEGACY_OWNER_USERNAME,
+        { preserveNewRecordVersions: true }
+      );
 
       await syncDatabases(local, remote);
 
@@ -1415,22 +1577,27 @@ describe('server repository', () => {
         notes: []
       });
 
-      await pushChanges(remote, {
-        device: fixtureDevice,
-        notebooks: [
-          {
-            record: {
-              ...fixtureNotebook,
-              deletedAt: '2026-05-26T07:59:24.903Z',
-              updatedAt: '2026-05-26T07:59:24.903Z',
-              version: 4,
-              syncStatus: 'pending' as const
-            },
-            baseVersion: 0
-          }
-        ],
-        notes: []
-      });
+      await pushChanges(
+        remote,
+        {
+          device: fixtureDevice,
+          notebooks: [
+            {
+              record: {
+                ...fixtureNotebook,
+                deletedAt: '2026-05-26T07:59:24.903Z',
+                updatedAt: '2026-05-26T07:59:24.903Z',
+                version: 4,
+                syncStatus: 'pending' as const
+              },
+              baseVersion: 0
+            }
+          ],
+          notes: []
+        },
+        LEGACY_OWNER_USERNAME,
+        { preserveNewRecordVersions: true }
+      );
 
       await syncDatabases(local, remote);
 

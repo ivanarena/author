@@ -278,7 +278,14 @@ private fun databasePassword(securePrefs: SecurePreferenceStore): DatabasePasswo
 
 private fun prepareExistingDatabase(context: Context, password: DatabasePassword) {
   val dbFile = context.getDatabasePath(DATABASE_NAME)
-  if (!dbFile.exists() || canOpenEncryptedDatabase(dbFile, password.value)) return
+  if (!dbFile.exists()) {
+    deletePlaintextBackupIfPresent(dbFile)
+    return
+  }
+  if (canOpenEncryptedDatabase(dbFile, password.value)) {
+    deletePlaintextBackupIfPresent(dbFile)
+    return
+  }
   if (!canOpenPlaintextDatabase(dbFile)) {
     if (password.generated) {
       quarantineUnreadableDatabase(dbFile)
@@ -291,9 +298,9 @@ private fun prepareExistingDatabase(context: Context, password: DatabasePassword
 
 private fun migratePlaintextDatabase(dbFile: File, password: String) {
   val tempFile = File(dbFile.parentFile, "${dbFile.name}.sqlcipher-migrating")
-  val backupFile = File(dbFile.parentFile, "${dbFile.name}.plaintext-backup")
+  val backupFile = plaintextBackupFile(dbFile)
   tempFile.delete()
-  backupFile.delete()
+  deletePlaintextBackupIfPresent(dbFile)
 
   var source: SQLiteDatabase? = null
   try {
@@ -326,7 +333,7 @@ private fun migratePlaintextDatabase(dbFile: File, password: String) {
     throw IllegalStateException("Could not install encrypted Android database")
   }
   deleteDatabaseSidecars(dbFile)
-  backupFile.delete()
+  deletePlaintextBackupIfPresent(dbFile)
 }
 
 private fun canOpenPlaintextDatabase(dbFile: File): Boolean {
@@ -370,6 +377,16 @@ private fun quarantineUnreadableDatabase(dbFile: File) {
     throw IllegalStateException("Could not move unreadable Android database aside")
   }
   deleteDatabaseSidecars(dbFile)
+}
+
+private fun plaintextBackupFile(dbFile: File): File =
+  File(dbFile.parentFile, "${dbFile.name}.plaintext-backup")
+
+private fun deletePlaintextBackupIfPresent(dbFile: File) {
+  val backupFile = plaintextBackupFile(dbFile)
+  if (backupFile.exists() && !backupFile.delete()) {
+    throw IllegalStateException("Could not delete plaintext Android database backup")
+  }
 }
 
 private fun deleteDatabaseSidecars(dbFile: File) {

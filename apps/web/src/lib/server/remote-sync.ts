@@ -756,7 +756,7 @@ async function pushMirrorChanges(
       notes
     },
     ownerUsername,
-    { allowTombstoneOverwrite: true }
+    { allowTombstoneOverwrite: true, preserveNewRecordVersions: true }
   );
   if (result.conflicts.length) {
     throw new Error(

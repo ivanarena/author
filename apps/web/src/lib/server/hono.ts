@@ -96,6 +96,7 @@ import {
   hasEntityChanges,
   hasNotebookRecord,
   hasNoteRecord,
+  hasUniqueEntityChangeIds,
   isNullableString
 } from './payload-validation';
 
@@ -2338,6 +2339,8 @@ api.post(API_PATHS.syncPush, async (c) => {
       !hasDevicePayload(body.device) ||
       !hasEntityChanges(body.notes, hasNoteRecord) ||
       !hasEntityChanges(body.notebooks, hasNotebookRecord) ||
+      !hasUniqueEntityChangeIds(body.notes) ||
+      !hasUniqueEntityChangeIds(body.notebooks) ||
       !recordsBelongToDevice(body)
     ) {
       return c.json({ error: 'Invalid push payload' }, 400);

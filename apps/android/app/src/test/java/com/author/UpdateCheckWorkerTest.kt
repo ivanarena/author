@@ -85,6 +85,39 @@ class UpdateCheckWorkerTest {
   }
 
   @Test
+  fun fallsBackWhenJsonManifestPointsAtUntrustedHost() {
+    val update =
+      parseUpdateInfo(
+        """{"versionCode":2,"versionName":"1.1","apkUrl":"https://evil.example/app.apk"}""",
+        "https://example.com/releases/latest",
+      )
+
+    assertEquals("https://example.com/releases/latest", update.downloadUrl)
+  }
+
+  @Test
+  fun rejectsUpdateDownloadUrlsOutsideTrustedOrigins() {
+    assertTrue(
+      isAllowedUpdateDownloadUrl(
+        "https://releases.example.com/app.apk",
+        listOf("https://releases.example.com/latest"),
+      )
+    )
+    assertTrue(
+      isAllowedUpdateDownloadUrl(
+        "https://cdn.releases.example.com/app.apk",
+        listOf("https://releases.example.com/latest"),
+      )
+    )
+    assertFalse(
+      isAllowedUpdateDownloadUrl(
+        "https://evil.example/app.apk",
+        listOf("https://releases.example.com/latest"),
+      )
+    )
+  }
+
+  @Test
   fun versionNameChecksDoNotNotifyForSameOrOlderVersions() {
     assertFalse(
       UpdateInfo(null, "android-v1.0.0", "https://example.com")

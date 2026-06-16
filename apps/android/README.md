@@ -58,11 +58,15 @@ the sync encryption contract or requiring network access after unlock.
 
 ## Release Validation
 
-Release builds require an HTTPS Author API URL:
+Release builds require HTTPS Author API and update URLs:
 
 ```sh
 AUTHOR_API_URL=https://author.example.com ./gradlew :app:lintRelease :app:assembleRelease
 ```
+
+If `ANDROID_UPDATE_CHECK_URL` or `ANDROID_UPDATE_DOWNLOAD_URL` is set for a
+release build, use HTTPS. APK links discovered from an update feed must stay on
+the configured update origin, or a subdomain of it.
 
 Optional signing environment variables:
 

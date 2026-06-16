@@ -316,12 +316,12 @@ private fun migratePlaintextDatabase(dbFile: File, password: String) {
     source.rawExecSQL(
       "ATTACH DATABASE ${sqlString(tempFile.absolutePath)} AS encrypted KEY ${sqlString(password)}"
     )
+    source.rawExecSQL("PRAGMA encrypted.user_version = $DATABASE_VERSION")
     source.rawQuery("SELECT sqlcipher_export('encrypted')", emptyArray<String>()).use {}
     source.rawExecSQL("DETACH DATABASE encrypted")
   } finally {
     source?.close()
   }
-  setEncryptedDatabaseVersion(tempFile, password)
 
   if (!dbFile.renameTo(backupFile)) {
     tempFile.delete()
@@ -334,23 +334,6 @@ private fun migratePlaintextDatabase(dbFile: File, password: String) {
   }
   deleteDatabaseSidecars(dbFile)
   deletePlaintextBackupIfPresent(dbFile)
-}
-
-private fun setEncryptedDatabaseVersion(dbFile: File, password: String) {
-  var encrypted: SQLiteDatabase? = null
-  try {
-    encrypted =
-      SQLiteDatabase.openDatabase(
-        dbFile.absolutePath,
-        password,
-        null,
-        SQLiteDatabase.OPEN_READWRITE,
-        null,
-      )
-    encrypted.rawExecSQL("PRAGMA user_version = $DATABASE_VERSION")
-  } finally {
-    encrypted?.close()
-  }
 }
 
 private fun canOpenPlaintextDatabase(dbFile: File): Boolean {

@@ -233,7 +233,7 @@ export class NotesPageController
   searchValue = $state('');
   compactView = $state(false);
   editorZoom = $state(1);
-  editorFont = $state<EditorFont>('figtree');
+  editorFont = $state<EditorFont>('dm-sans');
   editorTextSize = $state(16);
   editorLineHeight = $state(1.75);
   currentTime = $state(new Date());

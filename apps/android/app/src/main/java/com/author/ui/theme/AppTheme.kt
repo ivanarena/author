@@ -31,34 +31,38 @@ internal fun <T> appTween(durationMillis: Int): TweenSpec<T> =
   tween(durationMillis = durationMillis, easing = AppMotion.Smooth)
 
 @OptIn(ExperimentalTextApi::class)
-internal val AppFontFamily =
+private fun variableFontFamily(resId: Int): FontFamily =
   FontFamily(
     Font(
-      resId = R.font.figtree_variable,
+      resId = resId,
       weight = FontWeight.Normal,
       variationSettings = FontVariation.Settings(FontVariation.weight(400)),
     ),
     Font(
-      resId = R.font.figtree_variable,
+      resId = resId,
       weight = FontWeight.Medium,
       variationSettings = FontVariation.Settings(FontVariation.weight(500)),
     ),
     Font(
-      resId = R.font.figtree_variable,
+      resId = resId,
       weight = FontWeight.SemiBold,
       variationSettings = FontVariation.Settings(FontVariation.weight(600)),
     ),
     Font(
-      resId = R.font.figtree_variable,
+      resId = resId,
       weight = FontWeight.Bold,
       variationSettings = FontVariation.Settings(FontVariation.weight(700)),
     ),
     Font(
-      resId = R.font.figtree_variable,
+      resId = resId,
       weight = FontWeight.ExtraBold,
       variationSettings = FontVariation.Settings(FontVariation.weight(800)),
     ),
   )
+
+internal val DmSansFontFamily = variableFontFamily(R.font.dm_sans_variable)
+internal val FigtreeFontFamily = variableFontFamily(R.font.figtree_variable)
+internal val AppFontFamily = DmSansFontFamily
 
 internal val LocalAppFontFamily = staticCompositionLocalOf { AppFontFamily }
 
@@ -66,6 +70,7 @@ internal data class FontChoice(val value: String, val label: String)
 
 internal val FontChoices =
   listOf(
+    FontChoice("dm-sans", "DM Sans"),
     FontChoice("figtree", "Figtree"),
     FontChoice("system-sans", "System Sans"),
     FontChoice("system-serif", "System Serif"),
@@ -153,8 +158,9 @@ private fun typography(fontFamily: FontFamily) =
 
 private fun fontFamily(font: String): FontFamily =
   when (font) {
+    "dm-sans" -> DmSansFontFamily
     "figtree",
-    "kedebideri" -> AppFontFamily
+    "kedebideri" -> FigtreeFontFamily
     "system-sans" -> FontFamily.SansSerif
     "system-serif" -> FontFamily.Serif
     "mono" -> FontFamily.Monospace

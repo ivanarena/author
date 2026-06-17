@@ -121,9 +121,12 @@ describe('page preference helpers', () => {
   it('selects and applies editor font CSS safely', () => {
     const { cssValues, storedValues } = installBrowserGlobals();
 
-    expect(getStoredEditorFont()).toBe('figtree');
+    expect(getStoredEditorFont()).toBe('dm-sans');
 
     storedValues.set('author-editor-font', 'fantasy');
+    expect(getStoredEditorFont()).toBe('dm-sans');
+
+    storedValues.set('author-editor-font', 'figtree');
     expect(getStoredEditorFont()).toBe('figtree');
 
     setStoredEditorFont('system-serif');

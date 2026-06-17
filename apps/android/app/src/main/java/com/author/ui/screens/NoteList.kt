@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -35,7 +37,6 @@ import androidx.compose.material.icons.outlined.RestoreFromTrash
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.StarBorder
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -87,6 +88,10 @@ private val noteDateFilterOptions =
     NOTE_DATE_FILTER_OLDER to "Older",
   )
 
+private val NoteListTitleTextSize = 15.sp
+private val NoteListPreviewTextSize = 11.sp
+private val NoteListMetaTextSize = 10.5.sp
+
 @Composable
 internal fun NoteListPanel(controller: NotesController, modifier: Modifier = Modifier) {
   Column(
@@ -98,43 +103,32 @@ internal fun NoteListPanel(controller: NotesController, modifier: Modifier = Mod
       enter = fadeIn(appTween(AppMotion.Medium)) + expandVertically(appTween(AppMotion.Slow)),
       exit = fadeOut(appTween(AppMotion.Fast)) + shrinkVertically(appTween(AppMotion.Medium)),
     ) {
-      Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
-        Text(
-          if (controller.selectedNoteIds.isEmpty()) "Select notes"
-          else "${controller.selectedNoteIds.size} selected",
-          color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
-          fontSize = AppTextSize.Label,
-          fontWeight = FontWeight.SemiBold,
-        )
-        Spacer(Modifier.weight(1f))
-        Checkbox(
-          checked =
-            controller.visibleNotes.isNotEmpty() &&
-              controller.visibleNotes.all { controller.selectedNoteIds.contains(it.id) },
-          onCheckedChange = { controller.toggleAllVisible(it) },
-          enabled = controller.visibleNotes.isNotEmpty(),
-          colors = appCheckboxColors(),
-        )
-        GlassIcon(Icons.Outlined.Close, "Clear selection") { controller.clearSelection() }
-      }
+      SelectionToolbar(controller)
     }
     LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-      controller.visibleGroups.forEach { (label, groupNotes) ->
-        if (label.isNotBlank()) {
-          item {
-            Text(
-              label.uppercase(),
-              color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.46f),
-              fontSize = AppTextSize.Debug,
-              fontWeight = FontWeight.Bold,
-              modifier = Modifier.padding(top = 6.dp, bottom = 2.dp, start = 8.dp),
-            )
+      controller.visibleGroups.forEachIndexed { groupIndex, (label, groupNotes) ->
+        if (groupNotes.isNotEmpty()) {
+          if (groupIndex > 0) {
+            item(key = "range-separator-$groupIndex") {
+              HorizontalDivider(
+                modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 4.dp),
+                color = appDividerColor().copy(alpha = 0.58f),
+              )
+            }
           }
+          if (label.isNotBlank()) {
+            item {
+              Text(
+                label.uppercase(),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.46f),
+                fontSize = AppTextSize.Debug,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 6.dp, bottom = 2.dp, start = 8.dp),
+              )
+            }
+          }
+          items(groupNotes, key = { it.id }) { note -> NoteRow(controller, note) }
         }
-        items(groupNotes, key = { it.id }) { note -> NoteRow(controller, note) }
       }
       if (controller.visibleNotes.isEmpty()) {
         item {
@@ -147,6 +141,83 @@ internal fun NoteListPanel(controller: NotesController, modifier: Modifier = Mod
           )
         }
       }
+    }
+  }
+}
+
+@Composable
+private fun SelectionToolbar(controller: NotesController) {
+  val selectedCount = controller.selectedNoteIds.size
+  val allVisibleSelected =
+    controller.visibleNotes.isNotEmpty() &&
+      controller.visibleNotes.all { controller.selectedNoteIds.contains(it.id) }
+
+  Surface(
+    modifier = Modifier.fillMaxWidth(),
+    shape = AppShape.ControlLarge,
+    color =
+      if (selectedCount > 0) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else rowColor(),
+    border = BorderStroke(1.dp, appDividerColor().copy(alpha = 0.68f)),
+    tonalElevation = 0.dp,
+    shadowElevation = 0.dp,
+  ) {
+    Row(
+      Modifier.heightIn(min = 44.dp).padding(start = 12.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Text(
+        if (selectedCount == 0) "Select notes" else "$selectedCount selected",
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+        fontSize = AppTextSize.Label,
+        fontWeight = FontWeight.SemiBold,
+      )
+      Spacer(Modifier.weight(1f))
+      SelectionActionButton(
+        icon = Icons.Outlined.Check,
+        contentDescription =
+          if (allVisibleSelected) "Clear visible selection" else "Select all visible notes",
+        active = allVisibleSelected,
+        enabled = controller.visibleNotes.isNotEmpty(),
+      ) {
+        controller.toggleAllVisible(!allVisibleSelected)
+      }
+      SelectionActionButton(
+        icon = Icons.Outlined.Close,
+        contentDescription = "Clear selection",
+        onClick = { controller.clearSelection() },
+      )
+    }
+  }
+}
+
+@Composable
+private fun SelectionActionButton(
+  icon: ImageVector,
+  contentDescription: String,
+  active: Boolean = false,
+  enabled: Boolean = true,
+  onClick: () -> Unit,
+) {
+  Surface(
+    modifier =
+      Modifier.size(36.dp).clip(AppShape.Control).clickable(enabled = enabled, onClick = onClick),
+    shape = AppShape.Control,
+    color = contrastControlColor(active = active, enabled = enabled),
+    border =
+      if (active && enabled) {
+        BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f))
+      } else null,
+    tonalElevation = 0.dp,
+    shadowElevation = 0.dp,
+  ) {
+    Box(contentAlignment = Alignment.Center) {
+      Icon(
+        icon,
+        contentDescription,
+        modifier = Modifier.size(18.dp),
+        tint = contrastControlContentColor(active = active, enabled = enabled),
+      )
     }
   }
 }
@@ -453,9 +524,23 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
   var menuOpen by remember(note.id) { mutableStateOf(false) }
   var menuMode by remember(note.id) { mutableStateOf("note") }
   val titleColor =
-    if (active || selected) MaterialTheme.colorScheme.primary
-    else MaterialTheme.colorScheme.onSurface
-  val highlighted = active || selected
+    when {
+      active -> MaterialTheme.colorScheme.primary
+      selected -> MaterialTheme.colorScheme.primary
+      else -> MaterialTheme.colorScheme.onSurface
+    }
+  val rowBackground =
+    when {
+      active -> rowColor(active = true)
+      selected -> rowColor(active = true)
+      else -> Color.Transparent
+    }
+  val rowBorder =
+    when {
+      active -> BorderStroke(1.dp, appDividerColor().copy(alpha = 0.9f))
+      selected -> BorderStroke(1.dp, appDividerColor().copy(alpha = 0.9f))
+      else -> null
+    }
 
   Box {
     Surface(
@@ -478,32 +563,28 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
               menuOpen = true
             },
           ),
-      color = if (highlighted) rowColor(active = true) else Color.Transparent,
+      color = rowBackground,
       shape = AppShape.NoteRow,
-      border = if (highlighted) BorderStroke(1.dp, appDividerColor().copy(alpha = 0.9f)) else null,
+      border = rowBorder,
     ) {
       Row(
         Modifier.heightIn(min = if (controller.compactView) 48.dp else 68.dp)
           .padding(horizontal = 12.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
       ) {
-        if (selecting) {
-          Checkbox(
-            checked = selected,
-            onCheckedChange = { controller.toggleSelection(note, it) },
-            colors = appCheckboxColors(),
-          )
-        }
         Column(
-          Modifier.weight(1f).padding(horizontal = if (selecting) 8.dp else 4.dp),
+          Modifier.weight(1f).padding(horizontal = 4.dp),
           verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
           Row(verticalAlignment = Alignment.CenterVertically) {
+            if (selected) {
+              SelectedTitleDot()
+            }
             Text(
               noteDisplayTitle(note),
               color = titleColor,
               fontWeight = FontWeight.SemiBold,
-              fontSize = 18.sp,
+              fontSize = NoteListTitleTextSize,
               maxLines = 1,
               overflow = TextOverflow.Ellipsis,
               modifier = Modifier.weight(1f),
@@ -520,7 +601,7 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
               Text(
                 relativeAge(note.updatedAt),
                 modifier = Modifier.padding(start = if (note.isFavorite) 8.dp else 0.dp),
-                fontSize = AppTextSize.Label,
+                fontSize = NoteListMetaTextSize,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
               )
             }
@@ -530,7 +611,7 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
               notePreview(note).ifBlank { "No text" },
               color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
               fontWeight = FontWeight.Normal,
-              fontSize = AppTextSize.Label,
+              fontSize = NoteListPreviewTextSize,
               maxLines = 1,
               overflow = TextOverflow.Ellipsis,
             )
@@ -547,7 +628,7 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
             Text(
               "Updated ${formatListDate(note.updatedAt)}   Created ${formatListDate(note.createdAt)}",
               color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
-              fontSize = AppTextSize.Label,
+              fontSize = NoteListMetaTextSize,
               maxLines = 1,
             )
           }
@@ -562,6 +643,16 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
       }
     }
   }
+}
+
+@Composable
+private fun SelectedTitleDot() {
+  Box(
+    Modifier.padding(end = 8.dp)
+      .size(7.dp)
+      .clip(CircleShape)
+      .background(MaterialTheme.colorScheme.primary)
+  )
 }
 
 @Composable
@@ -588,7 +679,7 @@ private fun NotebookBadge(label: String, modifier: Modifier = Modifier) {
         label,
         modifier = Modifier.weight(1f, fill = false),
         color = contrastControlContentColor(),
-        fontSize = AppTextSize.Label,
+        fontSize = NoteListMetaTextSize,
         fontWeight = FontWeight.Bold,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,

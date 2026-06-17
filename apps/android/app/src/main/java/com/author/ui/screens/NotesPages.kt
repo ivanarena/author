@@ -90,7 +90,7 @@ private fun NotesTopBar(
             "Search notes",
             active = searchOpen || controller.searchValue.isNotBlank(),
           ) {
-            onSearchOpen()
+            if (searchOpen) onSearchClose() else onSearchOpen()
           }
           NotesSortButton(controller)
           GlassIcon(Icons.Outlined.Book, "Notebooks") { controller.navigateTo("notebooks") }

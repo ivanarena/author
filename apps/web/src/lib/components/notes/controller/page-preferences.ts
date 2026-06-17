@@ -16,7 +16,12 @@ export const MAX_EDITOR_TEXT_SIZE = 22;
 export const MIN_EDITOR_LINE_HEIGHT = 1.35;
 export const MAX_EDITOR_LINE_HEIGHT = 2.1;
 
-export type EditorFont = 'figtree' | 'system-sans' | 'system-serif' | 'mono';
+export type EditorFont =
+  | 'dm-sans'
+  | 'figtree'
+  | 'system-sans'
+  | 'system-serif'
+  | 'mono';
 
 export interface EditorFontOption {
   value: EditorFont;
@@ -25,6 +30,11 @@ export interface EditorFontOption {
 }
 
 export const EDITOR_FONT_OPTIONS: EditorFontOption[] = [
+  {
+    value: 'dm-sans',
+    label: 'DM Sans',
+    css: '"DM Sans Variable", "DM Sans", ui-sans-serif, system-ui, sans-serif'
+  },
   {
     value: 'figtree',
     label: 'Figtree',
@@ -94,7 +104,7 @@ export function getStoredEditorFont(): EditorFont {
   const stored = localStorage.getItem(EDITOR_FONT_KEY);
   return EDITOR_FONT_OPTIONS.some((option) => option.value === stored)
     ? (stored as EditorFont)
-    : 'figtree';
+    : 'dm-sans';
 }
 
 export function setStoredEditorFont(font: EditorFont): void {

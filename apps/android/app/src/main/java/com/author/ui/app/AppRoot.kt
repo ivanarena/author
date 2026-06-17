@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material3.Button
 import androidx.compose.material3.FloatingActionButton
@@ -135,20 +136,18 @@ private fun AppLockPage(controller: NotesController, onUnlockApp: () -> Unit) {
 @Composable
 private fun PageFloatingAction(controller: NotesController) {
   if (controller.currentPage != "notes" && controller.currentPage != "notebooks") return
+  val creatingNotebook = controller.currentPage == "notebooks"
 
   FloatingActionButton(
     modifier = Modifier.size(64.dp),
-    onClick = {
-      if (controller.currentPage == "notebooks") controller.newNotebookOpen = true
-      else controller.newNote()
-    },
+    onClick = { if (creatingNotebook) controller.newNotebookOpen = true else controller.newNote() },
     shape = RoundedCornerShape(999.dp),
     containerColor = MaterialTheme.colorScheme.primary,
     contentColor = MaterialTheme.colorScheme.onPrimary,
   ) {
     Icon(
-      Icons.Outlined.Add,
-      if (controller.currentPage == "notebooks") "New notebook" else "New note",
+      if (creatingNotebook) Icons.Outlined.CreateNewFolder else Icons.Outlined.Add,
+      if (creatingNotebook) "New notebook" else "New note",
     )
   }
 }

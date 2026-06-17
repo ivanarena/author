@@ -96,7 +96,7 @@ class NotesController(private val repository: NotesRepository, private val scope
   var renameNotebookValue by mutableStateOf("")
   var deletingNotebookId by mutableStateOf<String?>(null)
   var authMode by mutableStateOf("signin")
-  var deviceOtpLoginAvailable by mutableStateOf(repository.hasStoredEncryptionKeyMaterial())
+  var deviceOtpLoginAvailable by mutableStateOf(false)
   var loginUsernameValue by mutableStateOf(repository.getLoginHint())
   var loginPasswordValue by mutableStateOf("")
   var loginTotpCodeValue by mutableStateOf("")
@@ -242,6 +242,7 @@ class NotesController(private val repository: NotesRepository, private val scope
             refresh()
           }
           .onFailure { repository.recordSyncError(it, "Local workspace") }
+        deviceOtpLoginAvailable = repository.canUseTrustedDeviceLogin()
         runCatching { refreshServerConfigNow() }
           .onFailure { serverConfigError = it.message ?: "Could not reach sync API" }
         refreshAppLockState()
@@ -308,13 +309,25 @@ class NotesController(private val repository: NotesRepository, private val scope
   fun openLogin(mode: String = "signin") {
     authMode = if (mode == "signup" && signupEnabled) "signup" else "signin"
     loginUsernameValue = repository.getLoginHint()
-    deviceOtpLoginAvailable = repository.hasStoredEncryptionKeyMaterial()
+    deviceOtpLoginAvailable = false
+    refreshDeviceOtpLoginAvailability()
     loginPasswordValue = ""
     loginTotpCodeValue = ""
     signupEmailValue = ""
     signupConfirmPasswordValue = ""
     loginError = ""
     loginOpen = true
+  }
+
+  private fun refreshDeviceOtpLoginAvailability() {
+    if (authMode != "signin") {
+      deviceOtpLoginAvailable = false
+      return
+    }
+    scope.launch {
+      val available = runCatching { repository.canUseTrustedDeviceLogin() }.getOrDefault(false)
+      if (authMode == "signin") deviceOtpLoginAvailable = available
+    }
   }
 
   fun refreshAppLockState() {
@@ -392,7 +405,8 @@ class NotesController(private val repository: NotesRepository, private val scope
     }
     authMode = mode
     loginError = ""
-    deviceOtpLoginAvailable = repository.hasStoredEncryptionKeyMaterial()
+    deviceOtpLoginAvailable = false
+    refreshDeviceOtpLoginAvailability()
     loginPasswordValue = ""
     loginTotpCodeValue = ""
     signupConfirmPasswordValue = ""
@@ -1016,8 +1030,7 @@ class NotesController(private val repository: NotesRepository, private val scope
     val username = loginUsernameValue.trim()
     val password = loginPasswordValue
     val hasPassword = password.isNotBlank()
-    val canUseDeviceOtpLogin =
-      authMode == "signin" && !hasPassword && repository.hasStoredEncryptionKeyMaterial()
+    val canUseDeviceOtpLogin = authMode == "signin" && !hasPassword && deviceOtpLoginAvailable
     if (username.isEmpty()) {
       showLoginError("Username required")
       return
@@ -1031,7 +1044,13 @@ class NotesController(private val repository: NotesRepository, private val scope
       return
     }
     if (!hasPassword && !canUseDeviceOtpLogin) {
-      showLoginError("Password required on first login for this device")
+      showLoginError(
+        if (authMode == "signin" && repository.hasStoredEncryptionKeyMaterial()) {
+          "Password required to restore encrypted sync on this device"
+        } else {
+          "Password required on first login for this device"
+        }
+      )
       return
     }
     if (canUseDeviceOtpLogin && loginTotpCodeValue.isBlank()) {
@@ -1106,7 +1125,7 @@ class NotesController(private val repository: NotesRepository, private val scope
             )
           ),
         )
-        deviceOtpLoginAvailable = repository.hasStoredEncryptionKeyMaterial()
+        deviceOtpLoginAvailable = repository.canUseTrustedDeviceLogin()
         loginOpen = false
         hasToken = true
         if (
@@ -1290,7 +1309,8 @@ class NotesController(private val repository: NotesRepository, private val scope
         val session = repository.getStoredSession()
         if (session != null) repository.setStoredSession(session.copy(user = response.user))
         applyAccount(response.user, response.trustedDevices)
-        deviceOtpLoginAvailable = response.trustedDevices.any { it.current }
+        deviceOtpLoginAvailable =
+          response.trustedDevices.any { it.current } && repository.canUseTrustedDeviceLogin()
         accountMessage = "Trusted device removed"
         notify("success", "Trusted device removed")
       } catch (error: Throwable) {
@@ -1308,6 +1328,8 @@ class NotesController(private val repository: NotesRepository, private val scope
         val session = repository.getStoredSession()
         if (session != null) repository.setStoredSession(session.copy(user = response.user))
         applyAccount(response.user, response.trustedDevices)
+        deviceOtpLoginAvailable =
+          response.trustedDevices.any { it.current } && repository.canUseTrustedDeviceLogin()
       } catch (error: AuthException) {
         repository.recordSyncError(error, "Account refresh")
         expireSession(error.message ?: "Sign-in expired")
@@ -1778,12 +1800,13 @@ class NotesController(private val repository: NotesRepository, private val scope
     deviceNameEditing = false
     deviceNameError = ""
     loginUsernameValue = repository.getLoginHint()
-    deviceOtpLoginAvailable = repository.hasStoredEncryptionKeyMaterial()
+    deviceOtpLoginAvailable = false
     loginPasswordValue = ""
     loginTotpCodeValue = ""
     signupEmailValue = ""
     signupConfirmPasswordValue = ""
     loginOpen = openLogin
+    if (openLogin) refreshDeviceOtpLoginAvailability()
     syncMessage = if (message.isBlank()) "Sign in to sync" else message
     remoteSyncEnabled = false
     remoteSyncState = "unknown"

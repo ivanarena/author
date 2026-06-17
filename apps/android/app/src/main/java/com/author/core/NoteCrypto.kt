@@ -158,6 +158,10 @@ class NoteCrypto(
   fun hasStoredEncryptionKeyMaterial(): Boolean =
     securePrefs.getString(KEY_MATERIAL_KEY)?.let(::isSyncKeyMaterial) == true
 
+  fun storedEncryptionKeyMaterialCanAdoptAccount(username: String): Boolean =
+    securePrefs.getString(KEY_MATERIAL_KEY)?.let { keyMaterialCanAdoptAccount(it, username) } ==
+      true
+
   fun isUnsupportedEncryptionKeyMaterial(material: String): Boolean =
     parseKeyringMaterial(material) == null &&
       ((material.startsWith("password:") && !isCurrentPasswordKeyMaterial(material)) ||
@@ -386,6 +390,17 @@ class NoteCrypto(
   private fun isSyncKeyMaterial(material: String): Boolean =
     parseKeyringMaterial(material)?.optString("scope") == "account" ||
       isCurrentPasswordKeyMaterial(material)
+
+  private fun keyMaterialCanAdoptAccount(material: String, username: String): Boolean {
+    val normalized = username.trim().lowercase()
+    if (normalized.isEmpty()) return false
+    val keyring = parseKeyringMaterial(material)
+    if (keyring != null) {
+      return keyring.optString("scope") == "account" &&
+        keyring.optString("accountUsername") == normalized
+    }
+    return isCurrentPasswordKeyMaterial(material)
+  }
 
   private fun isCurrentPasswordKeyMaterial(material: String): Boolean {
     val parts = material.split(":")

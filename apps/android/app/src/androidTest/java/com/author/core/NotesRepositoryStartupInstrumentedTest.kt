@@ -104,6 +104,7 @@ class NotesRepositoryStartupInstrumentedTest {
       val localDraft = repository.createBlankNote("Broken local draft", "Draft body")
 
       assertEquals(false, repository.hasUsableStoredEncryptionKeyMaterial())
+      assertEquals(false, repository.canUseTrustedDeviceLogin())
       val brokenDiagnostics = repository.loadRepairDiagnostics()
       val keyDiagnostic = brokenDiagnostics.entries.single { it.label == "Encryption key material" }
       assertEquals("error", keyDiagnostic.status)
@@ -124,6 +125,38 @@ class NotesRepositoryStartupInstrumentedTest {
       assertEquals("Recover body", restored[syncedNote.id]?.body)
       assertEquals("Draft body", restored[localDraft.id]?.body)
       assertEquals("Post-reset body", restored[postResetDraft.id]?.body)
+      assertEquals(true, repository.canUseTrustedDeviceLogin())
+    } finally {
+      repository.close()
+    }
+  }
+
+  @Test
+  fun trustedDeviceAdoptionRejectsStoredAccountKeyForDifferentUsername() = runBlocking {
+    val prefs = context.getSharedPreferences("author", Context.MODE_PRIVATE)
+    val password = "correct horse battery staple"
+    val ownerKeyMaterial =
+      NoteCrypto(prefs, SecurePreferenceStore(prefs))
+        .prepareNewAccountKeyring("owner", password)
+        .keyMaterial
+    val repository = NotesRepository(context)
+    try {
+      repository.rememberPasswordAndAdopt(
+        "owner",
+        password,
+        previousUsername = null,
+        nextMaterialOverride = ownerKeyMaterial,
+      )
+
+      val error =
+        try {
+          repository.adoptWithStoredKey("other", previousUsername = null)
+          null
+        } catch (error: IllegalStateException) {
+          error
+        }
+
+      assertEquals("Password required to restore encrypted sync for this account", error?.message)
     } finally {
       repository.close()
     }

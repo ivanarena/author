@@ -227,6 +227,8 @@ class NotesRepository(context: Context) : AutoCloseable {
       }
     }
 
+  suspend fun canUseTrustedDeviceLogin(): Boolean = hasUsableStoredEncryptionKeyMaterial()
+
   fun enqueueBackgroundSync() {
     SyncWorker.enqueue(appContext)
   }
@@ -986,6 +988,11 @@ class NotesRepository(context: Context) : AutoCloseable {
         val material =
           crypto.getStoredEncryptionKeyMaterial()
             ?: throw IllegalStateException(ENCRYPTION_DECRYPT_FAILED_MESSAGE)
+        if (!crypto.storedEncryptionKeyMaterialCanAdoptAccount(username)) {
+          throw IllegalStateException(
+            "Password required to restore encrypted sync for this account"
+          )
+        }
         if (
           !workspaceCanUseKeyMaterial(db.allNotes(), db.allNotebooks(), db.rawConflicts(), material)
         ) {

@@ -226,12 +226,16 @@ private fun authSubmitLabel(controller: NotesController): String =
 @Composable
 internal fun SignupRecoveryDialog(controller: NotesController, onSaveRecoveryKit: () -> Unit) {
   val clipboard = LocalClipboardManager.current
+  val recoveryMessage = controller.signupRecoveryMessage
   AppModal(onDismissRequest = {}, dismissOnBackPress = false, dismissOnClickOutside = false) {
     AppModalTitle("Save recovery key")
     Text(
-      "Save this key and recovery kit before continuing.",
-      color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
+      recoveryMessage.ifBlank { "Save this key and recovery kit before continuing." },
+      color =
+        if (recoveryMessage.isBlank()) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f)
+        else MaterialTheme.colorScheme.primary,
       fontSize = AppTextSize.Body,
+      fontWeight = if (recoveryMessage.isBlank()) FontWeight.Normal else FontWeight.SemiBold,
     )
     GlassPanel(Modifier.fillMaxWidth()) {
       Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -269,14 +273,6 @@ internal fun SignupRecoveryDialog(controller: NotesController, onSaveRecoveryKit
       ModalActionButton("Save kit", modifier = Modifier.weight(1f)) { onSaveRecoveryKit() }
     }
     RecoveryConfirmRow(controller)
-    if (controller.signupRecoveryMessage.isNotBlank()) {
-      Text(
-        controller.signupRecoveryMessage,
-        color = MaterialTheme.colorScheme.primary,
-        fontSize = AppTextSize.Label,
-        fontWeight = FontWeight.SemiBold,
-      )
-    }
     ModalActionButton("Done", primary = true, enabled = controller.signupRecoverySaved) {
       controller.completeSignupRecoveryPrompt()
     }

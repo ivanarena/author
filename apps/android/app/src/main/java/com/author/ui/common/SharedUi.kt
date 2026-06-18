@@ -20,8 +20,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
@@ -151,6 +153,9 @@ internal fun AppModal(
   content: @Composable ColumnScope.() -> Unit,
 ) {
   val compactWindow = isCompactWindow()
+  val windowHeight =
+    with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() }
+  val maxDialogHeight = (windowHeight - if (compactWindow) 48.dp else 64.dp).coerceAtLeast(280.dp)
   Dialog(
     onDismissRequest = onDismissRequest,
     properties =
@@ -173,7 +178,10 @@ internal fun AppModal(
       shadowElevation = 24.dp,
     ) {
       Column(
-        Modifier.fillMaxWidth().padding(contentPadding),
+        Modifier.fillMaxWidth()
+          .heightIn(max = maxDialogHeight)
+          .verticalScroll(rememberScrollState())
+          .padding(contentPadding),
         verticalArrangement = Arrangement.spacedBy(16.dp),
         content = content,
       )

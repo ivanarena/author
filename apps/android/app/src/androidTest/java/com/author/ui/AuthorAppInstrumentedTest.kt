@@ -237,11 +237,11 @@ class AuthorAppInstrumentedTest {
     compose.onNodeWithText("Save recovery key").assertIsDisplayed()
     compose.onNodeWithText("Done").assertIsNotEnabled()
     compose.onNodeWithText("Copy key").performClick()
-    compose.onNodeWithText("Recovery key copied").assertIsDisplayed()
+    waitUntilTextDisplayed("Recovery key copied")
     compose.onNodeWithText("Hide key").performClick()
-    compose.onNodeWithText("Recovery key hidden").assertIsDisplayed()
+    waitUntilTextDisplayed("Recovery key hidden")
     compose.onNodeWithText("Show key").performClick()
-    compose.onNodeWithText("author-recovery-v1-test-code").assertIsDisplayed()
+    waitUntilTextDisplayed("author-recovery-v1-test-code")
     compose.onNodeWithText("Save kit").performClick()
     compose.waitForIdle()
     assertTrue(saveRequested.get())
@@ -257,6 +257,18 @@ class AuthorAppInstrumentedTest {
       compose.onAllNodesWithText("Save recovery key").fetchSemanticsNodes().isEmpty()
     }
     compose.onAllNodesWithText("Save recovery key").assertCountEquals(0)
+  }
+
+  private fun waitUntilTextDisplayed(text: String) {
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      try {
+        compose.onNodeWithText(text).assertIsDisplayed()
+        true
+      } catch (_: AssertionError) {
+        false
+      }
+    }
+    compose.onNodeWithText(text).assertIsDisplayed()
   }
 
   private fun savedDraft(repository: NotesRepository, title: String): LocalNote? =

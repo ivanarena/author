@@ -29,8 +29,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.author.core.LocalNote
 import com.author.core.LocalNotebook
 import com.author.core.NOTE_FILTER_FAVORITES_ID
+import com.author.core.noteNotebookIds
 import com.author.ui.common.*
 import com.author.ui.state.*
 import com.author.ui.theme.*
@@ -41,6 +43,7 @@ internal fun NotebookSidebar(
   modifier: Modifier = Modifier,
   onFilterPicked: () -> Unit = {},
 ) {
+  val membershipNotes = selectedNotebookMembershipNotes(controller)
   Column(
     modifier.padding(horizontal = pageHorizontalPadding(), vertical = 12.dp),
     verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -75,6 +78,15 @@ internal fun NotebookSidebar(
           "Unfiled",
           notebookCountLabel(controller.unfiledCount),
           controller.filterId == "unfiled",
+          trailing =
+            selectedMembershipTrailing(
+              marked =
+                membershipNotes.isNotEmpty() &&
+                  membershipNotes.all { noteNotebookIds(it).isEmpty() },
+              contentDescription =
+                if (membershipNotes.size == 1) "Selected note is unfiled"
+                else "Selected notes are unfiled",
+            ),
         ) {
           controller.filterId = "unfiled"
           onFilterPicked()
@@ -84,7 +96,17 @@ internal fun NotebookSidebar(
         item { NotebookGroupSeparator() }
       }
       items(controller.notebooks, key = { it.id }) { notebook ->
-        NotebookRow(controller, notebook, onPicked = onFilterPicked)
+        NotebookRow(
+          controller,
+          notebook,
+          membershipMarked =
+            membershipNotes.isNotEmpty() &&
+              membershipNotes.all { noteNotebookIds(it).contains(notebook.id) },
+          membershipContentDescription =
+            if (membershipNotes.size == 1) "Selected note is in ${notebook.name}"
+            else "Selected notes are in ${notebook.name}",
+          onPicked = onFilterPicked,
+        )
       }
       item { NotebookGroupSeparator() }
       item {
@@ -103,6 +125,32 @@ internal fun NotebookSidebar(
 }
 
 private fun notebookCountLabel(count: Int): String = count.toString()
+
+private fun selectedNotebookMembershipNotes(controller: NotesController): List<LocalNote> {
+  val notes =
+    if (controller.noteSelectionMode || controller.selectedNoteIds.isNotEmpty()) {
+      controller.selectedNotes
+    } else {
+      listOfNotNull(controller.selectedNote)
+    }
+  return notes.filter { it.trashedAt == null }
+}
+
+private fun selectedMembershipTrailing(
+  marked: Boolean,
+  contentDescription: String,
+): (@Composable () -> Unit)? =
+  if (!marked) null
+  else {
+    {
+      Icon(
+        Icons.Outlined.Check,
+        contentDescription,
+        modifier = Modifier.size(18.dp),
+        tint = MaterialTheme.colorScheme.primary,
+      )
+    }
+  }
 
 @Composable
 private fun NewNotebookDialog(controller: NotesController) {
@@ -144,6 +192,8 @@ private fun NotebookGroupSeparator() {
 private fun NotebookRow(
   controller: NotesController,
   notebook: LocalNotebook,
+  membershipMarked: Boolean,
+  membershipContentDescription: String,
   onPicked: () -> Unit = {},
 ) {
   if (controller.renamingNotebookId == notebook.id) {
@@ -162,6 +212,7 @@ private fun NotebookRow(
         label = notebook.name,
         count = (controller.notebookCounts[notebook.id] ?: 0).toString(),
         active = controller.filterId == notebook.id,
+        trailing = selectedMembershipTrailing(membershipMarked, membershipContentDescription),
         onLongClick = { open = true },
       ) {
         controller.filterId = notebook.id

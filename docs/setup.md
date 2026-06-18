@@ -114,6 +114,7 @@ The self-hosted default is a local SQLite/libSQL database mounted at `/data`.
 
 ```sh
 cp .env.example .env
+$EDITOR .env  # replace every change-this/use-a-long-random placeholder
 docker compose up -d --build
 ```
 

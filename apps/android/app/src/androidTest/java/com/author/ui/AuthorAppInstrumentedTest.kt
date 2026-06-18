@@ -179,6 +179,36 @@ class AuthorAppInstrumentedTest {
   }
 
   @Test
+  fun notebooksPageMarksMembershipForSelectedNote() {
+    val repository = newRepository()
+    val ideas = runBlocking { repository.createNotebook("Ideas")!! }
+    val archive = runBlocking { repository.createNotebook("Archive")!! }
+    val note = runBlocking {
+      val draft = repository.createBlankNote("Notebook-marked note", "Menu body")
+      repository.assignNoteToNotebook(draft.id, ideas.id, true) ?: draft
+    }
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      val controller = remember {
+        NotesController(repository, scope).also {
+          it.currentPage = "notebooks"
+          it.noteSelectionMode = true
+          it.selectedNoteIds = setOf(note.id)
+        }
+      }
+
+      LaunchedEffect(Unit) { controller.initialize() }
+      AuthorApp(controller = controller, onExport = {}, onImport = {})
+    }
+
+    waitUntilContentDescriptionDisplayed("Selected note is in Ideas")
+    compose.onNodeWithText(ideas.name).assertIsDisplayed()
+    compose.onNodeWithText(archive.name).assertIsDisplayed()
+    assertContentDescriptionDoesNotExist("Selected note is in Archive")
+  }
+
+  @Test
   fun trashingSelectedNoteOffersImmediateUndo() {
     val repository = newRepository()
     val note = runBlocking { repository.createBlankNote("Undo trash note", "Restore me") }
@@ -269,6 +299,29 @@ class AuthorAppInstrumentedTest {
       }
     }
     compose.onNodeWithText(text).assertIsDisplayed()
+  }
+
+  private fun waitUntilContentDescriptionDisplayed(contentDescription: String) {
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      try {
+        compose.onNodeWithContentDescription(contentDescription).assertIsDisplayed()
+        true
+      } catch (_: AssertionError) {
+        false
+      }
+    }
+    compose.onNodeWithContentDescription(contentDescription).assertIsDisplayed()
+  }
+
+  private fun assertContentDescriptionDoesNotExist(contentDescription: String) {
+    val exists =
+      try {
+        compose.onNodeWithContentDescription(contentDescription).assertIsDisplayed()
+        true
+      } catch (_: AssertionError) {
+        false
+      }
+    assertTrue("$contentDescription should not exist", !exists)
   }
 
   private fun savedDraft(repository: NotesRepository, title: String): LocalNote? =

@@ -72,6 +72,7 @@ Copy the root env example and change the secrets:
 
 ```sh
 cp .env.example .env
+$EDITOR .env  # replace every change-this/use-a-long-random placeholder
 docker compose up -d --build
 ```
 

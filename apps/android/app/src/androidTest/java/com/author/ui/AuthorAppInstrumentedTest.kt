@@ -179,6 +179,44 @@ class AuthorAppInstrumentedTest {
   }
 
   @Test
+  fun selectionToolbarSelectAllReflectsPressedState() {
+    val repository = newRepository()
+    val first = runBlocking { repository.createBlankNote("Select all first", "Body") }
+    val second = runBlocking { repository.createBlankNote("Select all second", "Body") }
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      val controller = remember {
+        NotesController(repository, scope).also {
+          it.currentPage = "notes"
+          it.noteSelectionMode = true
+        }
+      }
+
+      LaunchedEffect(Unit) { controller.initialize() }
+      AuthorApp(controller = controller, onExport = {}, onImport = {})
+    }
+
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      compose.onAllNodesWithText(first.title).fetchSemanticsNodes().isNotEmpty() &&
+        compose.onAllNodesWithText(second.title).fetchSemanticsNodes().isNotEmpty()
+    }
+    compose.onNodeWithText("Select notes").assertIsDisplayed()
+    compose
+      .onNodeWithContentDescription("Select all visible notes")
+      .assertIsDisplayed()
+      .performClick()
+
+    compose.onNodeWithText("2 selected").assertIsDisplayed()
+    compose
+      .onNodeWithContentDescription("Clear visible selection")
+      .assertIsDisplayed()
+      .performClick()
+    compose.onNodeWithText("Select notes").assertIsDisplayed()
+    compose.onNodeWithContentDescription("Select all visible notes").assertIsDisplayed()
+  }
+
+  @Test
   fun notebooksPageMarksMembershipForSelectedNote() {
     val repository = newRepository()
     val ideas = runBlocking { repository.createNotebook("Ideas")!! }
@@ -206,6 +244,83 @@ class AuthorAppInstrumentedTest {
     compose.onNodeWithText(ideas.name).assertIsDisplayed()
     compose.onNodeWithText(archive.name).assertIsDisplayed()
     assertContentDescriptionDoesNotExist("Selected note is in Archive")
+  }
+
+  @Test
+  fun editorFavoriteActionUpdatesPressedState() {
+    val repository = newRepository()
+    val note = runBlocking { repository.createBlankNote("Favorite pressed note", "Menu body") }
+    lateinit var controller: NotesController
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      controller = remember {
+        NotesController(repository, scope).also {
+          it.selectedNote = note
+          it.titleValue = note.title
+          it.bodyValue = note.body
+        }
+      }
+
+      AuthorApp(controller = controller, onExport = {}, onImport = {})
+    }
+
+    compose.onNodeWithContentDescription("Note actions").assertIsDisplayed().performClick()
+    compose.onNodeWithText("Add to Favorites").assertIsDisplayed().performClick()
+
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      repository.loadWorkspaceSnapshot().notes.any { it.id == note.id && it.isFavorite }
+    }
+    compose.onNodeWithContentDescription("Note actions").assertIsDisplayed().performClick()
+    compose.onNodeWithText("Remove from Favorites").assertIsDisplayed()
+
+    compose.runOnIdle { controller.currentPage = "notebooks" }
+    waitUntilContentDescriptionDisplayed("Selected note is in Favorites")
+  }
+
+  @Test
+  fun editorNotebookActionsUpdateSelectedMembershipState() {
+    val repository = newRepository()
+    val ideas = runBlocking { repository.createNotebook("Pressed Ideas")!! }
+    val note = runBlocking { repository.createBlankNote("Notebook pressed note", "Menu body") }
+    lateinit var controller: NotesController
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      controller = remember {
+        NotesController(repository, scope).also {
+          it.notebooks = listOf(ideas)
+          it.selectedNote = note
+          it.titleValue = note.title
+          it.bodyValue = note.body
+        }
+      }
+
+      AuthorApp(controller = controller, onExport = {}, onImport = {})
+    }
+
+    compose.onNodeWithContentDescription("Note actions").assertIsDisplayed().performClick()
+    compose.onNodeWithText(ideas.name).assertIsDisplayed().performClick()
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      repository.loadWorkspaceSnapshot().notes.any {
+        it.id == note.id && it.notebookIds.contains(ideas.id)
+      }
+    }
+
+    compose.runOnIdle { controller.currentPage = "notebooks" }
+    waitUntilContentDescriptionDisplayed("Selected note is in ${ideas.name}")
+    assertContentDescriptionDoesNotExist("Selected note is unfiled")
+
+    compose.runOnIdle { controller.currentPage = "editor" }
+    compose.onNodeWithContentDescription("Note actions").assertIsDisplayed().performClick()
+    compose.onNodeWithText("Unfiled").assertIsDisplayed().performClick()
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      repository.loadWorkspaceSnapshot().notes.any { it.id == note.id && it.notebookIds.isEmpty() }
+    }
+
+    compose.runOnIdle { controller.currentPage = "notebooks" }
+    waitUntilContentDescriptionDisplayed("Selected note is unfiled")
+    assertContentDescriptionDoesNotExist("Selected note is in ${ideas.name}")
   }
 
   @Test

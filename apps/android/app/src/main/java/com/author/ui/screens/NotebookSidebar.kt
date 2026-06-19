@@ -67,6 +67,13 @@ internal fun NotebookSidebar(
           "Favorites",
           notebookCountLabel(controller.favoriteCount),
           controller.filterId == NOTE_FILTER_FAVORITES_ID,
+          trailing =
+            selectedMembershipTrailing(
+              marked = membershipNotes.isNotEmpty() && membershipNotes.all { it.isFavorite },
+              contentDescription =
+                if (membershipNotes.size == 1) "Selected note is in Favorites"
+                else "Selected notes are in Favorites",
+            ),
         ) {
           controller.filterId = NOTE_FILTER_FAVORITES_ID
           onFilterPicked()

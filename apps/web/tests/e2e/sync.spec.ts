@@ -353,6 +353,132 @@ test('renames notebooks and keeps their notes before delete', async ({
   ).toBeVisible();
 });
 
+test('updates note list pressed states from visible actions', async ({
+  page
+}) => {
+  await page.goto('/');
+  await waitForVisibleSyncedStatus(page);
+  await hoverMenusThroughBridge(page);
+
+  const notebookName = `Pressed state ${Date.now()}`;
+  await page.getByRole('button', { name: 'New notebook' }).click();
+  await page.getByPlaceholder('Notebook name').fill(notebookName);
+  await page.getByRole('button', { name: 'Create notebook' }).click();
+  await expect(
+    page.getByRole('button', { name: notebookName, exact: true })
+  ).toBeVisible();
+
+  const firstTitle = `Pressed first ${Date.now()}`;
+  const secondTitle = `Pressed second ${Date.now()}`;
+  await page.getByLabel('Note title').fill(firstTitle);
+  await page.getByLabel('Note body').fill('First note for state checks');
+  await expectBrowserStoredEncryptedNote(
+    page,
+    firstTitle,
+    'First note for state checks'
+  );
+
+  const notesPanel = page.getByRole('complementary', { name: 'Notes' });
+  await notesPanel.getByRole('button', { name: 'New note' }).click();
+  await expect(page.getByLabel('Note title')).toHaveValue('');
+  await page.getByLabel('Note title').fill(secondTitle);
+  await page.getByLabel('Note body').fill('Second note for state checks');
+  await expectBrowserStoredEncryptedNote(
+    page,
+    secondTitle,
+    'Second note for state checks'
+  );
+
+  await hoverMenusThroughBridge(page);
+  const firstRow = notesPanel.getByRole('listitem').filter({
+    hasText: firstTitle
+  });
+  await expect(firstRow).toBeVisible();
+  await firstRow.hover();
+  await expect(
+    firstRow.getByRole('button', { name: 'Add to Favorites' })
+  ).toHaveAttribute('aria-pressed', 'false');
+  await firstRow.getByRole('button', { name: 'Add to Favorites' }).click();
+  await expect(
+    firstRow.getByRole('button', { name: 'Remove from Favorites' })
+  ).toHaveAttribute('aria-pressed', 'true');
+
+  await notesPanel.getByLabel('Select all visible notes').check();
+  await expect(
+    notesPanel.getByLabel('Deselect all visible notes')
+  ).toBeChecked();
+  await expect(
+    notesPanel.getByRole('button', { name: 'Move selected to notebook' })
+  ).toBeVisible();
+  await expect(notesPanel.getByText('2 selected')).toBeVisible();
+
+  await notesPanel
+    .getByRole('button', { name: 'Move selected to notebook' })
+    .click();
+  let notebookMenu = page.getByRole('menu', {
+    name: 'Selected note notebooks'
+  });
+  await expect(notebookMenu).toBeVisible();
+  await expect(
+    notebookMenu.getByRole('menuitemcheckbox', { name: 'Unfiled' })
+  ).toHaveAttribute('aria-checked', 'false');
+  await expect(
+    notebookMenu.getByRole('menuitemcheckbox', { name: notebookName })
+  ).toHaveAttribute('aria-checked', 'false');
+  await notebookMenu
+    .getByRole('menuitemcheckbox', { name: notebookName })
+    .click();
+
+  await expect(firstRow.getByText(notebookName)).toBeVisible();
+  await notesPanel
+    .getByRole('button', { name: 'Move selected to notebook' })
+    .click();
+  notebookMenu = page.getByRole('menu', { name: 'Selected note notebooks' });
+  await expect(
+    notebookMenu.getByRole('menuitemcheckbox', { name: 'Unfiled' })
+  ).toHaveAttribute('aria-checked', 'false');
+  await expect(
+    notebookMenu.getByRole('menuitemcheckbox', { name: notebookName })
+  ).toHaveAttribute('aria-checked', 'true');
+});
+
+test('updates note history selected version pressed state', async ({
+  page
+}) => {
+  await page.goto('/');
+  await waitForVisibleSyncedStatus(page);
+
+  const titleText = `History pressed ${Date.now()}`;
+  const firstBody = 'First body saved before history opens';
+  const secondBody = 'Second body saved before history opens';
+  const thirdBody = 'Third body keeps history available';
+
+  await page.getByLabel('Note title').fill(titleText);
+  await page.getByLabel('Note body').fill(firstBody);
+  await expectBrowserStoredEncryptedNote(page, titleText, firstBody);
+  await page.getByLabel('Note body').fill(secondBody);
+  await expectBrowserStoredEncryptedNote(page, titleText, secondBody);
+  await page.getByLabel('Note body').fill(thirdBody);
+  await expectBrowserStoredEncryptedNote(page, titleText, thirdBody);
+
+  await page.getByRole('button', { name: 'Note history' }).click();
+  const historyDialog = page.getByRole('dialog', { name: 'Note history' });
+  await expect(historyDialog).toBeVisible();
+
+  const secondSnapshot = historyDialog.getByRole('button', {
+    name: new RegExp(secondBody)
+  });
+  const firstSnapshot = historyDialog.getByRole('button', {
+    name: new RegExp(firstBody)
+  });
+
+  await expect(secondSnapshot).toHaveAttribute('aria-pressed', 'true');
+  await expect(firstSnapshot).toHaveAttribute('aria-pressed', 'false');
+  await firstSnapshot.click();
+  await expect(firstSnapshot).toHaveAttribute('aria-pressed', 'true');
+  await expect(secondSnapshot).toHaveAttribute('aria-pressed', 'false');
+});
+
 test('keeps a stored online session synced from local edits', async ({
   page,
   request

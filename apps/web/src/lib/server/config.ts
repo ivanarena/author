@@ -247,6 +247,14 @@ export function getServerSecret(): string {
   if (configured?.trim()) {
     const trimmed = configured.trim();
     requireNonPlaceholderProductionSecret('NOTES_SERVER_SECRET', trimmed);
+    if (
+      isProductionEnv() &&
+      trimmed === envValue('NOTES_LOGIN_PASSWORD')?.trim()
+    ) {
+      throw new Error(
+        'NOTES_SERVER_SECRET must not match NOTES_LOGIN_PASSWORD in production'
+      );
+    }
     return trimmed;
   }
 

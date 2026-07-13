@@ -40,6 +40,7 @@ COPY packages ./packages
 # the checked-in Aube lockfile instead of resolving ad hoc npm versions here.
 RUN aube --filter-prod @author/web... install --prod --frozen-lockfile \
     && rm -rf \
+      /root/.cache/aube \
       /root/.npm \
       /usr/local/bin/aube \
       /usr/local/bin/corepack \
@@ -56,9 +57,14 @@ ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3000
 ENV NOTES_DB_PATH=/data/notes.sqlite
+ENV NOTES_METRICS_PUBLIC=false
 ENV NOTES_CLEANUP_ENABLED=true
 ENV NOTES_CLEANUP_RUN_ON_START=true
 ENV NOTES_CLEANUP_INTERVAL_MINUTES=1440
+ENV NOTES_BACKUP_ENABLED=true
+ENV NOTES_BACKUP_RUN_ON_START=true
+ENV NOTES_BACKUP_INTERVAL_MINUTES=1440
+ENV NOTES_BACKUP_RETENTION_COUNT=14
 
 RUN mkdir -p /data && chown -R node:node /data
 

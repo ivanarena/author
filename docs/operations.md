@@ -129,4 +129,6 @@ Turso backups should be restored through Turso first, then checked with the app 
 
 ## Containers
 
+The self-hosted image runs as the non-root `node` user and enables cleanup plus local SQLite backups by default. The checked-in Compose file adds a read-only root filesystem, writable `/tmp`, dropped Linux capabilities, `no-new-privileges`, localhost-only port binding by default, and a persistent `/data` volume for the database and scheduled snapshots.
+
 The Docker workflow builds as non-root, scans the local image with Trivy before publishing, fails CI on high or critical findings, emits SBOM/provenance for pushed images, and signs pushed GHCR images with keyless Cosign. Review the uploaded SARIF artifact before public deployments.

@@ -360,7 +360,8 @@ test('updates note list pressed states from visible actions', async ({
   await waitForVisibleSyncedStatus(page);
   await hoverMenusThroughBridge(page);
 
-  const notebookName = `Pressed state ${Date.now()}`;
+  const stateId = Date.now();
+  const notebookName = `Pressed state ${stateId}`;
   await page.getByRole('button', { name: 'New notebook' }).click();
   await page.getByPlaceholder('Notebook name').fill(notebookName);
   await page.getByRole('button', { name: 'Create notebook' }).click();
@@ -368,8 +369,8 @@ test('updates note list pressed states from visible actions', async ({
     page.getByRole('button', { name: notebookName, exact: true })
   ).toBeVisible();
 
-  const firstTitle = `Pressed first ${Date.now()}`;
-  const secondTitle = `Pressed second ${Date.now()}`;
+  const firstTitle = `Pressed first ${stateId}`;
+  const secondTitle = `Pressed second ${stateId}`;
   await page.getByLabel('Note title').fill(firstTitle);
   await page.getByLabel('Note body').fill('First note for state checks');
   await expectBrowserStoredEncryptedNote(
@@ -388,6 +389,11 @@ test('updates note list pressed states from visible actions', async ({
     secondTitle,
     'Second note for state checks'
   );
+
+  await notesPanel
+    .getByRole('searchbox', { name: 'Search notes' })
+    .fill(`${stateId}`);
+  await expect(notesPanel.getByRole('listitem')).toHaveCount(2);
 
   await hoverMenusThroughBridge(page);
   const firstRow = notesPanel.getByRole('listitem').filter({

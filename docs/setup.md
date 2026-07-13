@@ -110,7 +110,7 @@ The committed `.envrc` loads root `.env` automatically and adds the repo's local
 
 ## Self-Hosted Docker
 
-The self-hosted default is a local SQLite/libSQL database mounted at `/data`.
+The self-hosted default is a local SQLite/libSQL database mounted at `/data`. The checked-in Compose file binds to localhost by default, runs the container with a read-only root filesystem plus writable `/data` and `/tmp`, drops Linux capabilities, and enables scheduled SQLite snapshots unless overridden.
 
 ```sh
 cp .env.example .env

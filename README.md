@@ -76,7 +76,7 @@ $EDITOR .env  # replace every change-this/use-a-long-random placeholder
 docker compose up -d --build
 ```
 
-The container stores SQLite data at `/data/notes.sqlite`.
+The container stores SQLite data at `/data/notes.sqlite`; the Compose service binds to localhost by default, drops Linux capabilities, uses a read-only root filesystem with writable `/data` and `/tmp`, and keeps scheduled SQLite snapshots under `/data/backups` unless overridden.
 
 There are three checked-in env templates:
 

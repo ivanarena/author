@@ -32,8 +32,8 @@ import {
   clearAuthSessionCookie,
   createAuthChallenge,
   createAuthSession,
+  createInvitedUserAccount,
   createSessionAuthChallenge,
-  createUserAccount,
   getUserE2eeKeyring,
   disableUserTotp,
   enableUserTotp,
@@ -46,12 +46,15 @@ import {
   normalizeEmail,
   mirrorUserForLocalSession,
   normalizeUsername,
+  pruneExpiredAuthState,
   requireAuth,
   revokeTrustedAuthDevice,
   sessionFromRequest,
+  signupInvitationIsValid,
   trustAuthDevice,
   tokensMatch,
   totpOtpauthUrl,
+  updateUserE2eeKeyring,
   updateUserProfile,
   unauthorized
 } from './auth';
@@ -77,11 +80,15 @@ import {
 } from './db';
 import {
   cleanupTrash,
+  compactEntityChanges,
+  DeviceLimitExceededError,
   getSyncMeta,
   listNotes,
   listNotebooks,
   pullChangesSince,
+  pruneUnreferencedDevices,
   pushChanges,
+  RecordLimitExceededError,
   setSyncMeta,
   upsertDevice
 } from './repository';
@@ -89,11 +96,17 @@ import {
   syncRemoteDatabase,
   waitForRemoteSyncIdleForTests
 } from './remote-sync';
-import { checkRecordLimits } from './record-limits';
 import { isSecureRequest } from './security-headers';
 import { databaseBackupSnapshot } from './backup-scheduler';
+import {
+  resetTrashCleanupStateForTests,
+  trashCleanupSnapshot
+} from './cleanup-scheduler';
 import { jsonOrSizeError } from './request-body';
 import {
+  hasCurrentEncryptedNoteFields,
+  hasCurrentEncryptedNotebookFields,
+  hasDeviceRecord,
   hasEntityChanges,
   hasNotebookRecord,
   hasNoteRecord,
@@ -119,6 +132,17 @@ type ApiMetricEntry = {
 };
 
 const apiMetrics = new Map<string, ApiMetricEntry>();
+const METRIC_PATHS = new Set<string>(Object.values(API_PATHS));
+const METRIC_METHODS = new Set(['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS']);
+
+function normalizedMetricMethod(method: string): string {
+  const normalized = method.toUpperCase();
+  return METRIC_METHODS.has(normalized) ? normalized : 'OTHER';
+}
+
+function normalizedMetricPath(path: string): string {
+  return METRIC_PATHS.has(path) ? path : '/api/:unmatched';
+}
 
 api.onError((error, c) => {
   const message = error instanceof Error ? error.message : '';
@@ -138,6 +162,12 @@ api.onError((error, c) => {
       { error: 'Server authentication is not configured' },
       503
     );
+    applyNoStoreApiHeaders(response);
+    return response;
+  }
+
+  if (error instanceof DeviceLimitExceededError) {
+    const response = c.json({ error: error.message }, 409);
     applyNoStoreApiHeaders(response);
     return response;
   }
@@ -174,7 +204,7 @@ function metricLabelValue(value: string): string {
 }
 
 function apiMetricKey(method: string, path: string): string {
-  return `${method.toUpperCase()} ${path}`;
+  return `${normalizedMetricMethod(method)} ${path}`;
 }
 
 function apiMetricEntry(method: string, path: string): ApiMetricEntry {
@@ -209,7 +239,7 @@ function observeApiRequest(
 api.use('*', async (c, next) => {
   setRuntimeEnv(c.env);
   const started = performance.now();
-  const path = new URL(c.req.url).pathname;
+  const path = normalizedMetricPath(new URL(c.req.url).pathname);
   const originError = rejectCrossOriginMutation(c);
   if (originError) {
     applyNoStoreApiHeaders(originError);
@@ -246,6 +276,7 @@ const MAX_FAILED_LOGIN_ATTEMPTS = 8;
 const MAX_AUTH_CHALLENGE_ATTEMPTS = 20;
 const MAX_AUTH_CHALLENGE_CLIENT_ATTEMPTS = 100;
 const MAX_SIGNUP_ATTEMPTS = 4;
+const MAX_SYNC_PUSHES_PER_MINUTE = 60;
 const MAX_LOGIN_ATTEMPT_KEYS = 500;
 const MAX_LOGIN_BODY_BYTES = 16 * 1024;
 const MAX_SYNC_BODY_BYTES = 5 * 1024 * 1024;
@@ -393,11 +424,19 @@ function clearAuthCookie(c: ApiContext): void {
   c.header('set-cookie', clearAuthSessionCookie(authCookieSecure(c)));
 }
 
+function bearerSessionRequested(c: ApiContext): boolean {
+  return (
+    c.req.raw.headers.get('x-author-session-mode')?.trim() === 'bearer' ||
+    !c.req.raw.headers.get('origin')
+  );
+}
+
 async function accountResponse(
   db: NotesDb,
   session: AuthSession,
   user: AuthSession['user'] = session.user,
-  replacementSession?: { token: string; expiresAt: string } | null
+  replacementSession?: { token: string; expiresAt: string } | null,
+  includeBearerToken = false
 ): Promise<AccountResponse> {
   return {
     user,
@@ -410,7 +449,7 @@ async function accountResponse(
     ...(replacementSession
       ? {
           session: {
-            token: replacementSession.token,
+            ...(includeBearerToken ? { token: replacementSession.token } : {}),
             expiresAt: replacementSession.expiresAt
           }
         }
@@ -447,6 +486,7 @@ export async function resetHonoStateForTests(): Promise<void> {
   remoteSyncFailureCount = 0;
   loginAttempts.clear();
   apiMetrics.clear();
+  resetTrashCleanupStateForTests();
   setRemoteSyncState('synced', {
     pendingSince: null,
     lastError: null
@@ -672,17 +712,14 @@ function loginAttemptKey(
   return `${client}:${normalizeUsername(username) ?? normalizeEmail(username) ?? 'unknown'}`;
 }
 
-function signupAttemptKey(
-  request: Request,
-  username: string | null | undefined
-): string {
-  return `signup:${loginAttemptKey(request, username)}`;
+function signupAttemptKey(request: Request): string {
+  return `signup:client:${requestClientKey(request)}`;
 }
 
 function accountProofAttemptKey(
   request: Request,
   username: string,
-  purpose: 'password_change' | 'totp' | 'delete_account'
+  purpose: 'password_change' | 'keyring_update' | 'totp' | 'delete_account'
 ): string {
   return `${purpose}:${loginAttemptKey(request, username)}`;
 }
@@ -878,7 +915,7 @@ async function accountProofRateLimitError(
   c: ApiContext,
   db: NotesDb,
   username: string,
-  purpose: 'password_change' | 'totp' | 'delete_account'
+  purpose: 'password_change' | 'keyring_update' | 'totp' | 'delete_account'
 ): Promise<{ key: string; response: Response | null }> {
   const key = accountProofAttemptKey(c.req.raw, username, purpose);
   if (await isRateLimited(db, key)) {
@@ -941,6 +978,7 @@ function metricsBody(c?: ApiContext): string {
   const remote = remoteSyncSnapshot(c);
   const state = remote.state;
   const backup = databaseBackupSnapshot();
+  const cleanup = trashCleanupSnapshot();
   return [
     '# HELP author_up App process liveness.',
     '# TYPE author_up gauge',
@@ -992,6 +1030,33 @@ function metricsBody(c?: ApiContext): string {
       'author_database_backup_last_failure_timestamp_seconds',
       unixTimestampSeconds(backup.lastFailureAt)
     ),
+    '# HELP author_trash_cleanup_running Whether trash cleanup is currently running.',
+    '# TYPE author_trash_cleanup_running gauge',
+    metricLine('author_trash_cleanup_running', cleanup.running ? 1 : 0),
+    '# HELP author_trash_cleanup_last_success_timestamp_seconds Last successful cleanup timestamp.',
+    '# TYPE author_trash_cleanup_last_success_timestamp_seconds gauge',
+    metricLine(
+      'author_trash_cleanup_last_success_timestamp_seconds',
+      unixTimestampSeconds(cleanup.lastSuccessAt)
+    ),
+    '# HELP author_trash_cleanup_last_failure_timestamp_seconds Last failed cleanup timestamp.',
+    '# TYPE author_trash_cleanup_last_failure_timestamp_seconds gauge',
+    metricLine(
+      'author_trash_cleanup_last_failure_timestamp_seconds',
+      unixTimestampSeconds(cleanup.lastFailureAt)
+    ),
+    '# HELP author_trash_cleanup_last_deleted_records Records deleted by the last cleanup.',
+    '# TYPE author_trash_cleanup_last_deleted_records gauge',
+    metricLine(
+      'author_trash_cleanup_last_deleted_records',
+      cleanup.lastDeletedNotes + cleanup.lastDeletedNotebooks
+    ),
+    '# HELP author_entity_changes_last_compacted Rows compacted by the last cleanup.',
+    '# TYPE author_entity_changes_last_compacted gauge',
+    metricLine(
+      'author_entity_changes_last_compacted',
+      cleanup.lastCompactedChanges
+    ),
     ...apiMetricsLines()
   ].join('\n');
 }
@@ -1014,6 +1079,9 @@ async function metricsAuthError(c: ApiContext): Promise<Response | null> {
     return tokensMatch(presented, metricsToken) ? null : unauthorized();
   }
 
+  if ((c.env?.NODE_ENV ?? process.env.NODE_ENV) === 'production') {
+    return unauthorized();
+  }
   const db = await openPrimaryDatabase(c);
   try {
     return await requireAuth(db, c.req.raw);
@@ -1025,14 +1093,7 @@ async function metricsAuthError(c: ApiContext): Promise<Response | null> {
 function hasDevicePayload(
   device: unknown
 ): device is AuthLoginRequest['device'] {
-  if (!device || typeof device !== 'object') return false;
-  const candidate = device as { id?: unknown; name?: unknown };
-  return (
-    typeof candidate.id === 'string' &&
-    candidate.id.trim().length > 0 &&
-    typeof candidate.name === 'string' &&
-    candidate.name.trim().length > 0
-  );
+  return hasDeviceRecord(device);
 }
 
 function deviceTrustSecretFromBody(
@@ -1125,7 +1186,8 @@ api.get(API_PATHS.config, async (c) => {
     signup: {
       enabled: remoteEnabled || primaryTursoConfigured,
       emailRequired: true,
-      emailAllowListRequired: true
+      emailAllowListRequired: true,
+      invitationRequired: true
     }
   } satisfies ConfigResponse);
 });
@@ -1140,9 +1202,13 @@ api.post(API_PATHS.authChallenge, async (c) => {
   const body = parsed.body;
   if (
     !body ||
-    !['login', 'password_change', 'totp', 'delete_account'].includes(
-      body.purpose
-    ) ||
+    ![
+      'login',
+      'password_change',
+      'keyring_update',
+      'totp',
+      'delete_account'
+    ].includes(body.purpose) ||
     typeof body.clientNonce !== 'string'
   ) {
     return c.json({ error: 'Invalid auth challenge payload' }, 400);
@@ -1316,6 +1382,7 @@ api.post(API_PATHS.authLogin, async (c) => {
           }
         }
       } catch (error) {
+        if (error instanceof DeviceLimitExceededError) throw error;
         console.warn(
           'Remote login failed:',
           error instanceof Error ? error.message : error
@@ -1410,7 +1477,7 @@ api.post(API_PATHS.authLogin, async (c) => {
     await queueRemoteSyncAfter(undefined, c.env);
     setAuthSessionCookie(c, session);
     return c.json({
-      token: session.token,
+      ...(bearerSessionRequested(c) ? { token: session.token } : {}),
       user,
       device: body.device,
       expiresAt: session.expiresAt,
@@ -1435,6 +1502,7 @@ api.post(API_PATHS.authSignup, async (c) => {
     !hasDevicePayload(body?.device) ||
     typeof body?.username !== 'string' ||
     typeof body?.email !== 'string' ||
+    typeof body?.invitationCode !== 'string' ||
     !body.passwordVerifier ||
     typeof body.passwordVerifier !== 'object' ||
     (body?.deviceTrustSecret !== undefined &&
@@ -1446,7 +1514,7 @@ api.post(API_PATHS.authSignup, async (c) => {
   }
   const deviceTrustSecret = deviceTrustSecretFromBody(body);
 
-  const attemptKey = signupAttemptKey(c.req.raw, body.username);
+  const attemptKey = signupAttemptKey(c.req.raw);
   if (isLoginRateLimited(attemptKey, Date.now(), MAX_SIGNUP_ATTEMPTS)) {
     return c.json(
       { error: 'Too many signup attempts. Try again shortly.' },
@@ -1473,32 +1541,27 @@ api.post(API_PATHS.authSignup, async (c) => {
         );
       }
 
-      if (!(await hasSignupAllowedEmails(db))) {
+      if (
+        !(await hasSignupAllowedEmails(db)) ||
+        !(await isSignupEmailAllowed(db, body.email)) ||
+        !signupInvitationIsValid(body.email, body.invitationCode)
+      ) {
         await recordFailedAuthAttempt(db, attemptKey);
-        return c.json(
-          {
-            error: 'Signup is disabled. Add an allowed email first.'
-          },
-          403
-        );
+        return c.json({ error: 'Signup could not be completed' }, 403);
       }
 
-      if (!(await isSignupEmailAllowed(db, body.email))) {
-        await recordFailedAuthAttempt(db, attemptKey);
-        return c.json({ error: 'Email is not allowed to sign up' }, 403);
-      }
-
-      const user = await createUserAccount(
+      const user = await createInvitedUserAccount(
         db,
         body.username,
         body.email,
+        body.invitationCode,
         body.passwordVerifier,
         body.displayName,
         body.e2eeKeyring
       );
       if (!user) {
         await recordFailedAuthAttempt(db, attemptKey);
-        return c.json({ error: 'Username or email is already taken' }, 409);
+        return c.json({ error: 'Signup could not be completed' }, 409);
       }
 
       await clearFailedAuthAttempts(db, attemptKey);
@@ -1514,7 +1577,7 @@ api.post(API_PATHS.authSignup, async (c) => {
       const session = await createAuthSession(db, user, body.device.id);
       setAuthSessionCookie(c, session);
       return c.json({
-        token: session.token,
+        ...(bearerSessionRequested(c) ? { token: session.token } : {}),
         user,
         device: body.device,
         expiresAt: session.expiresAt,
@@ -1536,7 +1599,7 @@ api.post(API_PATHS.authSignup, async (c) => {
   }
 
   const remote = await openConfiguredDatabase(remoteConfig);
-  let user: Awaited<ReturnType<typeof createUserAccount>>;
+  let user: Awaited<ReturnType<typeof createInvitedUserAccount>>;
   try {
     if (
       await isRateLimited(remote, attemptKey, Date.now(), MAX_SIGNUP_ATTEMPTS)
@@ -1547,30 +1610,27 @@ api.post(API_PATHS.authSignup, async (c) => {
       );
     }
 
-    if (!(await hasSignupAllowedEmails(remote))) {
+    if (
+      !(await hasSignupAllowedEmails(remote)) ||
+      !(await isSignupEmailAllowed(remote, body.email)) ||
+      !signupInvitationIsValid(body.email, body.invitationCode)
+    ) {
       await recordFailedAuthAttempt(remote, attemptKey);
-      return c.json(
-        { error: 'Signup is disabled. Add an allowed email first.' },
-        403
-      );
+      return c.json({ error: 'Signup could not be completed' }, 403);
     }
 
-    if (!(await isSignupEmailAllowed(remote, body.email))) {
-      await recordFailedAuthAttempt(remote, attemptKey);
-      return c.json({ error: 'Email is not allowed to sign up' }, 403);
-    }
-
-    const createdUser = await createUserAccount(
+    const createdUser = await createInvitedUserAccount(
       remote,
       body.username,
       body.email,
+      body.invitationCode,
       body.passwordVerifier,
       body.displayName,
       body.e2eeKeyring
     );
     if (!createdUser) {
       await recordFailedAuthAttempt(remote, attemptKey);
-      return c.json({ error: 'Username or email is already taken' }, 409);
+      return c.json({ error: 'Signup could not be completed' }, 409);
     }
     await clearFailedAuthAttempts(remote, attemptKey);
     await upsertDevice(remote, body.device, undefined, createdUser.username);
@@ -1616,7 +1676,7 @@ api.post(API_PATHS.authSignup, async (c) => {
     await queueRemoteSyncAfter(undefined, c.env);
     setAuthSessionCookie(c, session);
     return c.json({
-      token: session.token,
+      ...(bearerSessionRequested(c) ? { token: session.token } : {}),
       user,
       device: body.device,
       expiresAt: session.expiresAt,
@@ -1691,24 +1751,96 @@ api.patch(API_PATHS.account, async (c) => {
     if (
       (body.displayName !== undefined && !isNullableString(body.displayName)) ||
       (body.email !== undefined && !isNullableString(body.email)) ||
-      (body.e2eeKeyring !== undefined && !isNullableString(body.e2eeKeyring))
+      (body.e2eeKeyring !== undefined && !isNullableString(body.e2eeKeyring)) ||
+      (body.proof !== undefined &&
+        body.proof !== null &&
+        typeof body.proof !== 'object') ||
+      (body.expectedE2eeKeyringHash !== undefined &&
+        !isNullableString(body.expectedE2eeKeyringHash))
     ) {
       return c.json({ error: 'Invalid account payload' }, 400);
     }
-    const keyringOnlyUpdate =
-      body.e2eeKeyring !== undefined &&
-      body.displayName === undefined &&
-      body.email === undefined;
+    const keyringUpdate = body.e2eeKeyring !== undefined;
+    if (
+      keyringUpdate &&
+      (body.displayName !== undefined ||
+        body.email !== undefined ||
+        typeof body.e2eeKeyring !== 'string' ||
+        !body.e2eeKeyring.trim() ||
+        !body.proof)
+    ) {
+      return c.json({ error: 'Invalid encrypted keyring update' }, 400);
+    }
     const remoteConfig = remoteMirrorConfig(c);
+    if (keyringUpdate) {
+      const rateLimit = await accountProofRateLimitError(
+        c,
+        db,
+        session.user.username,
+        'keyring_update'
+      );
+      if (rateLimit.response) return rateLimit.response;
+      if (remoteConfig && !(await syncRemoteBestEffort(db, c.env))) {
+        return c.json({ error: 'Could not sync before keyring update' }, 503);
+      }
+
+      let target: NotesDb = db;
+      if (remoteConfig) target = await openConfiguredDatabase(remoteConfig);
+      try {
+        const user = await updateUserE2eeKeyring(
+          target,
+          session.user.username,
+          body.proof,
+          body.e2eeKeyring,
+          body.expectedE2eeKeyringHash
+        );
+        if (!user) {
+          await recordFailedAuthAttempt(db, rateLimit.key);
+          return c.json(
+            { error: 'Keyring authorization or current value did not match' },
+            409
+          );
+        }
+        await clearFailedAuthAttempts(db, rateLimit.key);
+        if (remoteConfig) {
+          if (
+            !(await mirrorRemoteUserForLocalSession(
+              remoteConfig,
+              db,
+              user.username
+            )) ||
+            !(await syncRemoteBestEffort(db, c.env))
+          ) {
+            return c.json(
+              { error: 'Keyring saved remotely, but local setup failed' },
+              503
+            );
+          }
+        }
+        return c.json(await accountResponse(db, session, user));
+      } catch (error) {
+        return c.json(
+          {
+            error:
+              error instanceof Error
+                ? error.message
+                : 'Encrypted keyring update failed'
+          },
+          400
+        );
+      } finally {
+        if (target !== db) target.close();
+      }
+    }
     if (!remoteConfig) {
-      if (isTursoPrimary(c) || keyringOnlyUpdate) {
+      if (isTursoPrimary(c)) {
         try {
           const user = await updateUserProfile(
             db,
             session.user.username,
             body.displayName,
             body.email,
-            body.e2eeKeyring
+            undefined
           );
           return c.json(await accountResponse(db, session, user));
         } catch (error) {
@@ -1737,7 +1869,7 @@ api.patch(API_PATHS.account, async (c) => {
           session.user.username,
           body.displayName,
           body.email,
-          body.e2eeKeyring
+          undefined
         );
       } catch (error) {
         const mapped = accountUpdateError(error);
@@ -1843,7 +1975,8 @@ api.post(API_PATHS.accountPassword, async (c) => {
             db,
             replacementSession,
             user,
-            replacementSession
+            replacementSession,
+            bearerSessionRequested(c)
           )
         );
       }
@@ -1908,7 +2041,13 @@ api.post(API_PATHS.accountPassword, async (c) => {
     setAuthSessionCookie(c, replacementSession);
     await queueRemoteSyncAfter(undefined, c.env);
     return c.json(
-      await accountResponse(db, replacementSession, user, replacementSession)
+      await accountResponse(
+        db,
+        replacementSession,
+        user,
+        replacementSession,
+        bearerSessionRequested(c)
+      )
     );
   } finally {
     db.close();
@@ -2361,19 +2500,57 @@ api.post(API_PATHS.syncPush, async (c) => {
       );
     }
 
-    const limitError = await checkRecordLimits(
-      db,
-      syncOwner(session),
-      body,
-      c.env
-    );
-    if (limitError) {
-      return c.json(limitError, 409);
+    if (session.deviceId && session.deviceId !== body.device.id) {
+      return c.json({ error: 'Sync device does not match this session' }, 403);
     }
 
-    const response = await pushChanges(db, body, syncOwner(session));
-    queueRemoteSyncSoon(c.env);
-    return c.json(response);
+    const accountKeyring = session.legacy
+      ? null
+      : await getUserE2eeKeyring(db, session.user.username);
+    if (
+      accountKeyring &&
+      (!body.notes.every((change) =>
+        hasCurrentEncryptedNoteFields(change.record)
+      ) ||
+        !body.notebooks.every((change) =>
+          hasCurrentEncryptedNotebookFields(change.record)
+        ))
+    ) {
+      return c.json(
+        {
+          error:
+            'Sync-capable accounts require current encrypted fields and hashes'
+        },
+        400
+      );
+    }
+
+    const syncRateKey = `sync-push:${syncOwner(session)}`;
+    if (
+      await isRateLimited(
+        db,
+        syncRateKey,
+        Date.now(),
+        MAX_SYNC_PUSHES_PER_MINUTE
+      )
+    ) {
+      return c.json({ error: 'Too many sync pushes. Try again shortly.' }, 429);
+    }
+    await recordFailedAuthAttempt(db, syncRateKey);
+
+    try {
+      const response = await pushChanges(db, body, syncOwner(session), {
+        enforceRecordLimits: true,
+        recordLimitEnv: c.env
+      });
+      queueRemoteSyncSoon(c.env);
+      return c.json(response);
+    } catch (error) {
+      if (error instanceof RecordLimitExceededError) {
+        return c.json(error.result, 409);
+      }
+      throw error;
+    }
   } finally {
     db.close();
   }
@@ -2386,6 +2563,9 @@ api.post(API_PATHS.cleanupTrash, async (c) => {
     if (!session) return unauthorized();
 
     const response = await cleanupTrash(db, new Date(), syncOwner(session));
+    await pruneExpiredAuthState(db);
+    await pruneUnreferencedDevices(db);
+    await compactEntityChanges(db, syncOwner(session));
     queueRemoteSyncSoon(c.env);
     return c.json(response);
   } finally {

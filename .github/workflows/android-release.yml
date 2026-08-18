@@ -3,46 +3,93 @@ name: Android Release APK
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        description: Git tag to build and attach the signed APK to
+      channel:
+        description: Build a private staging APK or publish a production APK
         required: true
+        default: test
+        type: choice
+        options:
+          - test
+          - production
+      ref:
+        description: Main-branch ref for a private test artifact
+        required: true
+        default: main
         type: string
-  release:
-    types:
-      - published
+      tag:
+        description: Existing version tag required for a production dispatch
+        required: false
+        type: string
 
 permissions:
-  actions: read
+  actions: read # Query exact-commit workflow gates.
   contents: read
+
+concurrency:
+  group: android-release
+  cancel-in-progress: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+  RELEASE_CHANNEL: ${{ inputs.channel }}
+  RELEASE_REF: ${{ inputs.channel == 'production' && inputs.tag || inputs.ref }}
+  RELEASE_TAG: ${{ inputs.tag }}
 
 jobs:
   signed-apk:
     name: Signed APK
     runs-on: ubuntu-latest
+    environment: ${{ inputs.channel == 'production' && 'production' || 'staging' }}
     timeout-minutes: 35
     permissions:
-      actions: read
-      contents: write
+      actions: read # Query gates and upload the private artifact.
+      contents: read
+    outputs:
+      asset-name: ${{ steps.asset.outputs.asset_name }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+          ref: ${{ env.RELEASE_REF }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Validate release source
         run: |
-          git fetch --no-tags origin main:refs/remotes/origin/main
-          if ! git merge-base --is-ancestor HEAD origin/main; then
-            echo "::error::Android release APKs can only be built from commits on main."
+          git fetch --tags origin main:refs/remotes/origin/main
+          release_sha="$(git rev-parse HEAD)"
+          current_main="$(git rev-parse origin/main)"
+
+          if [ "$RELEASE_CHANNEL" = production ]; then
+            if [ -z "$RELEASE_TAG" ] || ! git show-ref --verify --quiet "refs/tags/${RELEASE_TAG}"; then
+              echo "::error::A production build requires an existing version tag."
+              exit 1
+            fi
+            tag_commit="$(git rev-list -n 1 "refs/tags/${RELEASE_TAG}")"
+            if [ "$tag_commit" != "$release_sha" ]; then
+              echo "::error::${RELEASE_TAG} does not point at the checked-out commit."
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor HEAD origin/main; then
+              echo "::error::Production APKs can only be built from commits on main."
+              exit 1
+            fi
+          elif [ "$RELEASE_CHANNEL" = test ]; then
+            if [ "$release_sha" != "$current_main" ]; then
+              echo "::error::Private test APKs must use the current main commit."
+              exit 1
+            fi
+          else
+            echo "::error::Unsupported release channel: ${RELEASE_CHANNEL}"
             exit 1
           fi
 
       - name: Validate Android release version
-        run: bash scripts/validate-android-release-version.sh "$RELEASE_TAG"
+        run: |
+          if [ "$RELEASE_CHANNEL" = production ]; then
+            bash scripts/validate-android-release-version.sh "$RELEASE_TAG"
+          else
+            bash scripts/validate-android-release-version.sh
+          fi
 
       - name: Require green release gates
         env:
@@ -71,7 +118,11 @@ jobs:
 
           require_successful_workflow "CI"
           require_successful_workflow "Docker"
-          require_successful_workflow "Cloudflare Deploy"
+          require_successful_workflow "Security"
+          require_successful_workflow "Remote Staging Smoke"
+          if [ "$RELEASE_CHANNEL" = production ]; then
+            require_successful_workflow "Cloudflare Deploy"
+          fi
 
       - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
@@ -83,19 +134,21 @@ jobs:
 
       - name: Validate release configuration
         env:
-          AUTHOR_API_URL: ${{ vars.AUTHOR_API_URL }}
+          PRODUCTION_AUTHOR_API_URL: ${{ vars.AUTHOR_API_URL }}
+          STAGING_AUTHOR_API_URL: ${{ secrets.STAGING_AUTHOR_API_URL }}
           ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
           ANDROID_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
           ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
           ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+          ANDROID_RELEASE_CERT_SHA256: ${{ secrets.ANDROID_RELEASE_CERT_SHA256 }}
         run: |
           missing=0
           for name in \
-            AUTHOR_API_URL \
             ANDROID_RELEASE_KEYSTORE_BASE64 \
             ANDROID_RELEASE_KEYSTORE_PASSWORD \
             ANDROID_RELEASE_KEY_ALIAS \
-            ANDROID_RELEASE_KEY_PASSWORD
+            ANDROID_RELEASE_KEY_PASSWORD \
+            ANDROID_RELEASE_CERT_SHA256
           do
             if [ -z "${!name:-}" ]; then
               echo "::error::${name} is not configured"
@@ -103,14 +156,22 @@ jobs:
             fi
           done
 
-          case "${AUTHOR_API_URL:-}" in
+          if [ "$RELEASE_CHANNEL" = production ]; then
+            release_api_url="${PRODUCTION_AUTHOR_API_URL:-}"
+          else
+            release_api_url="${STAGING_AUTHOR_API_URL:-}"
+          fi
+          case "$release_api_url" in
             https://*) ;;
             *)
-              echo "::error::AUTHOR_API_URL must be an HTTPS URL"
+              echo "::error::The ${RELEASE_CHANNEL} Author API URL must be configured as HTTPS."
               missing=1
               ;;
           esac
 
+          if [ "$missing" -eq 0 ]; then
+            echo "RELEASE_API_URL=$release_api_url" >> "$GITHUB_ENV"
+          fi
           exit "$missing"
 
       - name: Restore release keystore
@@ -127,7 +188,7 @@ jobs:
       - name: Build signed release APK
         working-directory: apps/android
         env:
-          AUTHOR_API_URL: ${{ vars.AUTHOR_API_URL }}
+          AUTHOR_API_URL: ${{ env.RELEASE_API_URL }}
           ANDROID_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
           ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
           ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
@@ -137,19 +198,33 @@ jobs:
         id: verify
         env:
           APK_PATH: apps/android/app/build/outputs/apk/release/app-release.apk
+          ANDROID_RELEASE_CERT_SHA256: ${{ secrets.ANDROID_RELEASE_CERT_SHA256 }}
         run: |
           apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
-          "$apksigner" verify --verbose --print-certs "$APK_PATH"
+          cert_output="$("$apksigner" verify --verbose --print-certs "$APK_PATH")"
+          printf '%s\n' "$cert_output"
+          actual_cert="$(printf '%s\n' "$cert_output" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
+          expected_cert="$(printf '%s' "$ANDROID_RELEASE_CERT_SHA256" | tr '[:upper:]' '[:lower:]' | tr -d ':')"
+          if [ -z "$actual_cert" ] || [ "$actual_cert" != "$expected_cert" ]; then
+            echo "::error::APK signing certificate does not match ANDROID_RELEASE_CERT_SHA256."
+            exit 1
+          fi
           sha256="$(sha256sum "$APK_PATH" | cut -d ' ' -f 1)"
           echo "apk_sha256=$sha256" >> "$GITHUB_OUTPUT"
+          echo "cert_sha256=$actual_cert" >> "$GITHUB_OUTPUT"
 
       - name: Prepare release asset
         id: asset
         env:
           APK_PATH: apps/android/app/build/outputs/apk/release/app-release.apk
         run: |
-          safe_tag="${RELEASE_TAG//\//-}"
-          asset_path="${RUNNER_TEMP}/author-${safe_tag}-release-signed.apk"
+          if [ "$RELEASE_CHANNEL" = production ]; then
+            release_id="${RELEASE_TAG//\//-}"
+          else
+            version_name="$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)".*/\1/p' apps/android/app/build.gradle.kts)"
+            release_id="v${version_name}-test-$(git rev-parse --short=8 HEAD)"
+          fi
+          asset_path="${RUNNER_TEMP}/author-${release_id}-release-signed.apk"
           cp "$APK_PATH" "$asset_path"
           echo "asset_path=$asset_path" >> "$GITHUB_OUTPUT"
           echo "asset_name=$(basename "$asset_path")" >> "$GITHUB_OUTPUT"
@@ -159,16 +234,52 @@ jobs:
         with:
           name: ${{ steps.asset.outputs.asset_name }}
           path: ${{ steps.asset.outputs.asset_path }}
+          retention-days: 14
+
+      - name: Record artifact identity
+        env:
+          APK_SHA256: ${{ steps.verify.outputs.apk_sha256 }}
+          CERT_SHA256: ${{ steps.verify.outputs.cert_sha256 }}
+          ASSET_NAME: ${{ steps.asset.outputs.asset_name }}
+        run: |
+          {
+            echo '## Android artifact identity'
+            echo
+            echo "- Channel: \`${RELEASE_CHANNEL}\`"
+            echo "- Commit: \`$(git rev-parse HEAD)\`"
+            echo "- Artifact: \`${ASSET_NAME}\`"
+            echo "- APK SHA-256: \`${APK_SHA256}\`"
+            echo "- Certificate SHA-256: \`${CERT_SHA256}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish-apk:
+    name: Publish production APK
+    if: inputs.channel == 'production'
+    needs: signed-apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read # Download the signed artifact from this workflow run.
+      contents: write # Create or update the requested GitHub release.
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: ${{ needs.signed-apk.outputs.asset-name }}
+          path: ${{ runner.temp }}/android-release
 
       - name: Attach signed APK to release
         env:
           GH_TOKEN: ${{ github.token }}
-          ASSET_PATH: ${{ steps.asset.outputs.asset_path }}
+          GH_REPO: ${{ github.repository }}
+          ASSET_NAME: ${{ needs.signed-apk.outputs.asset-name }}
+          RELEASE_TAG: ${{ inputs.tag }}
         run: |
+          asset_path="${RUNNER_TEMP}/android-release/${ASSET_NAME}"
+          test -f "$asset_path"
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" "$ASSET_PATH" --clobber
+            gh release upload "$RELEASE_TAG" "$asset_path" --clobber
           else
-            gh release create "$RELEASE_TAG" "$ASSET_PATH" \
+            gh release create "$RELEASE_TAG" "$asset_path" \
               --title "Author ${RELEASE_TAG}" \
               --generate-notes \
               --latest

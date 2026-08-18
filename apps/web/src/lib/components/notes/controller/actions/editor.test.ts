@@ -4,11 +4,15 @@ import type { NotesFilterId } from '../models';
 import type { ContextMenuState, EditorSnapshot } from '../ui-types';
 import type { NotesEditorActionController } from './editor';
 
-const mocks = vi.hoisted(() => ({
-  createBlankNote: vi.fn(),
-  tick: vi.fn(),
-  updateNoteContent: vi.fn()
-}));
+const mocks = vi.hoisted(() => {
+  const recoveryRecords = new Map<string, Record<string, unknown>>();
+  return {
+    createBlankNote: vi.fn(),
+    tick: vi.fn(),
+    updateNoteContent: vi.fn(),
+    recoveryRecords
+  };
+});
 
 vi.mock('svelte', () => ({
   tick: mocks.tick
@@ -17,6 +21,25 @@ vi.mock('svelte', () => ({
 vi.mock('$lib/client/store', () => ({
   createBlankNote: mocks.createBlankNote,
   updateNoteContent: mocks.updateNoteContent
+}));
+
+vi.mock('$lib/client/db', () => ({
+  localDb: {
+    editorRecovery: {
+      get: vi.fn(async (key: string) => mocks.recoveryRecords.get(key)),
+      put: vi.fn(async (value: Record<string, unknown>) => {
+        mocks.recoveryRecords.set(String(value.key), value);
+      }),
+      delete: vi.fn(async (key: string) => {
+        mocks.recoveryRecords.delete(key);
+      })
+    }
+  }
+}));
+
+vi.mock('$lib/client/encryption', () => ({
+  encryptText: vi.fn(async (value: string) => `encrypted:${value}`),
+  decryptText: vi.fn(async (value: string) => value.replace(/^encrypted:/, ''))
 }));
 
 import {
@@ -142,6 +165,7 @@ describe('editor actions', () => {
     vi.clearAllMocks();
     vi.stubGlobal('localStorage', storage);
     storage.clear();
+    mocks.recoveryRecords.clear();
     mocks.tick.mockResolvedValue(undefined);
     mocks.updateNoteContent.mockImplementation(
       async (id: string, title: string, body: string) =>
@@ -220,13 +244,14 @@ describe('editor actions', () => {
       syncStatus: 'pending'
     });
     expect(model.pendingSaveNoteId).toBe(selected.id);
-    expect(JSON.parse(localStorage.getItem(recoveryKey) ?? '{}')).toMatchObject(
-      {
+    await vi.waitFor(() => {
+      expect(mocks.recoveryRecords.get(recoveryKey)).toMatchObject({
         noteId: selected.id,
-        title: selected.title,
-        body: 'Body changed'
-      }
-    );
+        title: `encrypted:${selected.title}`,
+        body: 'encrypted:Body changed'
+      });
+    });
+    expect(localStorage.getItem(recoveryKey)).toBeNull();
 
     await flushPendingSave(model);
 
@@ -305,7 +330,7 @@ describe('editor actions', () => {
     clearPendingSave(model);
   });
 
-  it('clears local-only editing state when locking the workspace', () => {
+  it('keeps encrypted recovery when locking the workspace', async () => {
     const model = controller({
       conflicts: [
         {
@@ -333,11 +358,20 @@ describe('editor actions', () => {
         version: 1,
         noteId: 'note-1',
         notebookId: null,
-        title: 'Secret',
-        body: 'Secret body',
+        title: 'Legacy secret',
+        body: 'Legacy secret body',
         savedAt: '2026-05-29T10:00:00.000Z'
       })
     );
+    mocks.recoveryRecords.set(recoveryKey, {
+      key: recoveryKey,
+      version: 2,
+      noteId: 'note-1',
+      notebookId: null,
+      title: 'encrypted:Secret',
+      body: 'encrypted:Secret body',
+      savedAt: '2026-05-29T10:00:00.000Z'
+    });
 
     clearSensitiveWorkspace(model);
 
@@ -351,7 +385,13 @@ describe('editor actions', () => {
     expect(model.bodyValue).toBe('');
     expect(model.filterId).toBe('all');
     expect(model.pendingSyncCount).toBe(0);
-    expect(localStorage.getItem(recoveryKey)).toBeNull();
+    await vi.waitFor(() =>
+      expect(localStorage.getItem(recoveryKey)).toBeNull()
+    );
+    expect(mocks.recoveryRecords.get(recoveryKey)).toMatchObject({
+      title: 'encrypted:Secret',
+      body: 'encrypted:Secret body'
+    });
   });
 
   it('opens a blank draft without carrying pending recovery state', async () => {
@@ -379,6 +419,9 @@ describe('editor actions', () => {
     expect(model.titleValue).toBe('');
     expect(model.bodyValue).toBe('');
     expect(model.saveTimer).toBeNull();
-    expect(localStorage.getItem(recoveryKey)).toBeNull();
+    await vi.waitFor(() =>
+      expect(localStorage.getItem(recoveryKey)).toBeNull()
+    );
+    expect(mocks.recoveryRecords.has(recoveryKey)).toBe(false);
   });
 });

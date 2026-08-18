@@ -47,7 +47,7 @@ textarea {
   align-items: center;
   min-width: 0;
   margin-bottom: 18px;
-  color: color-mix(in srgb, var(--muted) 78%, transparent);
+  color: var(--muted);
   font-size: 11px;
   line-height: 1.35;
 }
@@ -57,7 +57,7 @@ textarea {
   max-width: 100%;
   overflow-wrap: anywhere;
   white-space: normal;
-  opacity: 0.72;
+  opacity: 1;
 }
 
 .editor-meta-strip span + span::before {

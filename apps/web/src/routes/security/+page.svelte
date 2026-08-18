@@ -1,7 +1,7 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
 
-  const updated = 'June 1, 2026';
+  const updated = 'August 17, 2026';
 </script>
 
 <svelte:head>
@@ -21,9 +21,9 @@
     <h2>Supported claim</h2>
     <p>
       Author encrypts synced note titles, note bodies, notebook names, account
-      keyrings, and browser note-history snapshots on the client. Sync is
-      local-first: edits are saved to the device before the network is asked to
-      push or pull anything.
+      keyrings, browser note-history snapshots, and browser editor crash
+      recovery on the client. Sync is local-first: edits are saved to the device
+      before the network is asked to push or pull anything.
     </p>
   </section>
 
@@ -53,9 +53,10 @@
     <h2>Recovery model</h2>
     <p>
       Account keyrings can be wrapped by password-derived material and by a
-      recovery kit. Browser note history stores encrypted local snapshots before
-      edits, Trash moves, and restore actions. Those snapshots stay on that
-      device and are deleted when a note is permanently deleted.
+      recovery kit. Browser note history and editor crash recovery store
+      encrypted local snapshots before edits, Trash moves, and restore actions.
+      Those snapshots stay on that device and are deleted when a note is
+      permanently deleted.
     </p>
   </section>
 

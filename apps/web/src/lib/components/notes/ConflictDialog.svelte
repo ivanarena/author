@@ -1,7 +1,21 @@
 <script lang="ts">
   import type { ConflictDialogModel } from './controller/page-controller.svelte.js';
+  import { modalFocus } from './modal-focus';
 
   let { model }: { model: ConflictDialogModel } = $props();
+  let resolving = $state(false);
+
+  async function resolve(
+    choice: Parameters<typeof model.resolveActiveConflict>[0]
+  ) {
+    if (resolving) return;
+    resolving = true;
+    try {
+      await model.resolveActiveConflict(choice);
+    } finally {
+      resolving = false;
+    }
+  }
 </script>
 
 {#if model.activeConflict}
@@ -11,6 +25,8 @@
       role="dialog"
       aria-modal="true"
       aria-label="Sync conflict"
+      tabindex="-1"
+      use:modalFocus
     >
       <header>
         <h1>Sync conflict</h1>
@@ -38,28 +54,28 @@
         </article>
       </div>
 
-      <div class="conflict-actions">
+      <div class="conflict-actions" aria-busy={resolving}>
         {#if model.activeConflict.conflict.reason === 'duplicate_name'}
-          <button onclick={() => model.resolveActiveConflict('keep-local')}>
+          <button disabled={resolving} onclick={() => resolve('keep-local')}>
             Keep local copy
           </button>
-          <button onclick={() => model.resolveActiveConflict('keep-remote')}>
+          <button disabled={resolving} onclick={() => resolve('keep-remote')}>
             Keep existing notebook
           </button>
         {:else}
-          <button onclick={() => model.resolveActiveConflict('keep-newer')}
+          <button disabled={resolving} onclick={() => resolve('keep-newer')}
             >Keep newer</button
           >
-          <button onclick={() => model.resolveActiveConflict('keep-older')}
+          <button disabled={resolving} onclick={() => resolve('keep-older')}
             >Keep older</button
           >
-          <button onclick={() => model.resolveActiveConflict('keep-local')}>
+          <button disabled={resolving} onclick={() => resolve('keep-local')}>
             Keep {model.activeConflict.conflict.local.deviceName}
           </button>
-          <button onclick={() => model.resolveActiveConflict('keep-remote')}>
+          <button disabled={resolving} onclick={() => resolve('keep-remote')}>
             Keep {model.activeConflict.conflict.remote.deviceName}
           </button>
-          <button onclick={() => model.resolveActiveConflict('duplicate-both')}
+          <button disabled={resolving} onclick={() => resolve('duplicate-both')}
             >Duplicate both</button
           >
         {/if}

@@ -112,6 +112,17 @@ const schemaSql = `
     created_at TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS account_tombstones (
+    username TEXT PRIMARY KEY,
+    deletion_id TEXT NOT NULL,
+    deleted_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS consumed_signup_invitations (
+    token_hash TEXT PRIMARY KEY,
+    consumed_at TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS sync_meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -139,23 +150,25 @@ const schemaSql = `
     ON entity_changes(entity_type, entity_id, revision);
 
   CREATE TABLE IF NOT EXISTS notebooks (
-    id TEXT PRIMARY KEY,
+    id TEXT NOT NULL,
     owner_username TEXT NOT NULL DEFAULT 'legacy-token',
     name TEXT NOT NULL,
     name_hash TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     deleted_at TEXT,
+    retention_started_at TEXT,
     device_id TEXT NOT NULL,
     version INTEGER NOT NULL,
-    sync_status TEXT NOT NULL
+    sync_status TEXT NOT NULL,
+    PRIMARY KEY (owner_username, id)
   );
 
   CREATE INDEX IF NOT EXISTS notebooks_updated_at_idx
     ON notebooks(updated_at);
 
   CREATE TABLE IF NOT EXISTS notes (
-    id TEXT PRIMARY KEY,
+    id TEXT NOT NULL,
     owner_username TEXT NOT NULL DEFAULT 'legacy-token',
     title TEXT NOT NULL,
     body TEXT NOT NULL,
@@ -167,11 +180,14 @@ const schemaSql = `
     updated_at TEXT NOT NULL,
     deleted_at TEXT,
     trashed_at TEXT,
+    retention_started_at TEXT,
     is_favorite INTEGER NOT NULL DEFAULT 0,
     device_id TEXT NOT NULL,
     version INTEGER NOT NULL,
     sync_status TEXT NOT NULL,
-    FOREIGN KEY (notebook_id) REFERENCES notebooks(id) ON DELETE SET NULL
+    PRIMARY KEY (owner_username, id),
+    FOREIGN KEY (owner_username, notebook_id)
+      REFERENCES notebooks(owner_username, id) ON DELETE SET NULL
   );
 
   CREATE INDEX IF NOT EXISTS notes_updated_at_idx
@@ -878,6 +894,117 @@ async function migrateAccountScopedDevices(db: NotesDb): Promise<void> {
   }
 }
 
+async function migrateOwnerScopedEntityKeys(db: NotesDb): Promise<void> {
+  const primaryKeyColumns = (await all(db, 'PRAGMA table_info(notes)'))
+    .filter((row) => Number(row.pk ?? 0) > 0)
+    .sort((a, b) => Number(a.pk) - Number(b.pk))
+    .map((row) => String(row.name));
+  if (
+    primaryKeyColumns.length === 2 &&
+    primaryKeyColumns[0] === 'owner_username' &&
+    primaryKeyColumns[1] === 'id'
+  ) {
+    return;
+  }
+
+  await run(db, 'PRAGMA foreign_keys = OFF');
+  try {
+    await exec(
+      db,
+      `BEGIN IMMEDIATE;
+
+       CREATE TABLE notebooks_owner_scoped (
+         id TEXT NOT NULL,
+         owner_username TEXT NOT NULL DEFAULT 'legacy-token',
+         name TEXT NOT NULL,
+         name_hash TEXT,
+         created_at TEXT NOT NULL,
+         updated_at TEXT NOT NULL,
+         deleted_at TEXT,
+         retention_started_at TEXT,
+         device_id TEXT NOT NULL,
+         version INTEGER NOT NULL,
+         sync_status TEXT NOT NULL,
+         PRIMARY KEY (owner_username, id)
+       );
+
+       INSERT INTO notebooks_owner_scoped (
+         id, owner_username, name, name_hash, created_at, updated_at,
+         deleted_at, retention_started_at, device_id, version, sync_status
+       )
+       SELECT id, owner_username, name, name_hash, created_at, updated_at,
+              deleted_at, retention_started_at, device_id, version, sync_status
+       FROM notebooks;
+
+       CREATE TABLE notes_owner_scoped (
+         id TEXT NOT NULL,
+         owner_username TEXT NOT NULL DEFAULT 'legacy-token',
+         title TEXT NOT NULL,
+         body TEXT NOT NULL,
+         title_hash TEXT,
+         body_hash TEXT,
+         notebook_ids TEXT NOT NULL DEFAULT '[]',
+         notebook_id TEXT,
+         created_at TEXT NOT NULL,
+         updated_at TEXT NOT NULL,
+         deleted_at TEXT,
+         trashed_at TEXT,
+         retention_started_at TEXT,
+         is_favorite INTEGER NOT NULL DEFAULT 0,
+         device_id TEXT NOT NULL,
+         version INTEGER NOT NULL,
+         sync_status TEXT NOT NULL,
+         PRIMARY KEY (owner_username, id),
+         FOREIGN KEY (owner_username, notebook_id)
+           REFERENCES notebooks_owner_scoped(owner_username, id)
+           ON DELETE SET NULL
+       );
+
+       INSERT INTO notes_owner_scoped (
+         id, owner_username, title, body, title_hash, body_hash,
+         notebook_ids, notebook_id, created_at, updated_at, deleted_at,
+         trashed_at, retention_started_at, is_favorite, device_id, version,
+         sync_status
+       )
+       SELECT notes.id, notes.owner_username, notes.title, notes.body,
+              notes.title_hash, notes.body_hash, notes.notebook_ids,
+              CASE WHEN EXISTS (
+                SELECT 1 FROM notebooks_owner_scoped AS notebooks
+                WHERE notebooks.owner_username = notes.owner_username
+                  AND notebooks.id = notes.notebook_id
+              ) THEN notes.notebook_id ELSE NULL END,
+              notes.created_at, notes.updated_at, notes.deleted_at,
+              notes.trashed_at, notes.retention_started_at, notes.is_favorite,
+              notes.device_id, notes.version, notes.sync_status
+       FROM notes;
+
+       DROP TABLE notes;
+       DROP TABLE notebooks;
+       ALTER TABLE notebooks_owner_scoped RENAME TO notebooks;
+       ALTER TABLE notes_owner_scoped RENAME TO notes;
+
+       CREATE INDEX notebooks_updated_at_idx ON notebooks(updated_at);
+       CREATE INDEX notebooks_owner_active_idx
+         ON notebooks(owner_username, deleted_at, id);
+       CREATE INDEX notes_updated_at_idx ON notes(updated_at);
+       CREATE INDEX notes_trashed_at_idx ON notes(trashed_at);
+       CREATE INDEX notes_owner_active_idx
+         ON notes(owner_username, deleted_at, id);
+       COMMIT;`
+    );
+
+    const violations = await all(db, 'PRAGMA foreign_key_check');
+    if (violations.length > 0) {
+      throw new Error('Owner-scoped entity migration failed foreign key check');
+    }
+  } catch (error) {
+    await run(db, 'ROLLBACK').catch(() => undefined);
+    throw error;
+  } finally {
+    await run(db, 'PRAGMA foreign_keys = ON');
+  }
+}
+
 export interface ServerMigration {
   version: number;
   name: string;
@@ -1158,6 +1285,74 @@ export const SERVER_MIGRATIONS: ServerMigration[] = [
       'Restore from the pre-upgrade backup if legacy invitation code rows are needed.',
     up: async (db) => {
       await run(db, 'DROP TABLE IF EXISTS invitation_codes');
+    }
+  },
+  {
+    version: 21,
+    name: 'server-observed-retention-start',
+    rollback:
+      'Restore from the pre-upgrade backup. Retention start columns are forward-only data-safety metadata.',
+    up: async (db) => {
+      if (!(await hasColumn(db, 'notes', 'retention_started_at'))) {
+        await run(db, 'ALTER TABLE notes ADD COLUMN retention_started_at TEXT');
+      }
+      if (!(await hasColumn(db, 'notebooks', 'retention_started_at'))) {
+        await run(
+          db,
+          'ALTER TABLE notebooks ADD COLUMN retention_started_at TEXT'
+        );
+      }
+      const now = new Date().toISOString();
+      await run(
+        db,
+        `UPDATE notes SET retention_started_at = ?
+         WHERE trashed_at IS NOT NULL AND retention_started_at IS NULL`,
+        [now]
+      );
+      await run(
+        db,
+        `UPDATE notebooks SET retention_started_at = ?
+         WHERE deleted_at IS NOT NULL AND retention_started_at IS NULL`,
+        [now]
+      );
+    }
+  },
+  {
+    version: 22,
+    name: 'owner-scoped-note-notebook-primary-keys',
+    rollback:
+      'Restore from the pre-upgrade backup. Entity primary keys and foreign keys are rebuilt as owner-scoped keys.',
+    up: migrateOwnerScopedEntityKeys
+  },
+  {
+    version: 23,
+    name: 'explicit-account-tombstones',
+    rollback:
+      'Restore from the pre-upgrade backup or drop account_tombstones before reverting application code.',
+    up: async (db) => {
+      await exec(
+        db,
+        `CREATE TABLE IF NOT EXISTS account_tombstones (
+           username TEXT PRIMARY KEY,
+           deletion_id TEXT NOT NULL,
+           deleted_at TEXT NOT NULL
+         );`
+      );
+    }
+  },
+  {
+    version: 24,
+    name: 'consumed-signup-invitations',
+    rollback:
+      'Restore from the pre-upgrade backup or drop consumed_signup_invitations before reverting application code.',
+    up: async (db) => {
+      await exec(
+        db,
+        `CREATE TABLE IF NOT EXISTS consumed_signup_invitations (
+           token_hash TEXT PRIMARY KEY,
+           consumed_at TEXT NOT NULL
+         );`
+      );
     }
   }
 ];

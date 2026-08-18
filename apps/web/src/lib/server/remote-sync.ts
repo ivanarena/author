@@ -18,6 +18,7 @@ import {
   deleteNotebooksByIds,
   getEntityTombstonesByIds,
   getSyncMeta,
+  latestEntityRevision,
   LEGACY_OWNER_USERNAME,
   getNotesByIds,
   getNotebooksByIds,
@@ -52,6 +53,12 @@ type AuthUserRecord = {
   totpEnabledAt: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+type AccountTombstone = {
+  username: string;
+  deletionId: string;
+  deletedAt: string;
 };
 
 type MirrorLease = {
@@ -300,6 +307,21 @@ function canSourceOverwriteTarget<T extends Note | Notebook>(
   );
 }
 
+async function targetHasNoUnmirroredChange(
+  target: NotesDb,
+  ownerUsername: string,
+  entityType: 'note' | 'notebook',
+  entityId: string,
+  targetOutboundRevision: number,
+  mirroredTargetEntities: Set<string>
+): Promise<boolean> {
+  if (mirroredTargetEntities.has(`${entityType}:${entityId}`)) return true;
+  return (
+    (await latestEntityRevision(target, ownerUsername, entityType, entityId)) <=
+    targetOutboundRevision
+  );
+}
+
 function canTombstoneOverwriteRecord(
   tombstone: EntityTombstone,
   record: Note | Notebook
@@ -438,6 +460,59 @@ async function deleteAuthUserData(
   await runSql(db, 'DELETE FROM devices WHERE owner_username = ?', [username]);
 }
 
+async function listAccountTombstones(
+  db: NotesExecutor
+): Promise<AccountTombstone[]> {
+  const rows = (await queryAll(
+    db,
+    'SELECT username, deletion_id, deleted_at FROM account_tombstones ORDER BY username'
+  )) as Row[];
+  return rows.map((row) => ({
+    username: asString(row.username),
+    deletionId: asString(row.deletion_id),
+    deletedAt: asString(row.deleted_at)
+  }));
+}
+
+async function applyAccountTombstone(
+  db: NotesDb,
+  tombstone: AccountTombstone
+): Promise<void> {
+  await withWriteTransaction(db, async (tx) => {
+    await runSql(
+      tx,
+      `INSERT INTO account_tombstones (username, deletion_id, deleted_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(username) DO UPDATE SET
+         deletion_id = excluded.deletion_id,
+         deleted_at = excluded.deleted_at
+       WHERE excluded.deleted_at > account_tombstones.deleted_at`,
+      [tombstone.username, tombstone.deletionId, tombstone.deletedAt]
+    );
+    await deleteAuthUserData(tx, tombstone.username);
+  });
+}
+
+async function syncAccountTombstones(
+  local: NotesDb,
+  remote: NotesDb
+): Promise<void> {
+  const combined = new Map<string, AccountTombstone>();
+  for (const tombstone of [
+    ...(await listAccountTombstones(local)),
+    ...(await listAccountTombstones(remote))
+  ]) {
+    const current = combined.get(tombstone.username);
+    if (!current || tombstone.deletedAt > current.deletedAt) {
+      combined.set(tombstone.username, tombstone);
+    }
+  }
+  for (const tombstone of combined.values()) {
+    await applyAccountTombstone(local, tombstone);
+    await applyAccountTombstone(remote, tombstone);
+  }
+}
+
 async function orphanedOwnerUsernames(db: NotesExecutor): Promise<string[]> {
   const ownerTables = [
     'devices',
@@ -469,19 +544,12 @@ async function orphanedOwnerUsernames(db: NotesExecutor): Promise<string[]> {
   return orphaned;
 }
 
-async function pruneOrphanedAuthUserData(db: NotesDb): Promise<void> {
-  for (const username of await orphanedOwnerUsernames(db)) {
-    await deleteAuthUserData(db, username);
-  }
-}
-
 async function syncUsers(
   source: NotesDb,
   target: NotesDb,
-  { copyUsers, pruneMissing }: { copyUsers: boolean; pruneMissing: boolean }
+  { copyUsers }: { copyUsers: boolean }
 ): Promise<void> {
   const users = await listAuthUsers(source);
-  const sourceUsernames = new Set(users.map((user) => user.username));
   if (copyUsers) {
     for (const user of users) {
       const targetUser = await getAuthUser(target, user.username);
@@ -497,14 +565,6 @@ async function syncUsers(
           authCredentialsDiffer(user, targetUser)
         );
       }
-    }
-  }
-
-  if (!pruneMissing) return;
-
-  for (const targetUser of await listAuthUsers(target)) {
-    if (!sourceUsernames.has(targetUser.username)) {
-      await deleteAuthUserData(target, targetUser.username);
     }
   }
 }
@@ -538,7 +598,9 @@ type MirrorDeletePlan<T extends Note | Notebook> = {
 async function notebookChanges(
   snapshot: PullResponse,
   target: NotesDb,
-  ownerUsername: string
+  ownerUsername: string,
+  targetOutboundRevision: number,
+  mirroredTargetEntities: Set<string>
 ): Promise<MirrorUpsertPlan<Notebook>> {
   const copySourceToTarget: MirrorChange<Notebook>[] = [];
   const copyTargetToSource: MirrorChange<Notebook>[] = [];
@@ -560,7 +622,17 @@ async function notebookChanges(
     const targetNotebook = targetNotebooks.get(notebook.id) ?? null;
     if (targetNotebook) {
       if (!recordsDiffer(notebook, targetNotebook)) continue;
-      if (canSourceOverwriteTarget(notebook, targetNotebook)) {
+      if (
+        canSourceOverwriteTarget(notebook, targetNotebook) &&
+        (await targetHasNoUnmirroredChange(
+          target,
+          ownerUsername,
+          'notebook',
+          notebook.id,
+          targetOutboundRevision,
+          mirroredTargetEntities
+        ))
+      ) {
         copySourceToTarget.push({
           record: notebook,
           baseVersion: targetNotebook.version
@@ -577,7 +649,15 @@ async function notebookChanges(
     const targetTombstone = targetTombstones.get(notebook.id) ?? null;
     if (
       !targetTombstone ||
-      recordWinsOverTombstone(notebook, targetTombstone)
+      (recordWinsOverTombstone(notebook, targetTombstone) &&
+        (await targetHasNoUnmirroredChange(
+          target,
+          ownerUsername,
+          'notebook',
+          notebook.id,
+          targetOutboundRevision,
+          mirroredTargetEntities
+        )))
     ) {
       copySourceToTarget.push({
         record: notebook,
@@ -596,7 +676,9 @@ async function notebookChanges(
 async function noteChanges(
   snapshot: PullResponse,
   target: NotesDb,
-  ownerUsername: string
+  ownerUsername: string,
+  targetOutboundRevision: number,
+  mirroredTargetEntities: Set<string>
 ): Promise<MirrorUpsertPlan<Note>> {
   const copySourceToTarget: MirrorChange<Note>[] = [];
   const copyTargetToSource: MirrorChange<Note>[] = [];
@@ -614,7 +696,17 @@ async function noteChanges(
     const targetNote = targetNotes.get(note.id) ?? null;
     if (targetNote) {
       if (!recordsDiffer(note, targetNote)) continue;
-      if (canSourceOverwriteTarget(note, targetNote)) {
+      if (
+        canSourceOverwriteTarget(note, targetNote) &&
+        (await targetHasNoUnmirroredChange(
+          target,
+          ownerUsername,
+          'note',
+          note.id,
+          targetOutboundRevision,
+          mirroredTargetEntities
+        ))
+      ) {
         copySourceToTarget.push({
           record: note,
           baseVersion: targetNote.version
@@ -629,7 +721,18 @@ async function noteChanges(
     }
 
     const targetTombstone = targetTombstones.get(note.id) ?? null;
-    if (!targetTombstone || recordWinsOverTombstone(note, targetTombstone)) {
+    if (
+      !targetTombstone ||
+      (recordWinsOverTombstone(note, targetTombstone) &&
+        (await targetHasNoUnmirroredChange(
+          target,
+          ownerUsername,
+          'note',
+          note.id,
+          targetOutboundRevision,
+          mirroredTargetEntities
+        )))
+    ) {
       copySourceToTarget.push({
         record: note,
         baseVersion: targetTombstone?.version ?? 0
@@ -648,7 +751,9 @@ async function notebookDeleteChanges(
   source: NotesDb,
   snapshot: PullResponse,
   target: NotesDb,
-  ownerUsername: string
+  ownerUsername: string,
+  targetOutboundRevision: number,
+  mirroredTargetEntities: Set<string>
 ): Promise<MirrorDeletePlan<Notebook>> {
   const notebookIds = [...new Set(snapshot.deletedNotebookIds)].filter(Boolean);
   const deleteTargetIds: string[] = [];
@@ -681,7 +786,15 @@ async function notebookDeleteChanges(
 
     if (
       sourceTombstone &&
-      canTombstoneOverwriteRecord(sourceTombstone, targetNotebook)
+      canTombstoneOverwriteRecord(sourceTombstone, targetNotebook) &&
+      (await targetHasNoUnmirroredChange(
+        target,
+        ownerUsername,
+        'notebook',
+        notebookId,
+        targetOutboundRevision,
+        mirroredTargetEntities
+      ))
     ) {
       deleteTargetIds.push(notebookId);
       continue;
@@ -696,7 +809,9 @@ async function noteDeleteChanges(
   source: NotesDb,
   snapshot: PullResponse,
   target: NotesDb,
-  ownerUsername: string
+  ownerUsername: string,
+  targetOutboundRevision: number,
+  mirroredTargetEntities: Set<string>
 ): Promise<MirrorDeletePlan<Note>> {
   const noteIds = [...new Set(snapshot.deletedNoteIds)].filter(Boolean);
   const deleteTargetIds: string[] = [];
@@ -728,7 +843,15 @@ async function noteDeleteChanges(
 
     if (
       sourceTombstone &&
-      canTombstoneOverwriteRecord(sourceTombstone, targetNote)
+      canTombstoneOverwriteRecord(sourceTombstone, targetNote) &&
+      (await targetHasNoUnmirroredChange(
+        target,
+        ownerUsername,
+        'note',
+        noteId,
+        targetOutboundRevision,
+        mirroredTargetEntities
+      ))
     ) {
       deleteTargetIds.push(noteId);
       continue;
@@ -756,7 +879,7 @@ async function pushMirrorChanges(
       notes
     },
     ownerUsername,
-    { allowTombstoneOverwrite: true, preserveNewRecordVersions: true }
+    { allowTombstoneOverwrite: true, preserveRecordVersions: true }
   );
   if (result.conflicts.length) {
     throw new Error(
@@ -769,14 +892,27 @@ async function syncEntityOwnerOneWay(
   source: NotesDb,
   target: NotesDb,
   cursorKey: string,
+  targetOutboundCursorKey: string,
   ownerUsername: string
 ): Promise<void> {
   const ownerCursorKey = `${cursorKey}.${ownerUsername}`;
+  const storedTargetOutboundCursor = Number(
+    (await getSyncMeta(
+      source,
+      `${targetOutboundCursorKey}.${ownerUsername}`
+    )) ?? 0
+  );
+  const targetOutboundRevision =
+    Number.isSafeInteger(storedTargetOutboundCursor) &&
+    storedTargetOutboundCursor >= 0
+      ? storedTargetOutboundCursor
+      : 0;
   const storedCursor = Number((await getSyncMeta(target, ownerCursorKey)) ?? 0);
   let cursor =
     Number.isSafeInteger(storedCursor) && storedCursor >= 0 ? storedCursor : 0;
   let hasMore = true;
   let resetCursor = false;
+  const mirroredTargetEntities = new Set<string>();
 
   while (hasMore) {
     const snapshot = await pullMirrorChangesSinceRevision(source, cursor, {
@@ -800,10 +936,36 @@ async function syncEntityOwnerOneWay(
 
     const [notebookUpserts, noteUpserts, notebookDeletes, noteDeletes] =
       await Promise.all([
-        notebookChanges(snapshot, target, ownerUsername),
-        noteChanges(snapshot, target, ownerUsername),
-        notebookDeleteChanges(source, snapshot, target, ownerUsername),
-        noteDeleteChanges(source, snapshot, target, ownerUsername)
+        notebookChanges(
+          snapshot,
+          target,
+          ownerUsername,
+          targetOutboundRevision,
+          mirroredTargetEntities
+        ),
+        noteChanges(
+          snapshot,
+          target,
+          ownerUsername,
+          targetOutboundRevision,
+          mirroredTargetEntities
+        ),
+        notebookDeleteChanges(
+          source,
+          snapshot,
+          target,
+          ownerUsername,
+          targetOutboundRevision,
+          mirroredTargetEntities
+        ),
+        noteDeleteChanges(
+          source,
+          snapshot,
+          target,
+          ownerUsername,
+          targetOutboundRevision,
+          mirroredTargetEntities
+        )
       ]);
 
     await deleteNotebooksByIds(
@@ -826,6 +988,19 @@ async function syncEntityOwnerOneWay(
       noteUpserts.copySourceToTarget,
       ownerCursorKey
     );
+    for (const change of notebookUpserts.copySourceToTarget) {
+      mirroredTargetEntities.add(`notebook:${change.record.id}`);
+    }
+    for (const change of noteUpserts.copySourceToTarget) {
+      mirroredTargetEntities.add(`note:${change.record.id}`);
+    }
+    for (const id of notebookDeletes.deleteTargetIds) {
+      mirroredTargetEntities.add(`notebook:${id}`);
+    }
+    for (const id of noteDeletes.deleteTargetIds) {
+      mirroredTargetEntities.add(`note:${id}`);
+    }
+
     await pushMirrorChanges(
       source,
       ownerUsername,
@@ -854,17 +1029,18 @@ async function syncOneWay(
   source: NotesDb,
   target: NotesDb,
   cursorKey: string,
-  {
-    copyUsers = false,
-    pruneMissingUsers = false
-  }: { copyUsers?: boolean; pruneMissingUsers?: boolean } = {}
+  targetOutboundCursorKey: string,
+  { copyUsers = false }: { copyUsers?: boolean } = {}
 ): Promise<void> {
-  await syncUsers(source, target, {
-    copyUsers,
-    pruneMissing: pruneMissingUsers
-  });
+  await syncUsers(source, target, { copyUsers });
   for (const ownerUsername of await syncOwners(source, target)) {
-    await syncEntityOwnerOneWay(source, target, cursorKey, ownerUsername);
+    await syncEntityOwnerOneWay(
+      source,
+      target,
+      cursorKey,
+      targetOutboundCursorKey,
+      ownerUsername
+    );
   }
 }
 
@@ -873,16 +1049,53 @@ export async function syncDatabases(
   remote: NotesDb
 ): Promise<void> {
   const now = new Date();
-  await pruneOrphanedAuthUserData(remote);
-  await syncOneWay(remote, local, 'mirror.remote.revision', {
-    copyUsers: true,
-    pruneMissingUsers: true
-  });
-  await syncOneWay(local, remote, 'mirror.local.revision');
-  await syncOneWay(remote, local, 'mirror.remote.revision', {
-    copyUsers: true,
-    pruneMissingUsers: true
-  });
+  await syncAccountTombstones(local, remote);
+
+  const [localOrphans, remoteOrphans, localUsers, remoteUsers] =
+    await Promise.all([
+      orphanedOwnerUsernames(local),
+      orphanedOwnerUsernames(remote),
+      listAuthUsers(local),
+      listAuthUsers(remote)
+    ]);
+  if (localOrphans.length || remoteOrphans.length) {
+    throw new Error(
+      `Remote mirror found owner data without an account row: ${[
+        ...localOrphans.map((name) => `local:${name}`),
+        ...remoteOrphans.map((name) => `remote:${name}`)
+      ].join(', ')}`
+    );
+  }
+  const remoteUsernames = new Set(remoteUsers.map((user) => user.username));
+  const unexplainedLocalOnlyUsers = localUsers
+    .map((user) => user.username)
+    .filter((username) => !remoteUsernames.has(username));
+  if (unexplainedLocalOnlyUsers.length) {
+    throw new Error(
+      `Remote mirror is missing account rows without explicit tombstones: ${unexplainedLocalOnlyUsers.join(', ')}`
+    );
+  }
+
+  await syncOneWay(
+    remote,
+    local,
+    'mirror.remote.revision',
+    'mirror.local.revision',
+    { copyUsers: true }
+  );
+  await syncOneWay(
+    local,
+    remote,
+    'mirror.local.revision',
+    'mirror.remote.revision'
+  );
+  await syncOneWay(
+    remote,
+    local,
+    'mirror.remote.revision',
+    'mirror.local.revision',
+    { copyUsers: true }
+  );
   await pruneVersionSnapshots(local, now);
   await pruneVersionSnapshots(remote, now);
 }

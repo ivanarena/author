@@ -5,14 +5,17 @@
   "packageManager": "aube@1.16.0",
   "pnpm": {
     "overrides": {
-      "brace-expansion": "5.0.6",
+      "brace-expansion": "5.0.9",
       "esbuild": "0.28.1",
-      "undici": "7.28.0",
+      "nanoid": "3.3.18",
+      "postcss": "8.5.23",
+      "sharp": "0.35.0",
+      "undici": "7.29.0",
       "ws": "8.21.0"
     }
   },
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=24.12.0"
   },
   "scripts": {
     "dev": "aube -F @author/web run dev",
@@ -35,13 +38,14 @@
     "test:coverage": "aube -F @author/sync-spec run test:coverage && aube -F @author/web run test:coverage",
     "test:e2e": "aube -F @author/web run test:e2e",
     "deps:check": "aube check",
+    "toolchain:check": "node scripts/validate-toolchain.mjs",
     "android:verify": "cd apps/android && ./gradlew spotlessCheck :app:compileDebugKotlin :app:testDebugUnitTest :app:assembleDebug :app:lintDebug",
     "android:verify:connected": "cd apps/android && ./gradlew :app:connectedDebugAndroidTest",
     "android:verify:release": "cd apps/android && AUTHOR_API_URL=\"${AUTHOR_API_URL:-https://author.example.invalid}\" ./gradlew :app:lintRelease :app:assembleRelease",
     "docker:verify": "bash scripts/docker-verify.sh",
     "release:evidence": "bash scripts/create-release-evidence.sh",
     "release:version:check": "bash scripts/validate-android-release-version.sh",
-    "release:verify": "aube run release:version:check && aube run deps:check && aube run quality && aube audit --prod && aube audit --audit-level high && aube deprecations --transitive --exit-code && aube run test:coverage && aube run test:e2e && aube -F @author/web run build && aube -F @author/web run cf:build && aube run android:verify",
+    "release:verify": "aube run toolchain:check && aube run release:version:check && aube run deps:check && aube run quality && aube audit --prod && aube audit --audit-level high && aube deprecations --transitive --exit-code && aube run test:coverage && aube run test:e2e && aube -F @author/web run build && aube -F @author/web run cf:build && aube run android:verify",
     "release:verify:local": "aube run release:verify && aube run android:verify:release",
     "release:verify:connected": "aube run release:verify:local && aube run android:verify:connected",
     "staging:verify": "aube run remote:test:seed && aube run remote:test",
@@ -58,8 +62,8 @@
     "eslint-plugin-svelte": "^3.18.0",
     "globals": "^17.6.0",
     "lint-staged": "^17.0.5",
-    "prettier": "^3.8.3",
-    "prettier-plugin-svelte": "^4.0.1",
+    "prettier": "3.8.3",
+    "prettier-plugin-svelte": "4.0.1",
     "svelte": "^5.55.10",
     "typescript-eslint": "^8.60.0"
   },

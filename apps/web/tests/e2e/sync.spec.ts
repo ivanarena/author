@@ -1,3 +1,4 @@
+import { createHmac, randomBytes } from 'node:crypto';
 import type { APIRequestContext, Locator, Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
@@ -23,15 +24,29 @@ const loginUsername = 'owner';
 const loginPassword = 'e2e-password-2026';
 let e2eKeyMaterial = '';
 
+function signupInvitation(email: string): string {
+  const payload = Buffer.from(
+    JSON.stringify({
+      email: email.toLowerCase(),
+      expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+      nonce: randomBytes(16).toString('base64url')
+    })
+  ).toString('base64url');
+  const signature = createHmac('sha256', 'e2e-server-secret')
+    .update(`author:signup-invitation:v1:${payload}`)
+    .digest('base64url');
+  return `invite:v1:${payload}:${signature}`;
+}
+
 const testsWithoutPreloadedSession = new Set([
-  'recovers editor text when reload interrupts the debounced save',
+  'recovers editor text when reload interrupts the debounced save @cross-browser',
   'logs in from the profile menu when no session is stored',
   'signs up with the real API and logs in again with the same password',
   'keeps local drafts when signing in and then syncs them remote'
 ]);
 
 const testsWithoutRemoteTokenSetup = new Set([
-  'recovers editor text when reload interrupts the debounced save',
+  'recovers editor text when reload interrupts the debounced save @cross-browser',
   'logs in from the profile menu when no session is stored',
   'signs up with the real API and logs in again with the same password'
 ]);
@@ -65,6 +80,35 @@ async function browserStoredNotes(page: Page): Promise<RemoteNote[]> {
           getAll.onerror = () => reject(getAll.error);
           getAll.onsuccess = () => {
             resolve(getAll.result as RemoteNote[]);
+            db.close();
+          };
+        };
+      })
+  );
+}
+
+async function browserEditorRecovery(page: Page): Promise<{
+  title: string;
+  body: string;
+} | null> {
+  return await page.evaluate(
+    () =>
+      new Promise<{ title: string; body: string } | null>((resolve, reject) => {
+        const request = indexedDB.open('author');
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const db = request.result;
+          const transaction = db.transaction('editorRecovery', 'readonly');
+          const get = transaction
+            .objectStore('editorRecovery')
+            .get('author-editor-recovery-v1');
+          get.onerror = () => reject(get.error);
+          get.onsuccess = () => {
+            resolve(
+              get.result
+                ? { title: get.result.title, body: get.result.body }
+                : null
+            );
             db.close();
           };
         };
@@ -133,6 +177,30 @@ async function pullRemoteNotes(
   );
 }
 
+async function loginForDeviceToken(
+  request: APIRequestContext,
+  device: { id: string; name: string }
+): Promise<string> {
+  const challengeResponse = await request.post('/api/auth/challenge', {
+    data: {
+      username: loginUsername,
+      purpose: 'login',
+      clientNonce: randomAuthNonce()
+    }
+  });
+  expect(challengeResponse.ok()).toBe(true);
+  const challenge = await challengeResponse.json();
+  const response = await request.post('/api/auth/login', {
+    data: {
+      username: loginUsername,
+      proof: (await authProofFromPassword(loginPassword, challenge)).proof,
+      device
+    }
+  });
+  expect(response.ok()).toBe(true);
+  return ((await response.json()) as { token: string }).token;
+}
+
 async function pushRemoteNote(
   request: APIRequestContext,
   note: RemoteNote,
@@ -140,8 +208,9 @@ async function pushRemoteNote(
   device = { id: 'e2e-remote-device', name: 'E2E remote' }
 ) {
   const encryptedNote = await encryptNoteFields(note, e2eKeyMaterial);
+  const remoteToken = await loginForDeviceToken(request, device);
   const response = await request.post('/api/sync/push', {
-    headers: { authorization: `Bearer ${token}` },
+    headers: { authorization: `Bearer ${remoteToken}` },
     data: {
       device,
       notebooks: [],
@@ -201,9 +270,26 @@ async function loginForToken(request: APIRequestContext): Promise<string> {
     loginUsername,
     passwordMaterial
   );
+  const keyringChallengeResponse = await request.post('/api/auth/challenge', {
+    headers: { authorization: `Bearer ${body.token}` },
+    data: {
+      purpose: 'keyring_update',
+      clientNonce: randomAuthNonce()
+    }
+  });
+  expect(keyringChallengeResponse.ok()).toBe(true);
+  const keyringChallenge = await keyringChallengeResponse.json();
+  const keyringProof = await authProofFromPassword(
+    loginPassword,
+    keyringChallenge
+  );
   const keyringUpdate = await request.patch('/api/account', {
     headers: { authorization: `Bearer ${body.token}` },
-    data: { e2eeKeyring: migrated.e2eeKeyring }
+    data: {
+      e2eeKeyring: migrated.e2eeKeyring,
+      expectedE2eeKeyringHash: null,
+      proof: keyringProof.proof
+    }
   });
   expect(keyringUpdate.ok()).toBe(true);
   e2eKeyMaterial = migrated.keyMaterial;
@@ -510,7 +596,9 @@ test('keeps a stored online session synced from local edits', async ({
     .toBe(bodyText);
 });
 
-test('shows local IndexedDB notes after a browser reload', async ({ page }) => {
+test('shows local IndexedDB notes after a browser reload @cross-browser', async ({
+  page
+}) => {
   await page.goto('/');
   await waitForVisibleSyncedStatus(page);
 
@@ -534,7 +622,7 @@ test('shows local IndexedDB notes after a browser reload', async ({ page }) => {
   await expect(page.getByLabel('Note body')).toHaveValue(bodyText);
 });
 
-test('recovers editor text when reload interrupts the debounced save', async ({
+test('recovers editor text when reload interrupts the debounced save @cross-browser', async ({
   page
 }) => {
   await page.goto('/');
@@ -545,11 +633,15 @@ test('recovers editor text when reload interrupts the debounced save', async ({
 
   await setEditorFieldSynchronously(page, 'Note title', titleText);
   await setEditorFieldSynchronously(page, 'Note body', bodyText);
-  const recovery = await page.evaluate(() =>
-    localStorage.getItem('author-editor-recovery-v1')
-  );
-  expect(recovery).toContain(titleText);
-  expect(recovery).toContain(bodyText);
+  await expect.poll(() => browserEditorRecovery(page)).not.toBeNull();
+  const recovery = await browserEditorRecovery(page);
+  expect(recovery?.title).not.toContain(titleText);
+  expect(recovery?.body).not.toContain(bodyText);
+  await expect
+    .poll(() =>
+      page.evaluate(() => localStorage.getItem('author-editor-recovery-v1'))
+    )
+    .toBeNull();
   await page.reload();
 
   await expect(page.getByLabel('Note title')).toHaveValue(titleText);
@@ -638,6 +730,7 @@ test('signs up with the real API and logs in again with the same password', asyn
   });
   const signupUsernameField = signupDialog.getByLabel('Username');
   const signupEmailField = signupDialog.getByLabel('Email');
+  const signupInvitationField = signupDialog.getByLabel('Invitation code');
   const signupPasswordField = signupDialog.getByLabel('Password', {
     exact: true
   });
@@ -646,11 +739,13 @@ test('signs up with the real API and logs in again with the same password', asyn
   await expectFieldsInVerticalOrder([
     { name: 'Username', locator: signupUsernameField },
     { name: 'Email', locator: signupEmailField },
+    { name: 'Invitation code', locator: signupInvitationField },
     { name: 'Password', locator: signupPasswordField },
     { name: 'Confirm password', locator: signupConfirmPasswordField }
   ]);
   await signupUsernameField.fill(signupUsername);
   await signupEmailField.fill(signupEmail);
+  await signupInvitationField.fill(signupInvitation(signupEmail));
   await setInputValueWithoutInputEvent(signupPasswordField, signupPassword);
   await setInputValueWithoutInputEvent(
     signupConfirmPasswordField,
@@ -1098,11 +1193,13 @@ test('persists in browser IndexedDB, syncs, and shows stale-edit conflicts', asy
     version: remoteNote!.version + 1,
     syncStatus: 'pending' as const
   };
+  const phoneDevice = { id: 'e2e-phone-device', name: 'E2E Phone' };
+  const phoneToken = await loginForDeviceToken(request, phoneDevice);
   const encryptedPhoneEdit = await encryptNoteFields(phoneEdit, e2eKeyMaterial);
   const remotePush = await request.post('/api/sync/push', {
-    headers: { authorization: `Bearer ${token}` },
+    headers: { authorization: `Bearer ${phoneToken}` },
     data: {
-      device: { id: 'e2e-phone-device', name: 'E2E Phone' },
+      device: phoneDevice,
       notebooks: [],
       notes: [{ record: encryptedPhoneEdit, baseVersion: remoteNote!.version }]
     }
@@ -1129,11 +1226,30 @@ test('persists in browser IndexedDB, syncs, and shows stale-edit conflicts', asy
     .toBe('Local browser version');
 });
 
-test('has no serious app-shell accessibility violations @a11y', async ({
+test('has no serious app-shell accessibility violations @a11y @cross-browser', async ({
   page
 }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/');
   await waitForDraftEditorReady(page);
+
+  await openProfileMenu(page);
+  await page.getByRole('menuitem', { name: 'Settings' }).click();
+  const settings = page.getByRole('dialog', { name: 'Settings' });
+  await expect(settings).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Boolean(document.activeElement?.closest('[role="dialog"]'))
+      )
+    )
+    .toBe(true);
+  for (let index = 0; index < 20; index += 1) await page.keyboard.press('Tab');
+  expect(
+    await page.evaluate(() =>
+      Boolean(document.activeElement?.closest('[role="dialog"]'))
+    )
+  ).toBe(true);
 
   const results = await new AxeBuilder({ page }).include('body').analyze();
   const violations = results.violations.filter((violation) =>

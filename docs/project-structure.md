@@ -4,6 +4,7 @@
 apps/
   web/          SvelteKit app, IndexedDB client, Hono API, SQLite/libSQL server,
                 Worker build scripts, Playwright tests
+  runtime/      Explicit adapter-node production dependency closure
   android/      Kotlin/Compose Android app, SQLCipher storage, WorkManager sync,
                 debug/unit/instrumented tests
 packages/

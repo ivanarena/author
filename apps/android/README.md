@@ -41,8 +41,10 @@ first in an on-device SQLCipher database, then pushed/pulled through the same
 sync protocol as the web app. The database key is generated locally and stored
 through Android Keystore-backed secure preferences; note fields remain encrypted
 for sync before leaving the device. The current local database schema is version
-2 and stores notes, notebooks, devices, sync metadata, and encrypted conflict
-payloads.
+3 and stores notes, notebooks, devices, sync metadata, favorites, and encrypted
+conflict payloads. Plaintext-to-SQLCipher migration validates and upgrades a
+current-schema candidate before atomically installing it; interrupted migration artifacts are
+recovered without deleting the last usable database.
 
 Manual sync runs under the repository mutex. Background sync runs through
 WorkManager, closes its repository/database handle after each run, and treats a
@@ -79,9 +81,19 @@ ANDROID_RELEASE_KEY_PASSWORD=change-this
 
 The GitHub signed APK workflow uses the same signing values from repository
 secrets. Store the keystore as base64 in `ANDROID_RELEASE_KEYSTORE_BASE64`, then
-set `ANDROID_RELEASE_KEYSTORE_PASSWORD`, `ANDROID_RELEASE_KEY_ALIAS`, and
-`ANDROID_RELEASE_KEY_PASSWORD`. The public production API endpoint belongs in
+set `ANDROID_RELEASE_KEYSTORE_PASSWORD`, `ANDROID_RELEASE_KEY_ALIAS`,
+`ANDROID_RELEASE_KEY_PASSWORD`, and the normalized expected signing certificate
+fingerprint in `ANDROID_RELEASE_CERT_SHA256`. The workflow rejects a validly
+signed APK if its certificate does not match. The public production API endpoint belongs in
 the `AUTHOR_API_URL` repository variable.
+
+A manual `test` dispatch builds the current `main` commit against
+`STAGING_AUTHOR_API_URL`, verifies the production signing certificate, and
+uploads a private 14-day workflow artifact without creating a tag or GitHub
+release. It requires successful exact-commit CI, Docker, Security, and Remote
+Staging Smoke runs. Use this artifact for upgrade and device smoke testing.
+A `production` dispatch requires the version tag and successful production
+Cloudflare deployment before attaching the APK to a GitHub release.
 
 CI validates debug compile/lint/unit/APK, release lint/unit/APK, and connected debug instrumentation tests. Run connected tests locally with an emulator booted:
 

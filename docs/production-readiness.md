@@ -67,8 +67,9 @@ Already in place:
 - CodeQL, OpenSSF Scorecard, Trivy image scanning, SBOM/provenance generation,
   and Cosign image signing. CodeQL and Scorecard upload SARIF artifacts for
   private-repo review even when GitHub code scanning is not enabled.
-- Signed Android release automation that requires green CI, Docker, and
-  Cloudflare Deploy runs for the exact release commit.
+- Signed Android release automation with a private staging-API test channel
+  gated by exact-commit CI, Docker, Security, and staging smoke; production
+  additionally requires the exact Cloudflare Deploy run and matching tag.
 
 Known limits:
 
@@ -132,15 +133,20 @@ Required external blockers:
 - Review CodeQL and OpenSSF Scorecard SARIF artifacts, or code-scanning alerts
   if code scanning is enabled, for the release commit.
 - Clear or explicitly accept remaining Scorecard findings before public release.
-  As of this pass, repo-setting/practice findings such as branch protection,
-  code-review enforcement, OpenSSF best-practices badge status, fuzzing coverage,
+  `main` now enforces the four CI jobs, linear history, conversation resolution,
+  and no force-push/deletion, but repo-setting/practice findings such as
+  independent code-review enforcement, OpenSSF best-practices badge status, fuzzing coverage,
   Gradle wrapper binary review, and Docker npm-command pinning require either an
   admin/platform change or a written exception in release notes.
-- Verify the release commit has successful `CI`, `Docker`, and
-  `Cloudflare Deploy` workflow runs before publishing release notes.
+- Verify the release commit has successful `CI`, `Docker`, `Security`, and
+  `Remote Staging Smoke` workflow runs before manually dispatching
+  `Cloudflare Deploy`; verify that production deployment before publishing
+  release notes.
 - Verify Cosign-signed container images and protected Android release keys.
-- Verify Android update notifications with the configured manifest URL or
-  release URL before distributing a sideloaded APK.
+- Dispatch the private Android `test` channel against staging, verify its
+  signing certificate and checksum, and install it over the previous production
+  APK. After uploading the production asset, verify that a separate `v1.0.17`
+  device receives and opens the update notification before broader distribution.
 - Confirm production has real `NOTES_LOGIN_PASSWORD` and `NOTES_SERVER_SECRET`,
   HTTPS, server-only Turso tokens, authenticated metrics, enabled backup or
   managed export flow, and the Cloudflare Cron cleanup trigger.
@@ -283,11 +289,73 @@ Acceptance:
 - The note model remains title plus body.
 - New controls retain keyboard and screen-reader affordances.
 
+## Test Release Sequence
+
+Use this sequence for `v1.0.18`; do not create the production tag until the
+private candidate is accepted. Before starting, verify
+`ANDROID_RELEASE_CERT_SHA256` and `NOTES_METRICS_TOKEN` in GitHub, configure the
+`staging` and `production` environments, require a reviewer for production where
+supported, and enable a `main` branch protection/ruleset or record the explicit
+private-test exception. Keep scheduled staging smoke able to run unattended.
+
+1. Create a release-candidate branch from `main`, commit the complete change,
+   and record the exact commit SHA. Never run release gates from a dirty source
+   checkout.
+2. From a clean checkout with Node 24.12+ and Aube 1.16.0, run
+   `aube run release:verify:connected`, `aube run docker:verify`, and the local
+   restore drill. After those gates, generate
+   `aube run release:evidence -- v1.0.18-test.1` without amending the candidate
+   commit, then record command timestamps and results in that evidence file.
+3. Open a pull request. Require green `CI`, pull-request Docker scanning, and
+   `Security`; review coverage plus CodeQL, Scorecard, and Trivy artifacts.
+4. Merge the reviewed commit to `main`. Production publication/deployment is
+   manual, so this does not publish or deploy the candidate. Wait for
+   exact-commit `CI` and `Security`, then manually dispatch `Docker` on `main`;
+   review its Trivy result, digest, attestations, and signature.
+5. Manually run `Remote Staging Smoke` on `main`. Confirm it deployed only the
+   staging Worker/database and passed login/session, encrypted push/pull,
+   stale-write conflict, and cleanup checks. Complete a managed Turso restore
+   into a separate staging database and run `db:check` against it.
+6. Manually dispatch `Android Release APK` with `channel=test` and `ref=main`.
+   Download the private 14-day artifact, verify its recorded SHA-256 and signing
+   certificate, and keep it out of a public GitHub release.
+7. Test the candidate in supported browsers and on a disposable Android device:
+   offline create/edit/reload, encrypted sync, conflict handling, signup
+   invitation replay rejection, password/keyring rotation and recovery,
+   export/import, trash/cleanup, and foreground/background sync. Install the
+   test APK over a production-signed `v1.0.17` APK on disposable data to verify
+   upgrade and SQLCipher migration; also test a clean install against staging.
+8. Record a go/no-go decision. On failure, leave production undeployed, fix on a
+   new candidate commit, and repeat all exact-commit remote gates.
+9. On acceptance, manually dispatch `Cloudflare Deploy` for current `main`,
+   perform a production read-only health/metrics smoke, then create and push the
+   `v1.0.18` tag. Dispatch `Android Release APK` with `channel=production` and
+   `tag=v1.0.18`; verify the attached APK, container digest, SBOM/provenance,
+   Cosign signature, update notification, and rollback references before final
+   sign-off. Commit the completed evidence file afterward as release
+   documentation; do not move the `v1.0.18` tag from the tested candidate SHA.
+
+Use these dispatch forms after the candidate reaches `main`:
+
+```sh
+gh workflow run docker.yml --ref main
+gh workflow run remote-staging.yml --ref main
+gh workflow run android-release.yml --ref main -f channel=test -f ref=main
+# Only after test acceptance:
+gh workflow run cloudflare.yml --ref main
+gh workflow run android-release.yml --ref main \
+  -f channel=production -f ref=main -f tag=v1.0.18
+```
+
+Always watch each run to completion and record its URL; do not dispatch the next
+stage merely because the previous workflow was queued.
+
 ## Required Commands
 
 Run from the repo root unless noted:
 
 ```sh
+aube run toolchain:check
 aube run deps:check
 aube run release:version:check
 aube run release:evidence -- <tag>

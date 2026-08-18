@@ -44,6 +44,11 @@
       'email',
       model.signupEmailValue
     );
+    model.signupInvitationValue = formValue(
+      formData,
+      'invitationCode',
+      model.signupInvitationValue
+    );
     model.loginPasswordValue = formValue(
       formData,
       'password',
@@ -142,6 +147,21 @@
           autocomplete="email"
           placeholder="you@example.com"
           required={model.signupEmailRequired}
+          disabled={model.isLoggingIn}
+          oninput={() => (model.loginError = '')}
+        />
+      </div>
+      <div class="field-row">
+        <label for="signup-invitation">Invitation code</label>
+        <input
+          id="signup-invitation"
+          name="invitationCode"
+          type="text"
+          bind:value={model.signupInvitationValue}
+          autocomplete="one-time-code"
+          autocapitalize="none"
+          spellcheck="false"
+          required
           disabled={model.isLoggingIn}
           oninput={() => (model.loginError = '')}
         />

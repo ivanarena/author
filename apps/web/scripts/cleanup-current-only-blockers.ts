@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { createClient } from '@libsql/client';
 import {
@@ -45,7 +45,10 @@ const BACKUP_TABLES = [
   'schema_migrations',
   'sync_meta',
   'signup_allowed_emails',
-  'auth_rate_limits'
+  'account_tombstones',
+  'consumed_signup_invitations',
+  'auth_rate_limits',
+  'auth_challenges'
 ];
 
 const args = new Set(process.argv.slice(2));
@@ -155,7 +158,8 @@ async function snapshotDatabase(
   }
   writeFileSync(
     outputPath,
-    JSON.stringify({ createdAt: new Date().toISOString(), tables }, null, 2)
+    JSON.stringify({ createdAt: new Date().toISOString(), tables }, null, 2),
+    { mode: 0o600 }
   );
   return outputPath;
 }
@@ -266,8 +270,13 @@ async function backupLocalSqlite(): Promise<void> {
     backupDir(),
     `${basename(config.filePath, '.sqlite')}-pre-current-only-cleanup-${stamp}.sqlite`
   );
-  copyFileSync(config.filePath, outputPath);
-  console.log(`local sqlite backup written: ${outputPath}`);
+  const local = await openLocalRaw();
+  try {
+    await run(local.db, 'VACUUM INTO ?', [outputPath]);
+  } finally {
+    local.close();
+  }
+  console.log(`consistent local sqlite backup written: ${outputPath}`);
 }
 
 if (!apply) {

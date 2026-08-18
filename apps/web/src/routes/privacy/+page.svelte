@@ -1,7 +1,7 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
 
-  const updated = 'May 29, 2026';
+  const updated = 'August 17, 2026';
 </script>
 
 <svelte:head>
@@ -52,10 +52,10 @@
   <section>
     <h2>Account data</h2>
     <p>
-      Account records include your username, legacy display name if one already
-      exists, password verifier data, encrypted keyring wrappers, sessions, and
-      device labels needed to operate login and sync. Passwords and recovery
-      codes are not stored in plaintext.
+      Account records include your username, email address, legacy display name
+      if one already exists, password verifier data, encrypted keyring wrappers,
+      sessions, and device labels needed to operate login and sync. Passwords
+      and recovery codes are not stored in plaintext.
     </p>
   </section>
 

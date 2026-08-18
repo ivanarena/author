@@ -61,6 +61,7 @@ export interface NotesAccountActionController {
   signupConfirmPasswordValue: string;
   signupEmailRequired: boolean;
   signupEmailValue: string;
+  signupInvitationValue: string;
   signupEnabled: boolean;
   syncActivityLabel: string;
   syncActivityDetail: string;

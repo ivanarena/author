@@ -15,12 +15,12 @@ private val BEARER_TOKEN_PATTERN =
   Regex("""\b(Bearer)\s+[A-Za-z0-9._~+/=-]+""", RegexOption.IGNORE_CASE)
 private val JSON_SECRET_PATTERN =
   Regex(
-    """(["'](?:authorization|token|authToken|password|secret)["']\s*:\s*)["'][^"']*["']""",
+    """(["'](?:authorization|token|authToken|password|secret|e2eeKeyring|recoveryCode|keyMaterial|deviceTrustSecret)["']\s*:\s*)["'][^"']*["']""",
     RegexOption.IGNORE_CASE,
   )
 private val ASSIGNMENT_SECRET_PATTERN =
   Regex(
-    """\b((?:authorization|token|authToken|password|secret)\s*=\s*)[^\s,"'}]+""",
+    """\b((?:authorization|token|authToken|password|secret|e2eeKeyring|recoveryCode|keyMaterial|deviceTrustSecret)\s*=\s*)[^\s,"'}]+""",
     RegexOption.IGNORE_CASE,
   )
 
@@ -119,13 +119,11 @@ object DebugLogStore {
     }
 
   private fun sanitize(value: String): String =
-    redactSecrets(value).replace("\u0000", "").take(MAX_DEBUG_LOG_FIELD_LENGTH)
-
-  private fun redactSecrets(value: String): String =
-    value
-      .replace(BEARER_TOKEN_PATTERN) { match -> "${match.groupValues[1]} $REDACTED_DEBUG_VALUE" }
-      .replace(JSON_SECRET_PATTERN) { match -> "${match.groupValues[1]}\"$REDACTED_DEBUG_VALUE\"" }
-      .replace(ASSIGNMENT_SECRET_PATTERN) { match ->
-        "${match.groupValues[1]}$REDACTED_DEBUG_VALUE"
-      }
+    redactDebugSecrets(value).replace("\u0000", "").take(MAX_DEBUG_LOG_FIELD_LENGTH)
 }
+
+internal fun redactDebugSecrets(value: String): String =
+  value
+    .replace(BEARER_TOKEN_PATTERN) { match -> "${match.groupValues[1]} $REDACTED_DEBUG_VALUE" }
+    .replace(JSON_SECRET_PATTERN) { match -> "${match.groupValues[1]}\"$REDACTED_DEBUG_VALUE\"" }
+    .replace(ASSIGNMENT_SECRET_PATTERN) { match -> "${match.groupValues[1]}$REDACTED_DEBUG_VALUE" }

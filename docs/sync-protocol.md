@@ -3,7 +3,7 @@
 The offline-first sync protocol is deliberately small.
 
 1. Client saves all edits locally first so typing, notebook changes, import/export, and trash actions keep working offline.
-2. On app open, the client pushes local pending changes in bounded batches. Browser sync runs under a Web Lock when available, with a local lease fallback, so multiple tabs do not push or pull the same IndexedDB workspace concurrently. If only the local device name changed, the client may send an otherwise empty push so the server can update device metadata.
+2. On app open, the client pushes local pending changes in bounded batches. Browser sync runs under a Web Lock when available, with an IndexedDB transactional lease and fencing checks as fallback, so multiple tabs do not commit the same workspace concurrently. If only the local device name changed, the client may send an otherwise empty push so the server can update device metadata.
 3. The server accepts a change only when `baseVersion` matches the current remote version, or when the remote content is identical.
 4. If the remote version changed, the remote row was hard-deleted after the client's base version, or a pushed notebook would duplicate an active notebook name, the server returns a conflict instead of overwriting.
 5. Client pulls changes since `lastPulledRevision`, falling back to revision `0` for a full recovery pull. Pull responses may be paged; the client keeps pulling until `hasMore` is false.
@@ -20,11 +20,8 @@ Each changed entity is sent as:
 }
 ```
 
-Clients send at most 20 note/notebook changes in a single push request so
-remote database round trips stay below Worker subrequest limits.
-When server-side record limits are enabled, the server also estimates the
-post-push active note/notebook counts for the authenticated user before
-accepting a batch. A limit failure returns an explicit sync error and does not
+Clients send at most 20 note/notebook changes in a single push request. The server also enforces UTF-8 byte limits for every identifier, field, hash, timestamp, device label, and assignment list; binds a device to its authenticated session; caps accounts at 50 devices; rate-limits pushes; and checks active plus auxiliary snapshot/change storage inside the write transaction.
+When server-side record limits are enabled, the server estimates post-push active note/notebook counts, active bytes, devices, version snapshots, tombstones, and revision metadata for the authenticated user inside the accepting transaction. A limit failure returns an explicit sync error and does not
 drop local pending records; clients can retry after deleting/exporting data or
 after the operator adjusts the configured budget.
 `baseVersion` is the last remote version the client successfully synced. New local entities use `0`.
@@ -34,8 +31,7 @@ storage and push. The v4 envelope carries a data-key id, random AES-GCM IV, ciph
 field-specific additional authenticated data, so a title envelope cannot be silently moved into a
 body or another note field, and a notebook name envelope cannot be silently moved to another
 notebook. A value is preserved as encrypted only when its envelope is structurally valid and
-decrypts with the active key material for that exact field context; literal text that merely
-imitates an envelope is encrypted again as normal plaintext.
+decrypts with the active key material for that exact field context. The complete `enc:v<integer>:` namespace is reserved: malformed current envelopes, retired versions, and unknown future versions fail closed instead of being treated as literal note text.
 
 Sync-capable accounts use a local `keyring:v1` material blob. The active random 256-bit data key
 encrypts note fields, while the server stores only an `e2eeKeyring` JSON wrapper: the keyring
@@ -49,10 +45,7 @@ metadata and notebook assignment remain plain so versioning and relationship rep
 
 Runtime clients do not keep pre-Argon2 or pre-`enc:v3` compatibility paths; older installs must
 migrate through a release that can republish data as at least `enc:v3` before running this
-version. If a current client sees older note envelopes or old password key material, it stops
-instead of rewriting that ciphertext as literal text. Current envelopes also fail closed when the
-active key material or field context cannot authenticate them, which prevents ciphertext from
-being republished as note text.
+version. If a current client sees an older, malformed, or unknown future note envelope or old password key material, it stops instead of rewriting that ciphertext as literal text. Current envelopes also fail closed when the active key material or field context cannot authenticate them, which prevents ciphertext from being republished as note text.
 Sync-capable browser key material is stored on the signed-in browser by default
 so users can keep working offline and survive normal browser restarts without a
 password prompt. The account settings for the current browser can switch that
@@ -105,7 +98,7 @@ pulls stay cursor-stable:
 }
 ```
 
-The response includes changed notes, notebooks, known devices, hard-delete IDs, `hasMore`, the server time to store as the next `lastPulledAt`, and the server revision to store as the next `lastPulledRevision`. When `hasMore` is true, `serverRevision` is the page cursor, not the end of all available changes.
+The response includes changed notes, notebooks, known devices, hard-delete IDs, `hasMore`, the server time to store as the next `lastPulledAt`, and the server revision to store as the next `lastPulledRevision`. Pages are bounded by both revision count and serialized bytes; web and Android also enforce an independent response-read ceiling. When `hasMore` is true, `serverRevision` is the page cursor, not the end of all available changes.
 
 ## Local Recovery Diagnostics
 
@@ -147,7 +140,9 @@ Server-side notes, notebooks, device rows, tombstones, and revision changes are 
 The server owns accepted remote versions. When a pushed edit is accepted against an existing record, the server writes `remote.version + 1`.
 Hard deletes create tombstones with their own next remote version, so a client
 that only synced the deleted row's old version still conflicts until the user
-explicitly resolves against the tombstone version.
+explicitly resolves against the tombstone version. Trash retention starts from
+the server-observed acceptance time, not a device-supplied timestamp, so clock
+skew cannot make a new trash action immediately permanent.
 
 ## Notebook Names
 

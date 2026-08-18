@@ -1,5 +1,11 @@
 import { tick } from 'svelte';
-import type { LocalConflict, LocalNote, LocalNotebook } from '$lib/client/db';
+import {
+  localDb,
+  type LocalConflict,
+  type LocalNote,
+  type LocalNotebook
+} from '$lib/client/db';
+import { decryptText, encryptText } from '$lib/client/encryption';
 import { createBlankNote, updateNoteContent } from '$lib/client/store';
 import { pushEditorHistory, sameEditorSnapshot } from '../editor-history';
 import type { NotesFilterId } from '../models';
@@ -15,13 +21,15 @@ const MAX_EDITOR_HISTORY = 120;
 const EDITOR_RECOVERY_KEY = 'author-editor-recovery-v1';
 
 interface EditorRecoverySnapshot {
-  version: 1;
+  version: 2;
   noteId: string | null;
   notebookId: string | null;
   title: string;
   body: string;
   savedAt: string;
 }
+
+let editorRecoveryQueue: Promise<void> = Promise.resolve();
 
 export interface NotesEditorActionController {
   bodyTextarea: HTMLTextAreaElement | null;
@@ -155,11 +163,11 @@ export function clearPendingSave(
 export async function restoreEditorRecovery(
   controller: NotesEditorActionController
 ): Promise<boolean> {
-  const recovery = readEditorRecovery();
+  const recovery = await readEditorRecovery();
   if (!recovery) return false;
 
   if (!recovery.noteId && !recovery.title.trim() && !recovery.body.trim()) {
-    clearEditorRecovery();
+    await clearEditorRecovery();
     return false;
   }
 
@@ -168,7 +176,7 @@ export async function restoreEditorRecovery(
       (note) => note.id === recovery.noteId
     );
     if (!existing || existing.deletedAt || existing.trashedAt) {
-      clearEditorRecovery();
+      await clearEditorRecovery();
       return false;
     }
 
@@ -196,7 +204,7 @@ export async function restoreEditorRecovery(
     controller.titleValue = recovery.title;
     controller.bodyValue = recovery.body;
     resetEditorHistory(controller);
-    clearEditorRecoveryIfMatches(
+    await clearEditorRecoveryIfMatches(
       recovery.noteId,
       recovery.title,
       recovery.body
@@ -223,7 +231,7 @@ export async function restoreEditorRecovery(
   controller.titleValue = recovery.title;
   controller.bodyValue = recovery.body;
   resetEditorHistory(controller);
-  clearEditorRecovery();
+  await clearEditorRecovery();
   void focusEditor(
     controller,
     recovery.title || recovery.body ? 'body' : 'title'
@@ -243,7 +251,7 @@ export async function flushPendingSave(
 
 export function openDraftNote(controller: NotesEditorActionController): void {
   clearPendingSave(controller);
-  clearEditorRecovery();
+  void clearEditorRecovery();
   controller.editorSessionId += 1;
   controller.selectedNote = null;
   controller.closeNotebookMenus();
@@ -257,7 +265,9 @@ export function clearSensitiveWorkspace(
   controller: NotesEditorActionController
 ): void {
   clearPendingSave(controller);
-  clearEditorRecovery();
+  // Do not erase encrypted crash recovery while the account key is locked.
+  // Legacy plaintext recovery cannot be retained on a locked surface.
+  safeLocalStorage()?.removeItem(EDITOR_RECOVERY_KEY);
   controller.editorSessionId += 1;
   controller.notes = [];
   controller.notebooks = [];
@@ -325,7 +335,12 @@ async function saveEditorNow(
     try {
       const note = await draftCreatePromise;
       savedNoteId = note.id;
-      rememberEditorRecoveryNoteId(null, note.id, titleToSave, bodyToSave);
+      await rememberEditorRecoveryNoteId(
+        null,
+        note.id,
+        titleToSave,
+        bodyToSave
+      );
       const stillEditingDraft =
         controller.editorSessionId === draftSessionId &&
         (controller.selectedNote === null ||
@@ -351,7 +366,7 @@ async function saveEditorNow(
 
   await controller.refresh();
   if (savedNoteId) {
-    clearEditorRecoveryIfMatches(savedNoteId, titleToSave, bodyToSave);
+    await clearEditorRecoveryIfMatches(savedNoteId, titleToSave, bodyToSave);
   }
   controller.scheduleSync?.(0);
 }
@@ -385,32 +400,107 @@ function safeLocalStorage(): Storage | null {
   }
 }
 
-function readEditorRecovery(): EditorRecoverySnapshot | null {
-  const raw = safeLocalStorage()?.getItem(EDITOR_RECOVERY_KEY);
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as Partial<EditorRecoverySnapshot>;
-    if (parsed.version !== 1) return null;
-    return {
-      version: 1,
-      noteId: typeof parsed.noteId === 'string' ? parsed.noteId : null,
-      notebookId:
-        typeof parsed.notebookId === 'string' ? parsed.notebookId : null,
-      title: typeof parsed.title === 'string' ? parsed.title : '',
-      body: typeof parsed.body === 'string' ? parsed.body : '',
-      savedAt: typeof parsed.savedAt === 'string' ? parsed.savedAt : ''
-    };
-  } catch {
-    return null;
-  }
+function queueEditorRecovery<T>(operation: () => Promise<T>): Promise<T> {
+  const result = editorRecoveryQueue.then(operation, operation);
+  editorRecoveryQueue = result.then(
+    () => undefined,
+    () => undefined
+  );
+  return result;
 }
 
-function writeEditorRecovery(snapshot: EditorRecoverySnapshot): void {
-  safeLocalStorage()?.setItem(EDITOR_RECOVERY_KEY, JSON.stringify(snapshot));
+function editorRecoveryContext(field: 'title' | 'body'): string {
+  return `editor-recovery:v2:${field}`;
 }
 
-function clearEditorRecovery(): void {
-  safeLocalStorage()?.removeItem(EDITOR_RECOVERY_KEY);
+async function readEditorRecovery(): Promise<EditorRecoverySnapshot | null> {
+  return await queueEditorRecovery(async () => {
+    const stored = await localDb.editorRecovery.get(EDITOR_RECOVERY_KEY);
+    if (stored) {
+      return {
+        version: 2,
+        noteId: stored.noteId,
+        notebookId: stored.notebookId,
+        title: await decryptText(
+          stored.title,
+          undefined,
+          editorRecoveryContext('title')
+        ),
+        body: await decryptText(
+          stored.body,
+          undefined,
+          editorRecoveryContext('body')
+        ),
+        savedAt: stored.savedAt
+      };
+    }
+
+    // Migrate the previous plaintext crash record only after its encrypted
+    // replacement has committed successfully.
+    const storage = safeLocalStorage();
+    const raw = storage?.getItem(EDITOR_RECOVERY_KEY);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      if (parsed.version !== 1) return null;
+      const recovery: EditorRecoverySnapshot = {
+        version: 2,
+        noteId: typeof parsed.noteId === 'string' ? parsed.noteId : null,
+        notebookId:
+          typeof parsed.notebookId === 'string' ? parsed.notebookId : null,
+        title: typeof parsed.title === 'string' ? parsed.title : '',
+        body: typeof parsed.body === 'string' ? parsed.body : '',
+        savedAt: typeof parsed.savedAt === 'string' ? parsed.savedAt : ''
+      };
+      await localDb.editorRecovery.put({
+        ...recovery,
+        key: EDITOR_RECOVERY_KEY,
+        title: await encryptText(
+          recovery.title,
+          undefined,
+          editorRecoveryContext('title')
+        ),
+        body: await encryptText(
+          recovery.body,
+          undefined,
+          editorRecoveryContext('body')
+        )
+      });
+      storage?.removeItem(EDITOR_RECOVERY_KEY);
+      return recovery;
+    } catch {
+      return null;
+    }
+  });
+}
+
+async function writeEditorRecovery(
+  snapshot: EditorRecoverySnapshot
+): Promise<void> {
+  await queueEditorRecovery(async () => {
+    await localDb.editorRecovery.put({
+      ...snapshot,
+      key: EDITOR_RECOVERY_KEY,
+      title: await encryptText(
+        snapshot.title,
+        undefined,
+        editorRecoveryContext('title')
+      ),
+      body: await encryptText(
+        snapshot.body,
+        undefined,
+        editorRecoveryContext('body')
+      )
+    });
+    safeLocalStorage()?.removeItem(EDITOR_RECOVERY_KEY);
+  });
+}
+
+async function clearEditorRecovery(): Promise<void> {
+  await queueEditorRecovery(async () => {
+    await localDb.editorRecovery.delete(EDITOR_RECOVERY_KEY);
+    safeLocalStorage()?.removeItem(EDITOR_RECOVERY_KEY);
+  });
 }
 
 function rememberEditorRecovery(controller: NotesEditorActionController): void {
@@ -421,12 +511,12 @@ function rememberEditorRecovery(controller: NotesEditorActionController): void {
     !controller.titleValue.trim() &&
     !controller.bodyValue.trim()
   ) {
-    clearEditorRecovery();
+    void clearEditorRecovery();
     return;
   }
 
-  writeEditorRecovery({
-    version: 1,
+  void writeEditorRecovery({
+    version: 2,
     noteId,
     notebookId: draftNotebookId(controller),
     title: controller.titleValue,
@@ -435,13 +525,13 @@ function rememberEditorRecovery(controller: NotesEditorActionController): void {
   });
 }
 
-function rememberEditorRecoveryNoteId(
+async function rememberEditorRecoveryNoteId(
   previousNoteId: string | null,
   nextNoteId: string,
   title: string,
   body: string
-): void {
-  const recovery = readEditorRecovery();
+): Promise<void> {
+  const recovery = await readEditorRecovery();
   if (
     !recovery ||
     recovery.noteId !== previousNoteId ||
@@ -451,25 +541,25 @@ function rememberEditorRecoveryNoteId(
     return;
   }
 
-  writeEditorRecovery({
+  await writeEditorRecovery({
     ...recovery,
     noteId: nextNoteId,
     savedAt: new Date().toISOString()
   });
 }
 
-function clearEditorRecoveryIfMatches(
+async function clearEditorRecoveryIfMatches(
   noteId: string,
   title: string,
   body: string
-): void {
-  const recovery = readEditorRecovery();
+): Promise<void> {
+  const recovery = await readEditorRecovery();
   if (
     recovery?.noteId === noteId &&
     recovery.title === title &&
     recovery.body === body
   ) {
-    clearEditorRecovery();
+    await clearEditorRecovery();
   }
 }
 

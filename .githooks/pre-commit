@@ -8,10 +8,11 @@ run_aube() {
   if [ -n "$AUBE_BIN" ]; then
     "$AUBE_BIN" "$@"
   else
-    npx -y @endevco/aube@1.8.0 "$@"
+    npx -y @endevco/aube@1.16.0 "$@"
   fi
 }
 
+run_aube run toolchain:check
 run_aube exec --no-install lint-staged
 
 case "$STAGED_FILES" in

@@ -28,6 +28,7 @@ function resetLoginForm(controller: NotesAccountActionController): void {
   controller.loginPasswordValue = '';
   controller.loginTotpCodeValue = '';
   controller.signupEmailValue = '';
+  controller.signupInvitationValue = '';
   controller.signupConfirmPasswordValue = '';
   controller.loginError = '';
 }
@@ -69,6 +70,7 @@ export function setAuthMode(
   controller.signupConfirmPasswordValue = '';
   if (mode === 'signin') {
     controller.signupEmailValue = '';
+    controller.signupInvitationValue = '';
     controller.loginUsernameValue = getLoginHint();
   }
 }
@@ -126,6 +128,13 @@ export async function submitLoginMenu(
     controller.loginError = 'Email required';
     return;
   }
+  if (
+    controller.authMode === 'signup' &&
+    !controller.signupInvitationValue.trim()
+  ) {
+    controller.loginError = 'Invitation code required';
+    return;
+  }
 
   controller.isLoggingIn = true;
   controller.loginError = '';
@@ -136,7 +145,12 @@ export async function submitLoginMenu(
       storedUsername.trim() || getLoginHint().trim() || null;
     const wasSignup = controller.authMode === 'signup';
     const session = wasSignup
-      ? await signup(username, controller.signupEmailValue, password)
+      ? await signup(
+          username,
+          controller.signupEmailValue,
+          controller.signupInvitationValue,
+          password
+        )
       : await login(
           username,
           hasPassword ? password : null,
@@ -215,6 +229,7 @@ export async function submitLoginMenu(
     controller.loginPasswordValue = '';
     controller.loginTotpCodeValue = '';
     controller.signupEmailValue = '';
+    controller.signupInvitationValue = '';
     controller.signupConfirmPasswordValue = '';
     controller.syncMessage = 'Signed in';
     controller.notify(

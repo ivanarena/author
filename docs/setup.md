@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Node.js 24 or newer
+- Node.js 24.12 or newer
 - Aube
 - For Android verification: JDK 21 and the Android SDK
 
@@ -64,12 +64,18 @@ NOTES_BACKUP_INTERVAL_MINUTES=1440
 NOTES_BACKUP_RETENTION_COUNT=14
 ```
 
-`NOTES_LOGIN_USERNAME` and `NOTES_LOGIN_PASSWORD` bootstrap the first local user if it does not already exist. After login, the server returns a random session token in an HttpOnly cookie and in the JSON response for the current app session; browsers keep only account metadata in local storage. Signed-in browsers keep encrypted-note key material locally by default for offline restarts, and the account settings can switch the current browser to session-only key storage.
+`NOTES_LOGIN_USERNAME` and `NOTES_LOGIN_PASSWORD` bootstrap the first local user if it does not already exist. After login, browsers use a random session token only through an HttpOnly cookie; bearer-session JSON is returned only to clients that explicitly request native/API bearer mode. Browsers keep only account metadata in local storage. Signed-in browsers keep encrypted-note key material locally by default for offline restarts, and the account settings can switch the current browser to session-only key storage.
 `NOTES_SERVER_SECRET` encrypts server-side auth secrets such as TOTP seeds at rest. Set it to a long random value and keep it stable across deploys, backups, and restores. Production runtime fails closed for TOTP seed encryption when this value is missing.
 When 2FA is enabled, a browser or Android install that has already completed a password login can request a new session with username plus TOTP code. The device must still have its local trusted-login secret and local encryption key material for encrypted note sync.
 New account and bootstrap passwords must be at least 15 characters. In production, there is no fallback password; set `NOTES_LOGIN_PASSWORD` or create a user before expecting browser login to work.
 
-Signup is email allow-list only when a remote database is configured. Allowed addresses are stored in the remote database table `signup_allowed_emails`; `NOTES_SIGNUP_ALLOWED_EMAILS` can seed that table on startup with a comma-separated list of lowercase email addresses.
+Signup is available only when a remote database and email allow-list are configured. Allowed addresses are stored in `signup_allowed_emails`; `NOTES_SIGNUP_ALLOWED_EMAILS` can seed that table. An address alone is not an invitation. Generate a signed, expiring code and deliver it separately:
+
+```sh
+aube -F @author/web run signup:invite -- you@example.com 7
+```
+
+The code is bound to the normalized email, signed with `NOTES_SERVER_SECRET`, expires after the selected number of days (maximum 90), and becomes unusable once that unique email creates an account.
 
 `NOTES_AUTH_TOKEN` is no longer used by default. If an older client still depends on the old static bearer token, set `NOTES_LEGACY_AUTH_TOKEN_ENABLED=true` temporarily and rotate away from it.
 
@@ -110,7 +116,7 @@ The committed `.envrc` loads root `.env` automatically and adds the repo's local
 
 ## Self-Hosted Docker
 
-The self-hosted default is a local SQLite/libSQL database mounted at `/data`. The checked-in Compose file binds to localhost by default, runs the container with a read-only root filesystem plus writable `/data` and `/tmp`, drops Linux capabilities, and enables scheduled SQLite snapshots unless overridden.
+The self-hosted default is a local SQLite/libSQL database mounted at `/data`. The checked-in Compose file binds to localhost by default, passes only an explicit server-runtime environment allow-list, runs the container with a read-only root filesystem plus writable `/data` and `/tmp`, drops Linux capabilities, and enables scheduled SQLite snapshots unless overridden. Use `HOST_PORT` to change the host mapping; the container always listens on port 3000.
 
 ```sh
 cp .env.example .env
@@ -191,14 +197,14 @@ For GitHub Actions deploys, add these repository secrets:
 - `NOTES_LOGIN_PASSWORD`: the production login password.
 - `NOTES_SERVER_SECRET`: the stable server secret used to encrypt 2FA seeds.
 - `NOTES_AUTH_SESSION_DAYS`: optional session lifetime.
-- `NOTES_METRICS_TOKEN`: optional bearer or `x-author-metrics-token` value for scraping `/api/metrics`.
-- `NOTES_SIGNUP_ALLOWED_EMAILS`: optional comma-separated signup email allow list.
+- `NOTES_METRICS_TOKEN`: dedicated bearer or `x-author-metrics-token` value for scraping `/api/metrics`; required for private production metrics unless metrics are explicitly public.
+- `NOTES_SIGNUP_ALLOWED_EMAILS`: optional comma-separated signup email allow list; every signup also needs a signed code from `signup:invite`.
 - `NOTES_RECORD_LIMIT_*`: optional Turso storage-budget estimate overrides.
 - `AUTHOR_API_URL`: optional public API URL override.
 
 The workflow writes a temporary secret file and passes it to `wrangler deploy --secrets-file`, so Worker code and updated secrets are uploaded together in one deployed version. If you deploy manually, run the `wrangler secret put` commands above once before using the app, or pass an equivalent secrets file to `wrangler deploy --secrets-file`.
 
-The `Cloudflare Deploy` workflow only deploys from `main`. It runs on pushes to `main` that touch the web app, shared packages, or lockfile, and manual runs from other branches are skipped.
+The `Cloudflare Deploy` workflow is manual and only deploys the current `main` commit. It refuses production deployment until that exact commit has successful `CI`, `Docker`, `Security`, and `Remote Staging Smoke` runs. Manual runs from other branches are skipped, so merging a release candidate does not deploy it before staging evidence is reviewed.
 
 ### Staging Remote Smoke Tests
 
@@ -454,7 +460,7 @@ Set `NOTES_TRUST_PROXY_HEADERS=true` only when the proxy strips untrusted incomi
 ## Health and Metrics
 
 - `/api/health` returns JSON liveness.
-- `/api/metrics` returns Prometheus text for process uptime, HTTP request counts/errors/duration buckets, scheduled backup status, and remote-sync state. It requires a signed-in session by default. For Prometheus, set `NOTES_METRICS_TOKEN` and send it as `x-author-metrics-token` or a bearer token. Set `NOTES_METRICS_PUBLIC=true` only on a trusted private network.
+- `/api/metrics` returns Prometheus text for process uptime, normalized-route HTTP request counts/errors/duration buckets, scheduled backup, trash cleanup, compaction, and remote-sync state. In production it requires `NOTES_METRICS_TOKEN` unless `NOTES_METRICS_PUBLIC=true`; ordinary account sessions cannot read global production metrics. Development may use a signed-in session when no metrics token is configured.
 
 Ship container stdout/stderr to your host logs. Remote sync failures and cleanup failures are logged without secrets; use the in-app sync debug panel for the last client-side sync error.
 
@@ -537,6 +543,9 @@ This clears the configured server database, then seeds the deterministic fixture
 
 GitHub Actions includes:
 
-- `.github/workflows/ci.yml`: install, check, unit tests, coverage, Playwright browser sync tests, Android debug/release validation, connected Android tests, build.
-- `.github/workflows/docker.yml`: build and publish a GHCR image on pushes to `main`, attach SBOM/provenance, run Trivy scanning, and keylessly sign pushed images. Pull requests build and scan without publishing.
+- `.github/workflows/ci.yml`: Actionlint and Zizmor workflow audits, install/check, unit tests, coverage, Playwright browser sync tests, Android debug/release validation, connected Android tests, and builds.
+- `.github/workflows/docker.yml`: scan pull-request images without publishing; after successful `main` CI, a manual `main` dispatch builds one image archive, scans and publishes that exact archive, attaches/attests SBOM and provenance, and keylessly signs the digest.
+- `.github/workflows/remote-staging.yml`: deploy and smoke-test the isolated staging Worker/Turso pair manually and weekly.
+- `.github/workflows/cloudflare.yml`: manually deploy the current `main` commit to production only after exact-commit CI, Docker, Security, and staging-smoke gates.
+- `.github/workflows/android-release.yml`: create a private, production-signed test APK against staging after exact-commit CI, Docker, Security, and staging gates; production mode additionally requires the production Cloudflare deployment and a matching version tag.
 - `.github/workflows/security.yml`: run OpenSSF Scorecard and CodeQL on pushes, pull requests, weekly schedule, and manual dispatch. The workflow uploads SARIF artifacts for private-repo review even when GitHub code scanning is not enabled.

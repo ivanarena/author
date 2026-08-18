@@ -71,8 +71,11 @@ function requireNonPlaceholderProductionSecret(
   value: string | null | undefined
 ): void {
   if (!isProductionEnv() || !value) return;
-  if (isPlaceholderSecret(value)) {
-    throw new Error(`${name} must be changed before production use`);
+  const minimumLength = name === 'NOTES_SERVER_SECRET' ? 32 : 15;
+  if (isPlaceholderSecret(value) || value.length < minimumLength) {
+    throw new Error(
+      `${name} must be changed before production use and contain at least ${minimumLength} characters`
+    );
   }
 }
 

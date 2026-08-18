@@ -5,7 +5,8 @@ import {
   type RecordLimitConfig,
   type RuntimeEnv
 } from './config';
-import { get, type NotesDb, type SqlArgs } from './db';
+import { SYNC_LIMITS } from '@author/api-types';
+import { get, type NotesExecutor, type SqlArgs } from './db';
 
 const NOTE_BUDGET_SHARE = 0.9;
 const NOTEBOOK_BUDGET_SHARE = 1 - NOTE_BUDGET_SHARE;
@@ -24,6 +25,10 @@ export interface RecordLimitCheckResult {
     estimatedNotebooks: number;
     projectedNoteBytes: number;
     projectedNotebookBytes: number;
+    maxDevices: number;
+    projectedDevices: number;
+    maxTotalBytes: number;
+    projectedTotalBytes: number;
   };
 }
 
@@ -90,7 +95,7 @@ function recordBytesSql(table: 'notes' | 'notebooks'): string {
 }
 
 async function countRows(
-  db: NotesDb,
+  db: NotesExecutor,
   sql: string,
   args: SqlArgs = []
 ): Promise<number> {
@@ -100,7 +105,7 @@ async function countRows(
 }
 
 async function readNonNegativeNumber(
-  db: NotesDb,
+  db: NotesExecutor,
   sql: string,
   key: string,
   args: SqlArgs = []
@@ -111,7 +116,7 @@ async function readNonNegativeNumber(
 }
 
 async function countActiveRecords(
-  db: NotesDb,
+  db: NotesExecutor,
   table: 'notes' | 'notebooks',
   ownerUsername: string
 ): Promise<number> {
@@ -125,7 +130,7 @@ async function countActiveRecords(
 }
 
 async function sumActiveRecordBytes(
-  db: NotesDb,
+  db: NotesExecutor,
   table: 'notes' | 'notebooks',
   ownerUsername: string
 ): Promise<number> {
@@ -140,7 +145,7 @@ async function sumActiveRecordBytes(
 }
 
 async function countActiveRecordIds(
-  db: NotesDb,
+  db: NotesExecutor,
   table: 'notes' | 'notebooks',
   ownerUsername: string,
   ids: string[]
@@ -159,7 +164,7 @@ async function countActiveRecordIds(
 }
 
 async function sumActiveRecordIdsBytes(
-  db: NotesDb,
+  db: NotesExecutor,
   table: 'notes' | 'notebooks',
   ownerUsername: string,
   ids: string[]
@@ -178,7 +183,7 @@ async function sumActiveRecordIdsBytes(
   );
 }
 
-async function activeUserCount(db: NotesDb): Promise<number> {
+async function activeUserCount(db: NotesExecutor): Promise<number> {
   return Math.max(
     1,
     await countRows(db, 'SELECT count(*) AS count FROM users')
@@ -193,6 +198,7 @@ function perUserLimits(
   maxNotebooks: number;
   maxNoteBytes: number;
   maxNotebookBytes: number;
+  maxTotalBytes: number;
 } {
   const usableBytes = config.storageBudgetBytes * config.safetyRatio;
   const perUserBytes = usableBytes / Math.max(1, users);
@@ -211,12 +217,13 @@ function perUserLimits(
       Math.floor(maxNotebookBytes / config.estimatedNotebookBytes)
     ),
     maxNoteBytes,
-    maxNotebookBytes
+    maxNotebookBytes,
+    maxTotalBytes: Math.max(1, Math.floor(perUserBytes))
   };
 }
 
 async function activeCountProjection(
-  db: NotesDb,
+  db: NotesExecutor,
   table: 'notes' | 'notebooks',
   ownerUsername: string,
   changes: Array<{ record: { id: string; deletedAt: string | null } }>
@@ -298,7 +305,7 @@ function notebookStorageBytes(
 async function projectedActiveBytes<
   T extends { id: string; deletedAt: string | null }
 >(
-  db: NotesDb,
+  db: NotesExecutor,
   table: 'notes' | 'notebooks',
   ownerUsername: string,
   changes: Array<{ record: T }>,
@@ -321,6 +328,88 @@ async function projectedActiveBytes<
   };
 }
 
+async function auxiliaryStorageBytes(
+  db: NotesExecutor,
+  ownerUsername: string
+): Promise<number> {
+  return await readNonNegativeNumber(
+    db,
+    `SELECT
+       (SELECT COALESCE(SUM(
+          512 + length(CAST(COALESCE(title, '') AS BLOB)) +
+          length(CAST(COALESCE(body, '') AS BLOB)) +
+          length(CAST(COALESCE(notebook_ids, '') AS BLOB)) +
+          length(CAST(COALESCE(device_id, '') AS BLOB))
+        ), 0) FROM note_versions WHERE owner_username = ?) +
+       (SELECT COALESCE(SUM(
+          512 + length(CAST(COALESCE(name, '') AS BLOB)) +
+          length(CAST(COALESCE(device_id, '') AS BLOB))
+        ), 0) FROM notebook_versions WHERE owner_username = ?) +
+       (SELECT COALESCE(SUM(
+          256 + length(CAST(COALESCE(id, '') AS BLOB)) +
+          length(CAST(COALESCE(name, '') AS BLOB))
+        ), 0) FROM devices WHERE owner_username = ?) +
+       (SELECT COALESCE(SUM(
+          128 + length(CAST(COALESCE(entity_id, '') AS BLOB))
+        ), 0) FROM entity_changes WHERE owner_username = ?) +
+       (SELECT COALESCE(SUM(
+          256 + length(CAST(COALESCE(entity_id, '') AS BLOB)) +
+          length(CAST(COALESCE(device_id, '') AS BLOB))
+        ), 0) FROM entity_tombstones WHERE owner_username = ?) +
+       (SELECT COALESCE(SUM(${recordBytesSql('notes')}), 0)
+        FROM notes WHERE owner_username = ? AND deleted_at IS NOT NULL) +
+       (SELECT COALESCE(SUM(${recordBytesSql('notebooks')}), 0)
+        FROM notebooks WHERE owner_username = ? AND deleted_at IS NOT NULL)
+       AS bytes`,
+    'bytes',
+    Array.from({ length: 7 }, () => ownerUsername)
+  );
+}
+
+async function projectedDeviceCount(
+  db: NotesExecutor,
+  ownerUsername: string,
+  deviceId: string
+): Promise<UsageProjection> {
+  const [current, existing] = await Promise.all([
+    countRows(
+      db,
+      'SELECT count(*) AS count FROM devices WHERE owner_username = ?',
+      [ownerUsername]
+    ),
+    countRows(
+      db,
+      'SELECT count(*) AS count FROM devices WHERE owner_username = ? AND id = ?',
+      [ownerUsername, deviceId]
+    )
+  ]);
+  return { current, projected: current + (existing ? 0 : 1) };
+}
+
+function incomingAuxiliaryBytes(
+  request: PushRequest,
+  ownerUsername: string
+): number {
+  const noteBytes = request.notes.reduce(
+    (total, change) => total + noteStorageBytes(change.record, ownerUsername),
+    0
+  );
+  const notebookBytes = request.notebooks.reduce(
+    (total, change) =>
+      total + notebookStorageBytes(change.record, ownerUsername),
+    0
+  );
+  const deviceBytes =
+    256 + textBytes(request.device.id) + textBytes(request.device.name);
+  // A stale push may save both incoming and remote snapshots. Include two full
+  // snapshots plus an entity-change allowance for every incoming record.
+  return (
+    deviceBytes +
+    2 * (noteBytes + notebookBytes) +
+    128 * (request.notes.length + request.notebooks.length)
+  );
+}
+
 function usageAllowed(
   usages: Array<UsageProjection & { limit: number }>
 ): boolean {
@@ -332,48 +421,89 @@ function usageAllowed(
 }
 
 export async function checkRecordLimits(
-  db: NotesDb,
+  db: NotesExecutor,
   ownerUsername: string,
   request: PushRequest,
   env?: RuntimeEnv | null
 ): Promise<RecordLimitCheckResult | null> {
   const config = getRecordLimitConfig(env);
-  if (!config.enabled) return null;
+  const deviceCount = await projectedDeviceCount(
+    db,
+    ownerUsername,
+    request.device.id
+  );
+  if (
+    !config.enabled &&
+    deviceCount.projected <= SYNC_LIMITS.devicesPerAccount
+  ) {
+    return null;
+  }
 
-  const [users, noteCount, notebookCount, noteBytes, notebookBytes] =
-    await Promise.all([
-      activeUserCount(db),
-      activeCountProjection(db, 'notes', ownerUsername, request.notes),
-      activeCountProjection(db, 'notebooks', ownerUsername, request.notebooks),
-      projectedActiveBytes(
-        db,
-        'notes',
-        ownerUsername,
-        request.notes,
-        noteStorageBytes
-      ),
-      projectedActiveBytes(
-        db,
-        'notebooks',
-        ownerUsername,
-        request.notebooks,
-        notebookStorageBytes
-      )
-    ]);
+  const [
+    users,
+    noteCount,
+    notebookCount,
+    noteBytes,
+    notebookBytes,
+    auxiliaryBytes
+  ] = await Promise.all([
+    activeUserCount(db),
+    activeCountProjection(db, 'notes', ownerUsername, request.notes),
+    activeCountProjection(db, 'notebooks', ownerUsername, request.notebooks),
+    projectedActiveBytes(
+      db,
+      'notes',
+      ownerUsername,
+      request.notes,
+      noteStorageBytes
+    ),
+    projectedActiveBytes(
+      db,
+      'notebooks',
+      ownerUsername,
+      request.notebooks,
+      notebookStorageBytes
+    ),
+    auxiliaryStorageBytes(db, ownerUsername)
+  ]);
   const limits = perUserLimits(config, users);
-  const usages = [
+  const totalBytes = {
+    current: noteBytes.current + notebookBytes.current + auxiliaryBytes,
+    projected:
+      noteBytes.projected +
+      notebookBytes.projected +
+      auxiliaryBytes +
+      incomingAuxiliaryBytes(request, ownerUsername)
+  };
+  const activeUsages = [
     { ...noteCount, limit: limits.maxNotes },
     { ...notebookCount, limit: limits.maxNotebooks },
     { ...noteBytes, limit: limits.maxNoteBytes },
     { ...notebookBytes, limit: limits.maxNotebookBytes }
   ];
+  const usages = [
+    ...activeUsages,
+    { ...deviceCount, limit: SYNC_LIMITS.devicesPerAccount },
+    { ...totalBytes, limit: limits.maxTotalBytes }
+  ];
+  const reducesActiveStorage =
+    activeUsages.every((usage) => usage.projected <= usage.current) &&
+    activeUsages.some((usage) => usage.projected < usage.current);
 
-  if (usageAllowed(usages)) {
+  if (
+    usageAllowed(usages) ||
+    (reducesActiveStorage &&
+      deviceCount.projected <= SYNC_LIMITS.devicesPerAccount)
+  ) {
     return null;
   }
 
+  const deviceLimitReached =
+    deviceCount.projected > SYNC_LIMITS.devicesPerAccount;
   return {
-    error: `Server storage limit estimate reached for this account. The current shared Turso budget allows about ${limits.maxNotes} active ${plural(limits.maxNotes, 'note')} and ${limits.maxNotebooks} active ${plural(limits.maxNotebooks, 'notebook')} per user with ${users} active ${plural(users, 'user')}.`,
+    error: deviceLimitReached
+      ? `This account is limited to ${SYNC_LIMITS.devicesPerAccount} registered devices.`
+      : `Server storage limit estimate reached for this account. The current shared Turso budget allows about ${limits.maxNotes} active ${plural(limits.maxNotes, 'note')} and ${limits.maxNotebooks} active ${plural(limits.maxNotebooks, 'notebook')} per user with ${users} active ${plural(users, 'user')}.`,
     limits: {
       activeUsers: users,
       maxNotes: limits.maxNotes,
@@ -383,7 +513,11 @@ export async function checkRecordLimits(
       estimatedNotes: noteCount.projected,
       estimatedNotebooks: notebookCount.projected,
       projectedNoteBytes: noteBytes.projected,
-      projectedNotebookBytes: notebookBytes.projected
+      projectedNotebookBytes: notebookBytes.projected,
+      maxDevices: SYNC_LIMITS.devicesPerAccount,
+      projectedDevices: deviceCount.projected,
+      maxTotalBytes: limits.maxTotalBytes,
+      projectedTotalBytes: totalBytes.projected
     }
   };
 }

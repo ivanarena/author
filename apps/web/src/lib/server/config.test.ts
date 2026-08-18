@@ -62,15 +62,15 @@ describe('server config', () => {
   it('uses the configured server secret in production', () => {
     setEnv('NODE_ENV', 'production');
     setEnv('NOTES_LOGIN_PASSWORD', 'test-password-2026');
-    setEnv('NOTES_SERVER_SECRET', 'server-secret');
+    setEnv('NOTES_SERVER_SECRET', 'server-secret-with-at-least-32-chars');
 
-    expect(getServerSecret()).toBe('server-secret');
+    expect(getServerSecret()).toBe('server-secret-with-at-least-32-chars');
   });
 
   it('rejects a production server secret that matches the login password', () => {
     setEnv('NODE_ENV', 'production');
-    setEnv('NOTES_LOGIN_PASSWORD', 'test-password-2026');
-    setEnv('NOTES_SERVER_SECRET', 'test-password-2026');
+    setEnv('NOTES_LOGIN_PASSWORD', 'same-password-and-secret-value-2026');
+    setEnv('NOTES_SERVER_SECRET', 'same-password-and-secret-value-2026');
 
     expect(() => getServerSecret()).toThrow(
       'NOTES_SERVER_SECRET must not match NOTES_LOGIN_PASSWORD in production'

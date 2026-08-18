@@ -7,6 +7,7 @@ RUN aube config set enableGlobalVirtualStore false --location project
 
 COPY package.json aube-workspace.yaml aube-lock.yaml ./
 COPY apps/web ./apps/web
+COPY apps/runtime ./apps/runtime
 COPY packages ./packages
 
 RUN install_succeeded=0; \
@@ -24,21 +25,26 @@ RUN install_succeeded=0; \
     fi \
     && aube -F @author/web run build
 
-FROM node:24-alpine@sha256:2bdb65ed1dab192432bc31c95f94155ca5ad7fc1392fb7eb7526ab682fa5bf14
+FROM node:24-alpine@sha256:2bdb65ed1dab192432bc31c95f94155ca5ad7fc1392fb7eb7526ab682fa5bf14 AS runtime-deps
 
 WORKDIR /app
 
-RUN apk upgrade --no-cache libcrypto3 libssl3
 RUN npm install -g @endevco/aube@1.16.0
 RUN aube config set enableGlobalVirtualStore false --location project
 
 COPY package.json aube-workspace.yaml aube-lock.yaml ./
+COPY apps/runtime/package.json ./apps/runtime/package.json
 COPY apps/web/package.json ./apps/web/package.json
 COPY packages ./packages
+COPY scripts/prune-aube-runtime.mjs ./scripts/prune-aube-runtime.mjs
 
 # Adapter-node keeps a small set of runtime imports external; install them from
 # the checked-in Aube lockfile instead of resolving ad hoc npm versions here.
-RUN aube --filter-prod @author/web... install --prod --frozen-lockfile \
+RUN aube --filter-prod @author/runtime install --prod --frozen-lockfile \
+    && mkdir -p /app/apps/web \
+    && ln -s ../runtime/node_modules /app/apps/web/node_modules \
+    && node /app/scripts/prune-aube-runtime.mjs /app \
+    && rm -rf /app/scripts \
     && rm -rf \
       /root/.cache/aube \
       /root/.npm \
@@ -51,6 +57,22 @@ RUN aube --filter-prod @author/web... install --prod --frozen-lockfile \
       /usr/local/lib/node_modules/npm \
       /opt/yarn*
 
+FROM node:24-alpine@sha256:2bdb65ed1dab192432bc31c95f94155ca5ad7fc1392fb7eb7526ab682fa5bf14 AS runtime
+
+WORKDIR /app
+
+RUN apk upgrade --no-cache libcrypto3 libssl3 \
+    && rm -rf \
+      /usr/local/bin/corepack \
+      /usr/local/bin/npm \
+      /usr/local/bin/npx \
+      /usr/local/lib/node_modules/corepack \
+      /usr/local/lib/node_modules/npm \
+      /usr/local/bin/yarn \
+      /usr/local/bin/yarnpkg \
+      /opt/yarn*
+
+COPY --from=runtime-deps /app /app
 COPY --from=builder /app/apps/web/build ./apps/web/build
 
 ENV NODE_ENV=production

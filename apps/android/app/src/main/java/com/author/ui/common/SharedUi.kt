@@ -549,8 +549,8 @@ internal fun appCheckboxColors() =
 @Composable
 internal fun SmallTextButton(
   label: String,
-  active: Boolean = false,
   modifier: Modifier = Modifier,
+  active: Boolean = false,
   onClick: () -> Unit,
 ) {
   TextButton(onClick = onClick, modifier = modifier.clip(AppShape.NavRow)) {

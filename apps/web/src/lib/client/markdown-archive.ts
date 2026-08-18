@@ -73,8 +73,9 @@ export async function parseNotesMarkdownImportFiles(
     notes.push({
       ...parsed,
       sourceNotebookIds: [],
-      sourceNotebookNames: parentSegments(path),
-      trashedAt: null
+      sourceNotebookNames: [
+        ...new Set([...parsed.sourceNotebookNames, ...parentSegments(path)])
+      ]
     });
   }
 
@@ -113,13 +114,18 @@ export function parseMarkdownNote(
     titleFromFileName(fallbackFileName);
 
   return {
+    sourceId: frontmatterString(frontmatter, 'author_id'),
     title,
     body: stripGeneratedHeading(body, title),
     sourceNotebookIds: [],
-    sourceNotebookNames: [],
+    sourceNotebookNames: parseNotebookNames(
+      frontmatterString(frontmatter, 'author_notebooks')
+    ),
     createdAt: parseMarkdownDate(frontmatterString(frontmatter, 'created_at')),
     updatedAt: parseMarkdownDate(frontmatterString(frontmatter, 'updated_at')),
-    trashedAt: null
+    trashedAt: parseMarkdownDate(frontmatterString(frontmatter, 'trashed_at')),
+    isFavorite:
+      frontmatterString(frontmatter, 'favorite')?.toLowerCase() === 'true'
   };
 }
 
@@ -138,9 +144,10 @@ export function buildNotesMarkdownArchive(
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .map((note) => {
       const title = noteDisplayTitle(note);
-      const notebookName = noteNotebookIds(note)
+      const notebookNames = noteNotebookIds(note)
         .map((id) => notebookNameById.get(id))
-        .find((name): name is string => Boolean(name));
+        .filter((name): name is string => Boolean(name));
+      const notebookName = notebookNames[0];
       const path = uniquePath(
         [
           ...(notebookName ? [safePathSegment(notebookName)] : []),
@@ -151,7 +158,7 @@ export function buildNotesMarkdownArchive(
 
       return {
         path,
-        content: markdownNoteContent(note, title)
+        content: markdownNoteContent(note, title, notebookNames)
       };
     });
 
@@ -161,14 +168,22 @@ export function buildNotesMarkdownArchive(
   };
 }
 
-export function markdownNoteContent(note: Note, title: string): string {
+export function markdownNoteContent(
+  note: Note,
+  title: string,
+  notebookNames: string[] = []
+): string {
   const body = bodyWithHeading(note.body, title);
 
   return [
     FRONTMATTER_DELIMITER,
     `title: "${escapeYamlString(title)}"`,
-    `created_at: ${formatMarkdownDate(note.createdAt)}`,
-    `updated_at: ${formatMarkdownDate(note.updatedAt)}`,
+    `author_id: "${escapeYamlString(note.id)}"`,
+    `author_notebooks: "${escapeYamlString(JSON.stringify(notebookNames))}"`,
+    `created_at: ${formatPortableDate(note.createdAt)}`,
+    `updated_at: ${formatPortableDate(note.updatedAt)}`,
+    `trashed_at: ${note.trashedAt ?? ''}`,
+    `favorite: ${note.isFavorite ? 'true' : 'false'}`,
     'tags: ',
     FRONTMATTER_DELIMITER,
     '',
@@ -181,12 +196,57 @@ export function createZipBlob(
   archive: MarkdownExportArchive,
   exportedAt: string
 ): Blob {
-  const bytes = createZipBytes(archive, exportedAt);
-  const buffer = new ArrayBuffer(bytes.byteLength);
-  new Uint8Array(buffer).set(bytes);
-  return new Blob([buffer], {
-    type: 'application/zip'
-  });
+  const fileDate = new Date(exportedAt);
+  const parts: BlobPart[] = [];
+  const centralDirectory: Uint8Array[] = [];
+  let offset = 0;
+
+  for (const file of archive.files) {
+    const path = `${archive.rootName}/${file.path}`;
+    const nameBytes = encoder.encode(path);
+    const contentBytes = encoder.encode(file.content);
+    const checksum = crc32(contentBytes);
+    const localHeader = zipLocalFileHeader(
+      nameBytes,
+      contentBytes.length,
+      checksum,
+      fileDate
+    );
+    parts.push(
+      localHeader as BlobPart,
+      nameBytes as BlobPart,
+      contentBytes as BlobPart
+    );
+    centralDirectory.push(
+      zipCentralDirectoryHeader(
+        nameBytes,
+        contentBytes.length,
+        checksum,
+        fileDate,
+        offset
+      ),
+      nameBytes
+    );
+    offset += localHeader.length + nameBytes.length + contentBytes.length;
+    if (offset > 0xffffffff) {
+      throw new Error('Markdown export exceeds the ZIP32 size limit');
+    }
+  }
+
+  const centralDirectoryOffset = offset;
+  const centralDirectorySize = centralDirectory.reduce(
+    (size, chunk) => size + chunk.length,
+    0
+  );
+  parts.push(...(centralDirectory as BlobPart[]));
+  parts.push(
+    zipEndOfCentralDirectory(
+      archive.files.length,
+      centralDirectorySize,
+      centralDirectoryOffset
+    ) as BlobPart
+  );
+  return new Blob(parts, { type: 'application/zip' });
 }
 
 export function createZipBytes(
@@ -247,6 +307,12 @@ export function createZipBytes(
   return output;
 }
 
+function formatPortableDate(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+}
+
+/** @deprecated Retained for importing older Author archives. */
 export function formatMarkdownDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
@@ -284,6 +350,25 @@ function splitFrontmatter(content: string): {
   );
 
   return { frontmatter: parseSimpleYaml(rawFrontmatter), body };
+}
+
+function parseNotebookNames(value: string | null): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed)
+      ? [
+          ...new Set(
+            parsed.filter(
+              (name): name is string =>
+                typeof name === 'string' && Boolean(name.trim())
+            )
+          )
+        ]
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 function parseSimpleYaml(source: string): Map<string, string> {

@@ -40,6 +40,16 @@ export interface LocalSecret {
   value: string;
 }
 
+export interface LocalEditorRecovery {
+  key: string;
+  version: 2;
+  noteId: string | null;
+  notebookId: string | null;
+  title: string;
+  body: string;
+  savedAt: string;
+}
+
 export class NotesLocalDatabase extends Dexie {
   notes!: Table<LocalNote, string>;
   notebooks!: Table<LocalNotebook, string>;
@@ -48,6 +58,7 @@ export class NotesLocalDatabase extends Dexie {
   secrets!: Table<LocalSecret, string>;
   syncMeta!: Table<SyncMeta, string>;
   conflicts!: Table<LocalConflict, string>;
+  editorRecovery!: Table<LocalEditorRecovery, string>;
 
   constructor() {
     super('author');
@@ -151,6 +162,18 @@ export class NotesLocalDatabase extends Dexie {
             snapshot.isFavorite = Boolean(snapshot.isFavorite);
           });
       });
+    this.version(7).stores({
+      notes:
+        'id, notebookId, *notebookIds, isFavorite, createdAt, updatedAt, deletedAt, trashedAt, deviceId, version, syncStatus, lastSyncedVersion',
+      notebooks:
+        'id, name, createdAt, updatedAt, deletedAt, deviceId, version, syncStatus, lastSyncedVersion',
+      noteSnapshots: 'snapshotId, id, savedAt, reason',
+      devices: 'id, name',
+      secrets: 'key',
+      syncMeta: 'key',
+      conflicts: 'id, entityType, entityId, status, createdAt',
+      editorRecovery: 'key, savedAt'
+    });
   }
 }
 
@@ -183,7 +206,8 @@ export async function clearLocalWorkspace(): Promise<void> {
       localDb.devices,
       localDb.secrets,
       localDb.syncMeta,
-      localDb.conflicts
+      localDb.conflicts,
+      localDb.editorRecovery
     ],
     async () => {
       await Promise.all([
@@ -193,7 +217,8 @@ export async function clearLocalWorkspace(): Promise<void> {
         localDb.devices.clear(),
         localDb.secrets.clear(),
         localDb.syncMeta.clear(),
-        localDb.conflicts.clear()
+        localDb.conflicts.clear(),
+        localDb.editorRecovery.clear()
       ]);
     }
   );

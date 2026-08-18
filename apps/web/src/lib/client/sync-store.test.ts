@@ -7,7 +7,8 @@ import {
   markAcceptedChanges,
   mergeRemoteChanges,
   removeDeletedNotebookReferences,
-  resolveConflict
+  resolveConflict,
+  saveConflict
 } from './sync-store';
 import { localDb, type LocalConflict } from './db';
 import {
@@ -150,6 +151,64 @@ beforeEach(() => {
 });
 
 describe('client sync store', () => {
+  it('stores the newest local edit when an older push returns a conflict', async () => {
+    const editedDuringPush = {
+      ...baseNote,
+      body: 'Typed while push was in flight',
+      updatedAt: '2026-05-01T10:04:00.000Z',
+      version: 3
+    };
+    vi.mocked(localDb.notes.get).mockResolvedValue(editedDuringPush);
+    const conflict = {
+      id: 'conflict-in-flight',
+      entityType: 'note' as const,
+      entityId: baseNote.id,
+      reason: 'remote_changed' as const,
+      local: {
+        source: 'local' as const,
+        deviceId: baseNote.deviceId,
+        deviceName: 'Browser',
+        updatedAt: baseNote.updatedAt,
+        version: baseNote.version,
+        previewText: baseNote.body,
+        record: baseNote
+      },
+      remote: {
+        source: 'remote' as const,
+        deviceId: 'phone-device',
+        deviceName: 'Phone',
+        updatedAt: '2026-05-01T10:05:00.000Z',
+        version: 4,
+        previewText: 'Remote body',
+        record: remoteNote({ version: 4 })
+      }
+    };
+
+    await saveConflict(conflict, {
+      version: baseNote.version,
+      updatedAt: baseNote.updatedAt
+    });
+
+    expect(localDb.conflicts.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conflict: expect.objectContaining({
+          local: expect.objectContaining({
+            version: 3,
+            record: expect.objectContaining({
+              body: 'Typed while push was in flight'
+            })
+          })
+        })
+      })
+    );
+    expect(localDb.notes.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: 'Typed while push was in flight',
+        syncStatus: 'conflict'
+      })
+    );
+  });
+
   it('leaves a note pending when it changed again after the pushed snapshot', async () => {
     const editedAgain = {
       ...baseNote,

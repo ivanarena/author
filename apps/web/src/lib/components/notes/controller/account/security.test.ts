@@ -111,6 +111,7 @@ function controller(
     signupConfirmPasswordValue: '',
     signupEmailRequired: false,
     signupEmailValue: '',
+    signupInvitationValue: '',
     signupEnabled: false,
     syncActivityDetail: '',
     syncActivityLabel: '',

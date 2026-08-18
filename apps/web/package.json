@@ -23,6 +23,7 @@
     "remote:test:seed": "tsx scripts/seed-remote-test-account.ts",
     "remote:test": "tsx scripts/smoke-remote-test-db.ts",
     "user:create": "tsx scripts/create-user.ts",
+    "signup:invite": "tsx scripts/create-signup-invitation.ts",
     "db:check": "tsx scripts/check-db-integration.ts",
     "sync:bench": "tsx scripts/benchmark-sync.ts",
     "mock:browser": "tsx scripts/prefill-browser.ts",

@@ -1,5 +1,9 @@
 import { randomBytes } from 'node:crypto';
-import { openDatabase } from '../src/lib/server/db';
+import {
+  getRemoteDatabaseConfig,
+  shouldSyncRemoteDatabase
+} from '../src/lib/server/config';
+import { openConfiguredDatabase, openDatabase } from '../src/lib/server/db';
 import {
   authenticateUser,
   setUserPassword,
@@ -24,7 +28,11 @@ if (!username) usage();
 
 const password =
   passwordArg === '--random' || !passwordArg ? randomPassword() : passwordArg;
-const db = await openDatabase();
+const remoteConfig = getRemoteDatabaseConfig();
+const usesRemoteAuthority = Boolean(remoteConfig && shouldSyncRemoteDatabase());
+const db = usesRemoteAuthority
+  ? await openConfiguredDatabase(remoteConfig!)
+  : await openDatabase();
 
 try {
   const user = await setUserPassword(db, username, password);
@@ -35,6 +43,7 @@ try {
   if (!verified)
     throw new Error(`Created user ${user.username} could not authenticate`);
 
+  console.log(`Authority: ${usesRemoteAuthority ? 'remote' : 'local'}`);
   console.log(`User: ${user.username}`);
   if (email) console.log(`Email: ${email}`);
   console.log(`Password: ${password}`);

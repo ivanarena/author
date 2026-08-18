@@ -179,14 +179,10 @@ describe('client note encryption', () => {
     ).rejects.toThrow(ENCRYPTION_DECRYPT_FAILED_MESSAGE);
   });
 
-  it('encrypts literal text that only imitates an encryption prefix', async () => {
+  it('fails closed for text that imitates an encrypted namespace', async () => {
     const prefixedPlaintext = 'enc:v3:ZmFrZS1pdg:bm90LWFlcy1nY20';
-    const encrypted = await encryptText(prefixedPlaintext, 'test-key');
-
-    expect(encrypted).not.toBe(prefixedPlaintext);
-    expect(isEncryptedText(encrypted)).toBe(true);
-    await expect(decryptText(encrypted, 'test-key')).resolves.toBe(
-      prefixedPlaintext
+    await expect(encryptText(prefixedPlaintext, 'test-key')).rejects.toThrow(
+      'Unsupported or malformed encrypted field version'
     );
     await expect(
       canDecryptEncryptedText(prefixedPlaintext, 'test-key')
@@ -211,7 +207,7 @@ describe('client note encryption', () => {
     });
   });
 
-  it('encrypts prefixed note fields instead of preserving spoofed envelopes', async () => {
+  it('rejects prefixed note fields with malformed envelopes', async () => {
     const prefixedNote = {
       ...note,
       title: 'enc:v3:dGl0bGU:ZmFrZQ',
@@ -220,18 +216,9 @@ describe('client note encryption', () => {
       bodyHash: 'hash:v2:stale-body'
     };
 
-    const encrypted = await encryptNoteFields(prefixedNote, 'sync-key');
-
-    expect(encrypted.title).not.toBe(prefixedNote.title);
-    expect(encrypted.body).not.toBe(prefixedNote.body);
-    expect(encrypted.titleHash).not.toBe(prefixedNote.titleHash);
-    expect(encrypted.bodyHash).not.toBe(prefixedNote.bodyHash);
-    await expect(
-      decryptNoteFields(encrypted, 'sync-key')
-    ).resolves.toMatchObject({
-      title: prefixedNote.title,
-      body: prefixedNote.body
-    });
+    await expect(encryptNoteFields(prefixedNote, 'sync-key')).rejects.toThrow(
+      'Unsupported or malformed encrypted field version'
+    );
   });
 
   it('refuses to republish current note ciphertext with the wrong key', async () => {
@@ -504,7 +491,8 @@ describe('client note encryption', () => {
   it('identifies old encryption formats as requiring the migration release', () => {
     expect(isUnsupportedEncryptedText('enc:v1:old')).toBe(true);
     expect(isUnsupportedEncryptedText('enc:v2:old')).toBe(true);
-    expect(isUnsupportedEncryptedText('enc:v3:spoof')).toBe(false);
+    expect(isUnsupportedEncryptedText('enc:v3:spoof')).toBe(true);
+    expect(isUnsupportedEncryptedText('enc:v5:future')).toBe(true);
 
     expect(() =>
       assertSupportedEncryptionKeyMaterial(

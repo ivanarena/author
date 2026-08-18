@@ -101,6 +101,7 @@ class NotesController(private val repository: NotesRepository, private val scope
   var loginPasswordValue by mutableStateOf("")
   var loginTotpCodeValue by mutableStateOf("")
   var signupEmailValue by mutableStateOf("")
+  var signupInvitationValue by mutableStateOf("")
   var signupConfirmPasswordValue by mutableStateOf("")
   var signupEnabled by mutableStateOf(false)
   var signupEmailRequired by mutableStateOf(true)
@@ -175,7 +176,7 @@ class NotesController(private val repository: NotesRepository, private val scope
   private var lastSnapshot = "" to ""
   private var lastUndoSnapshotAt = 0L
   private var lastUndoSnapshotField = ""
-  private var preparedExport: ByteArray? = null
+  private var markdownExportPrepared = false
   private var preparedSignupRecoveryKit: ByteArray? = null
   private var notificationActions = emptyMap<String, () -> Unit>()
   private var closed = false
@@ -314,6 +315,7 @@ class NotesController(private val repository: NotesRepository, private val scope
     loginPasswordValue = ""
     loginTotpCodeValue = ""
     signupEmailValue = ""
+    signupInvitationValue = ""
     signupConfirmPasswordValue = ""
     loginError = ""
     loginOpen = true
@@ -412,6 +414,7 @@ class NotesController(private val repository: NotesRepository, private val scope
     signupConfirmPasswordValue = ""
     if (mode == "signin") {
       signupEmailValue = ""
+      signupInvitationValue = ""
       loginUsernameValue = repository.getLoginHint()
     }
   }
@@ -1069,6 +1072,10 @@ class NotesController(private val repository: NotesRepository, private val scope
       showLoginError("Email required")
       return
     }
+    if (authMode == "signup" && signupInvitationValue.isBlank()) {
+      showLoginError("Invitation code required")
+      return
+    }
     scope.launch {
       isLoggingIn = true
       loginError = ""
@@ -1079,7 +1086,7 @@ class NotesController(private val repository: NotesRepository, private val scope
             ?: repository.getLoginHint().ifBlank { null }
         val response =
           if (wasSignup) {
-            repository.signup(username, signupEmailValue, password)
+            repository.signup(username, signupEmailValue, signupInvitationValue, password)
           } else {
             repository.login(username, password, loginTotpCodeValue.trim().ifBlank { null })
           }
@@ -1139,6 +1146,7 @@ class NotesController(private val repository: NotesRepository, private val scope
         loginPasswordValue = ""
         loginTotpCodeValue = ""
         signupEmailValue = ""
+        signupInvitationValue = ""
         signupConfirmPasswordValue = ""
         syncMessage = "Signed in"
         notify(
@@ -1525,9 +1533,8 @@ class NotesController(private val repository: NotesRepository, private val scope
     scope.launch {
       isArchiveBusy = true
       try {
-        val (fileName, bytes) = repository.exportMarkdownZip()
-        preparedExport = bytes
-        onReady(fileName)
+        markdownExportPrepared = true
+        onReady(repository.markdownExportFileName())
       } catch (error: Throwable) {
         notify("error", "Export failed", error.message ?: "Could not export notes")
       } finally {
@@ -1583,13 +1590,18 @@ class NotesController(private val repository: NotesRepository, private val scope
   }
 
   fun completeMarkdownExport(uri: Uri?, resolver: ContentResolver) {
-    val bytes = preparedExport ?: return
-    preparedExport = null
+    if (!markdownExportPrepared) return
+    markdownExportPrepared = false
     if (uri == null) return
     scope.launch {
-      runCatching { resolver.openOutputStream(uri)?.use { it.write(bytes) } }
+      isArchiveBusy = true
+      runCatching {
+          resolver.openOutputStream(uri)?.use { repository.exportMarkdownZipTo(it) }
+            ?: error("Could not open export destination")
+        }
         .onSuccess { notify("success", "Export complete", "Markdown ZIP saved.") }
         .onFailure { notify("error", "Export failed", it.message ?: "Could not write file") }
+      isArchiveBusy = false
     }
   }
 
@@ -1804,6 +1816,7 @@ class NotesController(private val repository: NotesRepository, private val scope
     loginPasswordValue = ""
     loginTotpCodeValue = ""
     signupEmailValue = ""
+    signupInvitationValue = ""
     signupConfirmPasswordValue = ""
     loginOpen = openLogin
     if (openLogin) refreshDeviceOtpLoginAvailability()
@@ -1861,6 +1874,7 @@ class NotesController(private val repository: NotesRepository, private val scope
     if (!signupEnabled && authMode == "signup") {
       authMode = "signin"
       signupEmailValue = ""
+      signupInvitationValue = ""
       signupConfirmPasswordValue = ""
     }
     serverConfigError = ""

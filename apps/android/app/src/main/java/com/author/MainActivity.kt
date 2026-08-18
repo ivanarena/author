@@ -7,13 +7,23 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import com.author.core.NotesRepository
 import com.author.ui.app.AuthorApp
 import com.author.ui.state.NotesController
@@ -55,10 +65,31 @@ class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     requestNotificationPermission()
+    window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
     enableEdgeToEdge()
     setContent {
       val scope = rememberCoroutineScope()
-      val notesController = remember { NotesController(NotesRepository(applicationContext), scope) }
+      val controllerResult = remember {
+        runCatching { NotesController(NotesRepository(applicationContext), scope) }
+      }
+      val notesController = controllerResult.getOrNull()
+      if (notesController == null) {
+        Column(
+          modifier = Modifier.fillMaxSize().padding(24.dp),
+          verticalArrangement = Arrangement.Center,
+          horizontalAlignment = Alignment.Start,
+        ) {
+          Text(
+            "Author could not unlock secure local storage",
+            style = MaterialTheme.typography.titleLarge,
+          )
+          Text(
+            "Your encrypted database and key records were left unchanged. Restart the device and try again; do not clear app data if you have unsynced notes.",
+            modifier = Modifier.padding(top = 12.dp),
+          )
+        }
+        return@setContent
+      }
 
       controller = notesController
       LaunchedEffect(Unit) { notesController.initialize() }

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { fixtureDevice, fixtureNote } from '@author/test-fixtures';
 import { runScheduledTrashCleanup } from './cleanup-scheduler';
-import { get, openConfiguredDatabase } from './db';
+import { get, openConfiguredDatabase, run } from './db';
 import { getNote, pushChanges } from './repository';
 import type { RuntimeEnv } from './config';
 
@@ -48,6 +48,11 @@ describe('trash cleanup scheduler', () => {
         ]
       });
       expect(await getNote(db, fixtureNote.id)).not.toBeNull();
+      await run(
+        db,
+        'UPDATE notes SET retention_started_at = ? WHERE owner_username = ? AND id = ?',
+        ['2020-01-01T00:00:00.000Z', 'legacy-token', fixtureNote.id]
+      );
     } finally {
       db.close();
     }

@@ -1,5 +1,6 @@
 import {
   API_PATHS,
+  MAX_API_RESPONSE_BYTES,
   type AccountResponse,
   type AccountUpdateRequest,
   type AuthChallengeRequest,
@@ -22,6 +23,7 @@ import {
 } from '@author/api-types';
 import {
   authProofFromPassword,
+  base64UrlEncode,
   passwordVerifierFromPassword,
   randomAuthNonce,
   verifyAuthServerProof
@@ -51,6 +53,29 @@ export class SyncHttpError extends Error {
 
 const COOKIE_SESSION_TOKEN = '__author_cookie_session__';
 
+function browserSessionResponse(
+  response: AuthLoginResponse
+): AuthLoginResponse & { token: string } {
+  return { ...response, token: response.token ?? COOKIE_SESSION_TOKEN };
+}
+
+type BrowserAccountResponse = Omit<AccountResponse, 'session'> & {
+  session?: NonNullable<AccountResponse['session']> & { token: string };
+};
+
+function browserAccountResponse(
+  response: AccountResponse
+): BrowserAccountResponse {
+  if (!response.session) return response as BrowserAccountResponse;
+  return {
+    ...response,
+    session: {
+      ...response.session,
+      token: response.session.token ?? COOKIE_SESSION_TOKEN
+    }
+  };
+}
+
 function authHeaders(token: string): HeadersInit {
   if (token === COOKIE_SESSION_TOKEN) return {};
   return {
@@ -58,18 +83,58 @@ function authHeaders(token: string): HeadersInit {
   };
 }
 
+async function keyringHash(
+  value: string | null | undefined
+): Promise<string | null> {
+  if (!value) return null;
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(value)
+  );
+  return base64UrlEncode(new Uint8Array(digest));
+}
+
 function apiUrl(path: string, baseUrl: string | undefined): string {
   if (!baseUrl) return path;
   return new URL(path, baseUrl).toString();
+}
+
+async function boundedResponseJson<T>(response: Response): Promise<T> {
+  const contentLength = Number(response.headers.get('content-length'));
+  if (
+    Number.isFinite(contentLength) &&
+    contentLength > MAX_API_RESPONSE_BYTES
+  ) {
+    throw new SyncHttpError(413, 'Server response is too large');
+  }
+  if (!response.body) return {} as T;
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const chunks: string[] = [];
+  let bytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytes += value.byteLength;
+    if (bytes > MAX_API_RESPONSE_BYTES) {
+      await reader.cancel().catch(() => undefined);
+      throw new SyncHttpError(413, 'Server response is too large');
+    }
+    chunks.push(decoder.decode(value, { stream: true }));
+  }
+  chunks.push(decoder.decode());
+  const text = chunks.join('');
+  return (text ? JSON.parse(text) : {}) as T;
 }
 
 async function responseError(
   response: Response,
   fallback: string
 ): Promise<Error> {
-  const body = (await response.json().catch(() => null)) as {
-    error?: string;
-  } | null;
+  const body = (await boundedResponseJson<{ error?: string }>(response).catch(
+    () => null
+  )) as { error?: string } | null;
   if (response.status === 401) return new AuthError(body?.error ?? undefined);
   return new SyncHttpError(response.status, body?.error ?? fallback);
 }
@@ -90,7 +155,7 @@ function createRequestHelpers(options: ApiClientOptions) {
       throw await responseError(response, `${fallback}: ${response.status}`);
     }
 
-    return (await response.json()) as TResponse;
+    return await boundedResponseJson<TResponse>(response);
   }
 
   async function authedGet<TResponse>(
@@ -213,7 +278,9 @@ export function createApiClient(options: ApiClientOptions = {}) {
       );
     },
 
-    async loginWithDevice(body: AuthLoginRequest): Promise<AuthLoginResponse> {
+    async loginWithDevice(
+      body: AuthLoginRequest
+    ): Promise<AuthLoginResponse & { token: string }> {
       let requestBody: AuthLoginRequest = body;
       let expectedServerProof: string | null = null;
       if (typeof body.password === 'string' && body.password.trim()) {
@@ -259,13 +326,13 @@ export function createApiClient(options: ApiClientOptions = {}) {
         ) {
           throw new AuthError('Login proof failed');
         }
-        return response;
+        return browserSessionResponse(response);
       });
     },
 
     async signupWithDevice(
       body: AuthSignupRequest
-    ): Promise<AuthLoginResponse> {
+    ): Promise<AuthLoginResponse & { token: string }> {
       const requestBody: AuthSignupRequest = {
         ...body,
         passwordVerifier:
@@ -285,7 +352,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
           body: JSON.stringify(requestBody)
         },
         'Signup failed'
-      );
+      ).then(browserSessionResponse);
     },
 
     async loadAccount(token: string): Promise<AccountResponse> {
@@ -316,8 +383,15 @@ export function createApiClient(options: ApiClientOptions = {}) {
 
     async updateE2eeKeyring(
       token: string,
-      e2eeKeyring: string
+      e2eeKeyring: string,
+      password: string,
+      currentE2eeKeyring: string | null
     ): Promise<AccountResponse> {
+      const challenge = await requestAuthChallenge(
+        { purpose: 'keyring_update' },
+        token
+      );
+      const material = await proofForPassword(password, challenge);
       return await requestJson<AccountResponse>(
         API_PATHS.account,
         {
@@ -326,7 +400,11 @@ export function createApiClient(options: ApiClientOptions = {}) {
             ...authHeaders(token),
             'content-type': 'application/json'
           },
-          body: JSON.stringify({ e2eeKeyring } satisfies AccountUpdateRequest)
+          body: JSON.stringify({
+            e2eeKeyring,
+            proof: material.proof,
+            expectedE2eeKeyringHash: await keyringHash(currentE2eeKeyring)
+          } satisfies AccountUpdateRequest)
         },
         'Account failed'
       );
@@ -335,7 +413,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
     async changePassword(
       token: string,
       body: PasswordChangeRequest
-    ): Promise<AccountResponse> {
+    ): Promise<BrowserAccountResponse> {
       const currentPassword = body.currentPassword;
       const newPassword = body.newPassword;
       if (
@@ -347,7 +425,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
           token,
           body,
           'Account failed'
-        );
+        ).then(browserAccountResponse);
       }
       const challenge = await requestAuthChallenge(
         { purpose: 'password_change' },
@@ -363,7 +441,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
           e2eeKeyring: body.e2eeKeyring
         },
         'Account failed'
-      );
+      ).then(browserAccountResponse);
     },
 
     async setupTotp(token: string): Promise<TotpSetupResponse> {

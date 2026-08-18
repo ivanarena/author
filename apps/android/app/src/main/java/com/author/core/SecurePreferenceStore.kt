@@ -14,6 +14,9 @@ private const val ANDROID_KEYSTORE = "AndroidKeyStore"
 private const val SECURE_PREF_ALIAS = "author_secure_preferences_v1"
 private const val SECURE_PREFIX = "secure:v1:"
 
+class SecurePreferenceUnavailableException(key: String, cause: Throwable) :
+  IllegalStateException("Secure preference $key could not be decrypted", cause)
+
 interface SecurePreferenceCodec {
   fun encrypt(value: String): String
 
@@ -30,11 +33,11 @@ class SecurePreferenceStore(
       putString(key, stored)
       return stored
     }
-    return runCatching { codec.decrypt(stored.removePrefix(SECURE_PREFIX)) }
-      .getOrElse {
-        prefs.edit { remove(key) }
-        null
-      }
+    return try {
+      codec.decrypt(stored.removePrefix(SECURE_PREFIX))
+    } catch (error: Throwable) {
+      throw SecurePreferenceUnavailableException(key, error)
+    }
   }
 
   fun putString(key: String, value: String) {

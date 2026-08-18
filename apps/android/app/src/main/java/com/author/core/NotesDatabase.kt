@@ -30,6 +30,8 @@ class NotesDatabase(
     null,
     false,
   ) {
+  private val databaseFile = context.applicationContext.getDatabasePath(DATABASE_NAME)
+
   override fun onConfigure(db: SQLiteDatabase) {
     super.onConfigure(db)
     db.rawExecSQL("PRAGMA busy_timeout = 5000")
@@ -96,6 +98,12 @@ class NotesDatabase(
     db.execSQL("CREATE INDEX notes_sync_status ON notes(sync_status)")
     db.execSQL("CREATE INDEX notebooks_sync_status ON notebooks(sync_status)")
     db.execSQL("CREATE INDEX conflicts_status ON conflicts(status)")
+  }
+
+  override fun onOpen(db: SQLiteDatabase) {
+    super.onOpen(db)
+    validateCurrentDatabaseSchema(db)
+    finalizePlaintextMigration(databaseFile)
   }
 
   override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -235,6 +243,52 @@ class NotesDatabase(
       SQLiteDatabase.CONFLICT_REPLACE,
     )
 
+  fun putConflictIfEntityUnchanged(
+    table: String,
+    entityId: String,
+    expectedVersion: Int?,
+    expectedUpdatedAt: String?,
+    conflictId: String,
+    entityType: String,
+    createdAt: String,
+    conflictJson: String,
+  ): Boolean {
+    require(table == "notes" || table == "notebooks")
+    return writableDatabase.transaction {
+      val current =
+        queryOne(table, "id = ?", arrayOf(entityId)) {
+          it.getInt("version") to it.getString("updated_at")
+        }
+      val unchanged =
+        if (expectedVersion == null || expectedUpdatedAt == null) current == null
+        else current?.first == expectedVersion && current.second == expectedUpdatedAt
+      if (!unchanged) return@transaction false
+
+      insertWithOnConflict(
+        "conflicts",
+        null,
+        ContentValues().apply {
+          put("id", conflictId)
+          put("entity_type", entityType)
+          put("entity_id", entityId)
+          put("status", "pending")
+          put("created_at", createdAt)
+          put("conflict_json", conflictJson)
+        },
+        SQLiteDatabase.CONFLICT_REPLACE,
+      )
+      if (current != null) {
+        update(
+          table,
+          ContentValues().apply { put("sync_status", "conflict") },
+          "id = ?",
+          arrayOf(entityId),
+        )
+      }
+      true
+    }
+  }
+
   fun rawConflicts(status: String? = null): List<RawConflict> =
     if (status == null) {
         readableDatabase.queryAll("conflicts") { it.toRawConflict() }
@@ -278,31 +332,126 @@ private fun databasePassword(securePrefs: SecurePreferenceStore): DatabasePasswo
 
 private fun prepareExistingDatabase(context: Context, password: DatabasePassword) {
   val dbFile = context.getDatabasePath(DATABASE_NAME)
-  if (!dbFile.exists()) {
-    deletePlaintextBackupIfPresent(dbFile)
-    return
-  }
-  if (canOpenEncryptedDatabase(dbFile, password.value)) {
-    deletePlaintextBackupIfPresent(dbFile)
-    return
-  }
+  recoverInterruptedPlaintextMigration(dbFile, password.value)
+  if (!dbFile.exists()) return
+  if (canOpenEncryptedDatabase(dbFile, password.value)) return
   if (!canOpenPlaintextDatabase(dbFile)) {
-    if (password.generated) {
-      quarantineUnreadableDatabase(dbFile)
-      return
-    }
-    throw IllegalStateException("Could not open encrypted Android database")
+    val detail =
+      if (password.generated) "the stored SQLCipher key was unavailable"
+      else "the database is neither valid SQLCipher nor plaintext"
+    throw IllegalStateException("Could not open Android database: $detail")
   }
   migratePlaintextDatabase(dbFile, password.value)
 }
 
-private fun migratePlaintextDatabase(dbFile: File, password: String) {
-  val tempFile = File(dbFile.parentFile, "${dbFile.name}.sqlcipher-migrating")
+private fun recoverInterruptedPlaintextMigration(dbFile: File, password: String) {
+  val tempFile = migrationTempFile(dbFile)
   val backupFile = plaintextBackupFile(dbFile)
-  tempFile.delete()
-  deletePlaintextBackupIfPresent(dbFile)
+  if (dbFile.exists() && canOpenEncryptedDatabase(dbFile, password)) {
+    if (tempFile.exists()) tempFile.delete()
+    deleteDatabaseSidecars(tempFile)
+    return
+  }
+
+  if (!dbFile.exists() && tempFile.exists() && canOpenEncryptedDatabase(tempFile, password)) {
+    if (!tempFile.renameTo(dbFile)) {
+      throw IllegalStateException("Could not recover encrypted Android database candidate")
+    }
+    return
+  }
+
+  if (backupFile.exists() && canOpenPlaintextDatabase(backupFile)) {
+    if (dbFile.exists()) {
+      val failedFile =
+        File(dbFile.parentFile, "${dbFile.name}.failed-${System.currentTimeMillis()}")
+      if (!dbFile.renameTo(failedFile)) {
+        throw IllegalStateException("Could not preserve failed Android database migration")
+      }
+      deleteDatabaseSidecars(dbFile)
+    }
+    if (!backupFile.renameTo(dbFile)) {
+      throw IllegalStateException("Could not restore plaintext Android database backup")
+    }
+    if (tempFile.exists()) tempFile.delete()
+    deleteDatabaseSidecars(tempFile)
+  }
+}
+
+private fun createCurrentMigrationSchema(db: SQLiteDatabase) {
+  db.execSQL(
+    """
+    CREATE TABLE notes (
+      id TEXT PRIMARY KEY NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,
+      title_hash TEXT, body_hash TEXT, notebook_ids TEXT NOT NULL, notebook_id TEXT,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT, trashed_at TEXT,
+      is_favorite INTEGER NOT NULL DEFAULT 0, device_id TEXT NOT NULL,
+      version INTEGER NOT NULL, sync_status TEXT NOT NULL,
+      last_synced_version INTEGER NOT NULL, last_synced_at TEXT
+    )
+    """
+      .trimIndent()
+  )
+  db.execSQL(
+    """
+    CREATE TABLE notebooks (
+      id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, name_hash TEXT,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT,
+      device_id TEXT NOT NULL, version INTEGER NOT NULL, sync_status TEXT NOT NULL,
+      last_synced_version INTEGER NOT NULL, last_synced_at TEXT
+    )
+    """
+      .trimIndent()
+  )
+  db.execSQL("CREATE TABLE devices (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL)")
+  db.execSQL("CREATE TABLE sync_meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
+  db.execSQL(
+    """
+    CREATE TABLE conflicts (
+      id TEXT PRIMARY KEY NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL,
+      status TEXT NOT NULL, created_at TEXT NOT NULL, conflict_json TEXT NOT NULL
+    )
+    """
+      .trimIndent()
+  )
+  db.execSQL("CREATE INDEX notes_sync_status ON notes(sync_status)")
+  db.execSQL("CREATE INDEX notebooks_sync_status ON notebooks(sync_status)")
+  db.execSQL("CREATE INDEX conflicts_status ON conflicts(status)")
+}
+
+private fun copyDatabaseTable(source: SQLiteDatabase, target: SQLiteDatabase, table: String) {
+  val targetColumns = databaseColumns(target, table)
+  source.query(table, null, null, null, null, null, null).use { cursor ->
+    while (cursor.moveToNext()) {
+      val values = ContentValues()
+      for (index in 0 until cursor.columnCount) {
+        val name = cursor.getColumnName(index)
+        if (name !in targetColumns) continue
+        when (cursor.getType(index)) {
+          Cursor.FIELD_TYPE_NULL -> values.putNull(name)
+          Cursor.FIELD_TYPE_INTEGER -> values.put(name, cursor.getLong(index))
+          Cursor.FIELD_TYPE_FLOAT -> values.put(name, cursor.getDouble(index))
+          Cursor.FIELD_TYPE_BLOB -> values.put(name, cursor.getBlob(index))
+          else -> values.put(name, cursor.getString(index))
+        }
+      }
+      check(target.insert(table, null, values) != -1L) { "Could not migrate Android table $table" }
+    }
+  }
+}
+
+private fun migratePlaintextDatabase(dbFile: File, password: String) {
+  val tempFile = migrationTempFile(dbFile)
+  val backupFile = plaintextBackupFile(dbFile)
+  if (backupFile.exists()) {
+    throw IllegalStateException("A plaintext migration backup already exists")
+  }
+  if (tempFile.exists() && !tempFile.delete()) {
+    throw IllegalStateException("Could not clear stale Android migration candidate")
+  }
+  deleteDatabaseSidecars(tempFile)
 
   var source: SQLiteDatabase? = null
+  var expectedCounts: Map<String, Long> = emptyMap()
   try {
     source =
       SQLiteDatabase.openDatabase(
@@ -312,36 +461,102 @@ private fun migratePlaintextDatabase(dbFile: File, password: String) {
         SQLiteDatabase.OPEN_READWRITE,
         null,
       )
-    source.rawQuery("PRAGMA wal_checkpoint(FULL)", emptyArray<String>()).use {}
-    source.rawExecSQL("PRAGMA user_version = $DATABASE_VERSION")
-    source.rawExecSQL(
-      "ATTACH DATABASE ${sqlString(tempFile.absolutePath)} AS encrypted KEY ${sqlString(password)}"
-    )
-    source.rawQuery("SELECT sqlcipher_export('encrypted')", emptyArray<String>()).use {}
-    source.rawExecSQL("DETACH DATABASE encrypted")
+    val sourceVersion =
+      source.rawQuery("PRAGMA user_version", emptyArray<String>()).use { cursor ->
+        if (cursor.moveToFirst()) cursor.getInt(0) else 0
+      }
+    require(sourceVersion in 1..DATABASE_VERSION) {
+      "Unsupported plaintext Android database schema version $sourceVersion"
+    }
+    expectedCounts =
+      listOf("notes", "notebooks", "devices", "sync_meta", "conflicts").associateWith {
+        databaseRowCount(source, it)
+      }
+    source.rawQuery("PRAGMA wal_checkpoint(TRUNCATE)", emptyArray<String>()).use {}
+
+    var target: SQLiteDatabase? = null
+    try {
+      target =
+        SQLiteDatabase.openDatabase(
+          tempFile.absolutePath,
+          password,
+          null,
+          SQLiteDatabase.OPEN_READWRITE or SQLiteDatabase.CREATE_IF_NECESSARY,
+          null,
+        )
+      target.beginTransaction()
+      try {
+        createCurrentMigrationSchema(target)
+        for (table in listOf("notes", "notebooks", "devices", "sync_meta", "conflicts")) {
+          copyDatabaseTable(source, target, table)
+        }
+        target.version = DATABASE_VERSION
+        target.setTransactionSuccessful()
+      } finally {
+        target.endTransaction()
+      }
+    } finally {
+      target?.close()
+    }
   } finally {
     source?.close()
   }
 
+  if (!validateMigratedDatabase(tempFile, password, expectedCounts)) {
+    throw IllegalStateException("Encrypted Android database candidate failed validation")
+  }
   if (!dbFile.renameTo(backupFile)) {
-    tempFile.delete()
-    throw IllegalStateException("Could not prepare encrypted Android database")
+    throw IllegalStateException("Could not preserve plaintext Android database")
   }
   try {
-    tempFile.copyTo(dbFile, overwrite = true)
-    if (!tempFile.delete()) {
-      throw IllegalStateException("Could not remove temporary encrypted Android database")
+    if (!tempFile.renameTo(dbFile)) {
+      throw IllegalStateException("Could not atomically install encrypted Android database")
     }
+    deleteDatabaseSidecars(dbFile)
     deleteDatabaseSidecars(tempFile)
-  } catch (error: Exception) {
-    backupFile.renameTo(dbFile)
-    tempFile.delete()
-    deleteDatabaseSidecars(tempFile)
+  } catch (error: Throwable) {
+    if (!dbFile.exists()) backupFile.renameTo(dbFile)
     throw IllegalStateException("Could not install encrypted Android database", error)
   }
-  deleteDatabaseSidecars(dbFile)
-  deletePlaintextBackupIfPresent(dbFile)
 }
+
+private fun databaseRowCount(db: SQLiteDatabase, table: String): Long =
+  db.rawQuery("SELECT count(*) FROM $table", emptyArray<String>()).use { cursor ->
+    if (cursor.moveToFirst()) cursor.getLong(0) else -1
+  }
+
+private fun validateMigratedDatabase(
+  file: File,
+  password: String,
+  expectedCounts: Map<String, Long>,
+): Boolean {
+  var db: SQLiteDatabase? = null
+  return runCatching {
+      val opened =
+        SQLiteDatabase.openDatabase(
+          file.absolutePath,
+          password,
+          null,
+          SQLiteDatabase.OPEN_READONLY,
+          null,
+        )
+      db = opened
+      expectedCounts.all { (table, expected) -> databaseRowCount(opened, table) == expected } &&
+        opened.rawQuery("PRAGMA quick_check", emptyArray<String>()).use { cursor ->
+          cursor.moveToFirst() && cursor.getString(0).equals("ok", ignoreCase = true)
+        }
+    }
+    .also { db?.close() }
+    .getOrDefault(false)
+}
+
+private fun databaseColumns(db: SQLiteDatabase, table: String): Set<String> =
+  db.rawQuery("PRAGMA table_info($table)", emptyArray<String>()).use { cursor ->
+    buildSet {
+      val nameIndex = cursor.getColumnIndexOrThrow("name")
+      while (cursor.moveToNext()) add(cursor.getString(nameIndex))
+    }
+  }
 
 private fun canOpenPlaintextDatabase(dbFile: File): Boolean {
   var db: SQLiteDatabase? = null
@@ -377,23 +592,49 @@ private fun canOpenEncryptedDatabase(dbFile: File, password: String): Boolean {
     .isSuccess
 }
 
-private fun quarantineUnreadableDatabase(dbFile: File) {
-  val quarantineFile =
-    File(dbFile.parentFile, "${dbFile.name}.unreadable-${System.currentTimeMillis()}")
-  if (!dbFile.renameTo(quarantineFile)) {
-    throw IllegalStateException("Could not move unreadable Android database aside")
-  }
-  deleteDatabaseSidecars(dbFile)
-}
+private fun migrationTempFile(dbFile: File): File =
+  File(dbFile.parentFile, "${dbFile.name}.sqlcipher-migrating")
 
 private fun plaintextBackupFile(dbFile: File): File =
   File(dbFile.parentFile, "${dbFile.name}.plaintext-backup")
 
-private fun deletePlaintextBackupIfPresent(dbFile: File) {
+private fun validateCurrentDatabaseSchema(db: SQLiteDatabase) {
+  val requiredColumns =
+    mapOf(
+      "notes" to setOf("id", "body", "notebook_ids", "is_favorite", "last_synced_version"),
+      "notebooks" to setOf("id", "name_hash", "last_synced_version"),
+      "devices" to setOf("id", "name"),
+      "sync_meta" to setOf("key", "value"),
+      "conflicts" to setOf("id", "conflict_json"),
+    )
+  for ((table, required) in requiredColumns) {
+    val actual =
+      db.rawQuery("PRAGMA table_info($table)", emptyArray<String>()).use { cursor ->
+        buildSet {
+          val nameIndex = cursor.getColumnIndexOrThrow("name")
+          while (cursor.moveToNext()) add(cursor.getString(nameIndex))
+        }
+      }
+    check(actual.containsAll(required)) { "Android database schema is incomplete for $table" }
+  }
+  val integrity =
+    db.rawQuery("PRAGMA quick_check", emptyArray<String>()).use { cursor ->
+      if (cursor.moveToFirst()) cursor.getString(0) else ""
+    }
+  check(integrity.equals("ok", ignoreCase = true)) { "Android database integrity check failed" }
+}
+
+private fun finalizePlaintextMigration(dbFile: File) {
   val backupFile = plaintextBackupFile(dbFile)
   if (backupFile.exists() && !backupFile.delete()) {
-    throw IllegalStateException("Could not delete plaintext Android database backup")
+    throw IllegalStateException("Could not remove validated plaintext Android database backup")
   }
+  deleteDatabaseSidecars(backupFile)
+  val tempFile = migrationTempFile(dbFile)
+  if (tempFile.exists() && !tempFile.delete()) {
+    throw IllegalStateException("Could not remove Android migration candidate")
+  }
+  deleteDatabaseSidecars(tempFile)
 }
 
 private fun deleteDatabaseSidecars(dbFile: File) {
@@ -401,8 +642,6 @@ private fun deleteDatabaseSidecars(dbFile: File) {
     File("${dbFile.absolutePath}$suffix").delete()
   }
 }
-
-private fun sqlString(value: String): String = "'${value.replace("'", "''")}'"
 
 data class RawConflict(
   val id: String,
@@ -540,11 +779,12 @@ private fun SQLiteDatabase.countRows(
     if (cursor.moveToFirst()) cursor.getInt(0) else 0
   }
 
-private inline fun SQLiteDatabase.transaction(block: SQLiteDatabase.() -> Unit) {
+private inline fun <T> SQLiteDatabase.transaction(block: SQLiteDatabase.() -> T): T {
   beginTransaction()
   try {
-    block()
+    val result = block()
     setTransactionSuccessful()
+    return result
   } finally {
     endTransaction()
   }

@@ -57,6 +57,7 @@ vi.mock('./store', () => ({
 
 vi.mock('./db', () => ({
   localDb: {
+    transaction: vi.fn(async (_mode, _table, operation) => operation()),
     notes: {
       where: vi.fn(),
       bulkPut: vi.fn(),
@@ -200,6 +201,54 @@ describe('client sync orchestration', () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(ensureLocalNotesEncrypted).not.toHaveBeenCalled();
+  });
+
+  it('uses an IndexedDB transaction for the fallback lease', async () => {
+    const restoreNavigator = replaceNavigator({});
+    const values = new Map<string, string>();
+    vi.mocked(localDb.syncMeta.get).mockImplementation((async (
+      key: unknown
+    ) => {
+      const value = values.get(String(key));
+      return value === undefined ? undefined : { key: String(key), value };
+    }) as never);
+    vi.mocked(localDb.syncMeta.put).mockImplementation((async (record: {
+      key: string;
+      value: string;
+    }) => {
+      values.set(record.key, record.value);
+      return record.key;
+    }) as never);
+    vi.mocked(localDb.syncMeta.delete).mockImplementation((async (
+      key: unknown
+    ) => {
+      values.delete(String(key));
+    }) as never);
+    mockFetch(
+      jsonResponse({
+        serverTime: '2026-05-01T10:10:00.000Z',
+        accepted: [],
+        conflicts: []
+      }),
+      jsonResponse({
+        notes: [],
+        notebooks: [],
+        devices: [],
+        deletedNoteIds: [],
+        deletedNotebookIds: [],
+        deletedDeviceIds: [],
+        serverTime: '2026-05-01T10:11:00.000Z',
+        serverRevision: 1
+      })
+    );
+
+    try {
+      await runSync('session-token');
+      expect(localDb.transaction).toHaveBeenCalled();
+      expect(values.has('author-sync-lock-v2')).toBe(false);
+    } finally {
+      restoreNavigator();
+    }
   });
 
   it('uses a browser-wide Web Lock when the API is available', async () => {
@@ -369,7 +418,10 @@ describe('client sync orchestration', () => {
         }
       ]
     );
-    expect(saveConflict).toHaveBeenCalledWith(conflict);
+    expect(saveConflict).toHaveBeenCalledWith(conflict, {
+      version: pendingNote.version,
+      updatedAt: pendingNote.updatedAt
+    });
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       '/api/sync/pull',

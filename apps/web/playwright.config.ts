@@ -69,6 +69,20 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] }
     },
     {
+      name: 'firefox',
+      grep: /@cross-browser/,
+      use: { ...devices['Desktop Firefox'] }
+    },
+    ...(process.env.CI
+      ? [
+          {
+            name: 'webkit',
+            grep: /@cross-browser/,
+            use: { ...devices['Desktop Safari'] }
+          }
+        ]
+      : []),
+    {
       name: 'mobile-chromium',
       grep: /@mobile/,
       use: { ...devices['Pixel 7'] }

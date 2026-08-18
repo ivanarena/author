@@ -121,7 +121,7 @@ class UpdateCheckWorker(appContext: Context, params: WorkerParameters) :
 
     val notification =
       Notification.Builder(applicationContext, UPDATE_CHANNEL_ID)
-        .setSmallIcon(R.drawable.ic_launcher)
+        .setSmallIcon(R.drawable.ic_notification)
         .setContentTitle(applicationContext.getString(R.string.update_notification_title))
         .setContentText(body)
         .setStyle(Notification.BigTextStyle().bigText(body))

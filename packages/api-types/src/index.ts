@@ -1,5 +1,22 @@
 import type { Device, Note, Notebook } from '@author/schema';
 
+export const SYNC_LIMITS = {
+  entityIdBytes: 128,
+  deviceIdBytes: 128,
+  deviceNameBytes: 256,
+  titleBytes: 512 * 1024,
+  bodyBytes: 4 * 1024 * 1024,
+  notebookNameBytes: 16 * 1024,
+  fieldHashBytes: 256,
+  timestampBytes: 64,
+  notebookAssignments: 128,
+  devicesPerAccount: 50,
+  pullResponseBytes: 6 * 1024 * 1024
+} as const;
+
+// A push conflict may contain both the incoming and current maximum-size note.
+export const MAX_API_RESPONSE_BYTES = 12 * 1024 * 1024;
+
 export const API_PATHS = {
   health: '/api/health',
   metrics: '/api/metrics',
@@ -27,6 +44,7 @@ export type ApiPath = (typeof API_PATHS)[keyof typeof API_PATHS];
 export type AuthProofPurpose =
   | 'login'
   | 'password_change'
+  | 'keyring_update'
   | 'totp'
   | 'delete_account';
 
@@ -86,6 +104,7 @@ export interface AuthLoginRequest {
 export interface AuthSignupRequest {
   username: string;
   email: string;
+  invitationCode: string;
   passwordVerifier?: PasswordVerifier | null;
   e2eeKeyring?: string | null;
   /** @deprecated Client convenience only. Runtime API requests use passwordVerifier. */
@@ -112,12 +131,14 @@ export interface TrustedAuthDevice {
 }
 
 export interface AccountSession {
-  token: string;
+  /** Present only for clients that explicitly request bearer-session mode. */
+  token?: string;
   expiresAt: string;
 }
 
 export interface AuthLoginResponse {
-  token: string;
+  /** Present only for clients that explicitly request bearer-session mode. */
+  token?: string;
   user: AuthUser;
   device: Device;
   expiresAt: string;
@@ -137,6 +158,8 @@ export interface AccountUpdateRequest {
   displayName?: string | null;
   email?: string | null;
   e2eeKeyring?: string | null;
+  proof?: AuthProof | null;
+  expectedE2eeKeyringHash?: string | null;
 }
 
 export interface PasswordChangeRequest {
@@ -198,6 +221,7 @@ export interface ConfigResponse {
     enabled: boolean;
     emailRequired: boolean;
     emailAllowListRequired: boolean;
+    invitationRequired: boolean;
   };
 }
 

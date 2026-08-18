@@ -16,6 +16,7 @@
   import SettingsLegalSection from './settings/SettingsLegalSection.svelte';
   import SettingsSyncSection from './settings/SettingsSyncSection.svelte';
   import type { SettingsModalModel } from './controller/page-controller.svelte.js';
+  import { modalFocus } from './modal-focus';
 
   let { model }: { model: SettingsModalModel } = $props();
 </script>
@@ -29,6 +30,7 @@
     aria-labelledby="settings-title"
     bind:this={model.settingsModal}
     tabindex="-1"
+    use:modalFocus
   >
     <header class="settings-header">
       <div class="settings-title">

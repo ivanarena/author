@@ -2,6 +2,7 @@
   import { LogIn, X } from '@lucide/svelte';
   import AuthForm from './AuthForm.svelte';
   import type { SettingsModalModel } from './controller/page-controller.svelte.js';
+  import { modalFocus } from './modal-focus';
 
   let { model }: { model: SettingsModalModel } = $props();
 </script>
@@ -20,6 +21,7 @@
     aria-labelledby="login-title"
     bind:this={model.loginModal}
     tabindex="-1"
+    use:modalFocus
   >
     <header class="settings-header">
       <div class="settings-title">

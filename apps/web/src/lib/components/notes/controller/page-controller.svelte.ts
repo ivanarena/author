@@ -220,6 +220,7 @@ export class NotesPageController
   loginPasswordValue = $state('');
   loginTotpCodeValue = $state('');
   signupEmailValue = $state('');
+  signupInvitationValue = $state('');
   signupConfirmPasswordValue = $state('');
   signupEnabled = $state(false);
   signupEmailRequired = $state(true);
@@ -1258,6 +1259,7 @@ export class NotesPageController
       if (!this.signupEnabled && this.authMode === 'signup') {
         this.authMode = 'signin';
         this.signupEmailValue = '';
+        this.signupInvitationValue = '';
         this.signupConfirmPasswordValue = '';
       }
     } catch (error) {
@@ -1526,6 +1528,7 @@ export class NotesPageController
     this.loginPasswordValue = '';
     this.loginTotpCodeValue = '';
     this.signupEmailValue = '';
+    this.signupInvitationValue = '';
     this.signupConfirmPasswordValue = '';
     this.loginError = '';
     this.loginOpen = openLogin;

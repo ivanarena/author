@@ -10,6 +10,8 @@ import java.security.SecureRandom
 import org.json.JSONArray
 import org.json.JSONObject
 
+private const val MAX_API_RESPONSE_BYTES = 12L * 1024 * 1024
+
 class AuthException(message: String = "Sign-in expired") : Exception(message)
 
 class SyncHttpException(val status: Int, message: String) : Exception(message)
@@ -101,6 +103,7 @@ class SyncClient(private val baseUrlProvider: () -> String) {
   fun signup(
     username: String,
     email: String,
+    invitationCode: String,
     verifier: PasswordVerifier,
     e2eeKeyring: String?,
     device: Device,
@@ -110,6 +113,7 @@ class SyncClient(private val baseUrlProvider: () -> String) {
       JSONObject()
         .put("username", username)
         .put("email", email)
+        .put("invitationCode", invitationCode)
         .put("passwordVerifier", passwordVerifierToJson(verifier))
         .putNullable("e2eeKeyring", e2eeKeyring)
         .put("device", deviceToJson(device))
@@ -176,8 +180,17 @@ class SyncClient(private val baseUrlProvider: () -> String) {
     return parseAccountResponse(requestJson("/api/account", "PATCH", token = token, body = body))
   }
 
-  fun updateE2eeKeyring(token: String, e2eeKeyring: String): AccountResponse {
-    val body = JSONObject().put("e2eeKeyring", e2eeKeyring)
+  fun updateE2eeKeyring(
+    token: String,
+    e2eeKeyring: String,
+    proof: AuthProof,
+    expectedE2eeKeyringHash: String?,
+  ): AccountResponse {
+    val body =
+      JSONObject()
+        .put("e2eeKeyring", e2eeKeyring)
+        .put("proof", authProofToJson(proof))
+        .putNullable("expectedE2eeKeyringHash", expectedE2eeKeyringHash)
     return parseAccountResponse(requestJson("/api/account", "PATCH", token = token, body = body))
   }
 
@@ -257,6 +270,7 @@ class SyncClient(private val baseUrlProvider: () -> String) {
         connectTimeout = 15_000
         readTimeout = 30_000
         setRequestProperty("accept", "application/json")
+        setRequestProperty("x-author-session-mode", "bearer")
         if (token != null) setRequestProperty("authorization", "Bearer $token")
         if (body != null) {
           doOutput = true
@@ -287,9 +301,27 @@ class SyncClient(private val baseUrlProvider: () -> String) {
   }
 
   private fun readResponse(connection: HttpURLConnection, status: Int): String {
+    val contentLength = connection.contentLengthLong
+    if (contentLength > MAX_API_RESPONSE_BYTES) {
+      throw SyncHttpException(413, "Server response is too large")
+    }
     val stream = if (status in 200..299) connection.inputStream else connection.errorStream
     if (stream == null) return ""
-    return BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { it.readText() }
+    return BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { reader ->
+      val buffer = CharArray(8192)
+      val result = StringBuilder()
+      var bytes = 0L
+      while (true) {
+        val count = reader.read(buffer)
+        if (count == -1) break
+        bytes += String(buffer, 0, count).toByteArray(Charsets.UTF_8).size
+        if (bytes > MAX_API_RESPONSE_BYTES) {
+          throw SyncHttpException(413, "Server response is too large")
+        }
+        result.append(buffer, 0, count)
+      }
+      result.toString()
+    }
   }
 
   private fun apiUrl(path: String): String {

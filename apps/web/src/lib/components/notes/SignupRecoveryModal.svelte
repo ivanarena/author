@@ -8,6 +8,7 @@
     ShieldCheck
   } from '@lucide/svelte';
   import type { SignupRecoveryModalModel } from './controller/page-controller.svelte.js';
+  import { modalFocus } from './modal-focus';
 
   let { model }: { model: SignupRecoveryModalModel } = $props();
 </script>
@@ -19,6 +20,7 @@
     aria-modal="true"
     aria-labelledby="signup-recovery-title"
     tabindex="-1"
+    use:modalFocus
   >
     <header class="settings-header">
       <div class="settings-title">

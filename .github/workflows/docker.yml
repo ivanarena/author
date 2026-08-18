@@ -1,54 +1,53 @@
 name: Docker
 
 on:
+  workflow_dispatch:
   pull_request:
-  workflow_run:
-    workflows:
-      - CI
-    branches:
-      - main
-    types:
-      - completed
 
 permissions:
+  actions: read # Query CI and transfer the scanned image artifact.
   contents: read
+
+concurrency:
+  group: docker-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  TRIVY_VERSION: 0.70.0
+  TRIVY_IMAGE: aquasec/trivy@sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e # 0.70.0
 
 jobs:
   scan:
     name: Scan image
     runs-on: ubuntu-latest
     timeout-minutes: 35
-    if: >-
-      ${{
-        github.event_name == 'pull_request' ||
-        (github.event_name == 'workflow_run' &&
-          github.event.workflow_run.conclusion == 'success' &&
-          github.event.workflow_run.head_branch == 'main')
-      }}
+    if: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/main' }}
     env:
-      IMAGE_REF: ghcr.io/${{ github.repository }}:sha-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+      IMAGE_REF: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        if: github.event_name == 'pull_request'
-
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        if: github.event_name == 'workflow_run'
         with:
-          ref: main
+          persist-credentials: false
 
-      - name: Refuse stale CI result
-        if: github.event_name == 'workflow_run'
+      - name: Require green CI before a publishable build
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git fetch --no-tags --depth=1 origin main
-          current_main="$(git rev-parse origin/main)"
-          if [ "$current_main" != "${{ github.event.workflow_run.head_sha }}" ]; then
-            echo "::error::CI completed for ${{ github.event.workflow_run.head_sha }}, but main is now ${current_main}."
+          image_sha="$(git rev-parse HEAD)"
+          ci_url="$(
+            gh run list \
+              --workflow CI \
+              --commit "$image_sha" \
+              --limit 20 \
+              --json status,conclusion,url,createdAt \
+              --jq 'map(select(.status == "completed" and .conclusion == "success")) | sort_by(.createdAt) | reverse | .[0].url // ""'
+          )"
+          if [ -z "$ci_url" ]; then
+            echo "::error::No successful CI run exists for ${image_sha}."
             exit 1
           fi
+          echo "CI gate passed: ${ci_url}"
 
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 
@@ -61,25 +60,27 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Export image for scanning and publication
+        run: docker save --output author-scanned-image.tar "${IMAGE_REF}"
+
       - name: Run Trivy
         run: |
           mkdir -p "${HOME}/.cache/trivy"
 
           docker run --rm \
-            -v /var/run/docker.sock:/var/run/docker.sock \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp \
             -v "${PWD}:/work" \
-            -v "${HOME}/.cache/trivy:/root/.cache" \
-            -v "${HOME}/.docker:/root/.docker:ro" \
-            "aquasec/trivy:${TRIVY_VERSION}" image \
-            --image-src docker \
+            -v "${HOME}/.cache/trivy:/tmp/.cache" \
+            "${TRIVY_IMAGE}" image \
+            --input /work/author-scanned-image.tar \
             --format sarif \
             --output /work/trivy-results.sarif \
             --scanners vuln \
             --severity CRITICAL,HIGH \
             --pkg-types os,library \
             --exit-code 1 \
-            --timeout 10m \
-            "${IMAGE_REF}"
+            --timeout 10m
 
       - name: Upload scan artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -88,38 +89,48 @@ jobs:
           name: trivy-results
           path: trivy-results.sarif
 
+      - name: Upload the scanned image
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: author-scanned-image
+          path: author-scanned-image.tar
+          compression-level: 0
+          retention-days: 1
+
   publish:
     name: Publish signed image
     runs-on: ubuntu-latest
     needs: scan
     timeout-minutes: 35
-    if: >-
-      ${{
-        github.event_name == 'workflow_run' &&
-        github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.head_branch == 'main'
-      }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
     permissions:
+      actions: read # Download the scanned image from this workflow run.
       contents: read
-      packages: write
-      id-token: write
+      packages: write # Publish the exact scanned image to GHCR.
+      id-token: write # Request keyless Cosign and attestation identities.
+      attestations: write # Publish provenance and SBOM attestations.
     env:
-      IMAGE_SHA: ${{ github.event.workflow_run.head_sha }}
+      IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}
+      IMAGE_SHA: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: main
-
-      - name: Refuse stale CI result
+      - name: Refuse a stale main commit
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git fetch --no-tags --depth=1 origin main
-          current_main="$(git rev-parse origin/main)"
+          current_main="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
           if [ "$current_main" != "$IMAGE_SHA" ]; then
-            echo "::error::CI completed for ${IMAGE_SHA}, but main is now ${current_main}."
+            echo "::error::Image commit ${IMAGE_SHA} is stale; main is now ${current_main}."
             exit 1
           fi
 
-      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: author-scanned-image
+          path: .
+
+      - name: Load scanned image
+        run: docker load --input author-scanned-image.tar
 
       - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
@@ -127,19 +138,54 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+      - name: Publish scanned immutable image
         id: publish
+        run: |
+          image_ref="${IMAGE_REPOSITORY}:sha-${IMAGE_SHA}"
+          docker push "$image_ref"
+          digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$image_ref" | sed 's/.*@//')"
+          test -n "$digest"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Generate image SBOM
+        uses: anchore/sbom-action@a930d0ac434e3182448fe678398ba5713717112a # v0.21.0
         with:
-          context: .
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}:main
-            ghcr.io/${{ github.repository }}:sha-${{ env.IMAGE_SHA }}
-          sbom: true
-          provenance: true
-          cache-from: type=gha
+          image: ghcr.io/${{ github.repository }}@${{ steps.publish.outputs.digest }}
+          format: spdx-json
+          output-file: author-image.spdx.json
+          upload-artifact: true
+
+      - name: Attest image provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attest image SBOM
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          sbom-path: author-image.spdx.json
+          push-to-registry: true
 
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       - name: Sign image
-        run: cosign sign --yes ghcr.io/${{ github.repository }}@${{ steps.publish.outputs.digest }}
+        env:
+          IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
+        run: cosign sign --yes "${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+
+      - name: Promote current commit to the main image tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          current_main="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
+          if [ "$current_main" != "$IMAGE_SHA" ]; then
+            echo "::error::Refusing to move the main image tag: ${IMAGE_SHA} is stale; main is ${current_main}."
+            exit 1
+          fi
+          image_ref="${IMAGE_REPOSITORY}:sha-${IMAGE_SHA}"
+          docker tag "$image_ref" "${IMAGE_REPOSITORY}:main"
+          docker push "${IMAGE_REPOSITORY}:main"

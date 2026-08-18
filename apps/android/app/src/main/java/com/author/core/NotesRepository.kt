@@ -7,6 +7,8 @@ import android.os.Build
 import androidx.core.content.edit
 import com.author.BuildConfig
 import com.author.UpdateCheckWorker
+import java.io.OutputStream
+import java.security.MessageDigest
 import java.security.SecureRandom
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -860,7 +862,14 @@ class NotesRepository(context: Context) : AutoCloseable {
       val passwordMaterial = crypto.keyMaterialFromPassword(response.user.username, password)
       val migrated =
         crypto.migratePasswordMaterialToAccountKeyring(response.user.username, passwordMaterial)
-      syncClient.updateE2eeKeyring(response.token, migrated.e2eeKeyring)
+      val keyringChallenge = syncClient.authChallenge(null, "keyring_update", response.token)
+      val keyringProof = crypto.authProofFromPassword(password, keyringChallenge)
+      syncClient.updateE2eeKeyring(
+        response.token,
+        migrated.e2eeKeyring,
+        keyringProof.proof,
+        response.e2eeKeyring?.let(::keyringHash),
+      )
       response.copy(
         encryptionKeyMaterial = migrated.keyMaterial,
         e2eeKeyring = migrated.e2eeKeyring,
@@ -868,6 +877,9 @@ class NotesRepository(context: Context) : AutoCloseable {
         recoveryKitJson = migrated.recoveryKitJson,
       )
     }
+
+  private fun keyringHash(value: String): String =
+    base64UrlEncode(MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8)))
 
   private fun unlockLoginKeyring(e2eeKeyring: String, username: String, password: String): String =
     try {
@@ -879,13 +891,19 @@ class NotesRepository(context: Context) : AutoCloseable {
       throw error
     }
 
-  suspend fun signup(username: String, email: String, password: String): LoginResponse =
+  suspend fun signup(
+    username: String,
+    email: String,
+    invitationCode: String,
+    password: String,
+  ): LoginResponse =
     withContext(Dispatchers.IO) {
       val keyring = crypto.prepareNewAccountKeyring(username, password)
       syncClient
         .signup(
           username,
           email,
+          invitationCode,
           crypto.passwordVerifierFromPassword(password),
           keyring.e2eeKeyring,
           getOrCreateDevice(),
@@ -1376,11 +1394,13 @@ class NotesRepository(context: Context) : AutoCloseable {
       )
     }
 
-  suspend fun exportMarkdownZip(): Pair<String, ByteArray> =
+  fun markdownExportFileName(): String = markdownArchiveFileName()
+
+  suspend fun exportMarkdownZipTo(output: OutputStream): String =
     withContext(Dispatchers.IO) {
       val notes = db.allNotes().map { crypto.decryptNoteFields(it) }.filter { it.deletedAt == null }
       val notebooks = db.allNotebooks().map { crypto.decryptNotebookFields(it) }
-      buildMarkdownZip(notes, notebooks)
+      writeMarkdownZip(notes, notebooks, output)
     }
 
   suspend fun importMarkdownFiles(files: List<MarkdownInputFile>): ImportNotesResult =
@@ -1893,16 +1913,39 @@ class NotesRepository(context: Context) : AutoCloseable {
   }
 
   private fun saveNoteConflict(conflict: SyncConflict<LocalNote>) {
-    val stored = encryptNoteConflictForStorage(conflict)
-    db.putConflict(
-      stored.id,
-      stored.entityType,
-      stored.entityId,
-      "pending",
-      nowIso(),
-      noteConflictToJson(stored).toString(),
-    )
-    db.getNote(stored.entityId)?.let { db.putNote(it.copy(syncStatus = "conflict")) }
+    repeat(3) {
+      val current = db.getNote(conflict.entityId)
+      val effective =
+        current?.let {
+          conflict.copy(
+            local =
+              conflict.local.copy(
+                deviceId = it.deviceId,
+                deviceName = deviceName(it.deviceId),
+                updatedAt = it.updatedAt,
+                version = it.version,
+                record = it,
+              )
+          )
+        } ?: conflict
+      val stored = encryptNoteConflictForStorage(effective)
+      val createdAt = nowIso()
+      if (
+        db.putConflictIfEntityUnchanged(
+          "notes",
+          stored.entityId,
+          current?.version,
+          current?.updatedAt,
+          stored.id,
+          stored.entityType,
+          createdAt,
+          noteConflictToJson(stored).toString(),
+        )
+      ) {
+        return
+      }
+    }
+    error("Local note kept changing while its sync conflict was saved")
   }
 
   private fun repairSameDevicePendingConflicts(syncedAt: String = nowIso()) {
@@ -1952,16 +1995,39 @@ class NotesRepository(context: Context) : AutoCloseable {
   }
 
   private fun saveNotebookConflict(conflict: SyncConflict<LocalNotebook>) {
-    val stored = encryptNotebookConflictForStorage(conflict)
-    db.putConflict(
-      stored.id,
-      stored.entityType,
-      stored.entityId,
-      "pending",
-      nowIso(),
-      notebookConflictToJson(stored).toString(),
-    )
-    db.getNotebook(stored.entityId)?.let { db.putNotebook(it.copy(syncStatus = "conflict")) }
+    repeat(3) {
+      val current = db.getNotebook(conflict.entityId)
+      val effective =
+        current?.let {
+          conflict.copy(
+            local =
+              conflict.local.copy(
+                deviceId = it.deviceId,
+                deviceName = deviceName(it.deviceId),
+                updatedAt = it.updatedAt,
+                version = it.version,
+                record = it,
+              )
+          )
+        } ?: conflict
+      val stored = encryptNotebookConflictForStorage(effective)
+      val createdAt = nowIso()
+      if (
+        db.putConflictIfEntityUnchanged(
+          "notebooks",
+          stored.entityId,
+          current?.version,
+          current?.updatedAt,
+          stored.id,
+          stored.entityType,
+          createdAt,
+          notebookConflictToJson(stored).toString(),
+        )
+      ) {
+        return
+      }
+    }
+    error("Local notebook kept changing while its sync conflict was saved")
   }
 
   private fun absorbSameDevicePushNotebookConflict(
@@ -2535,6 +2601,7 @@ class NotesRepository(context: Context) : AutoCloseable {
     }
 
     payload.notebooks.forEach { ensureNotebook(it.name, it.createdAt, it.updatedAt) }
+    val usedNoteIds = db.allNotes().mapTo(mutableSetOf()) { it.id }
     payload.notes.forEach { parsed ->
       if (parsed.title.isBlank() && parsed.body.isBlank()) {
         skippedNotes += 1
@@ -2544,9 +2611,15 @@ class NotesRepository(context: Context) : AutoCloseable {
       val now = nowIso()
       val createdAt = parsed.createdAt ?: parsed.updatedAt ?: now
       val updatedAt = parsed.updatedAt ?: createdAt
+      val sourceId = parsed.sourceId?.trim().orEmpty()
+      val id =
+        sourceId.takeIf {
+          it.isNotEmpty() && it.toByteArray(Charsets.UTF_8).size <= 128 && it !in usedNoteIds
+        } ?: newId()
+      usedNoteIds.add(id)
       val note =
         LocalNote(
-          id = newId(),
+          id = id,
           title = parsed.title.trim(),
           body = parsed.body,
           titleHash = null,
@@ -2562,6 +2635,7 @@ class NotesRepository(context: Context) : AutoCloseable {
           syncStatus = "pending",
           lastSyncedVersion = 0,
           lastSyncedAt = null,
+          isFavorite = parsed.isFavorite,
         )
       db.putNote(crypto.encryptNoteFields(note))
       importedNoteIds.add(note.id)

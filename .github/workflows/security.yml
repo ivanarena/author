@@ -13,6 +13,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: security-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -22,21 +26,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      actions: read
-      checks: read
+      actions: read # Inspect workflow security posture.
+      checks: read # Include repository check configuration in Scorecard.
       contents: read
-      issues: read
-      pull-requests: read
-      security-events: write
-      statuses: read
-      id-token: write
+      issues: read # Include issue-maintenance signals in Scorecard.
+      pull-requests: read # Include review-practice signals in Scorecard.
+      security-events: write # Permit code-scanning upload when enabled.
+      statuses: read # Include protected-check signals in Scorecard.
+      id-token: write # Authenticate the Scorecard result provenance.
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
       - name: Analyze repository security posture
-        uses: ossf/scorecard-action@f2ea147fec3c2f0d459703eba7405b5e9bcd8c8f # v2.4.2
+        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
         with:
           results_file: scorecard-results.sarif
           results_format: sarif
@@ -54,9 +58,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      actions: read
+      actions: read # Let CodeQL inspect workflow metadata.
       contents: read
-      security-events: write
+      security-events: write # Permit code-scanning upload when enabled.
     strategy:
       fail-fast: false
       matrix:
@@ -81,7 +85,7 @@ jobs:
         if: matrix.language == 'java-kotlin'
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@dc73d59c2d7bd4f8194098a91219eeee6d8a1719 # v4
+        uses: github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
@@ -92,7 +96,7 @@ jobs:
         working-directory: apps/android
 
       - name: Analyze
-        uses: github/codeql-action/analyze@dc73d59c2d7bd4f8194098a91219eeee6d8a1719 # v4
+        uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
         with:
           upload: never
           output: codeql-results

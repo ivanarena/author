@@ -8,6 +8,7 @@ import type {
   PushResponse,
   SyncConflict
 } from '@author/api-types';
+import { SYNC_LIMITS } from '@author/api-types';
 import {
   NOTE_RETENTION_DAYS,
   VERSION_SNAPSHOT_RETENTION_DAYS,
@@ -22,6 +23,11 @@ import {
   retentionCutoff,
   shouldConflict
 } from '@author/sync-spec';
+import type { RuntimeEnv } from './config';
+import {
+  checkRecordLimits,
+  type RecordLimitCheckResult
+} from './record-limits';
 import {
   all as queryAll,
   get as queryOne,
@@ -46,7 +52,27 @@ export interface EntityTombstone {
 
 export interface PushChangesOptions {
   allowTombstoneOverwrite?: boolean;
+  preserveRecordVersions?: boolean;
+  /** @deprecated Use preserveRecordVersions. */
   preserveNewRecordVersions?: boolean;
+  enforceRecordLimits?: boolean;
+  recordLimitEnv?: RuntimeEnv | null;
+}
+
+export class DeviceLimitExceededError extends Error {
+  constructor() {
+    super(
+      `This account is limited to ${SYNC_LIMITS.devicesPerAccount} registered devices.`
+    );
+    this.name = 'DeviceLimitExceededError';
+  }
+}
+
+export class RecordLimitExceededError extends Error {
+  constructor(readonly result: RecordLimitCheckResult) {
+    super(result.error);
+    this.name = 'RecordLimitExceededError';
+  }
 }
 
 export interface VersionSnapshotPruneResponse {
@@ -344,6 +370,22 @@ async function recordEntityChange(
   );
 }
 
+export async function latestEntityRevision(
+  db: NotesExecutor,
+  ownerUsername: string,
+  entityType: EntityType,
+  entityId: string
+): Promise<number> {
+  const row = await queryOne(
+    db,
+    `SELECT COALESCE(max(revision), 0) AS revision
+     FROM entity_changes
+     WHERE owner_username = ? AND entity_type = ? AND entity_id = ?`,
+    [ownerUsername, entityType, entityId]
+  );
+  return asRevision(row?.revision);
+}
+
 async function latestEntityOperation(
   db: NotesExecutor,
   ownerUsername: string,
@@ -382,6 +424,16 @@ export async function upsertDevice(
     'device',
     device.id
   );
+  if (!existing) {
+    const row = await queryOne(
+      db,
+      'SELECT count(*) AS count FROM devices WHERE owner_username = ?',
+      [ownerUsername]
+    );
+    if (Number(row?.count ?? 0) >= SYNC_LIMITS.devicesPerAccount) {
+      throw new DeviceLimitExceededError();
+    }
+  }
 
   await runSql(
     db,
@@ -469,28 +521,6 @@ function valuesPlaceholders(rowWidth: number, rowCount: number): string {
 
 function uniqueEntityIds(ids: string[]): string[] {
   return [...new Set(ids)].filter(Boolean);
-}
-
-async function idsOwnedByAnotherUser(
-  db: NotesExecutor,
-  table: 'notes' | 'notebooks',
-  ids: string[],
-  ownerUsername: string
-): Promise<Set<string>> {
-  const ownedByAnotherUser = new Set<string>();
-  for (const chunk of chunks(uniqueEntityIds(ids), 200)) {
-    const rows = (await queryAll(
-      db,
-      `SELECT id FROM ${table}
-       WHERE owner_username <> ?
-         AND id IN (${placeholders(chunk.length)})`,
-      [ownerUsername, ...chunk]
-    )) as Row[];
-    for (const row of rows) {
-      ownedByAnotherUser.add(asString(row.id));
-    }
-  }
-  return ownedByAnotherUser;
 }
 
 export async function getNotesByIds(
@@ -991,7 +1021,7 @@ export async function pullMirrorChangesSinceRevision(
     getNotebooksByIds(db, notebookIds, ownerUsername)
   ]);
 
-  return {
+  const response: MirrorChanges = {
     serverTime: new Date().toISOString(),
     serverRevision,
     devices: [...devices.values()],
@@ -1002,6 +1032,19 @@ export async function pullMirrorChangesSinceRevision(
     deletedNotebookIds,
     hasMore
   };
+  const responseBytes = new TextEncoder().encode(
+    JSON.stringify(response)
+  ).byteLength;
+  if (responseBytes <= SYNC_LIMITS.pullResponseBytes) return response;
+  if (visibleRows.length <= 1) {
+    throw new Error(
+      'A stored sync record exceeds the pull response byte limit'
+    );
+  }
+  return await pullMirrorChangesSinceRevision(db, sinceRevision, {
+    ...options,
+    limit: Math.max(1, Math.floor(visibleRows.length / 2))
+  });
 }
 
 async function saveNoteSnapshot(
@@ -1115,19 +1158,10 @@ async function recordEntityChanges(
 async function putNotes(
   db: NotesExecutor,
   notes: Note[],
-  ownerUsername = LEGACY_OWNER_USERNAME
+  ownerUsername = LEGACY_OWNER_USERNAME,
+  retentionTime = new Date().toISOString()
 ): Promise<Note[]> {
   if (!notes.length) return [];
-
-  const foreignIds = await idsOwnedByAnotherUser(
-    db,
-    'notes',
-    notes.map((note) => note.id),
-    ownerUsername
-  );
-  if (foreignIds.size) {
-    throw new Error('Record id belongs to another owner');
-  }
 
   const syncedNotes = notes.map((note) => ({
     ...note,
@@ -1139,9 +1173,9 @@ async function putNotes(
       db,
       `INSERT INTO notes (
          id, owner_username, title, body, title_hash, body_hash, notebook_ids, notebook_id, created_at, updated_at,
-         deleted_at, trashed_at, is_favorite, device_id, version, sync_status
-       ) VALUES ${valuesPlaceholders(16, chunk.length)}
-       ON CONFLICT(id) DO UPDATE SET
+         deleted_at, trashed_at, retention_started_at, is_favorite, device_id, version, sync_status
+       ) VALUES ${valuesPlaceholders(17, chunk.length)}
+       ON CONFLICT(owner_username, id) DO UPDATE SET
          title = excluded.title,
          body = excluded.body,
          title_hash = excluded.title_hash,
@@ -1152,11 +1186,16 @@ async function putNotes(
          updated_at = excluded.updated_at,
          deleted_at = excluded.deleted_at,
          trashed_at = excluded.trashed_at,
+         retention_started_at = CASE
+           WHEN excluded.trashed_at IS NULL THEN NULL
+           WHEN notes.trashed_at IS NULL OR notes.retention_started_at IS NULL
+             THEN excluded.retention_started_at
+           ELSE notes.retention_started_at
+         END,
          is_favorite = excluded.is_favorite,
          device_id = excluded.device_id,
          version = excluded.version,
-         sync_status = excluded.sync_status
-         WHERE notes.owner_username = excluded.owner_username`,
+         sync_status = excluded.sync_status`,
       chunk.flatMap((note) => [
         note.id,
         ownerUsername,
@@ -1170,6 +1209,7 @@ async function putNotes(
         note.updatedAt,
         note.deletedAt,
         note.trashedAt,
+        note.trashedAt ? retentionTime : null,
         note.isFavorite ? 1 : 0,
         note.deviceId,
         note.version,
@@ -1201,19 +1241,10 @@ async function putNotes(
 async function putNotebooks(
   db: NotesExecutor,
   notebooks: Notebook[],
-  ownerUsername = LEGACY_OWNER_USERNAME
+  ownerUsername = LEGACY_OWNER_USERNAME,
+  retentionTime = new Date().toISOString()
 ): Promise<Notebook[]> {
   if (!notebooks.length) return [];
-
-  const foreignIds = await idsOwnedByAnotherUser(
-    db,
-    'notebooks',
-    notebooks.map((notebook) => notebook.id),
-    ownerUsername
-  );
-  if (foreignIds.size) {
-    throw new Error('Record id belongs to another owner');
-  }
 
   const syncedNotebooks = notebooks.map((notebook) => ({
     ...notebook,
@@ -1224,18 +1255,23 @@ async function putNotebooks(
     await runSql(
       db,
       `INSERT INTO notebooks (
-         id, owner_username, name, name_hash, created_at, updated_at, deleted_at, device_id, version, sync_status
-       ) VALUES ${valuesPlaceholders(10, chunk.length)}
-       ON CONFLICT(id) DO UPDATE SET
+         id, owner_username, name, name_hash, created_at, updated_at, deleted_at, retention_started_at, device_id, version, sync_status
+       ) VALUES ${valuesPlaceholders(11, chunk.length)}
+       ON CONFLICT(owner_username, id) DO UPDATE SET
          name = excluded.name,
          name_hash = excluded.name_hash,
          created_at = excluded.created_at,
          updated_at = excluded.updated_at,
          deleted_at = excluded.deleted_at,
+         retention_started_at = CASE
+           WHEN excluded.deleted_at IS NULL THEN NULL
+           WHEN notebooks.deleted_at IS NULL OR notebooks.retention_started_at IS NULL
+             THEN excluded.retention_started_at
+           ELSE notebooks.retention_started_at
+         END,
          device_id = excluded.device_id,
          version = excluded.version,
-         sync_status = excluded.sync_status
-         WHERE notebooks.owner_username = excluded.owner_username`,
+         sync_status = excluded.sync_status`,
       chunk.flatMap((notebook) => [
         notebook.id,
         ownerUsername,
@@ -1244,6 +1280,7 @@ async function putNotebooks(
         notebook.createdAt,
         notebook.updatedAt,
         notebook.deletedAt,
+        notebook.deletedAt ? retentionTime : null,
         notebook.deviceId,
         notebook.version,
         'synced'
@@ -1451,7 +1488,9 @@ function acceptedNewRecordVersion(
   record: Note | Notebook,
   options: PushChangesOptions
 ): number {
-  return options.preserveNewRecordVersions ? Math.max(record.version, 1) : 1;
+  return options.preserveRecordVersions || options.preserveNewRecordVersions
+    ? Math.max(record.version, 1)
+    : 1;
 }
 
 function noteWithSyncableNotebookRefsFromMap(
@@ -1488,6 +1527,15 @@ export async function pushChanges(
   const conflicts: PushResponse['conflicts'] = [];
 
   await withWriteTransaction(db, async (tx) => {
+    if (options.enforceRecordLimits) {
+      const limitError = await checkRecordLimits(
+        tx,
+        ownerUsername,
+        request,
+        options.recordLimitEnv
+      );
+      if (limitError) throw new RecordLimitExceededError(limitError);
+    }
     await upsertDevice(tx, request.device, now, ownerUsername);
 
     const remoteNotebooks = await getNotebooksByIds(
@@ -1603,7 +1651,10 @@ export async function pushChanges(
           : {
               ...change.record,
               version: remote
-                ? remote.version + 1
+                ? options.preserveRecordVersions ||
+                  options.preserveNewRecordVersions
+                  ? change.record.version
+                  : remote.version + 1
                 : tombstone
                   ? nextVersionAfter(tombstone.version)
                   : acceptedNewRecordVersion(change.record, options),
@@ -1624,7 +1675,7 @@ export async function pushChanges(
       }
     }
 
-    await putNotebooks(tx, notebooksToWrite, ownerUsername);
+    await putNotebooks(tx, notebooksToWrite, ownerUsername, now);
     await saveNotebookSnapshots(tx, notebookSnapshots, ownerUsername);
 
     const remoteNotes = await getNotesByIds(
@@ -1719,7 +1770,10 @@ export async function pushChanges(
           : {
               ...syncableNote.note,
               version: remote
-                ? remote.version + 1
+                ? options.preserveRecordVersions ||
+                  options.preserveNewRecordVersions
+                  ? syncableNote.note.version
+                  : remote.version + 1
                 : tombstone
                   ? nextVersionAfter(tombstone.version)
                   : acceptedNewRecordVersion(syncableNote.note, options),
@@ -1732,7 +1786,7 @@ export async function pushChanges(
       }
     }
 
-    await putNotes(tx, notesToWrite, ownerUsername);
+    await putNotes(tx, notesToWrite, ownerUsername, now);
     await saveNoteSnapshots(tx, noteSnapshots, ownerUsername);
   });
 
@@ -1751,40 +1805,43 @@ export async function cleanupTrash(
   const cutoff = retentionCutoff(now, NOTE_RETENTION_DAYS);
   const ownerFilter = ownerUsername ? ' AND owner_username = ?' : '';
   const ownerArgs = ownerUsername ? [ownerUsername] : [];
-  const oldNoteRows = (await queryAll(
-    db,
-    `SELECT * FROM notes WHERE trashed_at IS NOT NULL AND trashed_at < ?${ownerFilter}`,
-    [cutoff, ...ownerArgs]
-  )) as Row[];
-  const oldNotes = oldNoteRows.map((row) => ({
-    ownerUsername: asString(row.owner_username) || LEGACY_OWNER_USERNAME,
-    note: toNote(row)
-  }));
-  const oldNotebookRows = (await queryAll(
-    db,
-    `SELECT * FROM notebooks WHERE deleted_at IS NOT NULL AND deleted_at < ?${ownerFilter}`,
-    [cutoff, ...ownerArgs]
-  )) as Row[];
-  const oldNotebooks = oldNotebookRows.map((row) => ({
-    ownerUsername: asString(row.owner_username) || LEGACY_OWNER_USERNAME,
-    notebook: toNotebook(row)
-  }));
   const cleanupTime = now.toISOString();
+  let deletedNotes = 0;
+  let deletedNotebooks = 0;
 
   await withWriteTransaction(db, async (tx) => {
+    const oldNoteRows = (await queryAll(
+      tx,
+      `SELECT * FROM notes
+       WHERE trashed_at IS NOT NULL
+         AND retention_started_at IS NOT NULL
+         AND retention_started_at < ?${ownerFilter}`,
+      [cutoff, ...ownerArgs]
+    )) as Row[];
+    const oldNotes = oldNoteRows.map((row) => ({
+      ownerUsername: asString(row.owner_username) || LEGACY_OWNER_USERNAME,
+      note: toNote(row)
+    }));
+    const oldNotebookRows = (await queryAll(
+      tx,
+      `SELECT * FROM notebooks
+       WHERE deleted_at IS NOT NULL
+         AND retention_started_at IS NOT NULL
+         AND retention_started_at < ?${ownerFilter}`,
+      [cutoff, ...ownerArgs]
+    )) as Row[];
+    const oldNotebooks = oldNotebookRows.map((row) => ({
+      ownerUsername: asString(row.owner_username) || LEGACY_OWNER_USERNAME,
+      notebook: toNotebook(row)
+    }));
+
     for (const { note, ownerUsername: owner } of oldNotes) {
       await saveNoteSnapshot(tx, note, 'cleanup', cleanupTime, owner);
-    }
-    for (const { notebook, ownerUsername: owner } of oldNotebooks) {
-      await saveNotebookSnapshot(tx, notebook, 'cleanup', cleanupTime, owner);
-    }
-
-    await runSql(
-      tx,
-      `DELETE FROM notes WHERE trashed_at IS NOT NULL AND trashed_at < ?${ownerFilter}`,
-      [cutoff, ...ownerArgs]
-    );
-    for (const { note, ownerUsername: owner } of oldNotes) {
+      await runSql(
+        tx,
+        'DELETE FROM notes WHERE owner_username = ? AND id = ?',
+        [owner, note.id]
+      );
       await putEntityTombstone(
         tx,
         owner,
@@ -1796,12 +1853,13 @@ export async function cleanupTrash(
       );
       await recordEntityChange(tx, 'note', note.id, 'delete', undefined, owner);
     }
-    await runSql(
-      tx,
-      `DELETE FROM notebooks WHERE deleted_at IS NOT NULL AND deleted_at < ?${ownerFilter}`,
-      [cutoff, ...ownerArgs]
-    );
     for (const { notebook, ownerUsername: owner } of oldNotebooks) {
+      await saveNotebookSnapshot(tx, notebook, 'cleanup', cleanupTime, owner);
+      await runSql(
+        tx,
+        'DELETE FROM notebooks WHERE owner_username = ? AND id = ?',
+        [owner, notebook.id]
+      );
       await putEntityTombstone(
         tx,
         owner,
@@ -1821,14 +1879,98 @@ export async function cleanupTrash(
       );
     }
 
+    deletedNotes = oldNotes.length;
+    deletedNotebooks = oldNotebooks.length;
     await pruneVersionSnapshotsInTransaction(tx, now, ownerUsername);
   });
 
-  return {
-    deletedNotes: oldNotes.length,
-    deletedNotebooks: oldNotebooks.length,
-    cutoff
-  };
+  return { deletedNotes, deletedNotebooks, cutoff };
+}
+
+export async function pruneUnreferencedDevices(db: NotesDb): Promise<number> {
+  let deleted = 0;
+  await withWriteTransaction(db, async (tx) => {
+    const rows = (await queryAll(
+      tx,
+      `SELECT devices.owner_username, devices.id
+       FROM devices
+       WHERE devices.id <> 'server-db-mirror'
+         AND NOT EXISTS (
+         SELECT 1 FROM notes
+         WHERE notes.owner_username = devices.owner_username
+           AND notes.device_id = devices.id
+       )
+         AND NOT EXISTS (
+           SELECT 1 FROM notebooks
+           WHERE notebooks.owner_username = devices.owner_username
+             AND notebooks.device_id = devices.id
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM auth_sessions
+           WHERE auth_sessions.username = devices.owner_username
+             AND auth_sessions.device_id = devices.id
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM trusted_auth_devices
+           WHERE trusted_auth_devices.username = devices.owner_username
+             AND trusted_auth_devices.device_id = devices.id
+         )`
+    )) as Row[];
+    for (const row of rows) {
+      await runSql(
+        tx,
+        'DELETE FROM devices WHERE owner_username = ? AND id = ?',
+        [asString(row.owner_username), asString(row.id)]
+      );
+      await recordEntityChange(
+        tx,
+        'device',
+        asString(row.id),
+        'delete',
+        undefined,
+        asString(row.owner_username)
+      );
+    }
+    deleted = rows.length;
+  });
+  return deleted;
+}
+
+export async function compactEntityChanges(
+  db: NotesDb,
+  ownerUsername?: string
+): Promise<number> {
+  let deleted = 0;
+  await withWriteTransaction(db, async (tx) => {
+    const ownerFilter = ownerUsername ? 'WHERE owner_username = ?' : '';
+    const ownerArgs = ownerUsername ? [ownerUsername] : [];
+    const before = await queryOne(
+      tx,
+      `SELECT count(*) AS count FROM entity_changes ${ownerFilter}`,
+      ownerArgs
+    );
+    await runSql(
+      tx,
+      `DELETE FROM entity_changes
+       WHERE revision NOT IN (
+         SELECT max(revision)
+         FROM entity_changes
+         ${ownerFilter}
+         GROUP BY owner_username, entity_type, entity_id
+       )${ownerUsername ? ' AND owner_username = ?' : ''}`,
+      ownerUsername ? [...ownerArgs, ownerUsername] : []
+    );
+    const after = await queryOne(
+      tx,
+      `SELECT count(*) AS count FROM entity_changes ${ownerFilter}`,
+      ownerArgs
+    );
+    deleted = Math.max(
+      0,
+      Number(before?.count ?? 0) - Number(after?.count ?? 0)
+    );
+  });
+  return deleted;
 }
 
 export async function pruneVersionSnapshots(

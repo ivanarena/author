@@ -95,6 +95,7 @@ function controller(
     signupConfirmPasswordValue: '',
     signupEmailRequired: false,
     signupEmailValue: '',
+    signupInvitationValue: '',
     signupEnabled: true,
     syncActivityDetail: '',
     syncActivityLabel: '',
@@ -161,7 +162,8 @@ describe('account auth actions', () => {
       loginUsernameValue: 'owner',
       loginPasswordValue: 'signup-password-123',
       signupConfirmPasswordValue: 'signup-password-123',
-      signupEmailValue: 'owner@example.com'
+      signupEmailValue: 'owner@example.com',
+      signupInvitationValue: 'invite-code'
     });
 
     await submitLoginMenu(model);
@@ -169,6 +171,7 @@ describe('account auth actions', () => {
     expect(mocks.signup).toHaveBeenCalledWith(
       'owner',
       'owner@example.com',
+      'invite-code',
       'signup-password-123'
     );
     expect(mocks.recoveryKitText).toHaveBeenCalledWith(recoveryKit);

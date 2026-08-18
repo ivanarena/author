@@ -25,8 +25,13 @@ jobs:
     name: Workflow lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      actions: read # Allow online workflow-audit checks in this private repo.
+      contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
@@ -36,12 +41,22 @@ jobs:
       - name: Actionlint
         run: go run "github.com/rhysd/actionlint/cmd/actionlint@${ACTIONLINT_VERSION}"
 
+      - name: Audit workflows with zizmor
+        uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
+        with:
+          advanced-security: false
+          inputs: .github/workflows
+          persona: pedantic
+          version: 1.29.0
+
   web:
     name: Web
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -57,6 +72,9 @@ jobs:
           done
 
           npx -y "@endevco/aube@${AUBE_VERSION}" install --frozen-lockfile
+
+      - name: Toolchain check
+        run: npx -y "@endevco/aube@${AUBE_VERSION}" run toolchain:check
 
       - name: Dependency graph check
         run: npx -y "@endevco/aube@${AUBE_VERSION}" run deps:check
@@ -93,10 +111,9 @@ jobs:
             apps/web/coverage
             packages/sync-spec/coverage
 
-      - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
-        working-directory: apps/web
-        timeout-minutes: 15
+      - name: Install Playwright browsers
+        run: npx -y "@endevco/aube@${AUBE_VERSION}" -F @author/web exec -- playwright install --with-deps chromium firefox webkit
+        timeout-minutes: 20
 
       - name: Browser sync tests
         run: npx -y "@endevco/aube@${AUBE_VERSION}" -F @author/web run test:e2e
@@ -114,6 +131,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
@@ -157,6 +176,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
@@ -173,7 +194,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Android connected tests
-        uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009 # v2.37.0
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 35
           arch: x86_64

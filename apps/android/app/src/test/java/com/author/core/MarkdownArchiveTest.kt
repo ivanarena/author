@@ -4,6 +4,7 @@ import java.io.ByteArrayInputStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MarkdownArchiveTest {
@@ -49,6 +50,38 @@ class MarkdownArchiveTest {
 
     assertEquals("Loose note", parsed.notes.single().title)
     assertEquals("", parsed.notes.single().body)
+  }
+
+  @Test
+  fun roundTripsPortableAuthorMetadata() {
+    val note =
+      LocalNote(
+        id = "note-1",
+        title = "Portable",
+        body = "Body",
+        titleHash = null,
+        bodyHash = null,
+        notebookIds = listOf("book-1", "book-2"),
+        notebookId = "book-1",
+        createdAt = "2026-05-10T09:00:00Z",
+        updatedAt = "2026-05-10T10:00:00Z",
+        deletedAt = null,
+        trashedAt = "2026-05-11T10:00:00Z",
+        deviceId = "device-1",
+        version = 1,
+        syncStatus = "pending",
+        lastSyncedVersion = 0,
+        lastSyncedAt = null,
+        isFavorite = true,
+      )
+    val content = markdownNoteContent(note, note.title, listOf("Work", "Ideas"))
+    val parsed = parseMarkdownNote(content, "Portable.md")
+
+    assertTrue(content.contains("created_at: 2026-05-10T09:00:00Z"))
+    assertEquals("note-1", parsed.sourceId)
+    assertEquals(listOf("Work", "Ideas"), parsed.sourceNotebookNames)
+    assertEquals("2026-05-11T10:00:00Z", parsed.trashedAt)
+    assertTrue(parsed.isFavorite)
   }
 
   @Test

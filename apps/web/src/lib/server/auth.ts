@@ -53,6 +53,8 @@ const TOTP_DIGITS = 6;
 const SESSION_TOUCH_INTERVAL_MS = 60_000;
 const DEVICE_TRUST_SECRET_MIN_LENGTH = 32;
 const E2EE_KEYRING_MAX_BYTES = 64 * 1024;
+const SIGNUP_INVITATION_MAX_TTL_MS = 90 * 24 * 60 * 60_000;
+const SIGNUP_INVITATION_PREFIX = 'invite:v1:';
 const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,62}[a-z0-9]$|^[a-z0-9]$/;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -84,6 +86,18 @@ type AuthChallengeRow = {
   server_nonce: string;
   created_at: string;
   expires_at: string;
+};
+
+export interface AccountTombstone {
+  username: string;
+  deletionId: string;
+  deletedAt: string;
+}
+
+type SignupInvitationPayload = {
+  email: string;
+  expiresAt: string;
+  nonce: string;
 };
 
 type ParsedPasswordVerifier = {
@@ -298,6 +312,67 @@ export async function isSignupEmailAllowed(
   return Boolean(row);
 }
 
+function signupInvitationSignature(payload: string): string {
+  return base64UrlEncode(
+    hmacSha256(
+      textEncoder.encode(getServerSecret()),
+      `author:signup-invitation:v1:${payload}`
+    )
+  );
+}
+
+export function createSignupInvitation(
+  email: string,
+  expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60_000)
+): string {
+  const normalizedEmail = requireEmail(email);
+  const ttl = expiresAt.getTime() - Date.now();
+  if (!Number.isFinite(ttl) || ttl <= 0 || ttl > SIGNUP_INVITATION_MAX_TTL_MS) {
+    throw new Error('Signup invitation expiry must be within 90 days');
+  }
+  const payload: SignupInvitationPayload = {
+    email: normalizedEmail,
+    expiresAt: expiresAt.toISOString(),
+    nonce: randomBytes(16).toString('base64url')
+  };
+  const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  return `${SIGNUP_INVITATION_PREFIX}${encoded}:${signupInvitationSignature(encoded)}`;
+}
+
+export function signupInvitationIsValid(
+  email: string,
+  invitationCode: string | null | undefined,
+  now = new Date()
+): boolean {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail || typeof invitationCode !== 'string') return false;
+  const value = invitationCode.trim();
+  if (!value.startsWith(SIGNUP_INVITATION_PREFIX)) return false;
+  const parts = value.slice(SIGNUP_INVITATION_PREFIX.length).split(':');
+  if (
+    parts.length !== 2 ||
+    !tokensMatch(parts[1], signupInvitationSignature(parts[0]))
+  ) {
+    return false;
+  }
+  try {
+    const payload = JSON.parse(
+      Buffer.from(parts[0], 'base64url').toString('utf8')
+    ) as Partial<SignupInvitationPayload>;
+    const expiry = Date.parse(payload.expiresAt ?? '');
+    return (
+      payload.email === normalizedEmail &&
+      typeof payload.nonce === 'string' &&
+      payload.nonce.length >= 16 &&
+      Number.isFinite(expiry) &&
+      expiry > now.getTime() &&
+      expiry - now.getTime() <= SIGNUP_INVITATION_MAX_TTL_MS
+    );
+  } catch {
+    return false;
+  }
+}
+
 function requirePassword(password: string): string {
   if (!password.trim()) {
     throw new Error('Password is required');
@@ -318,16 +393,58 @@ function cleanDisplayName(
   return trimmed.slice(0, 80);
 }
 
+function validWrappedKeyringBox(
+  value: unknown,
+  context: 'password' | 'recovery'
+): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const box = value as Record<string, unknown>;
+  return (
+    box.alg === 'AES-256-GCM' &&
+    box.kdf === 'sha256' &&
+    box.context === context &&
+    typeof box.iv === 'string' &&
+    /^[A-Za-z0-9_-]{16}$/.test(box.iv) &&
+    typeof box.ciphertext === 'string' &&
+    /^[A-Za-z0-9_-]{22,}$/.test(box.ciphertext)
+  );
+}
+
+function validE2eeKeyring(value: string): boolean {
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    return (
+      parsed.version === 1 &&
+      typeof parsed.activeKeyId === 'string' &&
+      /^[A-Za-z0-9_-]{8,128}$/.test(parsed.activeKeyId) &&
+      typeof parsed.wrappedAt === 'string' &&
+      !Number.isNaN(Date.parse(parsed.wrappedAt)) &&
+      validWrappedKeyringBox(parsed.passwordWrap, 'password') &&
+      (parsed.recoveryWrap === undefined ||
+        validWrappedKeyringBox(parsed.recoveryWrap, 'recovery'))
+    );
+  } catch {
+    return false;
+  }
+}
+
 function cleanE2eeKeyring(value: string | null | undefined): string | null {
   if (value === undefined || value === null) return null;
   const trimmed = value.trim();
   if (
     !trimmed ||
-    textEncoder.encode(trimmed).byteLength > E2EE_KEYRING_MAX_BYTES
+    textEncoder.encode(trimmed).byteLength > E2EE_KEYRING_MAX_BYTES ||
+    !validE2eeKeyring(trimmed)
   ) {
     throw new Error('Invalid encrypted keyring');
   }
   return trimmed;
+}
+
+export function e2eeKeyringHash(
+  value: string | null | undefined
+): string | null {
+  return value ? createHash('sha256').update(value).digest('base64url') : null;
 }
 
 function base32Encode(bytes: Uint8Array): string {
@@ -953,6 +1070,14 @@ export async function setUserPasswordVerifier(
   e2eeKeyring?: string | null
 ): Promise<AuthUser> {
   const normalized = requireUsername(username);
+  const deletedAccount = await get(
+    db,
+    'SELECT 1 AS deleted FROM account_tombstones WHERE username = ?',
+    [normalized]
+  );
+  if (deletedAccount && !(await getUserRow(db, normalized))) {
+    throw new Error('Deleted usernames cannot be reused');
+  }
   const now = new Date().toISOString();
   const passwordHash = passwordHashFromVerifier(verifier);
   const existing = await getUserRow(db, normalized);
@@ -1013,7 +1138,12 @@ export async function createUserAccount(
   const normalizedEmail = requireEmail(email);
   if (
     (await getUserRow(db, normalized)) ||
-    (await getUserRowByEmail(db, normalizedEmail))
+    (await getUserRowByEmail(db, normalizedEmail)) ||
+    (await get(
+      db,
+      'SELECT 1 AS deleted FROM account_tombstones WHERE username = ?',
+      [normalized]
+    ))
   ) {
     return null;
   }
@@ -1049,6 +1179,53 @@ export async function createUserAccount(
     displayName: nextDisplayName,
     twoFactorEnabled: false
   };
+}
+
+export async function createInvitedUserAccount(
+  db: NotesDb,
+  username: string,
+  email: string,
+  invitationCode: string,
+  verifier: PasswordVerifier,
+  displayName: string | null | undefined,
+  e2eeKeyring?: string | null
+): Promise<AuthUser | null> {
+  return await withWriteTransaction(db, async (tx) => {
+    if (
+      !(await isSignupEmailAllowed(tx, email)) ||
+      !signupInvitationIsValid(email, invitationCode)
+    ) {
+      return null;
+    }
+    const tokenHash = createHash('sha256')
+      .update(invitationCode.trim())
+      .digest('base64url');
+    if (
+      await get(
+        tx,
+        'SELECT 1 AS consumed FROM consumed_signup_invitations WHERE token_hash = ?',
+        [tokenHash]
+      )
+    ) {
+      return null;
+    }
+    const user = await createUserAccount(
+      tx,
+      username,
+      email,
+      verifier,
+      displayName,
+      e2eeKeyring
+    );
+    if (!user) return null;
+    await run(
+      tx,
+      `INSERT INTO consumed_signup_invitations (token_hash, consumed_at)
+       VALUES (?, ?)`,
+      [tokenHash, new Date().toISOString()]
+    );
+    return user;
+  });
 }
 
 export async function mirrorUserForLocalSession(
@@ -1409,6 +1586,29 @@ export async function updateUserProfile(
   return rowToAuthUser(row);
 }
 
+export async function updateUserE2eeKeyring(
+  db: NotesDb,
+  username: string,
+  proof: AuthProof | null | undefined,
+  e2eeKeyring: string | null | undefined,
+  expectedHash: string | null | undefined
+): Promise<AuthUser | null> {
+  if (typeof e2eeKeyring !== 'string' || !e2eeKeyring.trim()) return null;
+  const normalized = requireUsername(username);
+  return await withWriteTransaction(db, async (tx) => {
+    const row = await verifyUserProof(tx, normalized, proof, 'keyring_update');
+    if (!row || expectedHash !== e2eeKeyringHash(row.e2ee_keyring)) return null;
+    const nextKeyring = cleanE2eeKeyring(e2eeKeyring);
+    await run(
+      tx,
+      'UPDATE users SET e2ee_keyring = ?, updated_at = ? WHERE username = ?',
+      [nextKeyring, new Date().toISOString(), normalized]
+    );
+    const updated = await getUserRow(tx, normalized);
+    return updated ? rowToAuthUser(updated) : null;
+  });
+}
+
 export async function changeUserPassword(
   db: NotesExecutor,
   username: string,
@@ -1490,6 +1690,17 @@ export async function deleteUserAccount(
     const row = await verifyUserProof(tx, normalized, proof, 'delete_account');
     if (!row) return false;
 
+    await run(
+      tx,
+      `INSERT INTO account_tombstones (username, deletion_id, deleted_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(username) DO NOTHING`,
+      [
+        normalized,
+        randomBytes(16).toString('base64url'),
+        new Date().toISOString()
+      ]
+    );
     await run(tx, 'DELETE FROM auth_sessions WHERE username = ?', [normalized]);
     await run(tx, 'DELETE FROM note_versions WHERE owner_username = ?', [
       normalized
@@ -1515,6 +1726,21 @@ export async function deleteUserAccount(
 
     return true;
   });
+}
+
+export async function pruneExpiredAuthState(
+  db: NotesExecutor,
+  now = new Date()
+): Promise<void> {
+  await run(db, 'DELETE FROM auth_sessions WHERE expires_at <= ?', [
+    now.toISOString()
+  ]);
+  await run(db, 'DELETE FROM auth_challenges WHERE expires_at <= ?', [
+    now.toISOString()
+  ]);
+  await run(db, 'DELETE FROM auth_rate_limits WHERE reset_at <= ?', [
+    now.getTime()
+  ]);
 }
 
 export async function deleteSessionFromRequest(

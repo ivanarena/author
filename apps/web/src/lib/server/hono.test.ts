@@ -9,7 +9,11 @@ import {
   fixtureNote,
   fixtureNotebook
 } from '@author/test-fixtures';
-import { setUserPassword, updateUserProfile } from './auth';
+import {
+  createSignupInvitation,
+  setUserPassword,
+  updateUserProfile
+} from './auth';
 import { get, openConfiguredDatabase, openDatabase } from './db';
 import { api, resetHonoStateForTests } from './hono';
 import { getNote, pushChanges, setSyncMeta } from './repository';
@@ -50,6 +54,7 @@ beforeEach(() => {
   process.env.NOTES_REMOTE_SYNC_ENABLED = 'false';
   process.env.NOTES_LOGIN_USERNAME = 'owner';
   process.env.NOTES_LOGIN_PASSWORD = 'test-password-2026';
+  process.env.NOTES_SERVER_SECRET = 'test-server-secret-with-32-characters';
 });
 
 afterEach(async () => {
@@ -224,6 +229,7 @@ async function signupBody(
   return {
     username,
     email,
+    invitationCode: createSignupInvitation(email),
     passwordVerifier: await passwordVerifierFromPassword(password),
     device: fixtureDevice,
     deviceTrustSecret: fixtureDeviceTrustSecret,
@@ -311,6 +317,9 @@ describe('Hono API', () => {
       'author_http_request_duration_seconds_bucket'
     );
     expect(metricsBody).toContain('author_database_backup_enabled');
+    expect(metricsBody).toContain(
+      'author_trash_cleanup_last_success_timestamp_seconds'
+    );
 
     const pull = await post('/api/sync/pull', { since: null }, 'bad-token');
     expect(pull.status).toBe(401);
@@ -336,6 +345,22 @@ describe('Hono API', () => {
     });
   });
 
+  it('normalizes unknown metric paths to one bounded label', async () => {
+    for (let index = 0; index < 25; index += 1) {
+      await api.fetch(new Request(`http://localhost/api/random-${index}`));
+    }
+    const token = await loginToken();
+    const response = await api.fetch(
+      new Request('http://localhost/api/metrics', {
+        headers: { authorization: `Bearer ${token}` }
+      })
+    );
+    const body = await response.text();
+    expect(body).toContain('path="/api/:unmatched"');
+    expect(body).not.toContain('/api/random-24');
+    expect(body.match(/path="\/api\/:unmatched"/g)?.length).toBeLessThan(20);
+  });
+
   it('serves non-secret public sync configuration', async () => {
     process.env.AUTHOR_API_URL = 'https://author.example.com';
     process.env.TURSO_DATABASE_URL = 'libsql://author.example.turso.io';
@@ -357,7 +382,8 @@ describe('Hono API', () => {
       signup: {
         enabled: true,
         emailRequired: true,
-        emailAllowListRequired: true
+        emailAllowListRequired: true,
+        invitationRequired: true
       }
     });
     expect(JSON.stringify(body)).not.toContain('super-secret-token');
@@ -431,6 +457,36 @@ describe('Hono API', () => {
     const login = await loginResponse();
     expect(login.status).toBe(200);
     expect(login.headers.get('set-cookie')).toContain('Secure');
+  });
+
+  it('keeps browser session tokens out of JSON responses', async () => {
+    await loginToken();
+    const challengeResponse = await authChallengeResponse(
+      'owner',
+      'login',
+      undefined,
+      { origin: 'http://localhost' }
+    );
+    expect(challengeResponse.status).toBe(200);
+    const challenge = await challengeResponse.json();
+    const response = await api.fetch(
+      new Request('http://localhost/api/auth/login', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          username: 'owner',
+          proof: (await authProofFromPassword('test-password-2026', challenge))
+            .proof,
+          device: fixtureDevice
+        })
+      })
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get('set-cookie')).toContain('author_session=');
+    await expect(response.json()).resolves.not.toHaveProperty('token');
   });
 
   it('validates active auth tokens without accepting invalid ones', async () => {
@@ -766,24 +822,31 @@ describe('Hono API', () => {
     process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
     process.env.NOTES_SERVER_SECRET = 'test-server-secret';
     process.env.NOTES_SIGNUP_ALLOWED_EMAILS = 'new@example.com';
+    const signupKeyring = (
+      await prepareNewAccountKeyring('new-user', 'new-user-password')
+    ).e2eeKeyring;
 
+    const firstSignupBody = await signupBody(
+      'new-user',
+      'new@example.com',
+      'new-user-password',
+      {
+        displayName: 'New User',
+        e2eeKeyring: signupKeyring
+      }
+    );
     const signup = await api.fetch(
       new Request('http://localhost/api/auth/signup', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(
-          await signupBody('new-user', 'new@example.com', 'new-user-password', {
-            displayName: 'New User',
-            e2eeKeyring: 'wrapped-keyring-v1'
-          })
-        )
+        body: JSON.stringify(firstSignupBody)
       })
     );
     expect(signup.status).toBe(200);
     await expect(signup.json()).resolves.toMatchObject({
       token: expect.any(String),
       user: { username: 'new-user', displayName: 'New User' },
-      e2eeKeyring: 'wrapped-keyring-v1'
+      e2eeKeyring: signupKeyring
     });
 
     const remote = await openConfiguredDatabase({
@@ -799,7 +862,7 @@ describe('Hono API', () => {
         username: 'new-user',
         email: 'new@example.com',
         display_name: 'New User',
-        e2ee_keyring: 'wrapped-keyring-v1'
+        e2ee_keyring: signupKeyring
       });
     } finally {
       remote.close();
@@ -809,12 +872,75 @@ describe('Hono API', () => {
       new Request('http://localhost/api/auth/signup', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(
-          await signupBody('new-user', 'new@example.com', 'new-user-password')
-        )
+        body: JSON.stringify(firstSignupBody)
       })
     );
     expect(duplicate.status).toBe(409);
+
+    const deletedRemote = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${remotePath}`, authToken: 'test-token' }
+    });
+    try {
+      await deletedRemote.execute({
+        sql: 'DELETE FROM users WHERE username = ?',
+        args: ['new-user']
+      });
+    } finally {
+      deletedRemote.close();
+    }
+    const replay = await api.fetch(
+      new Request('http://localhost/api/auth/signup', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...firstSignupBody, username: 'replayed-user' })
+      })
+    );
+    expect(replay.status).toBe(409);
+  });
+
+  it('requires a valid invitation and rate-limits username rotation', async () => {
+    const remotePath = join(tempDir, 'invitation-rate-limit.sqlite');
+    process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
+    process.env.TURSO_AUTH_TOKEN = 'test-token';
+    process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
+    process.env.NOTES_SIGNUP_ALLOWED_EMAILS = 'invited@example.com';
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const denied = await api.fetch(
+        new Request('http://localhost/api/auth/signup', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(
+            await signupBody(
+              `rotated-user-${attempt}`,
+              'invited@example.com',
+              'signup-password-2026',
+              { invitationCode: 'tampered-invitation' }
+            )
+          )
+        })
+      );
+      expect(denied.status).toBe(403);
+      await expect(denied.json()).resolves.toEqual({
+        error: 'Signup could not be completed'
+      });
+    }
+
+    const limited = await api.fetch(
+      new Request('http://localhost/api/auth/signup', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(
+          await signupBody(
+            'another-rotated-user',
+            'invited@example.com',
+            'signup-password-2026'
+          )
+        )
+      })
+    );
+    expect(limited.status).toBe(429);
   });
 
   it('signs up, logs in again, and decrypts synced notes with the same keyring', async () => {
@@ -851,6 +977,20 @@ describe('Hono API', () => {
       version: 1,
       syncStatus: 'pending' as const
     };
+    const plaintextPush = await post(
+      '/api/sync/push',
+      {
+        device: fixtureDevice,
+        notebooks: [],
+        notes: [{ record: note, baseVersion: 0 }]
+      },
+      signupSession.token
+    );
+    expect(plaintextPush.status).toBe(400);
+    await expect(plaintextPush.json()).resolves.toMatchObject({
+      error: expect.stringContaining('require current encrypted fields')
+    });
+
     const push = await post(
       '/api/sync/push',
       {
@@ -1043,7 +1183,8 @@ describe('Hono API', () => {
       signup: {
         enabled: true,
         emailRequired: true,
-        emailAllowListRequired: true
+        emailAllowListRequired: true,
+        invitationRequired: true
       }
     });
 
@@ -1143,7 +1284,7 @@ describe('Hono API', () => {
 
     expect(signup.status).toBe(403);
     await expect(signup.json()).resolves.toMatchObject({
-      error: 'Signup is disabled. Add an allowed email first.'
+      error: 'Signup could not be completed'
     });
   });
 
@@ -1357,6 +1498,9 @@ describe('Hono API', () => {
   });
 
   it('refuses password resets that would strand an encrypted account keyring', async () => {
+    const wrappedKeyring = (
+      await prepareNewAccountKeyring('owner', 'test-password-2026')
+    ).e2eeKeyring;
     const db = await openDatabase();
     try {
       await setUserPassword(db, 'owner', 'test-password-2026');
@@ -1365,7 +1509,7 @@ describe('Hono API', () => {
         'owner',
         undefined,
         undefined,
-        'wrapped-keyring-v1'
+        wrappedKeyring
       );
 
       await expect(
@@ -1492,8 +1636,11 @@ describe('Hono API', () => {
     expect(profile.status).toBe(401);
   });
 
-  it('persists keyring-only account repair without remote sync', async () => {
+  it('persists an authorized keyring repair without remote sync', async () => {
     const token = await loginToken();
+    const wrappedKeyring = (
+      await prepareNewAccountKeyring('owner', 'test-password-2026')
+    ).e2eeKeyring;
 
     const keyring = await api.fetch(
       new Request('http://localhost/api/account', {
@@ -1502,14 +1649,42 @@ describe('Hono API', () => {
           authorization: `Bearer ${token}`,
           'content-type': 'application/json'
         },
-        body: JSON.stringify({ e2eeKeyring: 'wrapped-local-keyring-v1' })
+        body: JSON.stringify({
+          e2eeKeyring: wrappedKeyring,
+          expectedE2eeKeyringHash: null,
+          proof: await passwordProof(
+            token,
+            'test-password-2026',
+            'keyring_update'
+          )
+        })
       })
     );
     expect(keyring.status).toBe(200);
     await expect(keyring.json()).resolves.toMatchObject({
       user: { username: 'owner' },
-      e2eeKeyring: 'wrapped-local-keyring-v1'
+      e2eeKeyring: wrappedKeyring
     });
+
+    const staleCompareAndSwap = await api.fetch(
+      new Request('http://localhost/api/account', {
+        method: 'PATCH',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          e2eeKeyring: wrappedKeyring,
+          expectedE2eeKeyringHash: null,
+          proof: await passwordProof(
+            token,
+            'test-password-2026',
+            'keyring_update'
+          )
+        })
+      })
+    );
+    expect(staleCompareAndSwap.status).toBe(409);
 
     const profile = await api.fetch(
       new Request('http://localhost/api/account', {
@@ -1529,7 +1704,7 @@ describe('Hono API', () => {
     const login = await loginResponse();
     expect(login.status).toBe(200);
     await expect(login.json()).resolves.toMatchObject({
-      e2eeKeyring: 'wrapped-local-keyring-v1'
+      e2eeKeyring: wrappedKeyring
     });
   });
 
@@ -1618,6 +1793,9 @@ describe('Hono API', () => {
       user: { username: 'owner', displayName: 'Iv' }
     });
 
+    const accountKeyring = (
+      await prepareNewAccountKeyring('owner', 'test-password-2026')
+    ).e2eeKeyring;
     const keyring = await api.fetch(
       new Request('http://localhost/api/account', {
         method: 'PATCH',
@@ -1625,13 +1803,21 @@ describe('Hono API', () => {
           authorization: `Bearer ${token}`,
           'content-type': 'application/json'
         },
-        body: JSON.stringify({ e2eeKeyring: 'wrapped-keyring-v1' })
+        body: JSON.stringify({
+          e2eeKeyring: accountKeyring,
+          expectedE2eeKeyringHash: null,
+          proof: await passwordProof(
+            token,
+            'test-password-2026',
+            'keyring_update'
+          )
+        })
       })
     );
     expect(keyring.status).toBe(200);
     await expect(keyring.json()).resolves.toMatchObject({
       user: { username: 'owner', displayName: 'Iv' },
-      e2eeKeyring: 'wrapped-keyring-v1'
+      e2eeKeyring: accountKeyring
     });
 
     const logout = await post('/api/auth/logout', {}, token);
@@ -1660,6 +1846,9 @@ describe('Hono API', () => {
       error: 'Invalid password payload'
     });
 
+    const replacementKeyring = (
+      await prepareNewAccountKeyring('owner', 'new-test-password-2026')
+    ).e2eeKeyring;
     const password = await post(
       '/api/account/password',
       {
@@ -1671,7 +1860,7 @@ describe('Hono API', () => {
         newPasswordVerifier: await passwordVerifierFromPassword(
           'new-test-password-2026'
         ),
-        e2eeKeyring: 'wrapped-keyring-v2'
+        e2eeKeyring: replacementKeyring
       },
       token
     );
@@ -1682,7 +1871,7 @@ describe('Hono API', () => {
     };
     expect(passwordBody.session?.token).toEqual(expect.any(String));
     expect(passwordBody).toMatchObject({
-      e2eeKeyring: 'wrapped-keyring-v2'
+      e2eeKeyring: replacementKeyring
     });
     const oldTokenValidate = await api.fetch(
       new Request('http://localhost/api/auth/validate', {
@@ -1699,7 +1888,7 @@ describe('Hono API', () => {
     const newLogin = await loginResponse('owner', 'new-test-password-2026');
     await expect(newLogin.json()).resolves.toMatchObject({
       token: expect.any(String),
-      e2eeKeyring: 'wrapped-keyring-v2'
+      e2eeKeyring: replacementKeyring
     });
 
     const remoteWithData = await openConfiguredDatabase({
@@ -2328,10 +2517,10 @@ describe('Hono API', () => {
 
   it('updates storage-limit estimates when the number of users changes', async () => {
     process.env.NOTES_RECORD_LIMITS_ENABLED = 'true';
-    process.env.NOTES_RECORD_LIMIT_STORAGE_BYTES = '1000';
+    process.env.NOTES_RECORD_LIMIT_STORAGE_BYTES = '4000';
     process.env.NOTES_RECORD_LIMIT_SAFETY_RATIO = '1';
-    process.env.NOTES_RECORD_LIMIT_NOTE_BYTES = '450';
-    process.env.NOTES_RECORD_LIMIT_NOTEBOOK_BYTES = '50';
+    process.env.NOTES_RECORD_LIMIT_NOTE_BYTES = '1800';
+    process.env.NOTES_RECORD_LIMIT_NOTEBOOK_BYTES = '200';
 
     const token = await loginToken();
     const firstPush = await post(
@@ -2393,6 +2582,31 @@ describe('Hono API', () => {
         estimatedNotes: 2
       }
     });
+  });
+
+  it('binds sync pushes to the session device and enforces device byte limits', async () => {
+    const token = await loginToken();
+    const otherDevice = await post(
+      '/api/sync/push',
+      {
+        device: { id: 'other-device', name: 'Other device' },
+        notebooks: [],
+        notes: []
+      },
+      token
+    );
+    expect(otherDevice.status).toBe(403);
+
+    const oversizedDevice = await post(
+      '/api/sync/push',
+      {
+        device: { id: 'x'.repeat(129), name: 'Oversized device' },
+        notebooks: [],
+        notes: []
+      },
+      token
+    );
+    expect(oversizedDevice.status).toBe(400);
   });
 
   it('rejects pushes that spoof a different record device id', async () => {

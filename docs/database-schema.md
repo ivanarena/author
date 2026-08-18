@@ -2,7 +2,7 @@
 
 ## Web Local IndexedDB
 
-Dexie database: `author`, current schema version: 6.
+Dexie database: `author`, current schema version: 7.
 
 Tables:
 
@@ -13,6 +13,7 @@ Tables:
 - `secrets`
 - `syncMeta`
 - `conflicts`
+- `editorRecovery`
 
 Local notes and notebooks include the shared schema fields plus:
 
@@ -29,6 +30,12 @@ field envelope context as the source note, are pruned to the newest 50
 snapshots per note, and are deleted when a note is permanently deleted. They do
 not sync or become API contract fields.
 
+`editorRecovery` stores the current crash-recovery title/body as field-context
+`enc:v4` envelopes. It survives a locked/session-only restart and is decrypted
+only after key material is available. Version-1 plaintext `localStorage`
+recovery is migrated before removal when the key is available, or removed on a
+locked surface rather than left as plaintext.
+
 `secrets` stores local-only browser secrets that must not become shared API
 fields. The current entry is the trusted-device secret used to prove this
 browser during trusted-device sign-in. Legacy installs migrate that value out
@@ -38,7 +45,7 @@ the active browser session.
 
 ## Server SQLite/libSQL
 
-Server schema migrations are tracked through version 20 in
+Server schema migrations are tracked through version 24 in
 `apps/web/src/lib/server/db.ts`.
 
 Tables:
@@ -50,6 +57,8 @@ Tables:
 - `auth_challenges`
 - `trusted_auth_devices`
 - `signup_allowed_emails`
+- `account_tombstones`
+- `consumed_signup_invitations`
 - `sync_meta`
 - `schema_migrations`
 - `notes`
@@ -64,25 +73,21 @@ conflicts, and cleanup. This gives v1 a recovery path without building a full
 audit UI. Snapshots older than 365 days are pruned by cleanup so long-lived
 sync accounts do not accumulate unbounded version rows.
 
-Notes store `title` and `body` as `enc:v4` encrypted text envelopes after the client has
-opened them once or synced with key material available. Notebooks store `name` as the same
-envelope format. `title_hash`, `body_hash`, and `name_hash` store stable keyed HMAC hashes for
-sync comparison and duplicate notebook checks while the encrypted text uses random IVs and
-field-specific authenticated data. Clients validate that an existing envelope decrypts before
-preserving it; spoofed prefix text is treated as plaintext and encrypted. Plaintext rows are
-encrypted by the browser or Android app before normal reads and sync.
+Notes store `title` and `body` as structurally validated `enc:v4` encrypted text envelopes. Notebooks store `name` as the same envelope format. `title_hash`, `body_hash`, and `name_hash` store stable keyed HMAC hashes for sync comparison and duplicate notebook checks while encrypted text uses random IVs and field-specific authenticated data. Sync-capable accounts reject plaintext, malformed envelopes, missing current hashes, and unknown future `enc:vN` namespaces instead of rewriting them. Legacy/bootstrap tooling remains separate from the authenticated sync endpoint.
 Markdown is not parsed or rendered.
 Notes store `is_favorite` as a boolean integer on both `notes` and
 `note_versions`, defaulting existing rows to `0`.
 
-Devices are keyed by `(owner_username, id)` so two accounts using the same
-browser- or Android-generated device id keep separate labels, trusted-device
-records, and session metadata. Notes, notebooks, entity changes, tombstones,
-and version snapshots also include `owner_username` so sync results are scoped
-to the authenticated account. Legacy token data is stored under `legacy-token`.
+Devices, notes, and notebooks are keyed by `(owner_username, id)` so two accounts using the same generated id keep separate records. The note-to-notebook foreign key is owner-scoped as well. Entity changes, tombstones, and version snapshots include `owner_username`; legacy token data is stored under `legacy-token`.
 
-Account E2EE keyrings are stored in `users.e2ee_keyring` as client-produced JSON. The server treats
-this value as opaque ciphertext: it contains the account data-key keyring wrapped by
+`notes.retention_started_at` and `notebooks.retention_started_at` record the
+server-observed transition into Trash/deleted state. Cleanup uses only this
+value, never the untrusted client timestamp. Restoring clears it.
+
+`account_tombstones` contains an explicit deletion id/time. Mirror sync never
+infers deletion from an absent user row; only this table propagates deletion.
+
+Account E2EE keyrings are stored in `users.e2ee_keyring` as client-produced JSON. The server validates the wrapper's version/algorithm/context/encoding while treating its ciphertext as opaque. Session-based keyring replacement requires a fresh `keyring_update` password proof and compare-and-swap hash of the previous wrapper. It contains the account data-key keyring wrapped by
 password-derived `password:v4` material and, when the user generated one, a recovery-code wrap. The server
 does not store plaintext note keys or recovery codes. Existing `enc:v3` password-encrypted fields
 remain migration-readable by current clients and are republished as `enc:v4` with key ids.
@@ -116,9 +121,7 @@ persisting raw IP addresses or usernames.
 `auth_challenges` stores short-lived password proof challenge state. Challenges
 are single-use and deleted during proof verification.
 
-`signup_allowed_emails` is the server-side allow-list for remote account creation.
-Signup only creates an account when the submitted email matches a row in this
-table.
+`signup_allowed_emails` is the server-side allow-list for remote account creation. Signup also requires a valid signed invitation bound to that email and an expiry; knowledge of the email alone is insufficient. `consumed_signup_invitations` stores only a SHA-256 token hash and consumption time so replay remains impossible even after account deletion.
 
 Active notebook names are treated as unique after trimming and case-folding. The client prevents duplicates locally; the server rejects duplicate-name pushes as sync conflicts.
 
@@ -138,12 +141,7 @@ Database: `author.db`, current schema version: 3.
 
 Android uses SQLCipher through `SQLiteOpenHelper`, not Room. A random database
 key is generated locally and stored through Android secure preferences. On
-startup, legacy plaintext `author.db` files are exported into a SQLCipher
-database and the plaintext backup is removed after a successful migration. If
-an encrypted database file survives but the local database key material is gone
-or undecryptable, Android moves the unreadable `author.db` aside with an
-`author.db.unreadable-*` suffix and starts a clean local database so a password
-login can pull synced remote data again.
+startup, legacy plaintext `author.db` files are read without mutating their schema version and copied row-by-row into a separate current-schema SQLCipher candidate. Record counts and `quick_check` are validated before the candidate is atomically installed; only after a successful helper open is the plaintext backup removed. Interrupted candidate/backup states are recovered on the next start. Secure-preference decryption errors never delete ciphertext, and an encrypted database with unavailable key material is left in place while the app shows a recovery error instead of silently starting empty.
 
 Tables:
 

@@ -295,27 +295,122 @@ export async function markAcceptedChanges(
 }
 
 export async function saveConflict(
-  conflict: SyncConflict<Note> | SyncConflict<Notebook>
+  conflict: SyncConflict<Note> | SyncConflict<Notebook>,
+  pushed?: { version: number; updatedAt: string }
 ): Promise<void> {
   const createdAt = nowIso();
-  const storedConflict = await encryptConflictForStorage(conflict);
-  await localDb.conflicts.put({
-    id: conflict.id,
-    entityType: conflict.entityType,
-    entityId: conflict.entityId,
-    status: 'pending',
-    createdAt,
-    conflict: storedConflict
-  });
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (conflict.entityType === 'note') {
+      const current = await localDb.notes.get(conflict.entityId);
+      const currentConflict: SyncConflict<Note> = current
+        ? {
+            ...(conflict as SyncConflict<Note>),
+            local: {
+              ...(conflict as SyncConflict<Note>).local,
+              deviceId: current.deviceId,
+              updatedAt: current.updatedAt,
+              version: current.version,
+              record: current
+            }
+          }
+        : (conflict as SyncConflict<Note>);
+      const storedConflict = await encryptConflictForStorage(currentConflict);
+      const saved = await localDb.transaction(
+        'rw',
+        [localDb.notes, localDb.conflicts],
+        async () => {
+          const latest = await localDb.notes.get(conflict.entityId);
+          if (
+            current &&
+            (!latest ||
+              latest.version !== current.version ||
+              latest.updatedAt !== current.updatedAt)
+          ) {
+            return false;
+          }
+          if (
+            !current &&
+            latest &&
+            pushed &&
+            (latest.version !== pushed.version ||
+              latest.updatedAt !== pushed.updatedAt)
+          ) {
+            return false;
+          }
+          await localDb.conflicts.put({
+            id: conflict.id,
+            entityType: conflict.entityType,
+            entityId: conflict.entityId,
+            status: 'pending',
+            createdAt,
+            conflict: storedConflict
+          });
+          if (latest) {
+            await localDb.notes.put({ ...latest, syncStatus: 'conflict' });
+          }
+          return true;
+        }
+      );
+      if (saved) return;
+      continue;
+    }
 
-  if (conflict.entityType === 'note') {
-    const note = await localDb.notes.get(conflict.entityId);
-    if (note) await localDb.notes.put({ ...note, syncStatus: 'conflict' });
-  } else {
-    const notebook = await localDb.notebooks.get(conflict.entityId);
-    if (notebook)
-      await localDb.notebooks.put({ ...notebook, syncStatus: 'conflict' });
+    const current = await localDb.notebooks.get(conflict.entityId);
+    const currentConflict: SyncConflict<Notebook> = current
+      ? {
+          ...(conflict as SyncConflict<Notebook>),
+          local: {
+            ...(conflict as SyncConflict<Notebook>).local,
+            deviceId: current.deviceId,
+            updatedAt: current.updatedAt,
+            version: current.version,
+            record: current
+          }
+        }
+      : (conflict as SyncConflict<Notebook>);
+    const storedConflict = await encryptConflictForStorage(currentConflict);
+    const saved = await localDb.transaction(
+      'rw',
+      [localDb.notebooks, localDb.conflicts],
+      async () => {
+        const latest = await localDb.notebooks.get(conflict.entityId);
+        if (
+          current &&
+          (!latest ||
+            latest.version !== current.version ||
+            latest.updatedAt !== current.updatedAt)
+        ) {
+          return false;
+        }
+        if (
+          !current &&
+          latest &&
+          pushed &&
+          (latest.version !== pushed.version ||
+            latest.updatedAt !== pushed.updatedAt)
+        ) {
+          return false;
+        }
+        await localDb.conflicts.put({
+          id: conflict.id,
+          entityType: conflict.entityType,
+          entityId: conflict.entityId,
+          status: 'pending',
+          createdAt,
+          conflict: storedConflict
+        });
+        if (latest) {
+          await localDb.notebooks.put({ ...latest, syncStatus: 'conflict' });
+        }
+        return true;
+      }
+    );
+    if (saved) return;
   }
+
+  throw new Error(
+    'Local record kept changing while its sync conflict was saved'
+  );
 }
 
 export async function absorbSameDevicePushConflict(

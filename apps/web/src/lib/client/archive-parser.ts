@@ -6,6 +6,7 @@ export interface ParsedImportNotebook {
 }
 
 export interface ParsedImportNote {
+  sourceId: string | null;
   title: string;
   body: string;
   sourceNotebookIds: string[];
@@ -13,6 +14,7 @@ export interface ParsedImportNote {
   createdAt: string | null;
   updatedAt: string | null;
   trashedAt: string | null;
+  isFavorite: boolean;
 }
 
 export interface ParsedImportPayload {

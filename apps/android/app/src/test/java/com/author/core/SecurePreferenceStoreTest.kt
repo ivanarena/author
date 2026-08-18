@@ -2,20 +2,19 @@ package com.author.core
 
 import android.content.SharedPreferences
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SecurePreferenceStoreTest {
   @Test
-  fun removesUndecryptableSecureValues() {
+  fun preservesUndecryptableSecureValuesAndFailsClosed() {
     val prefs = SecurePrefsFakeSharedPreferences()
     prefs.edit().putString("secret", "secure:v1:not-decryptable").commit()
     val store = SecurePreferenceStore(prefs, TestSecurePreferenceCodec())
 
-    assertNull(store.getString("secret"))
-    assertFalse(prefs.contains("secret"))
+    val error = runCatching { store.getString("secret") }.exceptionOrNull()
+    assertTrue(error is SecurePreferenceUnavailableException)
+    assertEquals("secure:v1:not-decryptable", prefs.getString("secret", null))
   }
 
   @Test

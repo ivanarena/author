@@ -107,6 +107,9 @@ async function importParsedNotes(
   const notebookIdByName = new Map<string, string>();
   const importedNotebookRows: LocalNotebook[] = [];
   const importedNotes: LocalNote[] = [];
+  const usedNoteIds = new Set<string>(
+    (await localDb.notes.toArray()).map((note) => note.id)
+  );
 
   for (const notebook of existingNotebooks) {
     if (notebook.deletedAt) continue;
@@ -180,7 +183,14 @@ async function importParsedNotes(
     const now = nowIso();
     const createdAt = note.createdAt ?? note.updatedAt ?? now;
     const updatedAt = note.updatedAt ?? createdAt;
-    const id = newId();
+    const sourceId = note.sourceId?.trim() ?? '';
+    const id =
+      sourceId &&
+      new TextEncoder().encode(sourceId).byteLength <= 128 &&
+      !usedNoteIds.has(sourceId)
+        ? sourceId
+        : newId();
+    usedNoteIds.add(id);
     importedNotes.push({
       id,
       title: note.title.trim(),
@@ -191,7 +201,7 @@ async function importParsedNotes(
       updatedAt,
       deletedAt: null,
       trashedAt: note.trashedAt,
-      isFavorite: false,
+      isFavorite: note.isFavorite,
       deviceId: device.id,
       version: 1,
       syncStatus: 'pending',

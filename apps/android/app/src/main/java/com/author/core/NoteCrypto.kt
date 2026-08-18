@@ -91,7 +91,7 @@ class NoteCrypto(
     encryptedEnvelope(value)?.version == CURRENT_ENCRYPTION_VERSION
 
   fun isUnsupportedEncryptedText(value: String): Boolean =
-    value.startsWith("enc:v1:") || value.startsWith("enc:v2:")
+    Regex("^enc:v\\d+:").containsMatchIn(value) && encryptedEnvelope(value) == null
 
   fun isCurrentFieldHash(value: String?): Boolean = value?.startsWith(HASH_V3_PREFIX) == true
 
@@ -460,6 +460,7 @@ class NoteCrypto(
     keyMaterial: String = getEncryptionKeyMaterial(),
     context: String = "text",
   ): String {
+    check(!isUnsupportedEncryptedText(value)) { "Unsupported or malformed encrypted field version" }
     if (canDecryptEncryptedTextWithPrimaryMaterial(value, keyMaterial, context)) return value
     val descriptor = activeEncryptionDescriptor(keyMaterial)
     val iv = ByteArray(12)

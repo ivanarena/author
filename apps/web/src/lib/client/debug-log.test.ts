@@ -78,6 +78,10 @@ describe('debug log', () => {
       detail: {
         token: 'session-token',
         authorization: 'Bearer bearer-token',
+        e2eeKeyring: 'wrapped-keyring-secret',
+        recoveryCode: 'recovery-code-secret',
+        keyMaterial: 'key-material-secret',
+        deviceTrustSecret: 'device-trust-secret',
         message: 'password=plain-text'
       }
     });
@@ -86,6 +90,10 @@ describe('debug log', () => {
     expect(log).not.toContain('session-token');
     expect(log).not.toContain('bearer-token');
     expect(log).not.toContain('plain-text');
+    expect(log).not.toContain('wrapped-keyring-secret');
+    expect(log).not.toContain('recovery-code-secret');
+    expect(log).not.toContain('key-material-secret');
+    expect(log).not.toContain('device-trust-secret');
     expect(log).toContain('[redacted]');
   });
 

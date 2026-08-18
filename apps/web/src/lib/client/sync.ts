@@ -43,7 +43,7 @@ const PUSH_BATCH_SIZE = 20;
 const PULL_BATCH_SIZE = 1000;
 const LAST_PUSHED_DEVICE_SIGNATURE_KEY = 'lastPushedDeviceSignature';
 const SYNC_LOCK_NAME = 'author-sync';
-const SYNC_LOCK_STORAGE_KEY = 'author-sync-lock-v1';
+const SYNC_LOCK_STORAGE_KEY = 'author-sync-lock-v2';
 const SYNC_LOCK_TTL_MS = 60_000;
 const SYNC_LOCK_RETRY_MS = 250;
 const SYNC_LOCK_WAIT_MS = 60_000;
@@ -61,7 +61,7 @@ type SyncLease = {
   expiresAt: number;
 };
 
-let inProcessSyncLock: Promise<unknown> | null = null;
+let activeFallbackLeaseOwner: string | null = null;
 
 export type SyncProgress =
   | { phase: 'preparing' }
@@ -80,7 +80,8 @@ export type SyncProgress =
 
 export type SyncProgressCallback = (progress: SyncProgress) => void;
 
-export type E2eeAuthLoginResponse = AuthLoginResponse & {
+export type E2eeAuthLoginResponse = Omit<AuthLoginResponse, 'token'> & {
+  token: string;
   encryptionKeyMaterial?: string;
   recoveryCode?: string;
   recoveryKit?: E2eeRecoveryKit;
@@ -305,7 +306,9 @@ async function runSyncUnlocked(
       total: totalPushCount,
       batchSize: 0
     });
+    await assertActiveSyncLease();
     await pushSyncChanges(token, { device, notes: [], notebooks: [] });
+    await assertActiveSyncLease();
     await rememberPushedDevice(device);
     onProgress?.({
       phase: 'pushing',
@@ -341,7 +344,9 @@ async function runSyncUnlocked(
       total: totalPushCount,
       batchSize
     });
+    await assertActiveSyncLease();
     const pushResponse = await pushSyncChanges(token, pushPayload);
+    await assertActiveSyncLease();
     await rememberPushedDevice(device);
     pushed += batchSize;
     onProgress?.({
@@ -371,7 +376,20 @@ async function runSyncUnlocked(
         continue;
       }
       conflicts += 1;
-      await saveConflict(conflict);
+      const pushed =
+        conflict.entityType === 'note'
+          ? pushPayload.notes.find(
+              (change) => change.record.id === conflict.entityId
+            )?.record
+          : pushPayload.notebooks.find(
+              (change) => change.record.id === conflict.entityId
+            )?.record;
+      await saveConflict(
+        conflict,
+        pushed
+          ? { version: pushed.version, updatedAt: pushed.updatedAt }
+          : undefined
+      );
     }
   }
 
@@ -402,7 +420,9 @@ async function runSyncUnlocked(
       sinceRevision: pullCursor,
       limit: PULL_BATCH_SIZE
     };
+    await assertActiveSyncLease();
     const pullResponse = await pullSyncChanges(token, pullPayload);
+    await assertActiveSyncLease();
     if (pullResponse.serverRevision < pullCursor && !resetPullCursor) {
       resetPullCursor = true;
       recordDebugLog({
@@ -494,21 +514,19 @@ function navigatorLocks(): LockManagerLike | null {
 async function withStorageSyncLease<T>(
   operation: () => Promise<T>
 ): Promise<T> {
-  const storage = storageSafe();
-  if (!storage) return withInProcessSyncLock(operation);
-
   const owner = syncLeaseOwner();
   const waitUntil = Date.now() + SYNC_LOCK_WAIT_MS;
-  while (!tryAcquireSyncLease(storage, owner)) {
+  while (!(await tryAcquireSyncLease(owner))) {
     if (Date.now() >= waitUntil) {
       throw new Error('Sync is already running in another tab');
     }
     await delay(SYNC_LOCK_RETRY_MS);
   }
 
+  activeFallbackLeaseOwner = owner;
   const heartbeat = setInterval(
     () => {
-      refreshSyncLease(storage, owner);
+      void refreshSyncLease(owner);
     },
     Math.max(1_000, Math.floor(SYNC_LOCK_TTL_MS / 3))
   );
@@ -517,53 +535,64 @@ async function withStorageSyncLease<T>(
     return await operation();
   } finally {
     clearInterval(heartbeat);
-    releaseSyncLease(storage, owner);
+    activeFallbackLeaseOwner = null;
+    await releaseSyncLease(owner);
   }
 }
 
-async function withInProcessSyncLock<T>(
-  operation: () => Promise<T>
-): Promise<T> {
-  while (inProcessSyncLock) {
-    await inProcessSyncLock.catch(() => undefined);
-  }
-
-  const run = operation();
-  const lockedRun = run.finally(() => {
-    if (inProcessSyncLock === lockedRun) inProcessSyncLock = null;
+async function tryAcquireSyncLease(owner: string): Promise<boolean> {
+  return await localDb.transaction('rw', localDb.syncMeta, async () => {
+    const now = Date.now();
+    const current = parseSyncLease(
+      (await localDb.syncMeta.get(SYNC_LOCK_STORAGE_KEY))?.value ?? null
+    );
+    if (current && current.owner !== owner && current.expiresAt > now) {
+      return false;
+    }
+    await localDb.syncMeta.put({
+      key: SYNC_LOCK_STORAGE_KEY,
+      value: JSON.stringify({ owner, expiresAt: now + SYNC_LOCK_TTL_MS })
+    });
+    return true;
   });
-  inProcessSyncLock = lockedRun;
-  return run;
 }
 
-function tryAcquireSyncLease(storage: Storage, owner: string): boolean {
-  const now = Date.now();
-  const current = parseSyncLease(storage.getItem(SYNC_LOCK_STORAGE_KEY));
-  if (current && current.owner !== owner && current.expiresAt > now) {
-    return false;
+async function refreshSyncLease(owner: string): Promise<void> {
+  await localDb.transaction('rw', localDb.syncMeta, async () => {
+    const current = parseSyncLease(
+      (await localDb.syncMeta.get(SYNC_LOCK_STORAGE_KEY))?.value ?? null
+    );
+    if (current?.owner !== owner) return;
+    await localDb.syncMeta.put({
+      key: SYNC_LOCK_STORAGE_KEY,
+      value: JSON.stringify({
+        owner,
+        expiresAt: Date.now() + SYNC_LOCK_TTL_MS
+      })
+    });
+  });
+}
+
+async function releaseSyncLease(owner: string): Promise<void> {
+  await localDb.transaction('rw', localDb.syncMeta, async () => {
+    const current = parseSyncLease(
+      (await localDb.syncMeta.get(SYNC_LOCK_STORAGE_KEY))?.value ?? null
+    );
+    if (current?.owner === owner) {
+      await localDb.syncMeta.delete(SYNC_LOCK_STORAGE_KEY);
+    }
+  });
+}
+
+async function assertActiveSyncLease(): Promise<void> {
+  const owner = activeFallbackLeaseOwner;
+  if (!owner) return;
+  const current = parseSyncLease(
+    (await localDb.syncMeta.get(SYNC_LOCK_STORAGE_KEY))?.value ?? null
+  );
+  if (current?.owner !== owner || current.expiresAt <= Date.now()) {
+    throw new Error('Sync lease was lost to another tab');
   }
-
-  storage.setItem(
-    SYNC_LOCK_STORAGE_KEY,
-    JSON.stringify({ owner, expiresAt: now + SYNC_LOCK_TTL_MS })
-  );
-  return (
-    parseSyncLease(storage.getItem(SYNC_LOCK_STORAGE_KEY))?.owner === owner
-  );
-}
-
-function refreshSyncLease(storage: Storage, owner: string): void {
-  const current = parseSyncLease(storage.getItem(SYNC_LOCK_STORAGE_KEY));
-  if (current?.owner !== owner) return;
-  storage.setItem(
-    SYNC_LOCK_STORAGE_KEY,
-    JSON.stringify({ owner, expiresAt: Date.now() + SYNC_LOCK_TTL_MS })
-  );
-}
-
-function releaseSyncLease(storage: Storage, owner: string): void {
-  const current = parseSyncLease(storage.getItem(SYNC_LOCK_STORAGE_KEY));
-  if (current?.owner === owner) storage.removeItem(SYNC_LOCK_STORAGE_KEY);
 }
 
 function parseSyncLease(value: string | null): SyncLease | null {
@@ -578,14 +607,6 @@ function parseSyncLease(value: string | null): SyncLease | null {
       return null;
     }
     return { owner: parsed.owner, expiresAt: parsed.expiresAt };
-  } catch {
-    return null;
-  }
-}
-
-function storageSafe(): Storage | null {
-  try {
-    return typeof localStorage === 'undefined' ? null : localStorage;
   } catch {
     return null;
   }
@@ -634,7 +655,12 @@ export async function login(
     response.user.username,
     passwordMaterial
   );
-  await updateE2eeKeyring(response.token, migrated.e2eeKeyring);
+  await updateE2eeKeyring(
+    response.token,
+    migrated.e2eeKeyring,
+    password,
+    response.e2eeKeyring ?? null
+  );
   return {
     ...response,
     e2eeKeyring: migrated.e2eeKeyring,
@@ -665,6 +691,7 @@ async function unlockLoginKeyring(
 export async function signup(
   username: string,
   email: string,
+  invitationCode: string,
   password: string
 ): Promise<E2eeAuthLoginResponse> {
   const device = await getOrCreateDevice();
@@ -672,6 +699,7 @@ export async function signup(
   const body: AuthSignupRequest = {
     username,
     email,
+    invitationCode,
     password,
     e2eeKeyring: keyring.e2eeKeyring,
     device,

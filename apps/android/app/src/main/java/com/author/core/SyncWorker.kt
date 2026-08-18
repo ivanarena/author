@@ -55,6 +55,7 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
             )
             when {
               error is AuthException -> Result.success()
+              error is SyncHttpException && !error.isRetryable() -> Result.success()
               retryLocalDatabaseBusy -> Result.retry()
               localDatabaseBusy -> Result.success()
               else -> Result.retry()
@@ -84,6 +85,9 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
     }
   }
 }
+
+private fun SyncHttpException.isRetryable(): Boolean =
+  status == 408 || status == 429 || status >= 500
 
 private fun Throwable.isLocalDatabaseBusy(): Boolean {
   var current: Throwable? = this

@@ -21,7 +21,8 @@ Record the exact workflow run URL, conclusion, and commit SHA.
 - CI:
 - Docker:
 - Cloudflare Deploy:
-- Android Release APK:
+- Android private test APK:
+- Android production Release APK:
 - CodeQL SARIF or code-scanning review:
 - OpenSSF Scorecard SARIF review:
 - Trivy SARIF review:
@@ -30,6 +31,7 @@ Record the exact workflow run URL, conclusion, and commit SHA.
 
 Record command, result, timestamp, and notes for failures or accepted skips.
 
+- `aube run toolchain:check`:
 - `aube run release:version:check`:
 - `aube run deps:check`:
 - `aube run quality`:
@@ -73,7 +75,9 @@ Record command, result, timestamp, and notes for failures or accepted skips.
 - Container digest:
 - Cosign verification:
 - SBOM/provenance:
-- Android APK URL:
+- Android private test APK artifact:
+- Android test-device upgrade/smoke result:
+- Android production APK URL:
 - Android APK SHA-256:
 - Android signing verification:
 - Android update-check URL:

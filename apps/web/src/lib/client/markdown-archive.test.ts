@@ -142,8 +142,10 @@ describe('Markdown archive import and export', () => {
           id: 'note-1',
           title: 'Aurora',
           body: "un'aurora mi stringe",
-          notebookIds: ['poems'],
-          notebookId: 'poems'
+          notebookIds: ['poems', 'favorites'],
+          notebookId: 'poems',
+          isFavorite: true,
+          trashedAt: '2026-04-30T09:00:00.000Z'
         }),
         note({
           id: 'note-2',
@@ -170,7 +172,10 @@ describe('Markdown archive import and export', () => {
           updatedAt: '2026-04-28T10:00:00.000Z'
         })
       ],
-      [notebook({ id: 'poems', name: 'poems' })],
+      [
+        notebook({ id: 'poems', name: 'poems' }),
+        notebook({ id: 'favorites', name: 'favorites' })
+      ],
       exportedAt
     );
 
@@ -182,6 +187,23 @@ describe('Markdown archive import and export', () => {
       'Root---note.md'
     ]);
     expect(archive.files[0].content).toContain('title: "Aurora"');
+    expect(archive.files[0].content).toContain('author_id: "note-1"');
+    expect(archive.files[0].content).toContain(
+      'author_notebooks: "[\\"poems\\",\\"favorites\\"]"'
+    );
+    expect(archive.files[0].content).toContain('favorite: true');
+    expect(archive.files[0].content).toContain(
+      'trashed_at: 2026-04-30T09:00:00.000Z'
+    );
+    expect(archive.files[0].content).toContain(
+      'created_at: 2026-04-30T10:00:00.000Z'
+    );
+    expect(parseMarkdownNote(archive.files[0].content)).toMatchObject({
+      sourceId: 'note-1',
+      sourceNotebookNames: ['poems', 'favorites'],
+      isFavorite: true,
+      trashedAt: '2026-04-30T09:00:00.000Z'
+    });
     expect(archive.files[0].content).toContain('\n# Aurora\n\n');
     expect(archive.files[1].content.match(/^# Aurora/gm)).toHaveLength(1);
   });

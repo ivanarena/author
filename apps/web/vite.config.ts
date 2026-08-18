@@ -67,6 +67,9 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [sveltekit()],
+    ssr: {
+      noExternal: ['@sveltejs/kit']
+    },
     server: {
       fs: {
         allow: [repoRoot, searchForWorkspaceRoot(appRoot)]

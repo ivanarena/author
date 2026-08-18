@@ -1,6 +1,6 @@
 # Package Manager
 
-Aube is the package manager for this repo.
+Aube 1.16.0 is the package manager for this repo, with Node.js 24.12 or newer.
 
 The repo uses `aube-lock.yaml`. Do not add other package-manager lockfiles.
 
@@ -36,6 +36,7 @@ Alternative Aube install paths are Homebrew, Cargo, npm, Ubuntu PPA, and Fedora/
 
 ```sh
 aube install
+aube run toolchain:check
 aube -F @author/web run dev
 aube -F @author/web run build
 aube -F @author/web run check

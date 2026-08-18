@@ -27,15 +27,12 @@ class NoteCryptoTest {
     "enc:v4:dk_cross_device_test:MDEyMzQ1Njc4OTo7:Ogt4VSKzR-umq82mqNrCHbF661Qoz4GMjc30m1di5H1q"
 
   @Test
-  fun encryptsLiteralTextThatOnlyImitatesEncryptedPrefix() {
+  fun failsClosedForTextThatImitatesEncryptedNamespace() {
     val prefixedPlaintext = "enc:v3:ZmFrZS1pdg:bm90LWFlcy1nY20"
-    val encrypted = crypto.encryptText(prefixedPlaintext, "test-key")
+    val error = runCatching { crypto.encryptText(prefixedPlaintext, "test-key") }.exceptionOrNull()
 
-    assertNotEquals(prefixedPlaintext, encrypted)
-    assertTrue(crypto.isEncryptedText(encrypted))
-    assertTrue(crypto.isCurrentEncryptedText(encrypted))
+    assertEquals("Unsupported or malformed encrypted field version", error?.message)
     assertFalse(crypto.canDecryptEncryptedText(prefixedPlaintext, "test-key"))
-    assertEquals(prefixedPlaintext, crypto.decryptText(encrypted, "test-key"))
   }
 
   @Test
@@ -51,19 +48,13 @@ class NoteCryptoTest {
   }
 
   @Test
-  fun encryptsPrefixedNoteFieldsInsteadOfPreservingSpoofedEnvelopes() {
+  fun rejectsPrefixedNoteFieldsWithMalformedEnvelopes() {
     val prefixed =
       note("note-1", title = "enc:v3:dGl0bGU:ZmFrZQ", body = "enc:v3:Ym9keQ:ZmFrZQ")
         .copy(titleHash = "hash:v2:stale-title", bodyHash = "hash:v2:stale-body")
 
-    val encrypted = crypto.encryptNoteFields(prefixed, "sync-key")
-
-    assertNotEquals(prefixed.title, encrypted.title)
-    assertNotEquals(prefixed.body, encrypted.body)
-    assertNotEquals(prefixed.titleHash, encrypted.titleHash)
-    assertNotEquals(prefixed.bodyHash, encrypted.bodyHash)
-    assertEquals(prefixed.title, crypto.decryptNoteFields(encrypted, "sync-key").title)
-    assertEquals(prefixed.body, crypto.decryptNoteFields(encrypted, "sync-key").body)
+    val error = runCatching { crypto.encryptNoteFields(prefixed, "sync-key") }.exceptionOrNull()
+    assertEquals("Unsupported or malformed encrypted field version", error?.message)
   }
 
   @Test
@@ -243,7 +234,8 @@ class NoteCryptoTest {
   fun identifiesOldEncryptionFormatsAsRequiringMigrationRelease() {
     assertTrue(crypto.isUnsupportedEncryptedText("enc:v1:old"))
     assertTrue(crypto.isUnsupportedEncryptedText("enc:v2:old"))
-    assertFalse(crypto.isUnsupportedEncryptedText("enc:v3:spoof"))
+    assertTrue(crypto.isUnsupportedEncryptedText("enc:v3:spoof"))
+    assertTrue(crypto.isUnsupportedEncryptedText("enc:v5:future"))
     assertTrue(crypto.isUnsupportedEncryptionKeyMaterial("password:v3:argon2id:m=1,t=1,p=1:key"))
     assertTrue(crypto.isUnsupportedEncryptionKeyMaterial("password:old-sha-key"))
     assertFalse(

@@ -2,6 +2,7 @@
   import { ArchiveRestore, Clock3, History, X } from '@lucide/svelte';
   import { noteDisplayTitle } from '$lib/client/note-utils';
   import type { NoteHistoryDialogModel } from './controller/page-controller.svelte.js';
+  import { modalFocus } from './modal-focus';
 
   let { model }: { model: NoteHistoryDialogModel } = $props();
 
@@ -40,6 +41,7 @@
       aria-labelledby="note-history-title"
       tabindex="-1"
       bind:this={model.historyModal}
+      use:modalFocus
       onclick={(event) => event.stopPropagation()}
       onkeydown={(event) => {
         if (event.key === 'Escape') model.closeNoteHistory();

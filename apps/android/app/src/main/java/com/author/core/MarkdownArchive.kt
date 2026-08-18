@@ -2,6 +2,7 @@ package com.author.core
 
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.io.OutputStream
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -16,12 +17,14 @@ data class BoundedUtf8Text(val text: String, val byteCount: Long)
 data class ParsedImportNotebook(val name: String, val createdAt: String?, val updatedAt: String?)
 
 data class ParsedImportNote(
+  val sourceId: String?,
   val title: String,
   val body: String,
   val sourceNotebookNames: List<String>,
   val createdAt: String?,
   val updatedAt: String?,
   val trashedAt: String?,
+  val isFavorite: Boolean,
 )
 
 data class ParsedImportPayload(
@@ -82,7 +85,9 @@ fun parseNotesMarkdownImportFiles(files: List<MarkdownInputFile>): ParsedImportP
     markdownFiles.mapIndexed { index, file ->
       val path = strippedPaths.getOrElse(index) { file.name }
       val parsed = parseMarkdownNote(file.text, file.name)
-      parsed.copy(sourceNotebookNames = parentSegments(path))
+      parsed.copy(
+        sourceNotebookNames = (parsed.sourceNotebookNames + parentSegments(path)).distinct()
+      )
     }
   return ParsedImportPayload(
     notebooks = notebookNames.map { ParsedImportNotebook(it, null, null) },
@@ -96,31 +101,37 @@ fun parseMarkdownNote(content: String, fallbackFileName: String): ParsedImportNo
     frontmatter["title"]?.takeIf { it.isNotBlank() }
       ?: deriveTitle(body).ifBlank { titleFromFileName(fallbackFileName) }
   return ParsedImportNote(
+    sourceId = frontmatter["author_id"]?.takeIf { it.isNotBlank() },
     title = title,
     body = stripGeneratedHeading(body, title),
-    sourceNotebookNames = emptyList(),
+    sourceNotebookNames = parseNotebookNames(frontmatter["author_notebooks"]),
     createdAt = parseMarkdownDate(frontmatter["created_at"]),
     updatedAt = parseMarkdownDate(frontmatter["updated_at"]),
-    trashedAt = null,
+    trashedAt = parseMarkdownDate(frontmatter["trashed_at"]),
+    isFavorite = frontmatter["favorite"].equals("true", ignoreCase = true),
   )
 }
 
-fun buildMarkdownZip(
+fun markdownArchiveFileName(exportedAt: String = nowIso()): String =
+  "author-${exportedAt.take(10)}-md-frontmatter.zip"
+
+fun writeMarkdownZip(
   notes: List<LocalNote>,
   notebooks: List<LocalNotebook>,
-): Pair<String, ByteArray> {
-  val exportedAt = nowIso()
+  output: OutputStream,
+  exportedAt: String = nowIso(),
+): String {
   val rootName = "author-${exportedAt.take(10)}-md-frontmatter"
   val activeNotebooks = notebooks.filter { it.deletedAt == null }.associateBy { it.id }
   val usedPaths = mutableSetOf<String>()
-  val output = ByteArrayOutputStream()
   ZipOutputStream(output, Charsets.UTF_8).use { zip ->
     notes
       .filter { it.deletedAt == null }
       .sortedByDescending { it.updatedAt }
       .forEach { note ->
         val title = noteDisplayTitle(note)
-        val notebookName = noteNotebookIds(note).firstNotNullOfOrNull { activeNotebooks[it]?.name }
+        val notebookNames = noteNotebookIds(note).mapNotNull { activeNotebooks[it]?.name }
+        val notebookName = notebookNames.firstOrNull()
         val relativePath =
           uniquePath(
             listOfNotNull(notebookName?.let { safePathSegment(it) }, "${safePathSegment(title)}.md")
@@ -128,20 +139,37 @@ fun buildMarkdownZip(
             usedPaths,
           )
         zip.putNextEntry(ZipEntry("$rootName/$relativePath"))
-        zip.write(markdownNoteContent(note, title).toByteArray(Charsets.UTF_8))
+        zip.write(markdownNoteContent(note, title, notebookNames).toByteArray(Charsets.UTF_8))
         zip.closeEntry()
       }
   }
-  return "$rootName.zip" to output.toByteArray()
+  return "$rootName.zip"
 }
 
-fun markdownNoteContent(note: LocalNote, title: String): String {
+fun buildMarkdownZip(
+  notes: List<LocalNote>,
+  notebooks: List<LocalNotebook>,
+): Pair<String, ByteArray> {
+  val output = ByteArrayOutputStream()
+  val fileName = writeMarkdownZip(notes, notebooks, output)
+  return fileName to output.toByteArray()
+}
+
+fun markdownNoteContent(
+  note: LocalNote,
+  title: String,
+  notebookNames: List<String> = emptyList(),
+): String {
   val body = bodyWithHeading(note.body, title)
   return listOf(
       delimiter,
       "title: \"${escapeYamlString(title)}\"",
-      "created_at: ${formatMarkdownDate(note.createdAt)}",
-      "updated_at: ${formatMarkdownDate(note.updatedAt)}",
+      "author_id: \"${escapeYamlString(note.id)}\"",
+      "author_notebooks: \"${escapeYamlString(org.json.JSONArray(notebookNames).toString())}\"",
+      "created_at: ${portableMarkdownDate(note.createdAt)}",
+      "updated_at: ${portableMarkdownDate(note.updatedAt)}",
+      "trashed_at: ${note.trashedAt.orEmpty()}",
+      "favorite: ${note.isFavorite}",
       "tags: ",
       delimiter,
       "",
@@ -150,6 +178,9 @@ fun markdownNoteContent(note: LocalNote, title: String): String {
     )
     .joinToString("\n")
 }
+
+private fun portableMarkdownDate(value: String): String =
+  runCatching { Instant.parse(value).toString() }.getOrDefault("")
 
 fun formatMarkdownDate(value: String): String =
   runCatching {
@@ -169,6 +200,20 @@ fun formatMarkdownDate(value: String): String =
         )
     }
     .getOrDefault("")
+
+private fun parseNotebookNames(value: String?): List<String> {
+  if (value.isNullOrBlank()) return emptyList()
+  return runCatching {
+      val array = org.json.JSONArray(value)
+      buildList {
+          for (index in 0 until array.length()) {
+            array.optString(index).trim().takeIf(String::isNotBlank)?.let(::add)
+          }
+        }
+        .distinct()
+    }
+    .getOrDefault(emptyList())
+}
 
 private fun splitFrontmatter(content: String): Pair<Map<String, String>, String> {
   val normalized = content.replace("\r\n", "\n")

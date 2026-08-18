@@ -13,9 +13,12 @@ try {
     db,
     `DELETE FROM note_versions;
      DELETE FROM notebook_versions;
+     DELETE FROM entity_tombstones;
+     DELETE FROM entity_changes;
      DELETE FROM notes;
      DELETE FROM notebooks;
-     DELETE FROM devices;`
+     DELETE FROM devices;
+     DELETE FROM sync_meta WHERE key LIKE 'mirror.%';`
   );
 
   await upsertDevice(db, fixtureDevice);

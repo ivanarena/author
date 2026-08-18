@@ -36,7 +36,7 @@ export function isCurrentEncryptedText(value: string): boolean {
 }
 
 export function isUnsupportedEncryptedText(value: string): boolean {
-  return /^enc:v[12]:/.test(value);
+  return /^enc:v\d+:/.test(value) && encryptedEnvelope(value) === null;
 }
 
 export function isCurrentFieldHash(value: string | null | undefined): boolean {
@@ -110,6 +110,9 @@ export async function encryptText(
   keyMaterial = getEncryptionKeyMaterial(),
   context = 'text'
 ): Promise<string> {
+  if (isUnsupportedEncryptedText(value)) {
+    throw new Error('Unsupported or malformed encrypted field version');
+  }
   if (
     await canDecryptEncryptedTextWithPrimaryMaterial(
       value,

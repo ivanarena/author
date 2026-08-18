@@ -207,15 +207,15 @@ function redactDebugLogSecrets(value: string): string {
   return value
     .replace(/\b(Bearer)\s+[A-Za-z0-9._~+/=-]+/gi, `$1 ${REDACTED_DEBUG_VALUE}`)
     .replace(
-      /("(?:authorization|token|authToken|password|secret)"\s*:\s*)"[^"]*"/gi,
+      /("(?:authorization|token|authToken|password|secret|e2eeKeyring|recoveryCode|keyMaterial|deviceTrustSecret)"\s*:\s*)"[^"]*"/gi,
       `$1"${REDACTED_DEBUG_VALUE}"`
     )
     .replace(
-      /('(?:authorization|token|authToken|password|secret)'\s*:\s*)'[^']*'/gi,
+      /('(?:authorization|token|authToken|password|secret|e2eeKeyring|recoveryCode|keyMaterial|deviceTrustSecret)'\s*:\s*)'[^']*'/gi,
       `$1'${REDACTED_DEBUG_VALUE}'`
     )
     .replace(
-      /\b((?:authorization|token|authToken|password|secret)\s*=\s*)[^\s,"'}]+/gi,
+      /\b((?:authorization|token|authToken|password|secret|e2eeKeyring|recoveryCode|keyMaterial|deviceTrustSecret)\s*=\s*)[^\s,"'}]+/gi,
       `$1${REDACTED_DEBUG_VALUE}`
     );
 }

@@ -1,5 +1,6 @@
 package com.author.ui.app
 
+import android.content.ClipData
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -26,13 +27,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -43,6 +45,7 @@ import com.author.core.LocalConflict
 import com.author.ui.common.*
 import com.author.ui.state.NotesController
 import com.author.ui.theme.AppTextSize
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun LoginDialog(controller: NotesController) {
@@ -80,6 +83,16 @@ internal fun LoginDialog(controller: NotesController) {
           KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Email),
       ) {
         controller.signupEmailValue = it
+        controller.loginError = ""
+      }
+      MiniField(
+        controller.signupInvitationValue,
+        "Invitation code",
+        Modifier.fillMaxWidth(),
+        keyboardOptions =
+          KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii),
+      ) {
+        controller.signupInvitationValue = it
         controller.loginError = ""
       }
     }
@@ -225,7 +238,8 @@ private fun authSubmitLabel(controller: NotesController): String =
 
 @Composable
 internal fun SignupRecoveryDialog(controller: NotesController, onSaveRecoveryKit: () -> Unit) {
-  val clipboard = LocalClipboardManager.current
+  val clipboard = LocalClipboard.current
+  val scope = rememberCoroutineScope()
   val recoveryMessage = controller.signupRecoveryMessage
   AppModal(onDismissRequest = {}, dismissOnBackPress = false, dismissOnClickOutside = false) {
     AppModalTitle("Save recovery key")
@@ -260,8 +274,14 @@ internal fun SignupRecoveryDialog(controller: NotesController, onSaveRecoveryKit
       }
     }
     ModalActionButton("Copy key") {
-      clipboard.setText(AnnotatedString(controller.signupRecoveryCodeValue))
-      controller.signupRecoveryMessage = "Recovery key copied"
+      scope.launch {
+        clipboard.setClipEntry(
+          ClipEntry(
+            ClipData.newPlainText("Author recovery key", controller.signupRecoveryCodeValue)
+          )
+        )
+        controller.signupRecoveryMessage = "Recovery key copied"
+      }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
       ModalActionButton(

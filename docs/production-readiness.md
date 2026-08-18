@@ -138,10 +138,11 @@ Required external blockers:
   independent code-review enforcement, OpenSSF best-practices badge status, fuzzing coverage,
   Gradle wrapper binary review, and Docker npm-command pinning require either an
   admin/platform change or a written exception in release notes.
-- Verify the release commit has successful `CI`, `Docker`, `Security`, and
-  `Remote Staging Smoke` workflow runs before manually dispatching
-  `Cloudflare Deploy`; verify that production deployment before publishing
-  release notes.
+- Verify the release commit has successful required jobs in `CI`, `Security`,
+  and `Remote Staging Smoke`, plus the successful `Publish signed image` Docker
+  job, before manually dispatching `Cloudflare Deploy`. Skipped/no-op jobs do
+  not qualify as release evidence. Verify that production deployment before
+  publishing release notes.
 - Verify Cosign-signed container images and protected Android release keys.
 - Dispatch the private Android `test` channel against staging, verify its
   signing certificate and checksum, and install it over the previous production

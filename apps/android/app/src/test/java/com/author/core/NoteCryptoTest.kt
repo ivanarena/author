@@ -29,9 +29,13 @@ class NoteCryptoTest {
   @Test
   fun failsClosedForTextThatImitatesEncryptedNamespace() {
     val prefixedPlaintext = "enc:v3:ZmFrZS1pdg:bm90LWFlcy1nY20"
-    val error = runCatching { crypto.encryptText(prefixedPlaintext, "test-key") }.exceptionOrNull()
+    val encryptError =
+      runCatching { crypto.encryptText(prefixedPlaintext, "test-key") }.exceptionOrNull()
+    val decryptError =
+      runCatching { crypto.decryptText(prefixedPlaintext, "test-key") }.exceptionOrNull()
 
-    assertEquals("Unsupported or malformed encrypted field version", error?.message)
+    assertEquals("Unsupported or malformed encrypted field version", encryptError?.message)
+    assertEquals("Unsupported or malformed encrypted field version", decryptError?.message)
     assertFalse(crypto.canDecryptEncryptedText(prefixedPlaintext, "test-key"))
   }
 

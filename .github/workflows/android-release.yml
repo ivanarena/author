@@ -36,16 +36,12 @@ env:
   RELEASE_TAG: ${{ inputs.tag }}
 
 jobs:
-  signed-apk:
-    name: Signed APK
+  release-gate:
+    name: Validate Android release
     runs-on: ubuntu-latest
-    environment: ${{ inputs.channel == 'production' && 'production' || 'staging' }}
-    timeout-minutes: 35
-    permissions:
-      actions: read # Query gates and upload the private artifact.
-      contents: read
+    timeout-minutes: 10
     outputs:
-      asset-name: ${{ steps.asset.outputs.asset_name }}
+      release-sha: ${{ steps.source.outputs.release_sha }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -54,6 +50,7 @@ jobs:
           persist-credentials: false
 
       - name: Validate release source
+        id: source
         run: |
           git fetch --tags origin main:refs/remotes/origin/main
           release_sha="$(git rev-parse HEAD)"
@@ -82,6 +79,7 @@ jobs:
             echo "::error::Unsupported release channel: ${RELEASE_CHANNEL}"
             exit 1
           fi
+          echo "release_sha=$release_sha" >> "$GITHUB_OUTPUT"
 
       - name: Validate Android release version
         run: |
@@ -91,38 +89,45 @@ jobs:
             bash scripts/validate-android-release-version.sh
           fi
 
-      - name: Require green release gates
+      - name: Require green release jobs
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           release_sha="$(git rev-parse HEAD)"
-
-          require_successful_workflow() {
-            workflow_name="$1"
-            run_url="$(
-              gh run list \
-                --workflow "$workflow_name" \
-                --commit "$release_sha" \
-                --limit 20 \
-                --json status,conclusion,url,createdAt \
-                --jq 'map(select(.status == "completed" and .conclusion == "success")) | sort_by(.createdAt) | reverse | .[0].url // ""'
-            )"
-
-            if [ -z "$run_url" ]; then
-              echo "::error::No successful ${workflow_name} workflow run found for ${release_sha}."
-              exit 1
-            fi
-
-            echo "${workflow_name} gate passed: ${run_url}"
-          }
-
-          require_successful_workflow "CI"
-          require_successful_workflow "Docker"
-          require_successful_workflow "Security"
-          require_successful_workflow "Remote Staging Smoke"
+          scripts/require-successful-workflow-jobs.sh \
+            "CI" "$release_sha" \
+            "Workflow lint" "Web" "Android" "Android Connected"
+          scripts/require-successful-workflow-jobs.sh \
+            "Docker" "$release_sha" "Publish signed image"
+          scripts/require-successful-workflow-jobs.sh \
+            "Security" "$release_sha" \
+            "OpenSSF Scorecard" \
+            "CodeQL (javascript-typescript, none)" \
+            "CodeQL (java-kotlin, manual)"
+          scripts/require-successful-workflow-jobs.sh \
+            "Remote Staging Smoke" "$release_sha" "Staging Worker and Turso"
           if [ "$RELEASE_CHANNEL" = production ]; then
-            require_successful_workflow "Cloudflare Deploy"
+            scripts/require-successful-workflow-jobs.sh \
+              "Cloudflare Deploy" "$release_sha" "Deploy Worker"
           fi
+
+  signed-apk:
+    name: Signed APK
+    runs-on: ubuntu-latest
+    needs: release-gate
+    environment: ${{ inputs.channel == 'production' && 'production' || 'staging' }}
+    timeout-minutes: 35
+    permissions:
+      actions: read # Query gates and upload the private artifact.
+      contents: read
+    outputs:
+      asset-name: ${{ steps.asset.outputs.asset_name }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.release-gate.outputs.release-sha }}
+          fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:

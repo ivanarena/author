@@ -21,7 +21,7 @@ Each changed entity is sent as:
 ```
 
 Clients send at most 20 note/notebook changes in a single push request. The server also enforces UTF-8 byte limits for every identifier, field, hash, timestamp, device label, and assignment list; binds a device to its authenticated session; caps accounts at 50 devices; rate-limits pushes; and checks active plus auxiliary snapshot/change storage inside the write transaction.
-When server-side record limits are enabled, the server estimates post-push active note/notebook counts, active bytes, devices, version snapshots, tombstones, and revision metadata for the authenticated user inside the accepting transaction. A limit failure returns an explicit sync error and does not
+When server-side record limits are enabled, the server estimates post-push active note/notebook counts, active bytes, devices, version snapshots, tombstones, and revision metadata for the authenticated user inside the accepting transaction. An already-over-limit account can bypass that limit only when every change is a version-matched deletion of a currently active record; stale/conflict-only or content-shrinking updates do not qualify. A limit failure returns an explicit sync error and does not
 drop local pending records; clients can retry after deleting/exporting data or
 after the operator adjusts the configured budget.
 `baseVersion` is the last remote version the client successfully synced. New local entities use `0`.
@@ -70,9 +70,11 @@ unchanged key material remain on the device so the user can retry instead of str
 notes under a different key. Clients record that interrupted final sync in local diagnostics.
 
 For self-hosted local SQLite with an optional Turso mirror, note reads, pulls, pushes, and trash
-cleanup use the local primary immediately and queue mirror convergence in the background. Account
-mutations still synchronize remote state first because they affect authentication and account
-recovery rather than the typing path.
+cleanup use the local primary immediately and queue mirror convergence in the background. Mirror
+writes preserve source versions; if the higher-version record returns to the same logical content
+as the lower-version record, both sides converge on that higher version instead of silently
+retaining different lineage. Account mutations still synchronize remote state first because they
+affect authentication and account recovery rather than the typing path.
 
 Android foreground/manual sync runs under a repository mutex, while background
 sync is scheduled through WorkManager. The background worker opens its own

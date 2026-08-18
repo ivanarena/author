@@ -16,12 +16,46 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  release-gate:
+    name: Validate production release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Validate deployment source
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Production deployment must be dispatched from main, not $GITHUB_REF."
+            exit 1
+          fi
+
+      - name: Require green release-candidate jobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          deploy_sha="$(git rev-parse HEAD)"
+          scripts/require-successful-workflow-jobs.sh \
+            "CI" "$deploy_sha" \
+            "Workflow lint" "Web" "Android" "Android Connected"
+          scripts/require-successful-workflow-jobs.sh \
+            "Docker" "$deploy_sha" "Publish signed image"
+          scripts/require-successful-workflow-jobs.sh \
+            "Security" "$deploy_sha" \
+            "OpenSSF Scorecard" \
+            "CodeQL (javascript-typescript, none)" \
+            "CodeQL (java-kotlin, manual)"
+          scripts/require-successful-workflow-jobs.sh \
+            "Remote Staging Smoke" "$deploy_sha" "Staging Worker and Turso"
+
   deploy:
     name: Deploy Worker
     runs-on: ubuntu-latest
+    needs: release-gate
     environment: production
     timeout-minutes: 30
-    if: ${{ github.ref == 'refs/heads/main' }}
     permissions:
       actions: read # Query exact-commit release-candidate workflow gates.
       contents: read
@@ -29,34 +63,6 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-
-      - name: Require green release-candidate workflows
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          deploy_sha="$(git rev-parse HEAD)"
-
-          require_successful_workflow() {
-            workflow_name="$1"
-            run_url="$(
-              gh run list \
-                --workflow "$workflow_name" \
-                --commit "$deploy_sha" \
-                --limit 20 \
-                --json status,conclusion,url,createdAt \
-                --jq 'map(select(.status == "completed" and .conclusion == "success")) | sort_by(.createdAt) | reverse | .[0].url // ""'
-            )"
-            if [ -z "$run_url" ]; then
-              echo "::error::No successful ${workflow_name} workflow run exists for ${deploy_sha}."
-              exit 1
-            fi
-            echo "${workflow_name} gate passed: ${run_url}"
-          }
-
-          require_successful_workflow "CI"
-          require_successful_workflow "Docker"
-          require_successful_workflow "Security"
-          require_successful_workflow "Remote Staging Smoke"
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:

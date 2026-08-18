@@ -621,7 +621,15 @@ async function notebookChanges(
   for (const notebook of snapshot.notebooks) {
     const targetNotebook = targetNotebooks.get(notebook.id) ?? null;
     if (targetNotebook) {
-      if (!recordsDiffer(notebook, targetNotebook)) continue;
+      if (!recordsDiffer(notebook, targetNotebook)) {
+        if (notebook.version > targetNotebook.version) {
+          copySourceToTarget.push({
+            record: notebook,
+            baseVersion: targetNotebook.version
+          });
+        }
+        continue;
+      }
       if (
         canSourceOverwriteTarget(notebook, targetNotebook) &&
         (await targetHasNoUnmirroredChange(
@@ -695,7 +703,15 @@ async function noteChanges(
   for (const note of snapshot.notes) {
     const targetNote = targetNotes.get(note.id) ?? null;
     if (targetNote) {
-      if (!recordsDiffer(note, targetNote)) continue;
+      if (!recordsDiffer(note, targetNote)) {
+        if (note.version > targetNote.version) {
+          copySourceToTarget.push({
+            record: note,
+            baseVersion: targetNote.version
+          });
+        }
+        continue;
+      }
       if (
         canSourceOverwriteTarget(note, targetNote) &&
         (await targetHasNoUnmirroredChange(

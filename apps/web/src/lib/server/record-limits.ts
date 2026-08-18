@@ -6,7 +6,7 @@ import {
   type RuntimeEnv
 } from './config';
 import { SYNC_LIMITS } from '@author/api-types';
-import { get, type NotesExecutor, type SqlArgs } from './db';
+import { all, get, type NotesExecutor, type SqlArgs } from './db';
 
 const NOTE_BUDGET_SHARE = 0.9;
 const NOTEBOOK_BUDGET_SHARE = 1 - NOTE_BUDGET_SHARE;
@@ -410,14 +410,63 @@ function incomingAuxiliaryBytes(
   );
 }
 
+async function changesAreGuaranteedActiveDeletes<
+  T extends { id: string; deletedAt: string | null }
+>(
+  db: NotesExecutor,
+  table: 'notes' | 'notebooks',
+  ownerUsername: string,
+  changes: Array<{ record: T; baseVersion: number }>
+): Promise<boolean> {
+  if (!changes.length) return true;
+  if (changes.some((change) => !change.record.deletedAt)) return false;
+
+  const ids = uniqueIds(changes.map((change) => change.record.id));
+  if (ids.length !== changes.length) return false;
+  const rows = await all(
+    db,
+    `SELECT id, version, deleted_at
+     FROM ${table}
+     WHERE owner_username = ?
+       AND id IN (${placeholders(ids.length)})`,
+    [ownerUsername, ...ids]
+  );
+  const activeVersionById = new Map(
+    rows
+      .filter((row) => row.deleted_at === null)
+      .map((row) => [String(row.id), Number(row.version)])
+  );
+  return changes.every(
+    (change) => activeVersionById.get(change.record.id) === change.baseVersion
+  );
+}
+
+async function requestGuaranteesActiveDeletes(
+  db: NotesExecutor,
+  ownerUsername: string,
+  request: PushRequest
+): Promise<boolean> {
+  if (!request.notes.length && !request.notebooks.length) return false;
+  return (
+    (await changesAreGuaranteedActiveDeletes(
+      db,
+      'notes',
+      ownerUsername,
+      request.notes
+    )) &&
+    (await changesAreGuaranteedActiveDeletes(
+      db,
+      'notebooks',
+      ownerUsername,
+      request.notebooks
+    ))
+  );
+}
+
 function usageAllowed(
   usages: Array<UsageProjection & { limit: number }>
 ): boolean {
-  if (usages.every((usage) => usage.projected <= usage.limit)) return true;
-  return (
-    usages.every((usage) => usage.projected <= usage.current) &&
-    usages.some((usage) => usage.projected < usage.current)
-  );
+  return usages.every((usage) => usage.projected <= usage.limit);
 }
 
 export async function checkRecordLimits(
@@ -489,10 +538,13 @@ export async function checkRecordLimits(
   const reducesActiveStorage =
     activeUsages.every((usage) => usage.projected <= usage.current) &&
     activeUsages.some((usage) => usage.projected < usage.current);
+  const guaranteedActiveDeletes =
+    reducesActiveStorage &&
+    (await requestGuaranteesActiveDeletes(db, ownerUsername, request));
 
   if (
     usageAllowed(usages) ||
-    (reducesActiveStorage &&
+    (guaranteedActiveDeletes &&
       deviceCount.projected <= SYNC_LIMITS.devicesPerAccount)
   ) {
     return null;

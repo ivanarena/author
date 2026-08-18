@@ -5,10 +5,10 @@
 
 ## Release Decision
 
-Do not publish the current tree as a production release. The dependency and
-container security gates fail, and unresolved high-severity findings can cause
-service-wide resource exhaustion, destructive sync outcomes, or loss of access
-to local Android data.
+Do not publish the candidate as a production release until the isolated staging
+smoke, managed restore drill, and signed-APK device acceptance are complete.
+Source remediation and green candidate checks do not replace those release
+gates or an independent security review.
 
 No critical issue was confirmed. A critical rating is reserved for a presently
 exploitable unauthenticated compromise of note confidentiality, remote code
@@ -37,6 +37,26 @@ The review combined source inspection with local builds, tests, audits, image
 inspection, and targeted concurrency/data-flow analysis. It was not an external
 network penetration test, formal cryptographic proof, production restore drill,
 or Android device test.
+
+## Independent Candidate Re-review
+
+A second independent pass over candidate `a7198e6` found four additional gaps.
+They are remediated in the subsequent candidate working tree and require fresh
+exact-commit verification before release:
+
+| ID      | Severity | Priority | Finding                                                                                             | Status |
+| ------- | -------- | -------- | --------------------------------------------------------------------------------------------------- | ------ |
+| R2-H-01 | High     | P0       | Stale/conflict-only pushes can claim active shrinkage and bypass the total-storage limit repeatedly | Fixed  |
+| R2-M-01 | Medium   | P1       | Successful skipped/no-op workflow runs can satisfy production and artifact release gates            | Fixed  |
+| R2-M-02 | Medium   | P1       | One-sided mirror descendants lose source versions when content returns to an earlier value          | Fixed  |
+| R2-M-03 | Medium   | P1       | Direct decrypt paths return malformed reserved encryption envelopes as plaintext                    | Fixed  |
+
+The quota exemption now requires version-matched deletion of every affected
+active record before over-limit cleanup is allowed. Release gates verify the
+required successful jobs, staging cannot opt into a successful no-op, and
+commit-addressed image tags cannot be replaced. Mirror tests cover same-content
+version convergence, while web and Android decrypt functions reject malformed
+reserved namespaces directly.
 
 ## Severity and Priority
 

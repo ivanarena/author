@@ -1242,6 +1242,67 @@ describe('server repository', () => {
     }
   });
 
+  it('preserves a one-sided descendant version when content returns to its prior value', async () => {
+    const local = await openMemoryDatabase();
+    const remote = await openMemoryDatabase();
+    try {
+      const original = {
+        ...fixtureNote,
+        notebookIds: [],
+        notebookId: null
+      };
+      await pushChanges(local, {
+        device: fixtureDevice,
+        notebooks: [],
+        notes: [{ record: original, baseVersion: 0 }]
+      });
+      await syncDatabases(local, remote);
+
+      await pushChanges(local, {
+        device: fixtureDevice,
+        notebooks: [],
+        notes: [
+          {
+            record: {
+              ...original,
+              body: 'Temporary local edit',
+              version: 2,
+              updatedAt: '2026-05-03T00:00:00.000Z'
+            },
+            baseVersion: 1
+          }
+        ]
+      });
+      await pushChanges(local, {
+        device: fixtureDevice,
+        notebooks: [],
+        notes: [
+          {
+            record: {
+              ...original,
+              version: 3,
+              updatedAt: '2026-05-04T00:00:00.000Z'
+            },
+            baseVersion: 2
+          }
+        ]
+      });
+
+      await syncDatabases(local, remote);
+      await expect(getNote(local, original.id)).resolves.toMatchObject({
+        body: original.body,
+        version: 3
+      });
+      await expect(getNote(remote, original.id)).resolves.toMatchObject({
+        body: original.body,
+        version: 3
+      });
+    } finally {
+      local.close();
+      remote.close();
+    }
+  });
+
   it('propagates account deletion only through an explicit account tombstone', async () => {
     const local = await openMemoryDatabase();
     const remote = await openMemoryDatabase();

@@ -5,6 +5,7 @@ import AxeBuilder from '@axe-core/playwright';
 import {
   ENCRYPTION_UPGRADE_REQUIRED_MESSAGE,
   decryptNoteFields,
+  decryptText,
   ENCRYPTION_KEY_MATERIAL_STORAGE_KEY,
   encryptNoteFields,
   isEncryptedText,
@@ -114,6 +115,25 @@ async function browserEditorRecovery(page: Page): Promise<{
         };
       })
   );
+}
+
+async function browserDecryptedEditorRecovery(page: Page): Promise<{
+  title: string;
+  body: string;
+} | null> {
+  const [stored, keyMaterial] = await Promise.all([
+    browserEditorRecovery(page),
+    browserEncryptionKeyMaterial(page)
+  ]);
+  if (!stored || !keyMaterial) return null;
+  return {
+    title: await decryptText(
+      stored.title,
+      keyMaterial,
+      'editor-recovery:v2:title'
+    ),
+    body: await decryptText(stored.body, keyMaterial, 'editor-recovery:v2:body')
+  };
 }
 
 async function expectBrowserStoredEncryptedNote(
@@ -625,24 +645,29 @@ test('shows local IndexedDB notes after a browser reload @cross-browser', async 
 test('recovers editor text when reload interrupts the debounced save @cross-browser', async ({
   page
 }) => {
+  await page.clock.install();
   await page.goto('/');
   await waitForDraftEditorReady(page);
+  await page.clock.pauseAt(Date.now() + 1_000);
 
   const titleText = `Interrupted reload note ${Date.now()}`;
-  const bodyText = 'Recovered from the synchronous editor recovery snapshot';
+  const bodyText = 'Recovered from the encrypted editor recovery snapshot';
 
   await setEditorFieldSynchronously(page, 'Note title', titleText);
   await setEditorFieldSynchronously(page, 'Note body', bodyText);
-  await expect.poll(() => browserEditorRecovery(page)).not.toBeNull();
-  const recovery = await browserEditorRecovery(page);
-  expect(recovery?.title).not.toContain(titleText);
-  expect(recovery?.body).not.toContain(bodyText);
+  await expect
+    .poll(() => browserDecryptedEditorRecovery(page))
+    .toEqual({ title: titleText, body: bodyText });
+  const encryptedRecovery = await browserEditorRecovery(page);
+  expect(encryptedRecovery?.title).not.toContain(titleText);
+  expect(encryptedRecovery?.body).not.toContain(bodyText);
   await expect
     .poll(() =>
       page.evaluate(() => localStorage.getItem('author-editor-recovery-v1'))
     )
     .toBeNull();
-  await page.reload();
+  await page.reload({ waitUntil: 'commit' });
+  await page.clock.resume();
 
   await expect(page.getByLabel('Note title')).toHaveValue(titleText);
   await expect(page.getByLabel('Note body')).toHaveValue(bodyText);

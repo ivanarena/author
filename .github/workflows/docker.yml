@@ -21,7 +21,6 @@ jobs:
     name: Scan image
     runs-on: ubuntu-latest
     timeout-minutes: 35
-    if: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/main' }}
     env:
       IMAGE_REF: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
     steps:
@@ -29,25 +28,28 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Require green CI before a publishable build
+      - name: Validate publish source
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::Docker publication must be dispatched from main, not $GITHUB_REF."
+            exit 1
+          fi
+
+      - name: Require green CI and Security jobs before a publishable build
         if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           image_sha="$(git rev-parse HEAD)"
-          ci_url="$(
-            gh run list \
-              --workflow CI \
-              --commit "$image_sha" \
-              --limit 20 \
-              --json status,conclusion,url,createdAt \
-              --jq 'map(select(.status == "completed" and .conclusion == "success")) | sort_by(.createdAt) | reverse | .[0].url // ""'
-          )"
-          if [ -z "$ci_url" ]; then
-            echo "::error::No successful CI run exists for ${image_sha}."
-            exit 1
-          fi
-          echo "CI gate passed: ${ci_url}"
+          scripts/require-successful-workflow-jobs.sh \
+            "CI" "$image_sha" \
+            "Workflow lint" "Web" "Android" "Android Connected"
+          scripts/require-successful-workflow-jobs.sh \
+            "Security" "$image_sha" \
+            "OpenSSF Scorecard" \
+            "CodeQL (javascript-typescript, none)" \
+            "CodeQL (java-kotlin, manual)"
 
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 
@@ -142,6 +144,14 @@ jobs:
         id: publish
         run: |
           image_ref="${IMAGE_REPOSITORY}:sha-${IMAGE_SHA}"
+          if inspect_error="$(docker manifest inspect "$image_ref" 2>&1)"; then
+            echo "::error::Immutable commit image already exists: $image_ref"
+            exit 1
+          elif ! grep -Eiq 'manifest unknown|no such manifest' <<<"$inspect_error"; then
+            echo "::error::Could not verify that immutable commit image is absent: $image_ref"
+            echo "$inspect_error" >&2
+            exit 1
+          fi
           docker push "$image_ref"
           digest="$(docker inspect --format '{{index .RepoDigests 0}}' "$image_ref" | sed 's/.*@//')"
           test -n "$digest"

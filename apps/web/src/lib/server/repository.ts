@@ -1646,7 +1646,12 @@ export async function pushChanges(
       }
 
       const acceptedNotebook =
-        remote && !recordsDiffer(change.record, remote)
+        remote &&
+        !recordsDiffer(change.record, remote) &&
+        (!(
+          options.preserveRecordVersions || options.preserveNewRecordVersions
+        ) ||
+          change.record.version === remote.version)
           ? remote
           : {
               ...change.record,
@@ -1765,7 +1770,11 @@ export async function pushChanges(
       const acceptedNote =
         remote &&
         !syncableNote.changed &&
-        !recordsDiffer(syncableNote.note, remote)
+        !recordsDiffer(syncableNote.note, remote) &&
+        (!(
+          options.preserveRecordVersions || options.preserveNewRecordVersions
+        ) ||
+          syncableNote.note.version === remote.version)
           ? remote
           : {
               ...syncableNote.note,

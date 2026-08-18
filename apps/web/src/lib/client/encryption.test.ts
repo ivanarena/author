@@ -184,6 +184,9 @@ describe('client note encryption', () => {
     await expect(encryptText(prefixedPlaintext, 'test-key')).rejects.toThrow(
       'Unsupported or malformed encrypted field version'
     );
+    await expect(decryptText(prefixedPlaintext, 'test-key')).rejects.toThrow(
+      'Unsupported or malformed encrypted field version'
+    );
     await expect(
       canDecryptEncryptedText(prefixedPlaintext, 'test-key')
     ).resolves.toBe(false);

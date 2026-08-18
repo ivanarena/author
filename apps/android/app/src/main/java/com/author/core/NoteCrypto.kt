@@ -477,7 +477,14 @@ class NoteCrypto(
     keyMaterial: String = getEncryptionKeyMaterial(),
     context: String = "text",
   ): String {
-    val envelope = encryptedEnvelope(value) ?: return value
+    val envelope =
+      encryptedEnvelope(value)
+        ?: run {
+          check(!isUnsupportedEncryptedText(value)) {
+            "Unsupported or malformed encrypted field version"
+          }
+          return value
+        }
 
     for (descriptor in decryptionDescriptors(keyMaterial, envelope)) {
       val decrypted =

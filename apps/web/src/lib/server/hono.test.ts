@@ -44,6 +44,10 @@ beforeEach(() => {
   delete process.env.ANDROID_SYNC_SERVER_URL;
   delete process.env.NOTES_SYNC_SERVER_URL;
   delete process.env.NOTES_SIGNUP_ALLOWED_EMAILS;
+  delete process.env.NOTES_AUTH_TOKEN;
+  delete process.env.NOTES_LEGACY_AUTH_TOKEN_ENABLED;
+  delete process.env.NOTES_METRICS_PUBLIC;
+  delete process.env.NOTES_METRICS_TOKEN;
   delete process.env.NOTES_RECORD_LIMITS_ENABLED;
   delete process.env.NOTES_RECORD_LIMIT_STORAGE_BYTES;
   delete process.env.NOTES_RECORD_LIMIT_SAFETY_RATIO;
@@ -2510,6 +2514,82 @@ describe('Hono API', () => {
       );
       expect(deleted?.deleted_at).toBe(deletedAt);
       expect(Number(remainingActive?.count ?? 0)).toBe(1);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('does not treat stale conflict churn as active storage reduction', async () => {
+    const token = await loginToken();
+    const seed = await post(
+      '/api/sync/push',
+      {
+        device: fixtureDevice,
+        notebooks: [],
+        notes: [
+          {
+            record: {
+              ...fixtureNote,
+              id: 'quota-conflict-note',
+              title: 'Large remote note',
+              body: 'x'.repeat(5_000),
+              notebookIds: [],
+              notebookId: null,
+              deviceId: fixtureDevice.id
+            },
+            baseVersion: 0
+          }
+        ]
+      },
+      token
+    );
+    expect(seed.status).toBe(200);
+
+    process.env.NOTES_RECORD_LIMITS_ENABLED = 'true';
+    process.env.NOTES_RECORD_LIMIT_STORAGE_BYTES = '2000';
+    process.env.NOTES_RECORD_LIMIT_SAFETY_RATIO = '1';
+    process.env.NOTES_RECORD_LIMIT_NOTE_BYTES = '450';
+    process.env.NOTES_RECORD_LIMIT_NOTEBOOK_BYTES = '50';
+
+    const staleConflict = await post(
+      '/api/sync/push',
+      {
+        device: fixtureDevice,
+        notebooks: [],
+        notes: [
+          {
+            record: {
+              ...fixtureNote,
+              id: 'quota-conflict-note',
+              title: 'Tiny stale edit',
+              body: 'small',
+              notebookIds: [],
+              notebookId: null,
+              updatedAt: '2026-04-26T08:00:00.000Z',
+              deviceId: fixtureDevice.id,
+              version: 2
+            },
+            baseVersion: 0
+          }
+        ]
+      },
+      token
+    );
+
+    expect(staleConflict.status).toBe(409);
+    await expect(staleConflict.json()).resolves.toMatchObject({
+      error: expect.stringContaining('Server storage limit estimate reached')
+    });
+    const db = await openDatabase();
+    try {
+      const snapshots = await get(
+        db,
+        `SELECT count(*) AS count
+         FROM note_versions
+         WHERE note_id = ? AND reason = 'conflict'`,
+        ['quota-conflict-note']
+      );
+      expect(Number(snapshots?.count ?? 0)).toBe(0);
     } finally {
       db.close();
     }

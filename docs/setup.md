@@ -204,7 +204,7 @@ For GitHub Actions deploys, add these repository secrets:
 
 The workflow writes a temporary secret file and passes it to `wrangler deploy --secrets-file`, so Worker code and updated secrets are uploaded together in one deployed version. If you deploy manually, run the `wrangler secret put` commands above once before using the app, or pass an equivalent secrets file to `wrangler deploy --secrets-file`.
 
-The `Cloudflare Deploy` workflow is manual and only deploys the current `main` commit. It refuses production deployment until that exact commit has successful `CI`, `Docker`, `Security`, and `Remote Staging Smoke` runs. Manual runs from other branches are skipped, so merging a release candidate does not deploy it before staging evidence is reviewed.
+The `Cloudflare Deploy` workflow is manual and only deploys the current `main` commit. It refuses production deployment until that exact commit has successful required jobs in `CI`, `Security`, and `Remote Staging Smoke`, plus a successful `Publish signed image` Docker job. A workflow whose required release job was skipped does not satisfy the gate. Manual runs from other branches fail without deploying, so merging a release candidate does not deploy it before staging evidence is reviewed.
 
 ### Staging Remote Smoke Tests
 
@@ -261,8 +261,8 @@ Add these GitHub secrets for the `Remote Staging Smoke` workflow:
 
 Run the smoke test manually from GitHub Actions after adding the secrets. The
 same workflow also runs weekly; scheduled runs fail when required staging
-secrets are missing unless `AUTHOR_REMOTE_STAGING_ALLOW_SKIP=true` is set as a
-repository variable. The workflow deploys the staging Worker with staging
+secrets are missing so that a no-op run can never become release evidence. The
+workflow deploys the staging Worker with staging
 secrets, seeds the remote test account with current Argon2id credentials,
 wrapped E2EE keyring material, and `enc:v4` AES-GCM note data, then verifies login, session validation, encrypted
 pull/push, stale-write conflicts, and cleanup.
@@ -544,7 +544,7 @@ This clears the configured server database, then seeds the deterministic fixture
 GitHub Actions includes:
 
 - `.github/workflows/ci.yml`: Actionlint and Zizmor workflow audits, install/check, unit tests, coverage, Playwright browser sync tests, Android debug/release validation, connected Android tests, and builds.
-- `.github/workflows/docker.yml`: scan pull-request images without publishing; after successful `main` CI, a manual `main` dispatch builds one image archive, scans and publishes that exact archive, attaches/attests SBOM and provenance, and keylessly signs the digest.
+- `.github/workflows/docker.yml`: scan pull-request images without publishing; after successful required `main` CI and Security jobs, a manual `main` dispatch builds one image archive, scans and publishes that exact archive under a non-replaceable commit tag, attaches/attests SBOM and provenance, and keylessly signs the digest.
 - `.github/workflows/remote-staging.yml`: deploy and smoke-test the isolated staging Worker/Turso pair manually and weekly.
 - `.github/workflows/cloudflare.yml`: manually deploy the current `main` commit to production only after exact-commit CI, Docker, Security, and staging-smoke gates.
 - `.github/workflows/android-release.yml`: create a private, production-signed test APK against staging after exact-commit CI, Docker, Security, and staging gates; production mode additionally requires the production Cloudflare deployment and a matching version tag.

@@ -144,7 +144,12 @@ export async function decryptText(
   context = 'text'
 ): Promise<string> {
   const envelope = encryptedEnvelope(value);
-  if (!envelope) return value;
+  if (!envelope) {
+    if (isUnsupportedEncryptedText(value)) {
+      throw new Error('Unsupported or malformed encrypted field version');
+    }
+    return value;
+  }
 
   for (const descriptor of decryptionDescriptors(keyMaterial, envelope)) {
     try {

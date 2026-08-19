@@ -214,7 +214,7 @@ jobs:
           apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
           cert_output="$("$apksigner" verify --verbose --print-certs "$APK_PATH")"
           printf '%s\n' "$cert_output"
-          actual_cert="$(printf '%s\n' "$cert_output" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n 1 | tr '[:upper:]' '[:lower:]' | tr -d ':')"
+          actual_cert="$(printf '%s\n' "$cert_output" | scripts/extract-android-cert-sha256.sh)"
           expected_cert="$(printf '%s' "$ANDROID_RELEASE_CERT_SHA256" | tr '[:upper:]' '[:lower:]' | tr -d ':')"
           if [ -z "$actual_cert" ] || [ "$actual_cert" != "$expected_cert" ]; then
             echo "::error::APK signing certificate does not match ANDROID_RELEASE_CERT_SHA256."

@@ -51,10 +51,11 @@ jobs:
 
       - name: Validate release source
         id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git fetch --tags origin main:refs/remotes/origin/main
           release_sha="$(git rev-parse HEAD)"
-          current_main="$(git rev-parse origin/main)"
+          current_main="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
 
           if [ "$RELEASE_CHANNEL" = production ]; then
             if [ -z "$RELEASE_TAG" ] || ! git show-ref --verify --quiet "refs/tags/${RELEASE_TAG}"; then
@@ -66,7 +67,12 @@ jobs:
               echo "::error::${RELEASE_TAG} does not point at the checked-out commit."
               exit 1
             fi
-            if ! git merge-base --is-ancestor HEAD origin/main; then
+            comparison_status="$(
+              gh api \
+                "repos/${GITHUB_REPOSITORY}/compare/${release_sha}...${current_main}" \
+                --jq .status
+            )"
+            if [ "$comparison_status" != ahead ] && [ "$comparison_status" != identical ]; then
               echo "::error::Production APKs can only be built from commits on main."
               exit 1
             fi

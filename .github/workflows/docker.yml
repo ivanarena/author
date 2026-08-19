@@ -111,7 +111,6 @@ jobs:
       contents: read
       packages: write # Publish the exact scanned image to GHCR.
       id-token: write # Request keyless Cosign and attestation identities.
-      attestations: write # Publish provenance and SBOM attestations.
     env:
       IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}
       IMAGE_SHA: ${{ github.sha }}
@@ -165,29 +164,78 @@ jobs:
           output-file: author-image.spdx.json
           upload-artifact: true
 
-      - name: Attest image provenance
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-name: ghcr.io/${{ github.repository }}
-          subject-digest: ${{ steps.publish.outputs.digest }}
-          push-to-registry: true
-          create-storage-record: false
-
-      - name: Attest image SBOM
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
-        with:
-          subject-name: ghcr.io/${{ github.repository }}
-          subject-digest: ${{ steps.publish.outputs.digest }}
-          sbom-path: author-image.spdx.json
-          push-to-registry: true
-          create-storage-record: false
-
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
-      - name: Sign image
+      - name: Generate SLSA provenance predicate
         env:
           IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
-        run: cosign sign --yes "${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+        run: |
+          jq -n \
+            --arg buildType "https://github.com/Attestations/GitHubActionsWorkflow@v1" \
+            --arg workflowRef "$GITHUB_WORKFLOW_REF" \
+            --arg eventName "$GITHUB_EVENT_NAME" \
+            --arg sourceUri "git+https://github.com/${GITHUB_REPOSITORY}@${IMAGE_SHA}" \
+            --arg sourceSha "$IMAGE_SHA" \
+            --arg builderId "https://github.com/${GITHUB_WORKFLOW_REF}" \
+            --arg invocationId "https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}" \
+            '{
+              buildDefinition: {
+                buildType: $buildType,
+                externalParameters: {
+                  workflow: $workflowRef,
+                  event: $eventName
+                },
+                internalParameters: {},
+                resolvedDependencies: [
+                  {
+                    uri: $sourceUri,
+                    digest: { gitCommit: $sourceSha }
+                  }
+                ]
+              },
+              runDetails: {
+                builder: { id: $builderId },
+                metadata: { invocationId: $invocationId },
+                byproducts: []
+              }
+            }' > author-provenance.json
+          jq -e . author-provenance.json >/dev/null
+
+      - name: Sign and attest image
+        env:
+          IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
+        run: |
+          image_ref="${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+          cosign sign --yes "$image_ref"
+          cosign attest --yes \
+            --type slsaprovenance1 \
+            --predicate author-provenance.json \
+            "$image_ref"
+          cosign attest --yes \
+            --type spdxjson \
+            --predicate author-image.spdx.json \
+            "$image_ref"
+
+      - name: Verify image signature and OCI attestations
+        env:
+          IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
+        run: |
+          image_ref="${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+          certificate_identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/docker.yml@refs/heads/main"
+          certificate_issuer="https://token.actions.githubusercontent.com"
+          verification_args=(
+            --certificate-identity "$certificate_identity"
+            --certificate-oidc-issuer "$certificate_issuer"
+          )
+          cosign verify "${verification_args[@]}" "$image_ref" >/dev/null
+          cosign verify-attestation \
+            "${verification_args[@]}" \
+            --type slsaprovenance1 \
+            "$image_ref" >/dev/null
+          cosign verify-attestation \
+            "${verification_args[@]}" \
+            --type spdxjson \
+            "$image_ref" >/dev/null
 
       - name: Promote current commit to the main image tag
         env:

@@ -172,6 +172,12 @@ api.onError((error, c) => {
     return response;
   }
 
+  if (message.includes('Database request timed out')) {
+    const response = c.json({ error: 'Database request timed out' }, 503);
+    applyNoStoreApiHeaders(response);
+    return response;
+  }
+
   console.error('API request failed:', message || error);
   const response = c.json({ error: 'Internal server error' }, 500);
   applyNoStoreApiHeaders(response);

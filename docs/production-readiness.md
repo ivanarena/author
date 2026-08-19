@@ -348,6 +348,14 @@ gh workflow run android-release.yml --ref main \
   -f channel=production -f ref=main -f tag=v1.0.18
 ```
 
+Because GitHub's hosted attestation API is unavailable to user-owned private
+repositories, the Docker workflow stores provenance and SBOM attestations with
+the private GHCR image (`push-to-registry: true`) and deliberately disables the
+unsupported GitHub storage record. Verify the OCI attestations and Cosign
+signature against the immutable digest; a successful image push followed by an
+attestation or signing failure is not publication evidence and requires a new
+candidate commit rather than replacing the commit-addressed image.
+
 Always watch each run to completion and record its URL; do not dispatch the next
 stage merely because the previous workflow was queued.
 

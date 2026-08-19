@@ -544,7 +544,7 @@ This clears the configured server database, then seeds the deterministic fixture
 GitHub Actions includes:
 
 - `.github/workflows/ci.yml`: Actionlint and Zizmor workflow audits, install/check, unit tests, coverage, Playwright browser sync tests, Android debug/release validation, connected Android tests, and builds.
-- `.github/workflows/docker.yml`: scan pull-request images without publishing; after successful required `main` CI and Security jobs, a manual `main` dispatch builds one image archive, scans and publishes that exact archive under a non-replaceable commit tag, attaches/attests SBOM and provenance, and keylessly signs the digest.
+- `.github/workflows/docker.yml`: scan pull-request images without publishing; after successful required `main` CI and Security jobs, a manual `main` dispatch builds one image archive, scans and publishes that exact archive under a non-replaceable commit tag, stores SBOM and provenance attestations with the private GHCR image (rather than the unavailable hosted attestation API for user-owned private repositories), and keylessly signs the digest.
 - `.github/workflows/remote-staging.yml`: deploy and smoke-test the isolated staging Worker/Turso pair manually and weekly.
 - `.github/workflows/cloudflare.yml`: manually deploy the current `main` commit to production only after exact-commit CI, Docker, Security, and staging-smoke gates.
 - `.github/workflows/android-release.yml`: create a private, production-signed test APK against staging after exact-commit CI, Docker, Security, and staging gates; production mode additionally requires the production Cloudflare deployment and a matching version tag.

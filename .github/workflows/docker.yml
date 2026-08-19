@@ -171,14 +171,16 @@ jobs:
           subject-name: ghcr.io/${{ github.repository }}
           subject-digest: ${{ steps.publish.outputs.digest }}
           push-to-registry: true
+          create-storage-record: false
 
       - name: Attest image SBOM
-        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
         with:
           subject-name: ghcr.io/${{ github.repository }}
           subject-digest: ${{ steps.publish.outputs.digest }}
           sbom-path: author-image.spdx.json
           push-to-registry: true
+          create-storage-record: false
 
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 

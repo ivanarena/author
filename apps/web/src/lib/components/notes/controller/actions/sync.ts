@@ -248,7 +248,7 @@ export function scheduleSync(
     controller.syncQueued = true;
     return;
   }
-  if (controller.autoSyncTimer) return;
+  if (controller.autoSyncTimer || controller.retrySyncTimer) return;
 
   controller.autoSyncTimer = setTimeout(() => {
     controller.autoSyncTimer = null;

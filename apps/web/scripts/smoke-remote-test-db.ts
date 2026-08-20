@@ -83,17 +83,42 @@ try {
     'Seeded encrypted note was not returned by remote pull'
   );
 
-  const encryptedRunNote = await encryptNoteFields(run.note, keyMaterial);
-  const pushed = await api.pushSyncChanges(login.token, {
-    device: run.device,
-    notebooks: [],
-    notes: [{ record: encryptedRunNote, baseVersion: 0 }]
-  });
-  expectStatus(pushed.conflicts.length === 0, 'Fresh remote push conflicted');
-  expectStatus(
-    pushed.accepted.length === 1,
-    'Fresh remote push was not accepted'
+  const competingNote = {
+    ...run.note,
+    body: `${run.note.body} competing write`,
+    updatedAt: new Date(Date.parse(run.note.updatedAt) + 1).toISOString()
+  };
+  const [encryptedRunNote, encryptedCompetingNote] = await Promise.all([
+    encryptNoteFields(run.note, keyMaterial),
+    encryptNoteFields(competingNote, keyMaterial)
+  ]);
+  const concurrentPushes = await Promise.all([
+    api.pushSyncChanges(login.token, {
+      device: run.device,
+      notebooks: [],
+      notes: [{ record: encryptedRunNote, baseVersion: 0 }]
+    }),
+    api.pushSyncChanges(login.token, {
+      device: run.device,
+      notebooks: [],
+      notes: [{ record: encryptedCompetingNote, baseVersion: 0 }]
+    })
+  ]);
+  const acceptedPushIndexes = concurrentPushes.flatMap((response, index) =>
+    response.accepted.length === 1 && response.conflicts.length === 0
+      ? [index]
+      : []
   );
+  const conflictedPushIndexes = concurrentPushes.flatMap((response, index) =>
+    response.accepted.length === 0 && response.conflicts.length === 1
+      ? [index]
+      : []
+  );
+  expectStatus(
+    acceptedPushIndexes.length === 1 && conflictedPushIndexes.length === 1,
+    'Concurrent remote pushes did not produce one acceptance and one conflict'
+  );
+  const acceptedNote = acceptedPushIndexes[0] === 0 ? run.note : competingNote;
   await assertStoredNoteIsEncrypted(db, target.username, run.note.id);
 
   const afterPush = await api.pullSyncChanges(login.token, { since: null });
@@ -102,15 +127,15 @@ try {
   );
   expectStatus(
     decryptedAfterPush.some(
-      (note) => note.id === run.note.id && note.body === run.note.body
+      (note) => note.id === acceptedNote.id && note.body === acceptedNote.body
     ),
-    'Remote pull did not return the pushed encrypted note'
+    'Remote pull did not return the accepted concurrent encrypted note'
   );
 
   const staleOverwrite = await encryptNoteFields(
     {
-      ...run.note,
-      body: `${run.note.body} stale overwrite`,
+      ...acceptedNote,
+      body: `${acceptedNote.body} stale overwrite`,
       updatedAt: new Date().toISOString(),
       version: 2
     },

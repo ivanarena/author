@@ -12,7 +12,8 @@ import {
   openMemoryDatabase,
   run,
   runPendingMigrations,
-  SERVER_MIGRATIONS
+  SERVER_MIGRATIONS,
+  withWriteTransaction
 } from './db';
 
 const ENV_KEYS = [
@@ -84,6 +85,51 @@ describe('server database config', () => {
     expect(resolveDatabasePath('/data/notes.sqlite', true)).toBe(
       resolve('/data/notes.sqlite')
     );
+  });
+
+  it('keeps local SQLite writes serialized in process', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'author-local-queue-'));
+    const dbPath = join(tempDir, 'local.sqlite');
+    const config = {
+      provider: 'local' as const,
+      filePath: dbPath,
+      client: { url: `file:${dbPath}` }
+    };
+    const first = await openConfiguredDatabase(config);
+    const second = await openConfiguredDatabase(config);
+    let releaseFirst!: () => void;
+    let markFirstStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve;
+    });
+    const holdFirst = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+
+    try {
+      const firstWrite = withWriteTransaction(first, async () => {
+        markFirstStarted();
+        await holdFirst;
+      });
+      await firstStarted;
+
+      let secondCompleted = false;
+      const secondWrite = run(second, 'SELECT 1').then(() => {
+        secondCompleted = true;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const secondWasBlocked = !secondCompleted;
+
+      releaseFirst();
+      await Promise.all([firstWrite, secondWrite]);
+      expect(secondWasBlocked).toBe(true);
+      expect(secondCompleted).toBe(true);
+    } finally {
+      releaseFirst();
+      first.close();
+      second.close();
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
 

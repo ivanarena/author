@@ -1515,7 +1515,12 @@ export async function openConfiguredDatabase(
 
   await ensureDatabaseInitialized(config);
   const db = await openLibsqlClient(config.client);
-  databaseWriteKeys.set(db, databaseInitKey(config));
+  // File-backed SQLite needs in-process write serialization. Remote libSQL
+  // already serializes transactions, and a shared JavaScript queue can strand
+  // future Worker requests if Cloudflare cancels a request while it is waiting.
+  if (config.provider === 'local' || config.client.url.startsWith('file:')) {
+    databaseWriteKeys.set(db, databaseInitKey(config));
+  }
   await enableConnectionPragmas(db);
   return db;
 }

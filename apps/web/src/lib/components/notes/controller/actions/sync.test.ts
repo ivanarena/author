@@ -302,6 +302,16 @@ describe('sync actions', () => {
     if (model.retrySyncTimer) clearTimeout(model.retrySyncTimer);
   });
 
+  it('does not let pending-change effects bypass the retry delay', () => {
+    const retryTimer = setTimeout(() => undefined, 1_000);
+    const model = controller({ retrySyncTimer: retryTimer });
+
+    scheduleSync(model, 10);
+
+    expect(model.autoSyncTimer).toBeNull();
+    clearTimeout(retryTimer);
+  });
+
   it('notifies and retries after non-auth sync failures while online', async () => {
     const model = controller();
 

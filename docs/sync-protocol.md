@@ -6,6 +6,7 @@ The offline-first sync protocol is deliberately small.
 2. On app open, the client pushes local pending changes in bounded batches. Browser sync runs under a Web Lock when available, with an IndexedDB transactional lease and fencing checks as fallback, so multiple tabs do not commit the same workspace concurrently. If only the local device name changed, the client may send an otherwise empty push so the server can update device metadata.
 3. The server accepts a change only when `baseVersion` matches the current remote version, or when the remote content is identical.
 4. If the remote version changed, the remote row was hard-deleted after the client's base version, or a pushed notebook would duplicate an active notebook name, the server returns a conflict instead of overwriting.
+   Local SQLite writes are serialized inside the server process. Turso/libSQL-primary writes rely on remote database transactions instead; they must not wait on a JavaScript promise shared between Cloudflare Worker requests, because cancellation of one waiting request could strand later sync attempts. Concurrent remote pushes remain atomic and produce an acceptance or an explicit conflict through the same `baseVersion` rule.
 5. Client pulls changes since `lastPulledRevision`, falling back to revision `0` for a full recovery pull. Pull responses may be paged; the client keeps pulling until `hasMore` is false.
 6. Pulled remote changes merge only into clean local records. Pending local records become conflicts if the remote version changed.
 

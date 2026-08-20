@@ -16,6 +16,58 @@ const databaseWriteKeys = new WeakMap<NotesDb, string>();
 const LEGACY_OWNER_USERNAME = 'legacy-token';
 const WRITE_TRANSACTION_MAX_ATTEMPTS = 6;
 const WRITE_TRANSACTION_RETRY_BASE_MS = 25;
+const LIBSQL_REQUEST_TIMEOUT_MS = Number(
+  process.env.LIBSQL_REQUEST_TIMEOUT_MS ?? '12000'
+);
+
+function normalizePositiveInteger(value: number, fallback: number): number {
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+
+function createLibsqlFetchWithTimeout(timeoutMs = 12000): typeof fetch {
+  const safeTimeoutMs = normalizePositiveInteger(timeoutMs, 12000);
+  return async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    const controller = new AbortController();
+    const parentSignal = init.signal;
+    const timeoutHandle = setTimeout(() => {
+      controller.abort(`libsql-request-timeout:${safeTimeoutMs}`);
+    }, safeTimeoutMs);
+
+    const onParentAbort = () => {
+      controller.abort(parentSignal?.reason);
+    };
+
+    if (parentSignal) {
+      if (parentSignal.aborted) {
+        controller.abort(parentSignal.reason);
+      } else {
+        parentSignal.addEventListener('abort', onParentAbort, { once: true });
+      }
+    }
+
+    try {
+      return await fetch(input, {
+        ...init,
+        signal: controller.signal
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        if (parentSignal && parentSignal.aborted) {
+          throw error;
+        }
+        throw new Error(`Database request timed out after ${safeTimeoutMs}ms`, {
+          cause: error
+        });
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutHandle);
+      if (parentSignal) {
+        parentSignal.removeEventListener('abort', onParentAbort);
+      }
+    }
+  };
+}
 
 function defaultDataOwner(): string {
   const configured = getLoginUsername()?.trim().toLowerCase();
@@ -1413,7 +1465,15 @@ async function openLibsqlClient(config: {
   authToken?: string;
 }): Promise<Client> {
   const { createClient } = await import('@libsql/client');
-  return createClient(config);
+  const safeTimeoutMs = normalizePositiveInteger(
+    LIBSQL_REQUEST_TIMEOUT_MS,
+    12000
+  );
+  const timeoutFetch = createLibsqlFetchWithTimeout(safeTimeoutMs);
+  return createClient({
+    ...config,
+    fetch: timeoutFetch
+  });
 }
 
 async function ensureDatabaseInitialized(

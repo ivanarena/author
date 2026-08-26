@@ -85,6 +85,26 @@ class MarkdownArchiveTest {
   }
 
   @Test
+  fun markdownExportCanBeLimitedToSelectedNotebooks() {
+    val ideas = archiveNote("ideas-note", listOf("ideas"))
+    val shared = archiveNote("shared-note", listOf("work", "ideas"))
+    val work = archiveNote("work-note", listOf("work"))
+    val unfiled = archiveNote("unfiled-note", emptyList())
+    val deleted = archiveNote("deleted-note", listOf("ideas"), deletedAt = nowIso())
+
+    assertEquals(
+      listOf("ideas-note", "shared-note"),
+      notesForMarkdownExport(listOf(ideas, shared, work, unfiled, deleted), setOf("ideas")).map {
+        it.id
+      },
+    )
+    assertEquals(
+      listOf("ideas-note", "shared-note", "work-note", "unfiled-note"),
+      notesForMarkdownExport(listOf(ideas, shared, work, unfiled, deleted)).map { it.id },
+    )
+  }
+
+  @Test
   fun readBoundedUtf8StopsOversizedImports() {
     val text = readBoundedUtf8(ByteArrayInputStream("hello".toByteArray()), 5)
     assertEquals("hello", text.text)
@@ -94,6 +114,31 @@ class MarkdownArchiveTest {
       readBoundedUtf8(ByteArrayInputStream("oversized".toByteArray()), 4)
     }
   }
+
+  private fun archiveNote(
+    id: String,
+    notebookIds: List<String>,
+    deletedAt: String? = null,
+  ): LocalNote =
+    LocalNote(
+      id = id,
+      title = id,
+      body = "Body",
+      titleHash = null,
+      bodyHash = null,
+      notebookIds = notebookIds,
+      notebookId = notebookIds.firstOrNull(),
+      createdAt = "2026-05-10T09:00:00Z",
+      updatedAt = "2026-05-10T10:00:00Z",
+      deletedAt = deletedAt,
+      trashedAt = null,
+      deviceId = "device-1",
+      version = 1,
+      syncStatus = "pending",
+      lastSyncedVersion = 0,
+      lastSyncedAt = null,
+      isFavorite = false,
+    )
 
   private fun markdownFile(path: String, text: String): MarkdownInputFile =
     MarkdownInputFile(path.substringAfterLast('/'), path, text)

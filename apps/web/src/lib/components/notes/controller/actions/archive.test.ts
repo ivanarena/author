@@ -115,6 +115,17 @@ describe('archive actions', () => {
     expect(model.endArchiveOperation).toHaveBeenCalledWith();
   });
 
+  it('passes selected notebook ids to the archive exporter', async () => {
+    const model = controller();
+
+    await exportMarkdown(model, ['notebook-1', 'notebook-2']);
+
+    expect(mocks.exportNotesMarkdownZip).toHaveBeenCalledWith(undefined, [
+      'notebook-1',
+      'notebook-2'
+    ]);
+  });
+
   it('surfaces export failures without leaving archive state open', async () => {
     mocks.exportNotesMarkdownZip.mockRejectedValueOnce(new Error('Disk full'));
     const model = controller();

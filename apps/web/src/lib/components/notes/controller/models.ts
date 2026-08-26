@@ -284,6 +284,7 @@ export interface SettingsModalModel {
   isSyncing: boolean;
   isImporting: boolean;
   isArchiveBusy: boolean;
+  notebooks: LocalNotebook[];
   archiveOperation: ArchiveOperation | null;
   importBanner: ImportBanner | null;
   compactView: boolean;
@@ -357,7 +358,7 @@ export interface SettingsModalModel {
   startAccountDeleteEdit: () => void;
   cancelAccountDeleteEdit: () => void;
   setSettingsSection: (section: SettingsSection) => void;
-  exportMarkdown: () => void | Promise<void>;
+  exportMarkdown: (notebookIds?: string[]) => void | Promise<void>;
   exportSelectedMarkdown: () => void | Promise<void>;
   shareNote: NoteCallback;
   startMarkdownImport: () => void;

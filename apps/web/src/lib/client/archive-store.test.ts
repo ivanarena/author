@@ -105,10 +105,51 @@ describe('archive store import and export', () => {
     expect(content).not.toContain('Roadmap.md');
   });
 
+  it('exports notes and metadata belonging to any selected notebook', async () => {
+    vi.mocked(localDb.notebooks.toArray).mockResolvedValue([
+      notebook,
+      { ...notebook, id: 'notebook-2', name: 'Work' }
+    ]);
+    vi.mocked(localDb.notes.toArray).mockResolvedValue([
+      note,
+      {
+        ...note,
+        id: 'note-2',
+        title: 'Work note',
+        notebookIds: ['notebook-2'],
+        notebookId: 'notebook-2'
+      },
+      {
+        ...note,
+        id: 'note-3',
+        title: 'Shared note',
+        notebookIds: ['notebook-1', 'notebook-2']
+      },
+      { ...note, id: 'note-4', title: 'Unfiled', notebookIds: [] }
+    ]);
+
+    const archive = await exportNotesMarkdownZip(undefined, ['notebook-2']);
+    const content = new TextDecoder().decode(await archive.blob.arrayBuffer());
+
+    expect(archive.noteCount).toBe(2);
+    expect(content).toContain('/Work/Work-note.md');
+    expect(content).toContain('/Work/Shared-note.md');
+    expect(content).toContain('author_notebooks: "[\\"Work\\"]"');
+    expect(content).not.toContain('Roadmap.md');
+    expect(content).not.toContain('Unfiled.md');
+    expect(content).not.toContain('Ideas');
+  });
+
   it('requires selected note ids to match exportable notes', async () => {
     await expect(exportNotesMarkdownZip(['missing-note'])).rejects.toThrow(
       'No selected notes to export'
     );
+  });
+
+  it('requires selected notebooks to contain exportable notes', async () => {
+    await expect(
+      exportNotesMarkdownZip(undefined, ['missing-notebook'])
+    ).rejects.toThrow('No notes in selected notebooks');
   });
 
   it('imports Markdown folders into pending local notebook and note records', async () => {

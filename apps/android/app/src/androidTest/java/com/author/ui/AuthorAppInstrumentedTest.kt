@@ -155,13 +155,13 @@ class AuthorAppInstrumentedTest {
   @Test
   fun longPressNoteSelectsAndOpensSelectedNotesMenu() {
     val repository = newRepository()
+    val notebook = runBlocking { repository.createNotebook("Existing notebook")!! }
     val note = runBlocking { repository.createBlankNote("Long press note", "Menu body") }
+    lateinit var controller: NotesController
 
     compose.setContent {
       val scope = rememberCoroutineScope()
-      val controller = remember {
-        NotesController(repository, scope).also { it.currentPage = "notes" }
-      }
+      controller = remember { NotesController(repository, scope).also { it.currentPage = "notes" } }
 
       LaunchedEffect(Unit) { controller.initialize() }
       AuthorApp(controller = controller, onExport = {}, onImport = {})
@@ -175,7 +175,24 @@ class AuthorAppInstrumentedTest {
       .performSemanticsAction(SemanticsActions.OnLongClick)
 
     compose.onNodeWithText("1 selected").assertIsDisplayed()
-    compose.onNodeWithText("Move selected to Trash").assertIsDisplayed()
+    assertTrue(
+      "The selected-notes menu should include the existing notebook",
+      compose.onAllNodesWithText(notebook.name).fetchSemanticsNodes().size >= 2,
+    )
+    compose.onNodeWithText("New notebook").assertIsDisplayed().performClick()
+    compose.onNodeWithText("Notebook name").performTextInput("Created from selection")
+    compose.onNodeWithText("Create").performClick()
+
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      val workspace = repository.loadWorkspaceSnapshot()
+      val created = workspace.notebooks.firstOrNull { it.name == "Created from selection" }
+      created != null &&
+        workspace.notes.any { it.id == note.id && it.notebookIds.contains(created.id) }
+    }
+    assertTrue(
+      "Creating a notebook from selection should preserve the notes filter",
+      controller.filterId == "all",
+    )
   }
 
   @Test

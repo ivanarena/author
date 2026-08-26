@@ -95,7 +95,9 @@ class MainActivity : ComponentActivity() {
       LaunchedEffect(Unit) { notesController.initialize() }
       AuthorApp(
         controller = notesController,
-        onExport = { notesController.prepareMarkdownExport { exportLauncher.launch(it) } },
+        onExport = { notebookIds ->
+          notesController.prepareMarkdownExport(notebookIds) { exportLauncher.launch(it) }
+        },
         onSaveRecoveryKit = {
           notesController.prepareSignupRecoveryKitSave { recoveryKitLauncher.launch(it) }
         },

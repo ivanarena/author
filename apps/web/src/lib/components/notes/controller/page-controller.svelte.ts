@@ -989,8 +989,8 @@ export class NotesPageController
     }
   };
 
-  exportMarkdown = async () => {
-    await archiveActions.exportMarkdown(this);
+  exportMarkdown = async (notebookIds?: string[]) => {
+    await archiveActions.exportMarkdown(this, notebookIds);
   };
 
   exportSelectedMarkdown = async () => {

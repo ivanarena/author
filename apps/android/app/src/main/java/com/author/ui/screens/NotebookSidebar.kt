@@ -48,7 +48,6 @@ internal fun NotebookSidebar(
     modifier.padding(horizontal = pageHorizontalPadding(), vertical = 12.dp),
     verticalArrangement = Arrangement.spacedBy(10.dp),
   ) {
-    if (controller.newNotebookOpen) NewNotebookDialog(controller)
     LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
       item {
         NavRow(
@@ -160,9 +159,9 @@ private fun selectedMembershipTrailing(
   }
 
 @Composable
-private fun NewNotebookDialog(controller: NotesController) {
-  AppModal(onDismissRequest = { controller.newNotebookOpen = false }) {
-    AppModalTitle("New notebook", onDismiss = { controller.newNotebookOpen = false })
+internal fun NewNotebookDialog(controller: NotesController) {
+  AppModal(onDismissRequest = { controller.dismissNewNotebook() }) {
+    AppModalTitle("New notebook", onDismiss = { controller.dismissNewNotebook() })
     MiniField(controller.notebookNameValue, "Notebook name", Modifier.fillMaxWidth()) {
       controller.notebookNameValue = it
       controller.notebookError = ""
@@ -178,7 +177,7 @@ private fun NewNotebookDialog(controller: NotesController) {
       ModalActionButton(
         "Cancel",
         modifier = Modifier.weight(1f),
-        onClick = { controller.newNotebookOpen = false },
+        onClick = { controller.dismissNewNotebook() },
       )
       ModalActionButton(
         "Create",

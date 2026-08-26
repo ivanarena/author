@@ -1396,10 +1396,17 @@ class NotesRepository(context: Context) : AutoCloseable {
 
   fun markdownExportFileName(): String = markdownArchiveFileName()
 
-  suspend fun exportMarkdownZipTo(output: OutputStream): String =
+  suspend fun exportMarkdownZipTo(output: OutputStream, notebookIds: Set<String>? = null): String =
     withContext(Dispatchers.IO) {
-      val notes = db.allNotes().map { crypto.decryptNoteFields(it) }.filter { it.deletedAt == null }
-      val notebooks = db.allNotebooks().map { crypto.decryptNotebookFields(it) }
+      val notes =
+        notesForMarkdownExport(db.allNotes().map { crypto.decryptNoteFields(it) }, notebookIds)
+      val notebooks =
+        db
+          .allNotebooks()
+          .map { crypto.decryptNotebookFields(it) }
+          .let { allNotebooks ->
+            if (notebookIds == null) allNotebooks else allNotebooks.filter { it.id in notebookIds }
+          }
       writeMarkdownZip(notes, notebooks, output)
     }
 

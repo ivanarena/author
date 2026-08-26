@@ -596,6 +596,90 @@
   min-width: 0;
 }
 
+.export-scope-picker {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 8px;
+}
+
+.export-scope-picker > button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 16px;
+  gap: 8px;
+  align-items: center;
+  min-height: 42px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+}
+
+.export-scope-picker > button:hover,
+.export-scope-picker > button:focus-visible,
+.export-scope-picker > button.active {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.export-scope-picker > button span {
+  display: grid;
+  min-width: 0;
+}
+
+.export-scope-picker > button strong,
+.export-scope-picker > button small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.export-scope-picker > button strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.export-scope-picker > button small,
+.export-scope-label {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.export-scope-label {
+  padding: 6px 10px 2px;
+  font-weight: 700;
+}
+
+.export-scope-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.export-scope-actions button {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0 12px;
+  background: transparent;
+  color: var(--text);
+}
+
+.export-scope-actions button.primary {
+  border-color: transparent;
+  background: var(--text);
+  color: var(--bg);
+}
+
+.export-scope-actions button:disabled {
+  opacity: 0.4;
+}
+
 .theme-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

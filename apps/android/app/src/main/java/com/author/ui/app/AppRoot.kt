@@ -35,7 +35,7 @@ import com.author.ui.theme.*
 @Composable
 internal fun AuthorApp(
   controller: NotesController,
-  onExport: () -> Unit,
+  onExport: (Set<String>?) -> Unit,
   onSaveRecoveryKit: () -> Unit = {},
   onImport: () -> Unit,
   onUnlockApp: () -> Unit = {},
@@ -48,7 +48,7 @@ internal fun AuthorApp(
 @Composable
 private fun AuthorScaffold(
   controller: NotesController,
-  onExport: () -> Unit,
+  onExport: (Set<String>?) -> Unit,
   onSaveRecoveryKit: () -> Unit,
   onImport: () -> Unit,
   onUnlockApp: () -> Unit,
@@ -71,7 +71,7 @@ private fun AuthorScaffold(
 @Composable
 private fun AppPage(
   controller: NotesController,
-  onExport: () -> Unit,
+  onExport: (Set<String>?) -> Unit,
   onSaveRecoveryKit: () -> Unit,
   onImport: () -> Unit,
   onUnlockApp: () -> Unit,
@@ -94,6 +94,7 @@ private fun AppPage(
         }
       }
       if (controller.loginOpen) LoginDialog(controller)
+      if (controller.newNotebookOpen) NewNotebookDialog(controller)
       if (controller.signupRecoveryOpen) SignupRecoveryDialog(controller, onSaveRecoveryKit)
       controller.conflicts.firstOrNull()?.let { ConflictDialog(controller, it) }
       NotificationStack(controller)
@@ -140,7 +141,7 @@ private fun PageFloatingAction(controller: NotesController) {
 
   FloatingActionButton(
     modifier = Modifier.size(64.dp),
-    onClick = { if (creatingNotebook) controller.newNotebookOpen = true else controller.newNote() },
+    onClick = { if (creatingNotebook) controller.openNewNotebook() else controller.newNote() },
     shape = RoundedCornerShape(999.dp),
     containerColor = MaterialTheme.colorScheme.primary,
     contentColor = MaterialTheme.colorScheme.onPrimary,

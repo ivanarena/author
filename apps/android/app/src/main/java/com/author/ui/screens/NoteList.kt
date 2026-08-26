@@ -1,10 +1,12 @@
 package com.author.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -32,6 +34,7 @@ import androidx.compose.material.icons.automirrored.outlined.Sort
 import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.RestoreFromTrash
 import androidx.compose.material.icons.outlined.Search
@@ -100,8 +103,8 @@ internal fun NoteListPanel(controller: NotesController, modifier: Modifier = Mod
   ) {
     AnimatedVisibility(
       visible = controller.noteSelectionMode || controller.selectedNoteIds.isNotEmpty(),
-      enter = fadeIn(appTween(AppMotion.Medium)) + expandVertically(appTween(AppMotion.Slow)),
-      exit = fadeOut(appTween(AppMotion.Fast)) + shrinkVertically(appTween(AppMotion.Medium)),
+      enter = fadeIn(appTween(AppMotion.Fast)) + expandVertically(appTween(AppMotion.Fast)),
+      exit = fadeOut(appTween(AppMotion.Fast)) + shrinkVertically(appTween(AppMotion.Fast)),
     ) {
       SelectionToolbar(controller)
     }
@@ -523,24 +526,26 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
   val selecting = controller.noteSelectionMode || controller.selectedNoteIds.isNotEmpty()
   var menuOpen by remember(note.id) { mutableStateOf(false) }
   var menuMode by remember(note.id) { mutableStateOf("note") }
-  val titleColor =
-    when {
-      active -> MaterialTheme.colorScheme.primary
-      selected -> MaterialTheme.colorScheme.primary
-      else -> MaterialTheme.colorScheme.onSurface
-    }
-  val rowBackground =
-    when {
-      active -> rowColor(active = true)
-      selected -> rowColor(active = true)
-      else -> Color.Transparent
-    }
-  val rowBorder =
-    when {
-      active -> BorderStroke(1.dp, appDividerColor().copy(alpha = 0.9f))
-      selected -> BorderStroke(1.dp, appDividerColor().copy(alpha = 0.9f))
-      else -> null
-    }
+  val highlighted = active || selected
+  val titleColor by
+    animateColorAsState(
+      targetValue =
+        if (highlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+      animationSpec = appTween(AppMotion.Fast),
+      label = "note-title-selection",
+    )
+  val rowBackground by
+    animateColorAsState(
+      targetValue = if (highlighted) rowColor(active = true) else Color.Transparent,
+      animationSpec = appTween(AppMotion.Fast),
+      label = "note-row-selection",
+    )
+  val rowBorderColor by
+    animateColorAsState(
+      targetValue = if (highlighted) appDividerColor().copy(alpha = 0.9f) else Color.Transparent,
+      animationSpec = appTween(AppMotion.Fast),
+      label = "note-row-border-selection",
+    )
 
   Box {
     Surface(
@@ -548,7 +553,6 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
         Modifier.fillMaxWidth()
           .testTag("note-row-${note.id}")
           .clip(AppShape.NoteRow)
-          .animateContentSize(appTween(AppMotion.Medium))
           .combinedClickable(
             onClick = {
               if (selecting) {
@@ -565,7 +569,7 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
           ),
       color = rowBackground,
       shape = AppShape.NoteRow,
-      border = rowBorder,
+      border = BorderStroke(1.dp, rowBorderColor),
     ) {
       Row(
         Modifier.heightIn(min = if (controller.compactView) 48.dp else 68.dp)
@@ -577,9 +581,7 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
           verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
           Row(verticalAlignment = Alignment.CenterVertically) {
-            if (selected) {
-              SelectedTitleDot()
-            }
+            SelectedTitleDot(selected)
             Text(
               noteDisplayTitle(note),
               color = titleColor,
@@ -646,13 +648,19 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
 }
 
 @Composable
-private fun SelectedTitleDot() {
-  Box(
-    Modifier.padding(end = 8.dp)
-      .size(7.dp)
-      .clip(CircleShape)
-      .background(MaterialTheme.colorScheme.primary)
-  )
+private fun SelectedTitleDot(selected: Boolean) {
+  AnimatedVisibility(
+    visible = selected,
+    enter = fadeIn(appTween(AppMotion.Fast)) + expandHorizontally(appTween(AppMotion.Fast)),
+    exit = fadeOut(appTween(AppMotion.Fast)) + shrinkHorizontally(appTween(AppMotion.Fast)),
+  ) {
+    Box(
+      Modifier.padding(end = 8.dp)
+        .size(7.dp)
+        .clip(CircleShape)
+        .background(MaterialTheme.colorScheme.primary)
+    )
+  }
 }
 
 @Composable
@@ -795,4 +803,16 @@ internal fun NotebookAssignmentMenuItems(
       },
     )
   }
+  HorizontalDivider()
+  AppDropdownMenuItem(
+    label = "New notebook",
+    leadingIcon = { Icon(Icons.Outlined.CreateNewFolder, null, modifier = Modifier.size(18.dp)) },
+    onClick = {
+      onPicked()
+      val targetNoteIds =
+        if (selectedMode) activeSelectedNotes.map { it.id }.toSet()
+        else note?.takeIf { it.trashedAt == null }?.let { setOf(it.id) } ?: emptySet()
+      controller.openNewNotebook(targetNoteIds)
+    },
+  )
 }

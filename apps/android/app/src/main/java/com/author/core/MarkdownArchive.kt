@@ -115,6 +115,15 @@ fun parseMarkdownNote(content: String, fallbackFileName: String): ParsedImportNo
 fun markdownArchiveFileName(exportedAt: String = nowIso()): String =
   "author-${exportedAt.take(10)}-md-frontmatter.zip"
 
+fun notesForMarkdownExport(
+  notes: List<LocalNote>,
+  notebookIds: Set<String>? = null,
+): List<LocalNote> =
+  notes.filter { note ->
+    note.deletedAt == null &&
+      (notebookIds == null || noteNotebookIds(note).any { it in notebookIds })
+  }
+
 fun writeMarkdownZip(
   notes: List<LocalNote>,
   notebooks: List<LocalNotebook>,

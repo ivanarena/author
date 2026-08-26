@@ -12,7 +12,11 @@ import {
   parseNotesMarkdownImportFiles,
   type MarkdownImportFile
 } from './markdown-archive';
-import { normalizeNotebookName, primaryNotebookId } from './note-utils';
+import {
+  normalizeNotebookName,
+  noteNotebookIds,
+  primaryNotebookId
+} from './note-utils';
 import { getOrCreateDevice, newId, nowIso } from './local-state';
 
 export interface ImportNotesResult {
@@ -41,7 +45,10 @@ export function importNotesSummary(
 
 export const importNotesMarkdownSummary = importNotesSummary;
 
-export async function exportNotesMarkdownZip(noteIds?: string[]): Promise<{
+export async function exportNotesMarkdownZip(
+  noteIds?: string[],
+  notebookIds?: string[]
+): Promise<{
   blob: Blob;
   fileName: string;
   noteCount: number;
@@ -57,17 +64,29 @@ export async function exportNotesMarkdownZip(noteIds?: string[]): Promise<{
     notebookRows.map((notebook) => decryptNotebookFields(notebook))
   );
   const selectedNoteIds = noteIds ? new Set(noteIds) : null;
-  const notesToExport = selectedNoteIds
-    ? decryptedNoteRows.filter((note) => selectedNoteIds.has(note.id))
-    : decryptedNoteRows;
+  const selectedNotebookIds = notebookIds ? new Set(notebookIds) : null;
+  const notesToExport = decryptedNoteRows.filter(
+    (note) =>
+      (!selectedNoteIds || selectedNoteIds.has(note.id)) &&
+      (!selectedNotebookIds ||
+        noteNotebookIds(note).some((id) => selectedNotebookIds.has(id)))
+  );
+  const notebooksToExport = selectedNotebookIds
+    ? decryptedNotebookRows.filter((notebook) =>
+        selectedNotebookIds.has(notebook.id)
+      )
+    : decryptedNotebookRows;
   const exportedAt = nowIso();
   const archive = buildNotesMarkdownArchive(
     notesToExport,
-    decryptedNotebookRows,
+    notebooksToExport,
     exportedAt
   );
   if (selectedNoteIds && archive.files.length === 0) {
     throw new Error('No selected notes to export');
+  }
+  if (selectedNotebookIds && archive.files.length === 0) {
+    throw new Error('No notes in selected notebooks');
   }
 
   return {

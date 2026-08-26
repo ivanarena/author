@@ -32,6 +32,7 @@ import com.author.core.TrustedAuthDevice
 import com.author.core.formatDateTime
 import com.author.core.normalizedNotebookName
 import com.author.core.noteNotebookIds
+import com.author.core.notesForMarkdownExport
 import com.author.core.readBoundedUtf8
 import com.author.ui.app.AppNotification
 import com.author.ui.theme.resolveThemeChoice
@@ -177,6 +178,8 @@ class NotesController(private val repository: NotesRepository, private val scope
   private var lastUndoSnapshotAt = 0L
   private var lastUndoSnapshotField = ""
   private var markdownExportPrepared = false
+  private var preparedMarkdownExportNotebookIds: Set<String>? = null
+  private var newNotebookTargetNoteIds: Set<String> = emptySet()
   private var preparedSignupRecoveryKit: ByteArray? = null
   private var notificationActions = emptyMap<String, () -> Unit>()
   private var closed = false
@@ -837,6 +840,20 @@ class NotesController(private val repository: NotesRepository, private val scope
     selectedNoteIds = emptySet()
   }
 
+  fun openNewNotebook(targetNoteIds: Set<String> = emptySet()) {
+    newNotebookTargetNoteIds = targetNoteIds
+    notebookNameValue = ""
+    notebookError = ""
+    newNotebookOpen = true
+  }
+
+  fun dismissNewNotebook() {
+    newNotebookOpen = false
+    newNotebookTargetNoteIds = emptySet()
+    notebookNameValue = ""
+    notebookError = ""
+  }
+
   fun createNotebook() {
     val trimmed = notebookNameValue.trim()
     if (trimmed.isEmpty()) {
@@ -849,6 +866,11 @@ class NotesController(private val repository: NotesRepository, private val scope
       notify("error", "Notebook already exists", "Use a different notebook name.")
       return
     }
+    val creatingForAssignment = newNotebookTargetNoteIds.isNotEmpty()
+    val targetNoteIds =
+      newNotebookTargetNoteIds.ifEmpty {
+        selectedNote?.takeIf { it.trashedAt == null }?.let { setOf(it.id) } ?: emptySet()
+      }
     scope.launch {
       val notebook = repository.createNotebook(trimmed)
       if (notebook == null) {
@@ -856,13 +878,15 @@ class NotesController(private val repository: NotesRepository, private val scope
         notify("error", "Notebook already exists", "Use a different notebook name.")
         return@launch
       }
-      filterId = notebook.id
-      selectedNote
-        ?.takeIf { it.trashedAt == null }
-        ?.let { selectedNote = repository.assignNoteToNotebook(it.id, notebook.id, true) }
+      if (!creatingForAssignment) filterId = notebook.id
+      targetNoteIds.forEach { noteId ->
+        val updated = repository.assignNoteToNotebook(noteId, notebook.id, true)
+        if (selectedNote?.id == noteId) selectedNote = updated
+      }
       notebookNameValue = ""
       notebookError = ""
       newNotebookOpen = false
+      newNotebookTargetNoteIds = emptySet()
       refresh()
       scheduleSyncAfterLocalChange()
     }
@@ -1529,11 +1553,16 @@ class NotesController(private val repository: NotesRepository, private val scope
     }
   }
 
-  fun prepareMarkdownExport(onReady: (String) -> Unit) {
+  fun prepareMarkdownExport(notebookIds: Set<String>?, onReady: (String) -> Unit) {
+    if (notebookIds != null && notesForMarkdownExport(notes + trash, notebookIds).isEmpty()) {
+      notify("info", "No notes to export", "Selected notebooks do not contain notes.")
+      return
+    }
     scope.launch {
       isArchiveBusy = true
       try {
         markdownExportPrepared = true
+        preparedMarkdownExportNotebookIds = notebookIds?.toSet()
         onReady(repository.markdownExportFileName())
       } catch (error: Throwable) {
         notify("error", "Export failed", error.message ?: "Could not export notes")
@@ -1592,11 +1621,13 @@ class NotesController(private val repository: NotesRepository, private val scope
   fun completeMarkdownExport(uri: Uri?, resolver: ContentResolver) {
     if (!markdownExportPrepared) return
     markdownExportPrepared = false
+    val notebookIds = preparedMarkdownExportNotebookIds
+    preparedMarkdownExportNotebookIds = null
     if (uri == null) return
     scope.launch {
       isArchiveBusy = true
       runCatching {
-          resolver.openOutputStream(uri)?.use { repository.exportMarkdownZipTo(it) }
+          resolver.openOutputStream(uri)?.use { repository.exportMarkdownZipTo(it, notebookIds) }
             ?: error("Could not open export destination")
         }
         .onSuccess { notify("success", "Export complete", "Markdown ZIP saved.") }

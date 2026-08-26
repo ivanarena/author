@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Login
 import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Close
@@ -83,7 +84,11 @@ import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import java.util.Locale
 
 @Composable
-internal fun SettingsPage(controller: NotesController, onExport: () -> Unit, onImport: () -> Unit) {
+internal fun SettingsPage(
+  controller: NotesController,
+  onExport: (Set<String>?) -> Unit,
+  onImport: () -> Unit,
+) {
   val compactScreen = isCompactWindow()
   val showingMenu = compactScreen && controller.settingsSection == "menu"
   val section = activeSettingsSection(controller.settingsSection)
@@ -260,7 +265,7 @@ private fun themeSettingsSubtitle(theme: String, systemDark: Boolean): String =
 @Composable
 private fun SettingsContent(
   controller: NotesController,
-  onExport: () -> Unit,
+  onExport: (Set<String>?) -> Unit,
   onImport: () -> Unit,
   section: String = activeSettingsSection(controller.settingsSection),
 ) {
@@ -937,19 +942,94 @@ private fun AppDebugTile(controller: NotesController) {
 }
 
 @Composable
-private fun DataSettings(controller: NotesController, onExport: () -> Unit, onImport: () -> Unit) {
+private fun DataSettings(
+  controller: NotesController,
+  onExport: (Set<String>?) -> Unit,
+  onImport: () -> Unit,
+) {
+  var exportOpen by remember { mutableStateOf(false) }
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
     ActionRow(
       Icons.Outlined.Download,
       if (controller.isArchiveBusy) "Working" else "Export Markdown ZIP",
     ) {
-      if (!controller.isArchiveBusy) onExport()
+      if (!controller.isArchiveBusy) exportOpen = true
     }
     ActionRow(
       Icons.Outlined.Upload,
       if (controller.isArchiveBusy) "Working" else "Import Markdown files",
     ) {
       if (!controller.isArchiveBusy) onImport()
+    }
+  }
+  if (exportOpen) {
+    ExportNotebookDialog(
+      controller = controller,
+      onDismiss = { exportOpen = false },
+      onExport = { notebookIds ->
+        exportOpen = false
+        onExport(notebookIds)
+      },
+    )
+  }
+}
+
+@Composable
+private fun ExportNotebookDialog(
+  controller: NotesController,
+  onDismiss: () -> Unit,
+  onExport: (Set<String>?) -> Unit,
+) {
+  var exportAll by remember { mutableStateOf(true) }
+  var selectedNotebookIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+  val activeNotebooks =
+    controller.notebooks
+      .filter { it.deletedAt == null }
+      .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name.ifBlank { "Untitled" } })
+
+  AppModal(onDismissRequest = onDismiss, maxWidth = 400.dp) {
+    AppModalTitle("Export notebooks", onDismiss = onDismiss)
+    ActionRow(
+      icon = Icons.Outlined.Book,
+      label = "All notebooks",
+      detail = if (exportAll) "Selected, includes unfiled notes" else "Includes unfiled notes",
+      active = exportAll,
+      onClick = {
+        exportAll = true
+        selectedNotebookIds = emptySet()
+      },
+    )
+    if (activeNotebooks.isNotEmpty()) {
+      DropdownSectionLabel("Selected notebooks")
+      activeNotebooks.forEach { notebook ->
+        val selected = notebook.id in selectedNotebookIds
+        ActionRow(
+          icon = Icons.Outlined.Book,
+          label = notebook.name.ifBlank { "Untitled notebook" },
+          detail =
+            if (!exportAll && selected) {
+              "Selected, ${controller.notebookCounts[notebook.id] ?: 0} notes"
+            } else {
+              "${controller.notebookCounts[notebook.id] ?: 0} notes"
+            },
+          active = !exportAll && selected,
+          onClick = {
+            exportAll = false
+            selectedNotebookIds =
+              if (selected) selectedNotebookIds - notebook.id else selectedNotebookIds + notebook.id
+          },
+        )
+      }
+    }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      ModalActionButton("Cancel", modifier = Modifier.weight(1f), onClick = onDismiss)
+      ModalActionButton(
+        "Export",
+        modifier = Modifier.weight(1f),
+        primary = true,
+        enabled = exportAll || selectedNotebookIds.isNotEmpty(),
+        onClick = { onExport(if (exportAll) null else selectedNotebookIds) },
+      )
     }
   }
 }

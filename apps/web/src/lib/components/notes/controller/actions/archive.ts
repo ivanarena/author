@@ -50,7 +50,8 @@ export interface NotesArchiveActionController {
 }
 
 export async function exportMarkdown(
-  controller: NotesArchiveActionController
+  controller: NotesArchiveActionController,
+  notebookIds?: string[]
 ): Promise<void> {
   if (controller.isArchiveBusy) return;
   await controller.flushPendingSave();
@@ -61,7 +62,7 @@ export async function exportMarkdown(
   );
   try {
     await controller.yieldToUi();
-    const archive = await exportNotesMarkdownZip();
+    const archive = await exportNotesMarkdownZip(undefined, notebookIds);
     controller.updateArchiveOperation('Writing ZIP archive', 78);
     await controller.yieldToUi();
     controller.downloadBlob(archive.blob, archive.fileName);

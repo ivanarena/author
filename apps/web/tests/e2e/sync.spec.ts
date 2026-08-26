@@ -985,8 +985,11 @@ test('exports Markdown without closing settings', async ({ page }) => {
   await page.getByRole('button', { name: 'Data' }).click();
   await expect(page.getByText('Markdown', { exact: true })).toBeVisible();
 
-  const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export Markdown ZIP' }).click();
+  await expect(page.getByText('All notebooks', { exact: true })).toBeVisible();
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export', exact: true }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(
     /^author-.*-md-frontmatter\.zip$/

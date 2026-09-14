@@ -1,8 +1,14 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { History, Redo2, Undo2, ZoomIn, ZoomOut } from '@lucide/svelte';
   import type { EditorPaneModel } from './controller/page-controller.svelte.js';
+  import { noteSwipeDirection } from './note-navigation';
 
   let { model }: { model: EditorPaneModel } = $props();
+  let swipeStart: { pointerId: number; x: number; y: number } | null = null;
+  let wheelDeltaX = 0;
+  let wheelGestureLocked = false;
+  let wheelResetTimer: ReturnType<typeof setTimeout> | null = null;
 
   function revealMetadata(event: PointerEvent) {
     const strip = event.currentTarget as HTMLElement;
@@ -16,12 +22,76 @@
       behavior: 'smooth'
     });
   }
+
+  function startNoteSwipe(event: PointerEvent) {
+    if (event.pointerType !== 'touch') return;
+    swipeStart = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY
+    };
+  }
+
+  function finishNoteSwipe(event: PointerEvent) {
+    if (!swipeStart || event.pointerId !== swipeStart.pointerId) return;
+    const direction = noteSwipeDirection(
+      event.clientX - swipeStart.x,
+      event.clientY - swipeStart.y
+    );
+    swipeStart = null;
+    if (direction) void model.navigateAdjacentNote(direction);
+  }
+
+  function cancelNoteSwipe() {
+    swipeStart = null;
+  }
+
+  function scheduleWheelReset() {
+    if (wheelResetTimer) clearTimeout(wheelResetTimer);
+    wheelResetTimer = setTimeout(() => {
+      wheelDeltaX = 0;
+      wheelGestureLocked = false;
+      wheelResetTimer = null;
+    }, 220);
+  }
+
+  function handleNoteWheel(event: WheelEvent) {
+    const scale =
+      event.deltaMode === WheelEvent.DOM_DELTA_LINE
+        ? 16
+        : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+          ? window.innerWidth
+          : 1;
+    const deltaX = event.deltaX * scale;
+    const deltaY = event.deltaY * scale;
+    if (Math.abs(deltaX) <= Math.abs(deltaY) * 1.25) return;
+
+    event.preventDefault();
+    scheduleWheelReset();
+    if (wheelGestureLocked) return;
+
+    wheelDeltaX += deltaX;
+    const direction = noteSwipeDirection(-wheelDeltaX, 0, 90);
+    if (!direction) return;
+
+    wheelDeltaX = 0;
+    wheelGestureLocked = true;
+    void model.navigateAdjacentNote(direction);
+  }
+
+  onDestroy(() => {
+    if (wheelResetTimer) clearTimeout(wheelResetTimer);
+  });
 </script>
 
 <section
   class="editor-wrap"
   aria-label="Editor"
   oncontextmenu={model.openEditorContext}
+  onpointerdown={startNoteSwipe}
+  onpointerup={finishNoteSwipe}
+  onpointercancel={cancelNoteSwipe}
+  onwheel={handleNoteWheel}
 >
   <section
     class="writer"

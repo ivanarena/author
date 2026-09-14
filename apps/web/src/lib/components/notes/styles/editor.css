@@ -4,6 +4,8 @@
   min-height: 100vh;
   min-height: 100dvh;
   background: var(--paper);
+  overscroll-behavior-x: contain;
+  touch-action: pan-y pinch-zoom;
   transition: margin-left var(--motion-slow) var(--motion-ease);
 }
 

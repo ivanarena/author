@@ -177,6 +177,9 @@ class NotesController(private val repository: NotesRepository, private val scope
   private var lastSnapshot = "" to ""
   private var lastUndoSnapshotAt = 0L
   private var lastUndoSnapshotField = ""
+  private var adjacentNoteNavigationInProgress = false
+  private var gestureNoteOrderIds = emptyList<String>()
+  private var gestureNoteOrderContext = ""
   private var markdownExportPrepared = false
   private var preparedMarkdownExportNotebookIds: Set<String>? = null
   private var newNotebookTargetNoteIds: Set<String> = emptySet()
@@ -641,20 +644,58 @@ class NotesController(private val repository: NotesRepository, private val scope
     deviceId?.let { id -> devices.firstOrNull { it.id == id }?.name ?: id } ?: "Unknown device"
 
   fun selectNote(note: LocalNote) {
+    gestureNoteOrderIds = emptyList()
+    navigateTo("editor")
+    scope.launch { openNote(note) }
+  }
+
+  fun navigateAdjacentNote(forward: Boolean) {
+    if (adjacentNoteNavigationInProgress) return
+    val selectedId = selectedNote?.id ?: return
+    val context =
+      listOf(
+          filterId,
+          searchValue,
+          noteSort,
+          noteFilterNotebookIds.sorted().joinToString(","),
+          noteFilterDateRanges.sorted().joinToString(","),
+        )
+        .joinToString("\u0000")
+    if (context != gestureNoteOrderContext || selectedId !in gestureNoteOrderIds) {
+      gestureNoteOrderIds = visibleNotes.map { it.id }
+      gestureNoteOrderContext = context
+    }
+
+    val visibleNotesById = visibleNotes.associateBy { it.id }
+    val gestureOrderedNotes = gestureNoteOrderIds.mapNotNull(visibleNotesById::get)
+    val selectedIndex = gestureOrderedNotes.indexOfFirst { it.id == selectedId }
+    if (selectedIndex < 0) return
+    val direction = if (forward) 1 else -1
+    val note = gestureOrderedNotes.getOrNull(selectedIndex + direction) ?: return
+
+    adjacentNoteNavigationInProgress = true
     navigateTo("editor")
     scope.launch {
-      flushPendingSave()
-      val fullNote = repository.loadNote(note.id)
-      if (fullNote == null) {
-        refresh()
-        openDraftNote()
-        return@launch
+      try {
+        openNote(note)
+      } finally {
+        adjacentNoteNavigationInProgress = false
       }
-      selectedNote = fullNote
-      titleValue = fullNote.title
-      bodyValue = fullNote.body
-      resetHistory()
     }
+  }
+
+  private suspend fun openNote(note: LocalNote) {
+    flushPendingSave()
+    val fullNote = repository.loadNote(note.id)
+    if (fullNote == null) {
+      refresh()
+      openDraftNote()
+      return
+    }
+    selectedNote = fullNote
+    titleValue = fullNote.title
+    bodyValue = fullNote.body
+    resetHistory()
   }
 
   fun newNote() {

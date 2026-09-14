@@ -23,6 +23,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.test.swipeUp
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -30,6 +32,7 @@ import com.author.core.LocalNote
 import com.author.core.NotesRepository
 import com.author.ui.app.AuthorApp
 import com.author.ui.state.NotesController
+import com.author.ui.state.visibleNotes
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.runBlocking
@@ -158,6 +161,52 @@ class AuthorAppInstrumentedTest {
       controller.selectedNote?.id == second.id && bodyScrollPosition() == 0f
     }
     compose.onNodeWithTag("note-body-field").assertTextEquals(second.body)
+  }
+
+  @Test
+  fun horizontalEditorSwipesNavigateVisibleNotes() {
+    val repository = newRepository()
+    runBlocking {
+      repository.createBlankNote("Gesture first", "First body")
+      repository.createBlankNote("Gesture second", "Second body")
+      repository.createBlankNote("Gesture third", "Third body")
+    }
+    val notes = runBlocking { repository.loadWorkspaceSnapshot().notes }
+    lateinit var controller: NotesController
+    lateinit var middleNote: LocalNote
+    lateinit var nextNote: LocalNote
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      controller = remember {
+        NotesController(repository, scope).also {
+          it.notes = notes
+          val ordered = it.visibleNotes
+          middleNote = ordered[1]
+          nextNote = ordered[2]
+          it.selectedNote = middleNote
+          it.titleValue = middleNote.title
+          it.bodyValue = middleNote.body
+        }
+      }
+
+      AuthorApp(controller = controller, onExport = {}, onImport = {})
+    }
+
+    val pendingBody = "Saved while swiping"
+    compose.runOnIdle { controller.updateEditor("body", pendingBody) }
+    compose.onNodeWithTag("editor-pane").assertIsDisplayed().performTouchInput { swipeLeft() }
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      controller.selectedNote?.id == nextNote.id &&
+        repository.loadWorkspaceSnapshot().notes.any {
+          it.id == middleNote.id && it.body == pendingBody
+        }
+    }
+
+    compose.onNodeWithTag("editor-pane").performTouchInput { swipeRight() }
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      controller.selectedNote?.id == middleNote.id && controller.bodyValue == pendingBody
+    }
   }
 
   @Test

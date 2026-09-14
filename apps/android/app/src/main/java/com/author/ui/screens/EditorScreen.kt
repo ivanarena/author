@@ -1,6 +1,7 @@
 package com.author.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -52,6 +54,7 @@ import com.author.core.formatDateTime
 import com.author.ui.common.*
 import com.author.ui.state.*
 import com.author.ui.theme.*
+import kotlin.math.abs
 
 @Composable
 internal fun EditorPage(controller: NotesController) {
@@ -115,6 +118,25 @@ private fun EditorPane(controller: NotesController, modifier: Modifier = Modifie
   Column(
     modifier
       .fillMaxSize()
+      .pointerInput(controller.selectedNote?.id) {
+        var horizontalDrag = 0f
+        val navigationThreshold = 72.dp.toPx()
+        detectHorizontalDragGestures(
+          onDragStart = { horizontalDrag = 0f },
+          onDragCancel = { horizontalDrag = 0f },
+          onDragEnd = {
+            if (abs(horizontalDrag) >= navigationThreshold) {
+              controller.navigateAdjacentNote(forward = horizontalDrag < 0f)
+            }
+            horizontalDrag = 0f
+          },
+          onHorizontalDrag = { change, dragAmount ->
+            horizontalDrag += dragAmount
+            change.consume()
+          },
+        )
+      }
+      .testTag("editor-pane")
       .padding(horizontal = if (compactScreen) 56.dp else 84.dp)
       .padding(
         top = if (compactScreen) 44.dp else 72.dp,

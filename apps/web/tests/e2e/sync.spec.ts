@@ -326,6 +326,28 @@ async function hoverMenusThroughBridge(page: Page) {
   await page.mouse.move(box.x + 80, box.y + box.height + 18);
 }
 
+async function swipeEditor(
+  page: Page,
+  direction: 'left' | 'right',
+  pointerId: number
+) {
+  const editor = page.locator('.editor-wrap');
+  const startX = direction === 'left' ? 320 : 200;
+  const endX = direction === 'left' ? 200 : 320;
+  await editor.dispatchEvent('pointerdown', {
+    pointerId,
+    pointerType: 'touch',
+    clientX: startX,
+    clientY: 400
+  });
+  await editor.dispatchEvent('pointerup', {
+    pointerId,
+    pointerType: 'touch',
+    clientX: endX,
+    clientY: 410
+  });
+}
+
 async function waitForVisibleSyncedStatus(page: Page) {
   await hoverMenusThroughBridge(page);
   await expect(
@@ -479,6 +501,62 @@ test('opens selected notes at the beginning of the body', async ({ page }) => {
       }))
     )
     .toEqual({ selectionStart: 0, scrollTop: 0 });
+});
+
+test('navigates adjacent notes with horizontal editor gestures @mobile @cross-browser', async ({
+  page
+}, testInfo) => {
+  await page.goto('/');
+  await hoverMenusThroughBridge(page);
+
+  const notesPanel = page.getByRole('complementary', { name: 'Notes' });
+  const gestureId = Date.now();
+  const titles = [
+    `Gesture first ${gestureId}`,
+    `Gesture second ${gestureId}`,
+    `Gesture third ${gestureId}`
+  ];
+
+  for (const [index, title] of titles.entries()) {
+    await page.getByLabel('Note title').fill(title);
+    await page.getByLabel('Note body').fill(`Body ${index + 1}`);
+    await expectBrowserStoredEncryptedNote(page, title, `Body ${index + 1}`);
+    if (index < titles.length - 1) {
+      await hoverMenusThroughBridge(page);
+      await notesPanel.getByRole('button', { name: 'New note' }).click();
+    }
+  }
+
+  const pendingBody = `Saved during gesture ${gestureId}`;
+  await page.getByLabel('Note body').fill(pendingBody);
+
+  const editor = page.locator('.editor-wrap');
+  if (testInfo.project.name !== 'mobile-chromium') {
+    await editor.hover();
+    await page.mouse.wheel(120, 0);
+    await expect(page.getByLabel('Note title')).toHaveValue(titles[1]);
+
+    await page.waitForTimeout(300);
+    await page.mouse.wheel(-120, 0);
+    await expect(page.getByLabel('Note title')).toHaveValue(titles[2]);
+  }
+
+  await swipeEditor(page, 'left', 41);
+  await expect(page.getByLabel('Note title')).toHaveValue(titles[1]);
+
+  const middlePendingBody = `Middle saved during gesture ${gestureId}`;
+  await page.getByLabel('Note body').fill(middlePendingBody);
+  await swipeEditor(page, 'left', 42);
+  await expect(page.getByLabel('Note title')).toHaveValue(titles[0]);
+
+  await swipeEditor(page, 'right', 43);
+  await expect(page.getByLabel('Note title')).toHaveValue(titles[1]);
+  await swipeEditor(page, 'right', 44);
+  await expect(page.getByLabel('Note title')).toHaveValue(titles[2]);
+
+  await expectBrowserStoredEncryptedNote(page, titles[1], middlePendingBody);
+  await expect(page.getByLabel('Note body')).toHaveValue(pendingBody);
+  await expectBrowserStoredEncryptedNote(page, titles[2], pendingBody);
 });
 
 test('renames notebooks and keeps their notes before delete', async ({

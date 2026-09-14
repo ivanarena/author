@@ -441,9 +441,13 @@ test('keeps the note list open after selecting a note until the pointer leaves',
     .click();
 
   await expect(page.getByLabel('Note title')).toHaveValue(firstTitle);
+  const menuButton = page.getByRole('button', { name: 'Show menus' });
+  await page.waitForTimeout(1_200);
+  await expect(menuButton).toHaveAttribute('aria-expanded', 'true');
   await expect(notesPanel).toBeVisible();
 
   await page.getByLabel('Note body').hover();
+  await expect(menuButton).toHaveAttribute('aria-expanded', 'false');
   await expect(notesPanel).toBeHidden();
 });
 

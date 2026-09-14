@@ -104,6 +104,7 @@ export function closeMenusOnBlur(
   const current = event.currentTarget as HTMLElement;
   const next = event.relatedTarget as Node | null;
   if (next && current.contains(next)) return;
+  if (current.matches(':hover')) return;
   closeMenus(controller);
 }
 

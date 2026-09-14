@@ -62,6 +62,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -361,12 +362,14 @@ internal fun AppDropdownMenu(
   expanded: Boolean,
   onDismissRequest: () -> Unit,
   modifier: Modifier = Modifier,
+  offset: DpOffset = DpOffset.Zero,
   content: @Composable ColumnScope.() -> Unit,
 ) {
   DropdownMenu(
     expanded = expanded,
     onDismissRequest = onDismissRequest,
     modifier = modifier.clip(AppShape.Menu),
+    offset = offset,
     shape = AppShape.Menu,
     containerColor = menuColor(),
     tonalElevation = 0.dp,

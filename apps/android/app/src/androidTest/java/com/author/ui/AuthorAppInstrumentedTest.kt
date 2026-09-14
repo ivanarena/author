@@ -5,6 +5,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -17,16 +18,23 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeRight
+import androidx.compose.ui.test.swipeUp
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.author.core.LocalNote
 import com.author.core.NotesRepository
 import com.author.ui.app.AuthorApp
 import com.author.ui.state.NotesController
+import com.author.ui.state.visibleNotes
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertTrue
@@ -123,6 +131,85 @@ class AuthorAppInstrumentedTest {
   }
 
   @Test
+  fun switchingNotesResetsBodyScrollToTop() {
+    val repository = newRepository()
+    val longBody = (1..180).joinToString("\n") { line -> "First note line $line" }
+    val first = runBlocking { repository.createBlankNote("Long first note", longBody) }
+    val second = runBlocking {
+      repository.createBlankNote("Second note", "Second note starts here")
+    }
+    lateinit var controller: NotesController
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      controller = remember {
+        NotesController(repository, scope).also {
+          it.selectedNote = first
+          it.titleValue = first.title
+          it.bodyValue = first.body
+        }
+      }
+
+      AuthorApp(controller = controller, onExport = {}, onImport = {})
+    }
+
+    compose.onNodeWithTag("note-body-field").assertIsDisplayed().performTouchInput { swipeUp() }
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) { bodyScrollPosition() > 0f }
+
+    compose.runOnIdle { controller.selectNote(second) }
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      controller.selectedNote?.id == second.id && bodyScrollPosition() == 0f
+    }
+    compose.onNodeWithTag("note-body-field").assertTextEquals(second.body)
+  }
+
+  @Test
+  fun horizontalEditorSwipesNavigateVisibleNotes() {
+    val repository = newRepository()
+    runBlocking {
+      repository.createBlankNote("Gesture first", "First body")
+      repository.createBlankNote("Gesture second", "Second body")
+      repository.createBlankNote("Gesture third", "Third body")
+    }
+    val notes = runBlocking { repository.loadWorkspaceSnapshot().notes }
+    lateinit var controller: NotesController
+    lateinit var middleNote: LocalNote
+    lateinit var nextNote: LocalNote
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      controller = remember {
+        NotesController(repository, scope).also {
+          it.notes = notes
+          val ordered = it.visibleNotes
+          middleNote = ordered[1]
+          nextNote = ordered[2]
+          it.selectedNote = middleNote
+          it.titleValue = middleNote.title
+          it.bodyValue = middleNote.body
+        }
+      }
+
+      AuthorApp(controller = controller, onExport = {}, onImport = {})
+    }
+
+    val pendingBody = "Saved while swiping"
+    compose.runOnIdle { controller.updateEditor("body", pendingBody) }
+    compose.onNodeWithTag("editor-pane").assertIsDisplayed().performTouchInput { swipeLeft() }
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      controller.selectedNote?.id == nextNote.id &&
+        repository.loadWorkspaceSnapshot().notes.any {
+          it.id == middleNote.id && it.body == pendingBody
+        }
+    }
+
+    compose.onNodeWithTag("editor-pane").performTouchInput { swipeRight() }
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      controller.selectedNote?.id == middleNote.id && controller.bodyValue == pendingBody
+    }
+  }
+
+  @Test
   fun appLockScreenBlocksNotesUntilUnlockRequested() {
     val repository = newRepository()
     val unlockRequested = AtomicBoolean(false)
@@ -170,11 +257,28 @@ class AuthorAppInstrumentedTest {
     compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
       compose.onAllNodesWithText(note.title).fetchSemanticsNodes().isNotEmpty()
     }
+    val appRoot = compose.onRoot().fetchSemanticsNode()
+    val screenCenter = appRoot.positionOnScreen.x + appRoot.size.width / 2f
     compose
       .onNodeWithTag("note-row-${note.id}")
       .performSemanticsAction(SemanticsActions.OnLongClick)
 
     compose.onNodeWithText("1 selected").assertIsDisplayed()
+    val favoriteAction = compose.onNodeWithText("Add selected to Favorites").assertIsDisplayed()
+    val actionNode = favoriteAction.fetchSemanticsNode()
+    val actionCenter = actionNode.positionOnScreen.x + actionNode.size.width / 2f
+    assertTrue(
+      "The selected-notes menu should open on the right ($actionCenter <= $screenCenter)",
+      actionCenter > screenCenter,
+    )
+    favoriteAction.performClick()
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      repository.loadWorkspaceSnapshot().notes.any { it.id == note.id && it.isFavorite }
+    }
+
+    compose
+      .onNodeWithTag("note-row-${note.id}")
+      .performSemanticsAction(SemanticsActions.OnLongClick)
     assertTrue(
       "The selected-notes menu should include the existing notebook",
       compose.onAllNodesWithText(notebook.name).fetchSemanticsNodes().size >= 2,
@@ -193,6 +297,43 @@ class AuthorAppInstrumentedTest {
       "Creating a notebook from selection should preserve the notes filter",
       controller.filterId == "all",
     )
+  }
+
+  @Test
+  fun markdownExportPassesSelectedNotebookIds() {
+    val repository = newRepository()
+    val notebook = runBlocking { repository.createNotebook("Export this notebook")!! }
+    val exportRequested = AtomicBoolean(false)
+    val exportedNotebookIds = AtomicReference<Set<String>>(emptySet())
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      val controller = remember {
+        NotesController(repository, scope).also {
+          it.currentPage = "settings"
+          it.settingsSection = "data"
+        }
+      }
+
+      LaunchedEffect(Unit) { controller.initialize() }
+      AuthorApp(
+        controller = controller,
+        onExport = { notebookIds ->
+          exportedNotebookIds.set(notebookIds.orEmpty())
+          exportRequested.set(true)
+        },
+        onImport = {},
+      )
+    }
+
+    compose.onNodeWithText("Export Markdown ZIP").assertIsDisplayed().performClick()
+    compose.onNodeWithText("Export notebooks").assertIsDisplayed()
+    compose.onNodeWithText(notebook.name).assertIsDisplayed().performClick()
+    compose.onNodeWithText("Export").assertIsDisplayed().performClick()
+
+    compose.waitForIdle()
+    assertTrue(exportRequested.get())
+    assertTrue(exportedNotebookIds.get() == setOf(notebook.id))
   }
 
   @Test
@@ -419,6 +560,15 @@ class AuthorAppInstrumentedTest {
       compose.onAllNodesWithText("Save recovery key").fetchSemanticsNodes().isEmpty()
     }
     compose.onAllNodesWithText("Save recovery key").assertCountEquals(0)
+  }
+
+  private fun bodyScrollPosition(): Float {
+    val range =
+      compose
+        .onNodeWithTag("note-body-field")
+        .fetchSemanticsNode()
+        .config[SemanticsProperties.VerticalScrollAxisRange]
+    return range.value()
   }
 
   private fun waitUntilTextDisplayed(text: String) {

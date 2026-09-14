@@ -179,7 +179,7 @@ export interface NavigationDockModel
   theme: Theme;
   resolvedTheme: ResolvedTheme;
   openMenus: () => void;
-  scheduleMenusClose: () => void;
+  scheduleMenusClose: (event: PointerEvent) => void;
   closeMenusOnBlur: (event: FocusEvent) => void;
   openAccountMenu: () => void;
   scheduleAccountMenuClose: () => void;
@@ -229,6 +229,7 @@ export interface EditorPaneModel {
   editorFontOptions: EditorFontOption[];
   zoomPercent: () => string;
   zoomEditor: (direction: -1 | 1) => void;
+  navigateAdjacentNote: (direction: -1 | 1) => void | Promise<void>;
   handleTitleKeydown: (event: KeyboardEvent) => void;
   handleEditorInput: (event: Event, field: 'title' | 'body') => void;
   undoEditorHistory: () => void;

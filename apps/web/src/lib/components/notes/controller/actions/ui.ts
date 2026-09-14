@@ -89,7 +89,14 @@ export function scheduleAccountMenuClose(
   }, 260);
 }
 
-export function scheduleMenusClose(controller: NotesUiActionController): void {
+export function scheduleMenusClose(
+  controller: NotesUiActionController,
+  event?: PointerEvent
+): void {
+  if (event) {
+    const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    if (event.clientX < bounds.right) return;
+  }
   if (controller.menuCloseTimer) clearTimeout(controller.menuCloseTimer);
   controller.menuCloseTimer = setTimeout(() => {
     controller.menusOpen = false;
@@ -104,6 +111,7 @@ export function closeMenusOnBlur(
   const current = event.currentTarget as HTMLElement;
   const next = event.relatedTarget as Node | null;
   if (next && current.contains(next)) return;
+  if (current.matches(':hover')) return;
   closeMenus(controller);
 }
 

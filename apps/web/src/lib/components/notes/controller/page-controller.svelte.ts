@@ -107,6 +107,7 @@ import {
   zoomPercent as formatZoomPercent
 } from './page-preferences';
 import type { ContextMenuState, EditorSnapshot } from './ui-types';
+import { adjacentNote } from '../note-navigation';
 import * as accountActions from './actions/account';
 import * as archiveActions from './actions/archive';
 import type { ShareNotePayload } from './actions/archive';
@@ -293,6 +294,9 @@ export class NotesPageController
   private notificationTimers = new Map<string, ReturnType<typeof setTimeout>>();
   draftCreatePromise: Promise<LocalNote> | null = null;
   editorSessionId = 0;
+  private adjacentNoteNavigationPending = false;
+  private gestureNoteOrderIds: string[] = [];
+  private gestureNoteOrderContext = '';
   syncQueued = false;
   lastHistorySnapshot: EditorSnapshot = { title: '', body: '' };
 
@@ -622,7 +626,39 @@ export class NotesPageController
   }
 
   selectNote = async (note: LocalNote) => {
+    this.gestureNoteOrderIds = [];
     await editorActions.selectNote(this, note);
+  };
+
+  navigateAdjacentNote = async (direction: -1 | 1) => {
+    if (this.adjacentNoteNavigationPending) return;
+    const selectedNoteId = this.selectedNote?.id ?? null;
+    const context = `${this.filterId}\0${this.searchValue}\0${this.noteSort}`;
+    if (
+      context !== this.gestureNoteOrderContext ||
+      !selectedNoteId ||
+      !this.gestureNoteOrderIds.includes(selectedNoteId)
+    ) {
+      this.gestureNoteOrderIds = this.visibleNotes.map((note) => note.id);
+      this.gestureNoteOrderContext = context;
+    }
+
+    const visibleNotesById = new Map(
+      this.visibleNotes.map((note) => [note.id, note])
+    );
+    const gestureOrderedNotes = this.gestureNoteOrderIds.flatMap((id) => {
+      const note = visibleNotesById.get(id);
+      return note ? [note] : [];
+    });
+    const note = adjacentNote(gestureOrderedNotes, selectedNoteId, direction);
+    if (!note) return;
+
+    this.adjacentNoteNavigationPending = true;
+    try {
+      await editorActions.selectNote(this, note);
+    } finally {
+      this.adjacentNoteNavigationPending = false;
+    }
   };
 
   newNote = async () => {
@@ -682,8 +718,8 @@ export class NotesPageController
     uiActions.scheduleAccountMenuClose(this);
   };
 
-  scheduleMenusClose = () => {
-    uiActions.scheduleMenusClose(this);
+  scheduleMenusClose = (event: PointerEvent) => {
+    uiActions.scheduleMenusClose(this, event);
   };
 
   closeMenusOnBlur = (event: FocusEvent) => {

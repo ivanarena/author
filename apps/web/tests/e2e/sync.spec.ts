@@ -326,6 +326,28 @@ async function hoverMenusThroughBridge(page: Page) {
   await page.mouse.move(box.x + 80, box.y + box.height + 18);
 }
 
+async function swipeEditor(
+  page: Page,
+  direction: 'left' | 'right',
+  pointerId: number
+) {
+  const editor = page.locator('.editor-wrap');
+  const startX = direction === 'left' ? 320 : 200;
+  const endX = direction === 'left' ? 200 : 320;
+  await editor.dispatchEvent('pointerdown', {
+    pointerId,
+    pointerType: 'touch',
+    clientX: startX,
+    clientY: 400
+  });
+  await editor.dispatchEvent('pointerup', {
+    pointerId,
+    pointerType: 'touch',
+    clientX: endX,
+    clientY: 410
+  });
+}
+
 async function waitForVisibleSyncedStatus(page: Page) {
   await hoverMenusThroughBridge(page);
   await expect(
@@ -415,6 +437,135 @@ test.beforeEach(async ({ page, request }, testInfo) => {
       keyMaterialStorageKey: ENCRYPTION_KEY_MATERIAL_STORAGE_KEY
     }
   );
+});
+
+test('keeps the note list open until the pointer moves toward the editor', async ({
+  page
+}) => {
+  await page.goto('/');
+  await hoverMenusThroughBridge(page);
+
+  const notesPanel = page.getByRole('complementary', { name: 'Notes' });
+  const firstTitle = `First open note ${Date.now()}`;
+  await page.getByLabel('Note title').fill(firstTitle);
+  await page.getByLabel('Note body').fill('First note body');
+  await expectBrowserStoredEncryptedNote(page, firstTitle, 'First note body');
+
+  await notesPanel.getByRole('button', { name: 'New note' }).click();
+  const secondTitle = `Second open note ${Date.now()}`;
+  await page.getByLabel('Note title').fill(secondTitle);
+  await page.getByLabel('Note body').fill('Second note body');
+  await expectBrowserStoredEncryptedNote(page, secondTitle, 'Second note body');
+
+  await hoverMenusThroughBridge(page);
+  await notesPanel
+    .getByRole('button', { name: new RegExp(firstTitle) })
+    .click();
+
+  await expect(page.getByLabel('Note title')).toHaveValue(firstTitle);
+  const menuButton = page.getByRole('button', { name: 'Show menus' });
+  await page.waitForTimeout(1_200);
+  await expect(menuButton).toHaveAttribute('aria-expanded', 'true');
+  await expect(notesPanel).toBeVisible();
+
+  const dockBox = await page
+    .getByRole('navigation', { name: 'Navigation' })
+    .boundingBox();
+  if (!dockBox) throw new Error('Navigation dock is not visible');
+  await page.mouse.move(dockBox.x + dockBox.width / 2, dockBox.y - 4);
+  await page.waitForTimeout(300);
+  await expect(menuButton).toHaveAttribute('aria-expanded', 'true');
+
+  await hoverMenusThroughBridge(page);
+  await page.getByLabel('Note body').hover();
+  await expect(menuButton).toHaveAttribute('aria-expanded', 'false');
+  await expect(notesPanel).toBeHidden();
+});
+
+test('opens selected notes at the beginning of the body', async ({ page }) => {
+  await page.goto('/');
+  await hoverMenusThroughBridge(page);
+
+  const notesPanel = page.getByRole('complementary', { name: 'Notes' });
+  const title = `Long note ${Date.now()}`;
+  const body = Array.from(
+    { length: 120 },
+    (_, index) => `Line ${index + 1}`
+  ).join('\n');
+  await page.getByLabel('Note title').fill(title);
+  await page.getByLabel('Note body').fill(body);
+  await expectBrowserStoredEncryptedNote(page, title, body);
+
+  await notesPanel.getByRole('button', { name: 'New note' }).click();
+  await hoverMenusThroughBridge(page);
+  await notesPanel.getByRole('button', { name: new RegExp(title) }).click();
+
+  const noteBody = page.getByLabel('Note body');
+  await expect(noteBody).toHaveValue(body);
+  await expect
+    .poll(() =>
+      noteBody.evaluate((element: HTMLTextAreaElement) => ({
+        selectionStart: element.selectionStart,
+        scrollTop: element.scrollTop
+      }))
+    )
+    .toEqual({ selectionStart: 0, scrollTop: 0 });
+});
+
+test('navigates adjacent notes with horizontal editor gestures @mobile @cross-browser', async ({
+  page
+}, testInfo) => {
+  await page.goto('/');
+  await hoverMenusThroughBridge(page);
+
+  const notesPanel = page.getByRole('complementary', { name: 'Notes' });
+  const gestureId = Date.now();
+  const titles = [
+    `Gesture first ${gestureId}`,
+    `Gesture second ${gestureId}`,
+    `Gesture third ${gestureId}`
+  ];
+
+  for (const [index, title] of titles.entries()) {
+    await page.getByLabel('Note title').fill(title);
+    await page.getByLabel('Note body').fill(`Body ${index + 1}`);
+    await expectBrowserStoredEncryptedNote(page, title, `Body ${index + 1}`);
+    if (index < titles.length - 1) {
+      await hoverMenusThroughBridge(page);
+      await notesPanel.getByRole('button', { name: 'New note' }).click();
+    }
+  }
+
+  const pendingBody = `Saved during gesture ${gestureId}`;
+  await page.getByLabel('Note body').fill(pendingBody);
+
+  const editor = page.locator('.editor-wrap');
+  if (testInfo.project.name !== 'mobile-chromium') {
+    await editor.hover();
+    await page.mouse.wheel(120, 0);
+    await expect(page.getByLabel('Note title')).toHaveValue(titles[1]);
+
+    await page.waitForTimeout(300);
+    await page.mouse.wheel(-120, 0);
+    await expect(page.getByLabel('Note title')).toHaveValue(titles[2]);
+  }
+
+  await swipeEditor(page, 'left', 41);
+  await expect(page.getByLabel('Note title')).toHaveValue(titles[1]);
+
+  const middlePendingBody = `Middle saved during gesture ${gestureId}`;
+  await page.getByLabel('Note body').fill(middlePendingBody);
+  await swipeEditor(page, 'left', 42);
+  await expect(page.getByLabel('Note title')).toHaveValue(titles[0]);
+
+  await swipeEditor(page, 'right', 43);
+  await expect(page.getByLabel('Note title')).toHaveValue(titles[1]);
+  await swipeEditor(page, 'right', 44);
+  await expect(page.getByLabel('Note title')).toHaveValue(titles[2]);
+
+  await expectBrowserStoredEncryptedNote(page, titles[1], middlePendingBody);
+  await expect(page.getByLabel('Note body')).toHaveValue(pendingBody);
+  await expectBrowserStoredEncryptedNote(page, titles[2], pendingBody);
 });
 
 test('renames notebooks and keeps their notes before delete', async ({
@@ -978,18 +1129,42 @@ test('keeps local drafts when signing in and then syncs them remote', async ({
     .toBe(bodyText);
 });
 
-test('exports Markdown without closing settings', async ({ page }) => {
+test('exports selected notebooks without closing settings', async ({
+  page
+}) => {
   await page.goto('/');
+  await hoverMenusThroughBridge(page);
+  const notebookName = `Export scope ${Date.now()}`;
+  await page.getByRole('button', { name: 'New notebook' }).click();
+  await page.getByPlaceholder('Notebook name').fill(notebookName);
+  await page.getByRole('button', { name: 'Create notebook' }).click();
+  await page.getByLabel('Note title').fill('Scoped export note');
+  await page.getByLabel('Note body').fill('Included in the scoped export');
+  await expectBrowserStoredEncryptedNote(
+    page,
+    'Scoped export note',
+    'Included in the scoped export'
+  );
+
   await openProfileMenu(page);
   await page.getByRole('menuitem', { name: 'Settings' }).click();
   await page.getByRole('button', { name: 'Data' }).click();
   await expect(page.getByText('Markdown', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Export Markdown ZIP' }).click();
-  await expect(page.getByText('All notebooks', { exact: true })).toBeVisible();
+  const exportScope = page.getByLabel('Choose notebooks to export');
+  await expect(
+    exportScope.getByText('All notebooks', { exact: true })
+  ).toBeVisible();
+  await exportScope.getByRole('button', { name: notebookName }).click();
+  await expect(
+    exportScope.getByRole('button', { name: notebookName })
+  ).toHaveAttribute('aria-pressed', 'true');
 
   const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await exportScope
+    .getByRole('button', { name: 'Export', exact: true })
+    .click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(
     /^author-.*-md-frontmatter\.zip$/
@@ -1296,12 +1471,12 @@ test('has no serious app-shell accessibility violations @a11y @cross-browser', a
 test('keeps the editor usable on a narrow mobile viewport @mobile', async ({
   page
 }) => {
+  await page.setViewportSize({ width: 412, height: 915 });
   await page.goto('/');
   await waitForDraftEditorReady(page);
-  await expect(page.locator('.editor-meta-strip span').first()).toHaveCSS(
-    'white-space',
-    'normal'
-  );
+  const metadataStrip = page.getByLabel('Note metadata');
+  const metadataStatus = metadataStrip.locator('span').first();
+  await expect(metadataStatus).toHaveCSS('white-space', 'nowrap');
 
   const titleText = `Mobile viewport note ${Date.now()}`;
   const bodyText = 'Written on the narrow browser project';
@@ -1310,4 +1485,18 @@ test('keeps the editor usable on a narrow mobile viewport @mobile', async ({
   await page.getByLabel('Note body').fill(bodyText);
   await expect(page.getByLabel('Note body')).toHaveValue(bodyText);
   await expectBrowserStoredEncryptedNote(page, titleText, bodyText);
+
+  await expect(metadataStatus).toHaveText('Synced');
+  await expect(metadataStatus).toHaveClass(/sync-ok/);
+  await expect
+    .poll(() =>
+      metadataStrip.evaluate(
+        (element) => element.scrollWidth > element.clientWidth
+      )
+    )
+    .toBe(true);
+  await metadataStrip.hover();
+  await expect
+    .poll(() => metadataStrip.evaluate((element) => element.scrollLeft))
+    .toBeGreaterThan(0);
 });

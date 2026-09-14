@@ -1,5 +1,7 @@
 package com.author.ui.screens
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -32,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -49,6 +54,7 @@ import com.author.core.formatDateTime
 import com.author.ui.common.*
 import com.author.ui.state.*
 import com.author.ui.theme.*
+import kotlin.math.abs
 
 @Composable
 internal fun EditorPage(controller: NotesController) {
@@ -105,10 +111,32 @@ private fun EditorPane(controller: NotesController, modifier: Modifier = Modifie
   val bodyLineHeight =
     (controller.editorTextSize * controller.editorLineHeight * controller.editorZoom).sp
   val fontFamily = LocalAppFontFamily.current
+  val bodyScrollState = rememberScrollState()
+
+  LaunchedEffect(controller.selectedNote?.id) { bodyScrollState.scrollTo(0) }
 
   Column(
     modifier
       .fillMaxSize()
+      .pointerInput(controller.selectedNote?.id) {
+        var horizontalDrag = 0f
+        val navigationThreshold = 72.dp.toPx()
+        detectHorizontalDragGestures(
+          onDragStart = { horizontalDrag = 0f },
+          onDragCancel = { horizontalDrag = 0f },
+          onDragEnd = {
+            if (abs(horizontalDrag) >= navigationThreshold) {
+              controller.navigateAdjacentNote(forward = horizontalDrag < 0f)
+            }
+            horizontalDrag = 0f
+          },
+          onHorizontalDrag = { change, dragAmount ->
+            horizontalDrag += dragAmount
+            change.consume()
+          },
+        )
+      }
+      .testTag("editor-pane")
       .padding(horizontal = if (compactScreen) 56.dp else 84.dp)
       .padding(
         top = if (compactScreen) 44.dp else 72.dp,
@@ -159,7 +187,7 @@ private fun EditorPane(controller: NotesController, modifier: Modifier = Modifie
         modifier =
           Modifier.fillMaxWidth()
             .weight(1f)
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(bodyScrollState)
             .testTag("note-body-field"),
         decorationBox = { inner ->
           if (controller.bodyValue.isBlank()) {
@@ -175,6 +203,7 @@ private fun EditorPane(controller: NotesController, modifier: Modifier = Modifie
         },
       )
     }
+    Spacer(Modifier.height(if (compactScreen) 24.dp else 32.dp))
     EditorStatusBar(controller, muted)
   }
 }
@@ -292,16 +321,28 @@ private fun lastSyncedLabel(controller: NotesController, note: LocalNote): Strin
 
 @Composable
 private fun EditorStatusBar(controller: NotesController, muted: Color) {
-  val note = controller.selectedNote
-  val status = note?.let { syncStatusLabel(it.syncStatus) } ?: "Unsaved draft"
+  val status =
+    compactEditorSyncStatus(
+      noteStatus = controller.selectedNote?.syncStatus,
+      hasToken = controller.hasToken,
+      isSyncing = controller.isSyncing,
+      pendingSyncCount = controller.pendingSyncCount,
+      conflictCount = controller.conflicts.size,
+      remoteSyncEnabled = controller.remoteSyncEnabled,
+      remoteSyncState = controller.remoteSyncState,
+    )
+  val dotColor =
+    when (status.tone) {
+      EditorSyncTone.Success -> syncStatusColor("Synced")
+      EditorSyncTone.Neutral -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f)
+      EditorSyncTone.Error -> MaterialTheme.colorScheme.error
+    }
   Row(
     verticalAlignment = Alignment.CenterVertically,
-    horizontalArrangement = Arrangement.spacedBy(8.dp),
+    horizontalArrangement = Arrangement.spacedBy(7.dp),
   ) {
-    Text(status, color = muted, fontSize = AppTextSize.Label, maxLines = 1)
-    Text("/", color = muted, fontSize = AppTextSize.Label, maxLines = 1)
-    SyncActivityIndicator(controller.isSyncing)
-    SyncStatusText(controller.syncLabel)
+    Box(Modifier.size(6.dp).background(dotColor, CircleShape))
+    Text(status.label, color = muted, fontSize = AppTextSize.Label, maxLines = 1)
   }
 }
 

@@ -2,11 +2,10 @@ package com.author.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -20,9 +19,11 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -59,11 +60,14 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.author.core.LocalNote
@@ -103,8 +107,8 @@ internal fun NoteListPanel(controller: NotesController, modifier: Modifier = Mod
   ) {
     AnimatedVisibility(
       visible = controller.noteSelectionMode || controller.selectedNoteIds.isNotEmpty(),
-      enter = fadeIn(appTween(AppMotion.Fast)) + expandVertically(appTween(AppMotion.Fast)),
-      exit = fadeOut(appTween(AppMotion.Fast)) + shrinkVertically(appTween(AppMotion.Fast)),
+      enter = expandVertically(appTween(AppMotion.Medium)),
+      exit = shrinkVertically(appTween(AppMotion.Medium)),
     ) {
       SelectionToolbar(controller)
     }
@@ -470,10 +474,28 @@ private fun GroupOptionRow(group: String, label: String, controller: NotesContro
 
 @Composable
 private fun BulkActionsMenuContent(controller: NotesController, onDismiss: () -> Unit) {
-  val hasActiveNotes = controller.selectedNotes.any { it.trashedAt == null }
+  val activeNotes = controller.selectedNotes.filter { it.trashedAt == null }
+  val hasActiveNotes = activeNotes.isNotEmpty()
   val hasTrashedNotes = controller.selectedNotes.any { it.trashedAt != null }
 
   if (hasActiveNotes) {
+    val removeFromFavorites = activeNotes.all { it.isFavorite }
+    AppDropdownMenuItem(
+      label =
+        if (removeFromFavorites) "Remove selected from Favorites" else "Add selected to Favorites",
+      leadingIcon = {
+        Icon(
+          if (removeFromFavorites) Icons.Outlined.Star else Icons.Outlined.StarBorder,
+          null,
+          modifier = Modifier.size(18.dp),
+        )
+      },
+      onClick = {
+        onDismiss()
+        controller.setSelectedFavorite(!removeFromFavorites)
+      },
+    )
+    HorizontalDivider()
     DropdownSectionLabel("Move selected")
     NotebookAssignmentMenuItems(controller, note = null, selectedMode = true) { onDismiss() }
     HorizontalDivider()
@@ -527,23 +549,28 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
   var menuOpen by remember(note.id) { mutableStateOf(false) }
   var menuMode by remember(note.id) { mutableStateOf("note") }
   val highlighted = active || selected
+  val bulkMenuWidth = 252.dp
+  val windowWidth =
+    with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() }
+  val bulkMenuOffset =
+    (windowWidth - bulkMenuWidth - pageHorizontalPadding() * 2).coerceAtLeast(0.dp)
   val titleColor by
     animateColorAsState(
       targetValue =
         if (highlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-      animationSpec = appTween(AppMotion.Fast),
+      animationSpec = appTween(AppMotion.Medium),
       label = "note-title-selection",
     )
   val rowBackground by
     animateColorAsState(
       targetValue = if (highlighted) rowColor(active = true) else Color.Transparent,
-      animationSpec = appTween(AppMotion.Fast),
+      animationSpec = appTween(AppMotion.Medium),
       label = "note-row-selection",
     )
   val rowBorderColor by
     animateColorAsState(
       targetValue = if (highlighted) appDividerColor().copy(alpha = 0.9f) else Color.Transparent,
-      animationSpec = appTween(AppMotion.Fast),
+      animationSpec = appTween(AppMotion.Medium),
       label = "note-row-border-selection",
     )
 
@@ -637,10 +664,17 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
         }
       }
     }
-    AppDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-      if (menuMode == "bulk") {
+    if (menuMode == "bulk") {
+      AppDropdownMenu(
+        expanded = menuOpen,
+        onDismissRequest = { menuOpen = false },
+        modifier = Modifier.width(bulkMenuWidth),
+        offset = DpOffset(x = bulkMenuOffset, y = 0.dp),
+      ) {
         BulkActionsMenuContent(controller) { menuOpen = false }
-      } else {
+      }
+    } else {
+      AppDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
         NoteActionsMenuContent(controller, note) { menuOpen = false }
       }
     }
@@ -649,17 +683,20 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
 
 @Composable
 private fun SelectedTitleDot(selected: Boolean) {
-  AnimatedVisibility(
-    visible = selected,
-    enter = fadeIn(appTween(AppMotion.Fast)) + expandHorizontally(appTween(AppMotion.Fast)),
-    exit = fadeOut(appTween(AppMotion.Fast)) + shrinkHorizontally(appTween(AppMotion.Fast)),
-  ) {
-    Box(
-      Modifier.padding(end = 8.dp)
-        .size(7.dp)
-        .clip(CircleShape)
-        .background(MaterialTheme.colorScheme.primary)
+  val width by
+    animateDpAsState(
+      targetValue = if (selected) 15.dp else 0.dp,
+      animationSpec = appTween(AppMotion.Medium),
+      label = "selected-title-dot-width",
     )
+  val color by
+    animateColorAsState(
+      targetValue = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+      animationSpec = appTween(AppMotion.Medium),
+      label = "selected-title-dot-color",
+    )
+  Box(Modifier.width(width).height(7.dp)) {
+    Box(Modifier.size(7.dp).clip(CircleShape).background(color))
   }
 }
 

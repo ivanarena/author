@@ -54,13 +54,13 @@
     "@sveltejs/kit": "^2.61.1",
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "@types/node": "^25.9.1",
-    "@vitest/coverage-v8": "^4.1.7",
+    "@vitest/coverage-v8": "^4.1.11",
     "svelte": "^5.55.10",
     "svelte-check": "^4.4.8",
     "tsx": "^4.22.3",
     "typescript": "^6.0.3",
     "vite": "^8.0.14",
-    "vitest": "^4.1.7",
+    "vitest": "^4.1.11",
     "wrangler": "^4.95.0"
   }
 }

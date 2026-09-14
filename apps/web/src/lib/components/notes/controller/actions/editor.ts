@@ -66,7 +66,6 @@ export async function selectNote(
   controller: NotesEditorActionController,
   note: LocalNote
 ): Promise<void> {
-  controller.closeMenus();
   await flushPendingSave(controller);
   controller.editorSessionId += 1;
   controller.selectedNote = note;
@@ -74,7 +73,11 @@ export async function selectNote(
   controller.titleValue = note.title;
   controller.bodyValue = note.body;
   resetEditorHistory(controller);
-  void focusEditor(controller, note.title || note.body ? 'body' : 'title');
+  void focusEditor(
+    controller,
+    note.title || note.body ? 'body' : 'title',
+    'start'
+  );
 }
 
 export async function newNote(
@@ -285,15 +288,18 @@ export function clearSensitiveWorkspace(
 
 export async function focusEditor(
   controller: NotesEditorActionController,
-  target: 'title' | 'body'
+  target: 'title' | 'body',
+  selection: 'start' | 'end' = 'end'
 ): Promise<void> {
   await tick();
   const element =
     target === 'body' ? controller.bodyTextarea : controller.titleInput;
   if (!element || element.readOnly) return;
 
+  const caret = selection === 'start' ? 0 : element.value.length;
   element.focus({ preventScroll: true });
-  element.setSelectionRange(element.value.length, element.value.length);
+  element.setSelectionRange(caret, caret);
+  if (target === 'body' && selection === 'start') element.scrollTop = 0;
 }
 
 export function isEditorEventTarget(

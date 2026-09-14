@@ -83,11 +83,24 @@ function controller(
   };
 }
 
-function blurEvent(containsRelatedTarget: boolean): FocusEvent {
+function pointerLeaveEvent(clientX: number, right = 500): PointerEvent {
+  return {
+    clientX,
+    currentTarget: {
+      getBoundingClientRect: vi.fn(() => ({ right }))
+    }
+  } as unknown as PointerEvent;
+}
+
+function blurEvent(
+  containsRelatedTarget: boolean,
+  pointerStillInside = false
+): FocusEvent {
   const relatedTarget = {} as Node;
   return {
     currentTarget: {
-      contains: vi.fn(() => containsRelatedTarget)
+      contains: vi.fn(() => containsRelatedTarget),
+      matches: vi.fn(() => pointerStillInside)
     },
     relatedTarget
   } as unknown as FocusEvent;
@@ -150,7 +163,11 @@ describe('ui actions', () => {
     try {
       const model = controller({ menusOpen: true, accountMenuOpen: true });
 
-      scheduleMenusClose(model);
+      scheduleMenusClose(model, pointerLeaveEvent(420));
+      expect(model.menuCloseTimer).toBeNull();
+      expect(model.menusOpen).toBe(true);
+
+      scheduleMenusClose(model, pointerLeaveEvent(500));
       expect(model.menuCloseTimer).not.toBeNull();
       vi.advanceTimersByTime(180);
       expect(model.menusOpen).toBe(false);
@@ -163,6 +180,9 @@ describe('ui actions', () => {
       expect(model.accountMenuCloseTimer).toBeNull();
 
       model.menusOpen = true;
+      closeMenusOnBlur(model, blurEvent(false, true));
+      expect(model.menusOpen).toBe(true);
+
       closeMenusOnBlur(model, blurEvent(false));
       expect(model.menusOpen).toBe(false);
 

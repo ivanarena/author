@@ -447,6 +447,36 @@ test('keeps the note list open after selecting a note until the pointer leaves',
   await expect(notesPanel).toBeHidden();
 });
 
+test('opens selected notes at the beginning of the body', async ({ page }) => {
+  await page.goto('/');
+  await hoverMenusThroughBridge(page);
+
+  const notesPanel = page.getByRole('complementary', { name: 'Notes' });
+  const title = `Long note ${Date.now()}`;
+  const body = Array.from(
+    { length: 120 },
+    (_, index) => `Line ${index + 1}`
+  ).join('\n');
+  await page.getByLabel('Note title').fill(title);
+  await page.getByLabel('Note body').fill(body);
+  await expectBrowserStoredEncryptedNote(page, title, body);
+
+  await notesPanel.getByRole('button', { name: 'New note' }).click();
+  await hoverMenusThroughBridge(page);
+  await notesPanel.getByRole('button', { name: new RegExp(title) }).click();
+
+  const noteBody = page.getByLabel('Note body');
+  await expect(noteBody).toHaveValue(body);
+  await expect
+    .poll(() =>
+      noteBody.evaluate((element: HTMLTextAreaElement) => ({
+        selectionStart: element.selectionStart,
+        scrollTop: element.scrollTop
+      }))
+    )
+    .toEqual({ selectionStart: 0, scrollTop: 0 });
+});
+
 test('renames notebooks and keeps their notes before delete', async ({
   page
 }) => {

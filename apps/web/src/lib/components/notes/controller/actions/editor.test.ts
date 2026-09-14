@@ -46,6 +46,7 @@ import {
   clearSensitiveWorkspace,
   clearPendingSave,
   flushPendingSave,
+  focusEditor,
   handleEditorInput,
   openDraftNote,
   redoEditorHistory,
@@ -221,6 +222,22 @@ describe('editor actions', () => {
     expect(model.bodyValue).toBe('Text');
     expect(model.closeMenus).not.toHaveBeenCalled();
     expect(model.closeNotebookMenus).toHaveBeenCalled();
+  });
+
+  it('focuses an opened note at the beginning of its body', async () => {
+    const bodyTextarea = {
+      value: 'A long note body',
+      readOnly: false,
+      scrollTop: 240,
+      focus: vi.fn(),
+      setSelectionRange: vi.fn()
+    } as unknown as HTMLTextAreaElement;
+
+    await focusEditor(controller({ bodyTextarea }), 'body', 'start');
+
+    expect(bodyTextarea.focus).toHaveBeenCalledWith({ preventScroll: true });
+    expect(bodyTextarea.setSelectionRange).toHaveBeenCalledWith(0, 0);
+    expect(bodyTextarea.scrollTop).toBe(0);
   });
 
   it('records recovery text and flushes a pending edit to the selected note', async () => {

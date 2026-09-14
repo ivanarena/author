@@ -965,6 +965,17 @@ class NotesController(private val repository: NotesRepository, private val scope
     }
   }
 
+  fun setSelectedFavorite(favorite: Boolean) {
+    val targets = selectedNotes.filter { it.trashedAt == null }
+    if (targets.isEmpty()) return
+    scope.launch {
+      flushPendingSave()
+      targets.forEach { repository.setNoteFavorite(it.id, favorite) }
+      refresh()
+      scheduleSyncAfterLocalChange()
+    }
+  }
+
   fun trashNote(note: LocalNote) {
     scope.launch {
       val shouldReopenRestoredNote = currentPage == "editor" && selectedNote?.id == note.id

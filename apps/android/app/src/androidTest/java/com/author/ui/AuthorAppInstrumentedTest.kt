@@ -17,6 +17,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
@@ -170,11 +171,28 @@ class AuthorAppInstrumentedTest {
     compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
       compose.onAllNodesWithText(note.title).fetchSemanticsNodes().isNotEmpty()
     }
+    val appRoot = compose.onRoot().fetchSemanticsNode()
+    val screenCenter = appRoot.positionOnScreen.x + appRoot.size.width / 2f
     compose
       .onNodeWithTag("note-row-${note.id}")
       .performSemanticsAction(SemanticsActions.OnLongClick)
 
     compose.onNodeWithText("1 selected").assertIsDisplayed()
+    val favoriteAction = compose.onNodeWithText("Add selected to Favorites").assertIsDisplayed()
+    val actionNode = favoriteAction.fetchSemanticsNode()
+    val actionCenter = actionNode.positionOnScreen.x + actionNode.size.width / 2f
+    assertTrue(
+      "The selected-notes menu should open on the right ($actionCenter <= $screenCenter)",
+      actionCenter > screenCenter,
+    )
+    favoriteAction.performClick()
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      repository.loadWorkspaceSnapshot().notes.any { it.id == note.id && it.isFavorite }
+    }
+
+    compose
+      .onNodeWithTag("note-row-${note.id}")
+      .performSemanticsAction(SemanticsActions.OnLongClick)
     assertTrue(
       "The selected-notes menu should include the existing notebook",
       compose.onAllNodesWithText(notebook.name).fetchSemanticsNodes().size >= 2,

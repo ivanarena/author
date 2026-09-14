@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -57,11 +58,14 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.author.core.LocalNote
@@ -468,10 +472,28 @@ private fun GroupOptionRow(group: String, label: String, controller: NotesContro
 
 @Composable
 private fun BulkActionsMenuContent(controller: NotesController, onDismiss: () -> Unit) {
-  val hasActiveNotes = controller.selectedNotes.any { it.trashedAt == null }
+  val activeNotes = controller.selectedNotes.filter { it.trashedAt == null }
+  val hasActiveNotes = activeNotes.isNotEmpty()
   val hasTrashedNotes = controller.selectedNotes.any { it.trashedAt != null }
 
   if (hasActiveNotes) {
+    val removeFromFavorites = activeNotes.all { it.isFavorite }
+    AppDropdownMenuItem(
+      label =
+        if (removeFromFavorites) "Remove selected from Favorites" else "Add selected to Favorites",
+      leadingIcon = {
+        Icon(
+          if (removeFromFavorites) Icons.Outlined.Star else Icons.Outlined.StarBorder,
+          null,
+          modifier = Modifier.size(18.dp),
+        )
+      },
+      onClick = {
+        onDismiss()
+        controller.setSelectedFavorite(!removeFromFavorites)
+      },
+    )
+    HorizontalDivider()
     DropdownSectionLabel("Move selected")
     NotebookAssignmentMenuItems(controller, note = null, selectedMode = true) { onDismiss() }
     HorizontalDivider()
@@ -525,6 +547,11 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
   var menuOpen by remember(note.id) { mutableStateOf(false) }
   var menuMode by remember(note.id) { mutableStateOf("note") }
   val highlighted = active || selected
+  val bulkMenuWidth = 252.dp
+  val windowWidth =
+    with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() }
+  val bulkMenuOffset =
+    (windowWidth - bulkMenuWidth - pageHorizontalPadding() * 2).coerceAtLeast(0.dp)
   val titleColor by
     animateColorAsState(
       targetValue =
@@ -635,10 +662,17 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
         }
       }
     }
-    AppDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-      if (menuMode == "bulk") {
+    if (menuMode == "bulk") {
+      AppDropdownMenu(
+        expanded = menuOpen,
+        onDismissRequest = { menuOpen = false },
+        modifier = Modifier.width(bulkMenuWidth),
+        offset = DpOffset(x = bulkMenuOffset, y = 0.dp),
+      ) {
         BulkActionsMenuContent(controller) { menuOpen = false }
-      } else {
+      }
+    } else {
+      AppDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
         NoteActionsMenuContent(controller, note) { menuOpen = false }
       }
     }

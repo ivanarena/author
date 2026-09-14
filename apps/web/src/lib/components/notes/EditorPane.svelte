@@ -3,6 +3,19 @@
   import type { EditorPaneModel } from './controller/page-controller.svelte.js';
 
   let { model }: { model: EditorPaneModel } = $props();
+
+  function revealMetadata(event: PointerEvent) {
+    const strip = event.currentTarget as HTMLElement;
+    if (strip.scrollWidth <= strip.clientWidth) return;
+    strip.scrollTo({ left: strip.scrollWidth, behavior: 'smooth' });
+  }
+
+  function resetMetadataScroll(event: PointerEvent) {
+    (event.currentTarget as HTMLElement).scrollTo({
+      left: 0,
+      behavior: 'smooth'
+    });
+  }
 </script>
 
 <section
@@ -15,9 +28,17 @@
     aria-label="Plain text editor"
     style={`--editor-zoom: ${model.editorZoom}; --editor-font: ${model.editorFontCss}; --editor-text-size: ${model.editorTextSize}px; --editor-line-height: ${model.editorLineHeight};`}
   >
-    <div class="editor-meta-strip" aria-label="Note metadata">
+    <div
+      class="editor-meta-strip"
+      role="group"
+      aria-label="Note metadata"
+      onpointerenter={revealMetadata}
+      onpointerleave={resetMetadataScroll}
+    >
       {#each model.editorMetadataRows as row}
-        <span>{row.value}</span>
+        <span class:sync-ok={row.label === 'Status' && row.value === 'Synced'}
+          >{row.value}</span
+        >
       {/each}
     </div>
     <input

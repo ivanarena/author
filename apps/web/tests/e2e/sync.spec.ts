@@ -1328,10 +1328,9 @@ test('keeps the editor usable on a narrow mobile viewport @mobile', async ({
 }) => {
   await page.goto('/');
   await waitForDraftEditorReady(page);
-  await expect(page.locator('.editor-meta-strip span').first()).toHaveCSS(
-    'white-space',
-    'normal'
-  );
+  const metadataStrip = page.getByLabel('Note metadata');
+  const metadataStatus = metadataStrip.locator('span').first();
+  await expect(metadataStatus).toHaveCSS('white-space', 'nowrap');
 
   const titleText = `Mobile viewport note ${Date.now()}`;
   const bodyText = 'Written on the narrow browser project';
@@ -1340,4 +1339,18 @@ test('keeps the editor usable on a narrow mobile viewport @mobile', async ({
   await page.getByLabel('Note body').fill(bodyText);
   await expect(page.getByLabel('Note body')).toHaveValue(bodyText);
   await expectBrowserStoredEncryptedNote(page, titleText, bodyText);
+
+  await expect(metadataStatus).toHaveText('Synced');
+  await expect(metadataStatus).toHaveClass(/sync-ok/);
+  await expect
+    .poll(() =>
+      metadataStrip.evaluate(
+        (element) => element.scrollWidth > element.clientWidth
+      )
+    )
+    .toBe(true);
+  await metadataStrip.hover();
+  await expect
+    .poll(() => metadataStrip.evaluate((element) => element.scrollLeft))
+    .toBeGreaterThan(0);
 });

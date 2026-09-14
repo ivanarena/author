@@ -42,22 +42,43 @@ textarea {
 
 .editor-meta-strip {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px 14px;
   align-items: center;
   min-width: 0;
   margin-bottom: 18px;
+  overflow-x: auto;
   color: var(--muted);
   font-size: 11px;
   line-height: 1.35;
+  scrollbar-width: none;
+}
+
+.editor-meta-strip::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .editor-meta-strip span {
+  flex: 0 0 auto;
   min-width: 0;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  white-space: normal;
+  white-space: nowrap;
   opacity: 1;
+}
+
+.editor-meta-strip .sync-ok {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.editor-meta-strip .sync-ok::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--status-ok);
+  content: '';
+  flex: 0 0 auto;
 }
 
 .editor-meta-strip span + span::before {

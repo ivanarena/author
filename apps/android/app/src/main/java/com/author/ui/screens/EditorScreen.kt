@@ -34,6 +34,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -107,6 +108,9 @@ private fun EditorPane(controller: NotesController, modifier: Modifier = Modifie
   val bodyLineHeight =
     (controller.editorTextSize * controller.editorLineHeight * controller.editorZoom).sp
   val fontFamily = LocalAppFontFamily.current
+  val bodyScrollState = rememberScrollState()
+
+  LaunchedEffect(controller.selectedNote?.id) { bodyScrollState.scrollTo(0) }
 
   Column(
     modifier
@@ -161,7 +165,7 @@ private fun EditorPane(controller: NotesController, modifier: Modifier = Modifie
         modifier =
           Modifier.fillMaxWidth()
             .weight(1f)
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(bodyScrollState)
             .testTag("note-body-field"),
         decorationBox = { inner ->
           if (controller.bodyValue.isBlank()) {

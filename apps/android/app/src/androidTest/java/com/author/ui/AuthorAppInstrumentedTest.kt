@@ -5,6 +5,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -21,6 +22,8 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.author.core.LocalNote
@@ -122,6 +125,39 @@ class AuthorAppInstrumentedTest {
     compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
       savedDraft(repository, expectedTitle)?.body == expectedBody
     }
+  }
+
+  @Test
+  fun switchingNotesResetsBodyScrollToTop() {
+    val repository = newRepository()
+    val longBody = (1..180).joinToString("\n") { line -> "First note line $line" }
+    val first = runBlocking { repository.createBlankNote("Long first note", longBody) }
+    val second = runBlocking {
+      repository.createBlankNote("Second note", "Second note starts here")
+    }
+    lateinit var controller: NotesController
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      controller = remember {
+        NotesController(repository, scope).also {
+          it.selectedNote = first
+          it.titleValue = first.title
+          it.bodyValue = first.body
+        }
+      }
+
+      AuthorApp(controller = controller, onExport = {}, onImport = {})
+    }
+
+    compose.onNodeWithTag("note-body-field").assertIsDisplayed().performTouchInput { swipeUp() }
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) { bodyScrollPosition() > 0f }
+
+    compose.runOnIdle { controller.selectNote(second) }
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      controller.selectedNote?.id == second.id && bodyScrollPosition() == 0f
+    }
+    compose.onNodeWithTag("note-body-field").assertTextEquals(second.body)
   }
 
   @Test
@@ -475,6 +511,15 @@ class AuthorAppInstrumentedTest {
       compose.onAllNodesWithText("Save recovery key").fetchSemanticsNodes().isEmpty()
     }
     compose.onAllNodesWithText("Save recovery key").assertCountEquals(0)
+  }
+
+  private fun bodyScrollPosition(): Float {
+    val range =
+      compose
+        .onNodeWithTag("note-body-field")
+        .fetchSemanticsNode()
+        .config[SemanticsProperties.VerticalScrollAxisRange]
+    return range.value()
   }
 
   private fun waitUntilTextDisplayed(text: String) {

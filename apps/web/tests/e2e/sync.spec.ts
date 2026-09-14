@@ -417,6 +417,36 @@ test.beforeEach(async ({ page, request }, testInfo) => {
   );
 });
 
+test('keeps the note list open after selecting a note until the pointer leaves', async ({
+  page
+}) => {
+  await page.goto('/');
+  await hoverMenusThroughBridge(page);
+
+  const notesPanel = page.getByRole('complementary', { name: 'Notes' });
+  const firstTitle = `First open note ${Date.now()}`;
+  await page.getByLabel('Note title').fill(firstTitle);
+  await page.getByLabel('Note body').fill('First note body');
+  await expectBrowserStoredEncryptedNote(page, firstTitle, 'First note body');
+
+  await notesPanel.getByRole('button', { name: 'New note' }).click();
+  const secondTitle = `Second open note ${Date.now()}`;
+  await page.getByLabel('Note title').fill(secondTitle);
+  await page.getByLabel('Note body').fill('Second note body');
+  await expectBrowserStoredEncryptedNote(page, secondTitle, 'Second note body');
+
+  await hoverMenusThroughBridge(page);
+  await notesPanel
+    .getByRole('button', { name: new RegExp(firstTitle) })
+    .click();
+
+  await expect(page.getByLabel('Note title')).toHaveValue(firstTitle);
+  await expect(notesPanel).toBeVisible();
+
+  await page.getByLabel('Note body').hover();
+  await expect(notesPanel).toBeHidden();
+});
+
 test('renames notebooks and keeps their notes before delete', async ({
   page
 }) => {

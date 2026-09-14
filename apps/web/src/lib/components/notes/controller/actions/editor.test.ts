@@ -219,7 +219,7 @@ describe('editor actions', () => {
     expect(model.selectedNote).toBe(selected);
     expect(model.titleValue).toBe('Selected');
     expect(model.bodyValue).toBe('Text');
-    expect(model.closeMenus).toHaveBeenCalled();
+    expect(model.closeMenus).not.toHaveBeenCalled();
     expect(model.closeNotebookMenus).toHaveBeenCalled();
   });
 

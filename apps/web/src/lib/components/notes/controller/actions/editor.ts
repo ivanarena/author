@@ -66,7 +66,6 @@ export async function selectNote(
   controller: NotesEditorActionController,
   note: LocalNote
 ): Promise<void> {
-  controller.closeMenus();
   await flushPendingSave(controller);
   controller.editorSessionId += 1;
   controller.selectedNote = note;

@@ -2,11 +2,9 @@ package com.author.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -103,8 +101,8 @@ internal fun NoteListPanel(controller: NotesController, modifier: Modifier = Mod
   ) {
     AnimatedVisibility(
       visible = controller.noteSelectionMode || controller.selectedNoteIds.isNotEmpty(),
-      enter = fadeIn(appTween(AppMotion.Fast)) + expandVertically(appTween(AppMotion.Fast)),
-      exit = fadeOut(appTween(AppMotion.Fast)) + shrinkVertically(appTween(AppMotion.Fast)),
+      enter = expandVertically(appTween(AppMotion.Medium)),
+      exit = shrinkVertically(appTween(AppMotion.Medium)),
     ) {
       SelectionToolbar(controller)
     }
@@ -531,19 +529,19 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
     animateColorAsState(
       targetValue =
         if (highlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-      animationSpec = appTween(AppMotion.Fast),
+      animationSpec = appTween(AppMotion.Medium),
       label = "note-title-selection",
     )
   val rowBackground by
     animateColorAsState(
       targetValue = if (highlighted) rowColor(active = true) else Color.Transparent,
-      animationSpec = appTween(AppMotion.Fast),
+      animationSpec = appTween(AppMotion.Medium),
       label = "note-row-selection",
     )
   val rowBorderColor by
     animateColorAsState(
       targetValue = if (highlighted) appDividerColor().copy(alpha = 0.9f) else Color.Transparent,
-      animationSpec = appTween(AppMotion.Fast),
+      animationSpec = appTween(AppMotion.Medium),
       label = "note-row-border-selection",
     )
 
@@ -649,18 +647,13 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
 
 @Composable
 private fun SelectedTitleDot(selected: Boolean) {
-  AnimatedVisibility(
-    visible = selected,
-    enter = fadeIn(appTween(AppMotion.Fast)) + expandHorizontally(appTween(AppMotion.Fast)),
-    exit = fadeOut(appTween(AppMotion.Fast)) + shrinkHorizontally(appTween(AppMotion.Fast)),
-  ) {
-    Box(
-      Modifier.padding(end = 8.dp)
-        .size(7.dp)
-        .clip(CircleShape)
-        .background(MaterialTheme.colorScheme.primary)
+  val color by
+    animateColorAsState(
+      targetValue = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+      animationSpec = appTween(AppMotion.Medium),
+      label = "selected-title-dot",
     )
-  }
+  Box(Modifier.padding(end = 8.dp).size(7.dp).clip(CircleShape).background(color))
 }
 
 @Composable

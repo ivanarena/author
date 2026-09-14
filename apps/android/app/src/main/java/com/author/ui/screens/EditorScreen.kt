@@ -1,5 +1,6 @@
 package com.author.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -175,6 +177,7 @@ private fun EditorPane(controller: NotesController, modifier: Modifier = Modifie
         },
       )
     }
+    Spacer(Modifier.height(if (compactScreen) 24.dp else 32.dp))
     EditorStatusBar(controller, muted)
   }
 }
@@ -292,16 +295,28 @@ private fun lastSyncedLabel(controller: NotesController, note: LocalNote): Strin
 
 @Composable
 private fun EditorStatusBar(controller: NotesController, muted: Color) {
-  val note = controller.selectedNote
-  val status = note?.let { syncStatusLabel(it.syncStatus) } ?: "Unsaved draft"
+  val status =
+    compactEditorSyncStatus(
+      noteStatus = controller.selectedNote?.syncStatus,
+      hasToken = controller.hasToken,
+      isSyncing = controller.isSyncing,
+      pendingSyncCount = controller.pendingSyncCount,
+      conflictCount = controller.conflicts.size,
+      remoteSyncEnabled = controller.remoteSyncEnabled,
+      remoteSyncState = controller.remoteSyncState,
+    )
+  val dotColor =
+    when (status.tone) {
+      EditorSyncTone.Success -> syncStatusColor("Synced")
+      EditorSyncTone.Neutral -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f)
+      EditorSyncTone.Error -> MaterialTheme.colorScheme.error
+    }
   Row(
     verticalAlignment = Alignment.CenterVertically,
-    horizontalArrangement = Arrangement.spacedBy(8.dp),
+    horizontalArrangement = Arrangement.spacedBy(7.dp),
   ) {
-    Text(status, color = muted, fontSize = AppTextSize.Label, maxLines = 1)
-    Text("/", color = muted, fontSize = AppTextSize.Label, maxLines = 1)
-    SyncActivityIndicator(controller.isSyncing)
-    SyncStatusText(controller.syncLabel)
+    Box(Modifier.size(6.dp).background(dotColor, CircleShape))
+    Text(status.label, color = muted, fontSize = AppTextSize.Label, maxLines = 1)
   }
 }
 

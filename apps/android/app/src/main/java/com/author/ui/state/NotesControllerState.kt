@@ -59,6 +59,35 @@ val NotesController.syncLabel: String
       else -> "All changes saved"
     }
 
+internal enum class EditorSyncTone {
+  Success,
+  Neutral,
+  Error,
+}
+
+internal data class EditorSyncStatus(val label: String, val tone: EditorSyncTone)
+
+internal fun compactEditorSyncStatus(
+  noteStatus: String?,
+  hasToken: Boolean,
+  isSyncing: Boolean,
+  pendingSyncCount: Int,
+  conflictCount: Int,
+  remoteSyncEnabled: Boolean,
+  remoteSyncState: String,
+): EditorSyncStatus =
+  when {
+    conflictCount > 0 || noteStatus == "conflict" ->
+      EditorSyncStatus("Conflict", EditorSyncTone.Error)
+    remoteSyncState == "error" -> EditorSyncStatus("Sync failed", EditorSyncTone.Error)
+    isSyncing -> EditorSyncStatus("Syncing", EditorSyncTone.Neutral)
+    noteStatus == null -> EditorSyncStatus("Unsaved draft", EditorSyncTone.Neutral)
+    noteStatus == "pending" || pendingSyncCount > 0 ->
+      EditorSyncStatus("Saving", EditorSyncTone.Neutral)
+    hasToken && remoteSyncEnabled -> EditorSyncStatus("Synced", EditorSyncTone.Success)
+    else -> EditorSyncStatus("Changes saved", EditorSyncTone.Success)
+  }
+
 val NotesController.syncDetail: String
   get() =
     when {

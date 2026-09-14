@@ -89,7 +89,14 @@ export function scheduleAccountMenuClose(
   }, 260);
 }
 
-export function scheduleMenusClose(controller: NotesUiActionController): void {
+export function scheduleMenusClose(
+  controller: NotesUiActionController,
+  event?: PointerEvent
+): void {
+  if (event) {
+    const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    if (event.clientX < bounds.right) return;
+  }
   if (controller.menuCloseTimer) clearTimeout(controller.menuCloseTimer);
   controller.menuCloseTimer = setTimeout(() => {
     controller.menusOpen = false;

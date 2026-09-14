@@ -179,7 +179,7 @@ export interface NavigationDockModel
   theme: Theme;
   resolvedTheme: ResolvedTheme;
   openMenus: () => void;
-  scheduleMenusClose: () => void;
+  scheduleMenusClose: (event: PointerEvent) => void;
   closeMenusOnBlur: (event: FocusEvent) => void;
   openAccountMenu: () => void;
   scheduleAccountMenuClose: () => void;

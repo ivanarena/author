@@ -83,6 +83,15 @@ function controller(
   };
 }
 
+function pointerLeaveEvent(clientX: number, right = 500): PointerEvent {
+  return {
+    clientX,
+    currentTarget: {
+      getBoundingClientRect: vi.fn(() => ({ right }))
+    }
+  } as unknown as PointerEvent;
+}
+
 function blurEvent(
   containsRelatedTarget: boolean,
   pointerStillInside = false
@@ -154,7 +163,11 @@ describe('ui actions', () => {
     try {
       const model = controller({ menusOpen: true, accountMenuOpen: true });
 
-      scheduleMenusClose(model);
+      scheduleMenusClose(model, pointerLeaveEvent(420));
+      expect(model.menuCloseTimer).toBeNull();
+      expect(model.menusOpen).toBe(true);
+
+      scheduleMenusClose(model, pointerLeaveEvent(500));
       expect(model.menuCloseTimer).not.toBeNull();
       vi.advanceTimersByTime(180);
       expect(model.menusOpen).toBe(false);

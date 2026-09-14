@@ -718,8 +718,8 @@ export class NotesPageController
     uiActions.scheduleAccountMenuClose(this);
   };
 
-  scheduleMenusClose = () => {
-    uiActions.scheduleMenusClose(this);
+  scheduleMenusClose = (event: PointerEvent) => {
+    uiActions.scheduleMenusClose(this, event);
   };
 
   closeMenusOnBlur = (event: FocusEvent) => {

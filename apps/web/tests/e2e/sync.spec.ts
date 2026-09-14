@@ -439,7 +439,7 @@ test.beforeEach(async ({ page, request }, testInfo) => {
   );
 });
 
-test('keeps the note list open after selecting a note until the pointer leaves', async ({
+test('keeps the note list open until the pointer moves toward the editor', async ({
   page
 }) => {
   await page.goto('/');
@@ -468,6 +468,15 @@ test('keeps the note list open after selecting a note until the pointer leaves',
   await expect(menuButton).toHaveAttribute('aria-expanded', 'true');
   await expect(notesPanel).toBeVisible();
 
+  const dockBox = await page
+    .getByRole('navigation', { name: 'Navigation' })
+    .boundingBox();
+  if (!dockBox) throw new Error('Navigation dock is not visible');
+  await page.mouse.move(dockBox.x + dockBox.width / 2, dockBox.y - 4);
+  await page.waitForTimeout(300);
+  await expect(menuButton).toHaveAttribute('aria-expanded', 'true');
+
+  await hoverMenusThroughBridge(page);
   await page.getByLabel('Note body').hover();
   await expect(menuButton).toHaveAttribute('aria-expanded', 'false');
   await expect(notesPanel).toBeHidden();

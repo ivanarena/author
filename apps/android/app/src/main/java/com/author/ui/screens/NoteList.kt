@@ -2,6 +2,7 @@ package com.author.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -681,13 +683,21 @@ private fun NoteRow(controller: NotesController, note: LocalNote) {
 
 @Composable
 private fun SelectedTitleDot(selected: Boolean) {
+  val width by
+    animateDpAsState(
+      targetValue = if (selected) 15.dp else 0.dp,
+      animationSpec = appTween(AppMotion.Medium),
+      label = "selected-title-dot-width",
+    )
   val color by
     animateColorAsState(
       targetValue = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
       animationSpec = appTween(AppMotion.Medium),
-      label = "selected-title-dot",
+      label = "selected-title-dot-color",
     )
-  Box(Modifier.padding(end = 8.dp).size(7.dp).clip(CircleShape).background(color))
+  Box(Modifier.width(width).height(7.dp)) {
+    Box(Modifier.size(7.dp).clip(CircleShape).background(color))
+  }
 }
 
 @Composable

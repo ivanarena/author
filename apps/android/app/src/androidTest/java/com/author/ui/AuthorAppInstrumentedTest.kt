@@ -28,6 +28,7 @@ import com.author.core.NotesRepository
 import com.author.ui.app.AuthorApp
 import com.author.ui.state.NotesController
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertTrue
@@ -211,6 +212,43 @@ class AuthorAppInstrumentedTest {
       "Creating a notebook from selection should preserve the notes filter",
       controller.filterId == "all",
     )
+  }
+
+  @Test
+  fun markdownExportPassesSelectedNotebookIds() {
+    val repository = newRepository()
+    val notebook = runBlocking { repository.createNotebook("Export this notebook")!! }
+    val exportRequested = AtomicBoolean(false)
+    val exportedNotebookIds = AtomicReference<Set<String>>(emptySet())
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      val controller = remember {
+        NotesController(repository, scope).also {
+          it.currentPage = "settings"
+          it.settingsSection = "data"
+        }
+      }
+
+      LaunchedEffect(Unit) { controller.initialize() }
+      AuthorApp(
+        controller = controller,
+        onExport = { notebookIds ->
+          exportedNotebookIds.set(notebookIds.orEmpty())
+          exportRequested.set(true)
+        },
+        onImport = {},
+      )
+    }
+
+    compose.onNodeWithText("Export Markdown ZIP").assertIsDisplayed().performClick()
+    compose.onNodeWithText("Export notebooks").assertIsDisplayed()
+    compose.onNodeWithText(notebook.name).assertIsDisplayed().performClick()
+    compose.onNodeWithText("Export").assertIsDisplayed().performClick()
+
+    compose.waitForIdle()
+    assertTrue(exportRequested.get())
+    assertTrue(exportedNotebookIds.get() == setOf(notebook.id))
   }
 
   @Test

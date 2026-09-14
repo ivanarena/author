@@ -1038,18 +1038,42 @@ test('keeps local drafts when signing in and then syncs them remote', async ({
     .toBe(bodyText);
 });
 
-test('exports Markdown without closing settings', async ({ page }) => {
+test('exports selected notebooks without closing settings', async ({
+  page
+}) => {
   await page.goto('/');
+  await hoverMenusThroughBridge(page);
+  const notebookName = `Export scope ${Date.now()}`;
+  await page.getByRole('button', { name: 'New notebook' }).click();
+  await page.getByPlaceholder('Notebook name').fill(notebookName);
+  await page.getByRole('button', { name: 'Create notebook' }).click();
+  await page.getByLabel('Note title').fill('Scoped export note');
+  await page.getByLabel('Note body').fill('Included in the scoped export');
+  await expectBrowserStoredEncryptedNote(
+    page,
+    'Scoped export note',
+    'Included in the scoped export'
+  );
+
   await openProfileMenu(page);
   await page.getByRole('menuitem', { name: 'Settings' }).click();
   await page.getByRole('button', { name: 'Data' }).click();
   await expect(page.getByText('Markdown', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Export Markdown ZIP' }).click();
-  await expect(page.getByText('All notebooks', { exact: true })).toBeVisible();
+  const exportScope = page.getByLabel('Choose notebooks to export');
+  await expect(
+    exportScope.getByText('All notebooks', { exact: true })
+  ).toBeVisible();
+  await exportScope.getByRole('button', { name: notebookName }).click();
+  await expect(
+    exportScope.getByRole('button', { name: notebookName })
+  ).toHaveAttribute('aria-pressed', 'true');
 
   const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await exportScope
+    .getByRole('button', { name: 'Export', exact: true })
+    .click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(
     /^author-.*-md-frontmatter\.zip$/
@@ -1356,6 +1380,7 @@ test('has no serious app-shell accessibility violations @a11y @cross-browser', a
 test('keeps the editor usable on a narrow mobile viewport @mobile', async ({
   page
 }) => {
+  await page.setViewportSize({ width: 412, height: 915 });
   await page.goto('/');
   await waitForDraftEditorReady(page);
   const metadataStrip = page.getByLabel('Note metadata');

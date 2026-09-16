@@ -3,17 +3,17 @@
     ChevronRight,
     Cloud,
     Database,
-    Landmark,
+    Info,
     LogOut,
     Palette,
     Settings,
     UserRound,
     X
   } from '@lucide/svelte';
+  import SettingsAboutSection from './settings/SettingsAboutSection.svelte';
   import SettingsAccountSection from './settings/SettingsAccountSection.svelte';
   import SettingsAppearanceSection from './settings/SettingsAppearanceSection.svelte';
   import SettingsDataSection from './settings/SettingsDataSection.svelte';
-  import SettingsLegalSection from './settings/SettingsLegalSection.svelte';
   import SettingsSyncSection from './settings/SettingsSyncSection.svelte';
   import type { SettingsModalModel } from './controller/page-controller.svelte.js';
   import { modalFocus } from './modal-focus';
@@ -95,12 +95,12 @@
         </button>
         <button
           class="settings-menu-item"
-          class:active={model.settingsSection === 'legal'}
-          aria-current={model.settingsSection === 'legal' ? 'page' : undefined}
-          onclick={() => model.setSettingsSection('legal')}
+          class:active={model.settingsSection === 'about'}
+          aria-current={model.settingsSection === 'about' ? 'page' : undefined}
+          onclick={() => model.setSettingsSection('about')}
         >
-          <Landmark size={15} strokeWidth={1.8} />
-          <span>Legal</span>
+          <Info size={15} strokeWidth={1.8} />
+          <span>About</span>
           <ChevronRight size={14} strokeWidth={1.8} />
         </button>
         {#if model.hasToken}
@@ -129,7 +129,7 @@
         {:else if model.settingsSection === 'appearance'}
           <SettingsAppearanceSection {model} />
         {:else}
-          <SettingsLegalSection />
+          <SettingsAboutSection />
         {/if}
       </section>
     </div>

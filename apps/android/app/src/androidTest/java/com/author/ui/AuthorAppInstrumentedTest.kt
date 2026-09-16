@@ -28,6 +28,7 @@ import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.test.swipeUp
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.author.BuildConfig
 import com.author.core.LocalNote
 import com.author.core.NotesRepository
 import com.author.ui.app.AuthorApp
@@ -89,10 +90,10 @@ class AuthorAppInstrumentedTest {
     compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
       savedDraft(repository, title)?.body == body
     }
+    val savedNote = checkNotNull(savedDraft(repository, title))
 
     compose.onNodeWithContentDescription("Notes").performClick()
-    compose.onNodeWithText(title).assertIsDisplayed()
-    compose.onNodeWithText(body).assertIsDisplayed()
+    compose.onNodeWithTag("note-row-${savedNote.id}").assertIsDisplayed()
   }
 
   @Test
@@ -128,6 +129,24 @@ class AuthorAppInstrumentedTest {
     compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
       savedDraft(repository, expectedTitle)?.body == expectedBody
     }
+  }
+
+  @Test
+  fun typingLongBodyAutomaticallyScrollsToCaret() {
+    val repository = newRepository()
+    val body = (1..120).joinToString("\n") { line -> "Typed line $line" }
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      val controller = remember { NotesController(repository, scope) }
+
+      LaunchedEffect(Unit) { controller.initialize() }
+      AuthorApp(controller = controller, onExport = {}, onImport = {})
+    }
+
+    compose.onNodeWithTag("note-body-field").assertIsDisplayed().performTextInput(body)
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) { bodyScrollPosition() > 0f }
+    compose.onNodeWithTag("note-body-field").assertTextEquals(body)
   }
 
   @Test
@@ -334,6 +353,29 @@ class AuthorAppInstrumentedTest {
     compose.waitForIdle()
     assertTrue(exportRequested.get())
     assertTrue(exportedNotebookIds.get() == setOf(notebook.id))
+  }
+
+  @Test
+  fun aboutSettingsShowVersionAndUpdateActions() {
+    val repository = newRepository()
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      val controller = remember {
+        NotesController(repository, scope).also {
+          it.currentPage = "settings"
+          it.settingsSection = "menu"
+        }
+      }
+
+      AuthorApp(controller = controller, onExport = {}, onImport = {})
+    }
+
+    compose.onNodeWithText("About").assertIsDisplayed().performClick()
+    compose.onNodeWithText(BuildConfig.VERSION_NAME).assertIsDisplayed()
+    compose.onNodeWithText("Build ${BuildConfig.VERSION_CODE}").assertIsDisplayed()
+    compose.onNodeWithText("Check for updates").assertIsDisplayed()
+    compose.onNodeWithText("Release notes").assertIsDisplayed()
   }
 
   @Test

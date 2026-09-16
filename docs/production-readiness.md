@@ -98,8 +98,9 @@ Required:
 - Keep `aube run release:verify:connected` green whenever an emulator or device
   is available.
 - Keep `aube run docker:verify` green before publishing a container.
-- Keep Android `versionName` aligned with the release tag and `versionCode`
-  strictly newer than the previous Android release.
+- Keep Android `versionName` and the web package version aligned with the
+  release tag, and keep `versionCode` strictly newer than the previous Android
+  release.
 - Keep format checks scoped to source files so ignored caches such as Trivy,
   Playwright, Gradle, SQLite, and `.data` never break release verification.
 - Create a release evidence file with `aube run release:evidence -- <tag>` for
@@ -110,8 +111,8 @@ Required:
 Acceptance:
 
 - Local release verification passes on a normal developer machine.
-- The Android release version check rejects stale build metadata before tags are
-  published.
+- The release version check rejects stale or mismatched Android and web build
+  metadata before tags are published.
 - Docker image scan reports zero high/critical OS or library findings.
 - Release evidence links the exact commit to local commands, workflow runs,
   security reviews, staging smoke, backup restore, signed artifacts, and

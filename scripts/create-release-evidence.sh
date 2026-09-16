@@ -30,6 +30,9 @@ android_version_name="$(
 android_version_code="$(
   sed -n 's/^[[:space:]]*versionCode = \([0-9][0-9]*\).*/\1/p' apps/android/app/build.gradle.kts
 )"
+web_version="$(
+  sed -n 's/^[[:space:]]*"version": "\([^"]*\)".*/\1/p' apps/web/package.json
+)"
 
 mkdir -p docs/releases
 tmp="$(mktemp)"
@@ -40,6 +43,7 @@ sed \
   -e "s/{{BRANCH}}/$(escape_sed "${branch:-detached}")/g" \
   -e "s/{{ANDROID_VERSION_NAME}}/$(escape_sed "$android_version_name")/g" \
   -e "s/{{ANDROID_VERSION_CODE}}/$(escape_sed "$android_version_code")/g" \
+  -e "s/{{WEB_VERSION}}/$(escape_sed "$web_version")/g" \
   docs/release-evidence-template.md >"$tmp"
 mv "$tmp" "$output"
 

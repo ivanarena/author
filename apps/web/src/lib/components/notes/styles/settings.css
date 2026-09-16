@@ -253,6 +253,46 @@
   gap: var(--space-2);
 }
 
+.settings-about-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+}
+
+.settings-about-card {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 12px;
+}
+
+.settings-about-card dt {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.settings-about-card dd {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+}
+
+.settings-about-card strong,
+.settings-about-card small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.settings-about-card small {
+  color: var(--muted);
+}
+
 .sync-overview {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1289,6 +1329,7 @@
   .auth-field-grid,
   .login-actions,
   .login-modal .login-actions,
+  .settings-about-grid,
   .sync-overview {
     grid-template-columns: 1fr;
   }

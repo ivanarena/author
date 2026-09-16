@@ -28,8 +28,9 @@ Required:
 - Keep `aube run release:verify:connected` green when an emulator or device is
   available.
 - Keep `aube run docker:verify` green before publishing a container.
-- Keep Android release metadata aligned: `versionName` must match the release
-  tag and `versionCode` must increase from the previous Android release.
+- Keep release metadata aligned: Android `versionName` and the web package
+  version must match the release tag, and `versionCode` must increase from the
+  previous Android release.
 - Keep formatting scoped to source files so ignored runtime caches do not break
   local verification.
 - Review dependency audit, deprecation, Trivy, CodeQL SARIF, and OpenSSF
@@ -43,7 +44,8 @@ Required:
 Acceptance:
 
 - Local release gates pass.
-- Android release metadata cannot lag behind the latest published tag.
+- Android and web release metadata cannot drift or lag behind the latest
+  published tag.
 - Connected Android smoke passes when release hardware is available.
 - Staging smoke passes against non-production data.
 - A restored backup passes `db:check`.

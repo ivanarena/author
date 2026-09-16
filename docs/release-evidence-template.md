@@ -4,6 +4,7 @@
 - Commit: {{COMMIT_SHA}}
 - Branch: {{BRANCH}}
 - Android: `versionName={{ANDROID_VERSION_NAME}}`, `versionCode={{ANDROID_VERSION_CODE}}`
+- Web: `version={{WEB_VERSION}}`
 - Operator:
 - Decision: Pending
 

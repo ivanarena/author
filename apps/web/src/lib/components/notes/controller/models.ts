@@ -35,7 +35,7 @@ export type SettingsSection =
   | 'sync'
   | 'data'
   | 'appearance'
-  | 'legal';
+  | 'about';
 export type ConflictChoice =
   | 'keep-newer'
   | 'keep-older'

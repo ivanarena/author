@@ -3,10 +3,11 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 gradle_file="${repo_root}/apps/android/app/build.gradle.kts"
+web_package_file="${repo_root}/apps/web/package.json"
 release_tag="${1:-${RELEASE_TAG:-}}"
 
 fail() {
-  printf 'Android release version check failed: %s\n' "$1" >&2
+  printf 'Release version check failed: %s\n' "$1" >&2
   exit 1
 }
 
@@ -16,6 +17,10 @@ extract_version_name() {
 
 extract_version_code() {
   sed -nE 's/^[[:space:]]*versionCode = ([0-9]+).*$/\1/p' "$1" | head -n 1
+}
+
+extract_package_version() {
+  sed -nE 's/^[[:space:]]*"version": "([^"]+)".*$/\1/p' "$1" | head -n 1
 }
 
 normalize_version_tag() {
@@ -37,9 +42,13 @@ version_key() {
 
 version_name="$(extract_version_name "$gradle_file")"
 version_code="$(extract_version_code "$gradle_file")"
+web_version="$(extract_package_version "$web_package_file")"
 
 [[ -n "$version_name" ]] || fail "could not read versionName from ${gradle_file}"
 [[ -n "$version_code" ]] || fail "could not read versionCode from ${gradle_file}"
+[[ -n "$web_version" ]] || fail "could not read version from ${web_package_file}"
+[[ "$web_version" == "$version_name" ]] ||
+  fail "web version ${web_version} does not match Android versionName ${version_name}"
 
 if [[ -n "$release_tag" ]]; then
   expected_version="$(normalize_version_tag "$release_tag")" ||
@@ -105,5 +114,5 @@ if [[ "$previous_code" -gt 0 ]]; then
     fail "versionCode ${version_code} must be greater than ${previous_code} from ${previous_tag}"
 fi
 
-printf 'Android release version ok: versionName=%s versionCode=%s\n' \
-  "$version_name" "$version_code"
+printf 'Release version ok: versionName=%s versionCode=%s webVersion=%s\n' \
+  "$version_name" "$version_code" "$web_version"

@@ -37,6 +37,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -44,9 +46,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.author.core.LocalNote
@@ -55,6 +61,8 @@ import com.author.ui.common.*
 import com.author.ui.state.*
 import com.author.ui.theme.*
 import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.floor
 
 @Composable
 internal fun EditorPage(controller: NotesController) {
@@ -111,9 +119,6 @@ private fun EditorPane(controller: NotesController, modifier: Modifier = Modifie
   val bodyLineHeight =
     (controller.editorTextSize * controller.editorLineHeight * controller.editorZoom).sp
   val fontFamily = LocalAppFontFamily.current
-  val bodyScrollState = rememberScrollState()
-
-  LaunchedEffect(controller.selectedNote?.id) { bodyScrollState.scrollTo(0) }
 
   Column(
     modifier
@@ -172,36 +177,89 @@ private fun EditorPane(controller: NotesController, modifier: Modifier = Modifie
         },
       )
       Spacer(Modifier.height(if (compactScreen) 28.dp else 48.dp))
-      BasicTextField(
-        value = controller.bodyValue,
-        onValueChange = { controller.updateEditor("body", it) },
-        readOnly = controller.selectedNote?.trashedAt != null,
-        textStyle =
-          TextStyle(
-            color = text,
-            fontSize = bodySize,
-            fontWeight = FontWeight.Normal,
-            lineHeight = bodyLineHeight,
-            fontFamily = fontFamily,
-          ),
-        modifier =
-          Modifier.fillMaxWidth()
-            .weight(1f)
-            .verticalScroll(bodyScrollState)
-            .testTag("note-body-field"),
-        decorationBox = { inner ->
-          if (controller.bodyValue.isBlank()) {
-            Text(
-              "Body",
-              color = muted.copy(alpha = 0.38f),
+      key(controller.selectedNote?.id) {
+        var bodyFieldValue by remember { mutableStateOf(TextFieldValue(controller.bodyValue)) }
+        var bodyLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+        var bodyViewportHeight by remember { mutableIntStateOf(0) }
+        val bodyScrollState = rememberScrollState()
+
+        LaunchedEffect(controller.bodyValue) {
+          if (bodyFieldValue.text != controller.bodyValue) {
+            val length = controller.bodyValue.length
+            bodyFieldValue =
+              TextFieldValue(
+                text = controller.bodyValue,
+                selection =
+                  TextRange(
+                    bodyFieldValue.selection.start.coerceIn(0, length),
+                    bodyFieldValue.selection.end.coerceIn(0, length),
+                  ),
+              )
+          }
+        }
+
+        LaunchedEffect(
+          bodyFieldValue.text,
+          bodyFieldValue.selection,
+          bodyLayoutResult,
+          bodyViewportHeight,
+          bodyScrollState.maxValue,
+        ) {
+          if (bodyViewportHeight <= 0) return@LaunchedEffect
+          val layout = bodyLayoutResult ?: return@LaunchedEffect
+          val cursor =
+            layout.getCursorRect(
+              bodyFieldValue.selection.end.coerceIn(0, bodyFieldValue.text.length)
+            )
+          val visibleTop = bodyScrollState.value.toFloat()
+          val visibleBottom = visibleTop + bodyViewportHeight
+          val target =
+            when {
+              cursor.bottom > visibleBottom -> ceil(cursor.bottom - bodyViewportHeight).toInt()
+              cursor.top < visibleTop -> floor(cursor.top).toInt()
+              else -> null
+            }
+          if (target != null) {
+            bodyScrollState.scrollTo(target.coerceIn(0, bodyScrollState.maxValue))
+          }
+        }
+
+        BasicTextField(
+          value = bodyFieldValue,
+          onValueChange = {
+            bodyFieldValue = it
+            controller.updateEditor("body", it.text)
+          },
+          readOnly = controller.selectedNote?.trashedAt != null,
+          textStyle =
+            TextStyle(
+              color = text,
               fontSize = bodySize,
               fontWeight = FontWeight.Normal,
+              lineHeight = bodyLineHeight,
               fontFamily = fontFamily,
-            )
-          }
-          inner()
-        },
-      )
+            ),
+          onTextLayout = { bodyLayoutResult = it },
+          modifier =
+            Modifier.fillMaxWidth()
+              .weight(1f)
+              .onSizeChanged { bodyViewportHeight = it.height }
+              .verticalScroll(bodyScrollState)
+              .testTag("note-body-field"),
+          decorationBox = { inner ->
+            if (bodyFieldValue.text.isBlank()) {
+              Text(
+                "Body",
+                color = muted.copy(alpha = 0.38f),
+                fontSize = bodySize,
+                fontWeight = FontWeight.Normal,
+                fontFamily = fontFamily,
+              )
+            }
+            inner()
+          },
+        )
+      }
     }
     Spacer(Modifier.height(if (compactScreen) 24.dp else 32.dp))
     EditorStatusBar(controller, muted)

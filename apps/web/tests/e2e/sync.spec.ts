@@ -2,6 +2,7 @@ import { createHmac, randomBytes } from 'node:crypto';
 import type { APIRequestContext, Locator, Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import webPackage from '../../package.json' with { type: 'json' };
 import {
   ENCRYPTION_UPGRADE_REQUIRED_MESSAGE,
   decryptNoteFields,
@@ -1440,6 +1441,18 @@ test('has no serious app-shell accessibility violations @a11y @cross-browser', a
   await page.getByRole('menuitem', { name: 'Settings' }).click();
   const settings = page.getByRole('dialog', { name: 'Settings' });
   await expect(settings).toBeVisible();
+  await settings.getByRole('button', { name: 'About' }).click();
+  await expect(settings.getByRole('heading', { name: 'About' })).toBeVisible();
+  await expect(
+    settings.getByText(webPackage.version, { exact: true })
+  ).toBeVisible();
+  await expect(
+    settings.getByRole('link', { name: 'Release notes' })
+  ).toHaveAttribute(
+    'href',
+    'https://github.com/ivanarena/author/releases/latest'
+  );
+  await settings.getByRole('button', { name: 'Account' }).click();
   await expect
     .poll(() =>
       page.evaluate(() =>
@@ -1473,6 +1486,10 @@ test('keeps the editor usable on a narrow mobile viewport @mobile', async ({
 }) => {
   await page.setViewportSize({ width: 412, height: 915 });
   await page.goto('/');
+  await expect(page.locator('meta[name="viewport"]')).toHaveAttribute(
+    'content',
+    /interactive-widget=resizes-content/
+  );
   await waitForDraftEditorReady(page);
   const metadataStrip = page.getByLabel('Note metadata');
   const metadataStatus = metadataStrip.locator('span').first();

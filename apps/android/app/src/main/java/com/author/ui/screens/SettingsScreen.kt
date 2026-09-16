@@ -38,6 +38,7 @@ import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Refresh
@@ -64,6 +65,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -82,6 +84,8 @@ import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import java.util.Locale
+
+private const val RELEASE_NOTES_URL = "https://github.com/ivanarena/author/releases/latest"
 
 @Composable
 internal fun SettingsPage(
@@ -111,7 +115,9 @@ internal fun SettingsPage(
           SettingsSectionSelector(
             controller = controller,
             modifier =
-              Modifier.fillMaxSize().padding(horizontal = pageHorizontalPadding(), vertical = 16.dp),
+              Modifier.fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = pageHorizontalPadding(), vertical = 16.dp),
           )
         } else {
           Column(
@@ -156,6 +162,12 @@ private fun SettingsSectionSelector(controller: NotesController, modifier: Modif
         "Appearance",
         themeSettingsSubtitle(controller.theme, systemDark),
         if (resolvedTheme.startsWith("dark")) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
+      ),
+      SettingsSectionItem(
+        "about",
+        "About",
+        "Version ${BuildConfig.VERSION_NAME}",
+        Icons.Outlined.Info,
       ),
     )
   Column(
@@ -277,6 +289,7 @@ private fun SettingsContent(
       "account" -> AccountSettings(controller)
       "sync" -> SyncSettings(controller)
       "data" -> DataSettings(controller, onExport, onImport)
+      "about" -> AboutSettings(controller)
       else -> AppearanceSettings(controller)
     }
   }
@@ -719,7 +732,6 @@ private fun SyncSettings(controller: NotesController) {
     }
 
     SettingsChoiceGroup("Actions") {
-      ActionRow(Icons.Outlined.Download, "Check for updates") { controller.checkForUpdates() }
       if (controller.hasToken) {
         ActionRow(
           Icons.Outlined.Refresh,
@@ -730,6 +742,33 @@ private fun SyncSettings(controller: NotesController) {
         }
       } else {
         ActionRow(Icons.AutoMirrored.Outlined.Login, "Sign in to sync") { controller.openLogin() }
+      }
+    }
+  }
+}
+
+@Composable
+private fun AboutSettings(controller: NotesController) {
+  val uriHandler = LocalUriHandler.current
+
+  Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    SettingsChoiceGroup("App") {
+      InfoTile("Version", BuildConfig.VERSION_NAME, "Build ${BuildConfig.VERSION_CODE}")
+    }
+    SettingsChoiceGroup("Updates") {
+      ActionRow(
+        Icons.Outlined.Download,
+        "Check for updates",
+        detail = "Notify when a newer Android release is available",
+      ) {
+        controller.checkForUpdates()
+      }
+      ActionRow(
+        Icons.Outlined.Info,
+        "Release notes",
+        detail = "See what's new in the latest release",
+      ) {
+        runCatching { uriHandler.openUri(RELEASE_NOTES_URL) }
       }
     }
   }

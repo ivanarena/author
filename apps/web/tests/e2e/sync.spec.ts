@@ -447,6 +447,22 @@ test('keeps the note list open until the pointer moves toward the editor', async
   await hoverMenusThroughBridge(page);
 
   const notesPanel = page.getByRole('complementary', { name: 'Notes' });
+  const sortLabel = notesPanel
+    .getByRole('button', { name: /Sort and group notes:/ })
+    .locator('span');
+  await expect(sortLabel).toHaveText('Date · Recent');
+  await expect
+    .poll(() =>
+      sortLabel.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth
+      )
+    )
+    .toBe(true);
+  await expect(notesPanel.locator('.search-row')).toHaveCSS(
+    'background-color',
+    'rgba(0, 0, 0, 0)'
+  );
+
   const firstTitle = `First open note ${Date.now()}`;
   await page.getByLabel('Note title').fill(firstTitle);
   await page.getByLabel('Note body').fill('First note body');
@@ -674,7 +690,28 @@ test('updates note list pressed states from visible actions', async ({
   await expect(
     notesPanel.getByRole('button', { name: 'Move selected to notebook' })
   ).toBeVisible();
-  await expect(notesPanel.getByText('2 selected')).toBeVisible();
+  const selectionSummary = notesPanel.locator('.selection-summary');
+  await expect(
+    selectionSummary.getByText('2 selected', { exact: true })
+  ).toBeVisible();
+  await expect(
+    selectionSummary.getByRole('button', { name: 'Clear selected notes' })
+  ).toBeVisible();
+
+  const [firstRowBox, firstCheckboxBox] = await Promise.all([
+    firstRow.boundingBox(),
+    firstRow.locator('input[type="checkbox"]').boundingBox()
+  ]);
+  if (!firstRowBox || !firstCheckboxBox) {
+    throw new Error('Selected note row checkbox is not visible');
+  }
+  expect(
+    Math.abs(
+      firstRowBox.y +
+        firstRowBox.height / 2 -
+        (firstCheckboxBox.y + firstCheckboxBox.height / 2)
+    )
+  ).toBeLessThanOrEqual(2);
 
   await notesPanel
     .getByRole('button', { name: 'Move selected to notebook' })

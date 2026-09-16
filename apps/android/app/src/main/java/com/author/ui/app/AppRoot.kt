@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CreateNewFolder
@@ -25,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -142,7 +142,7 @@ private fun PageFloatingAction(controller: NotesController) {
   FloatingActionButton(
     modifier = Modifier.size(64.dp),
     onClick = { if (creatingNotebook) controller.openNewNotebook() else controller.newNote() },
-    shape = RoundedCornerShape(999.dp),
+    shape = RectangleShape,
     containerColor = MaterialTheme.colorScheme.primary,
     contentColor = MaterialTheme.colorScheme.onPrimary,
   ) {

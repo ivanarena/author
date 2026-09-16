@@ -44,10 +44,10 @@
   --space-4: 16px;
   --space-5: 22px;
   --space-6: 24px;
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-panel: 18px;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-panel: 0;
   --control-height: 38px;
   --menu-offset-top: 200px;
   --menu-controls-top: 125px;
@@ -96,10 +96,10 @@
   --space-4: 16px;
   --space-5: 22px;
   --space-6: 24px;
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-panel: 18px;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-panel: 0;
   --control-height: 38px;
   --menu-offset-top: 200px;
   --menu-controls-top: 125px;
@@ -334,6 +334,49 @@ select option {
   color: var(--text);
 }
 
+input[type='checkbox'] {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-content: center;
+  border: 1px solid var(--muted);
+  border-radius: 0;
+  padding: 0;
+  appearance: none;
+  background: transparent;
+  color: var(--text);
+}
+
+input[type='checkbox']::before {
+  width: 8px;
+  height: 4px;
+  border: solid currentColor;
+  border-width: 0 0 2px 2px;
+  content: '';
+  transform: translateY(-1px) rotate(-45deg) scale(0);
+  transform-origin: center;
+}
+
+input[type='checkbox']:checked::before {
+  transform: translateY(-1px) rotate(-45deg) scale(1);
+}
+
+input[type='checkbox']:indeterminate::before {
+  width: 8px;
+  height: 2px;
+  border: 0;
+  background: currentColor;
+  transform: none;
+}
+
+input[type='checkbox']:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+input[type='checkbox']:disabled {
+  opacity: 0.38;
+}
+
 input[type='range'] {
   height: var(--control-height);
   padding: 0;
@@ -344,7 +387,7 @@ input[type='range'] {
 
 input[type='range']::-webkit-slider-runnable-track {
   height: 6px;
-  border-radius: 999px;
+  border-radius: 0;
   background: linear-gradient(
     to right,
     var(--accent) 0 var(--range-progress, 50%),
@@ -357,7 +400,7 @@ input[type='range']::-webkit-slider-runnable-track {
 
 input[type='range']::-moz-range-track {
   height: 6px;
-  border-radius: 999px;
+  border-radius: 0;
   background: var(--control);
   transition:
     height var(--motion-fast) var(--motion-ease),
@@ -366,7 +409,7 @@ input[type='range']::-moz-range-track {
 
 input[type='range']::-moz-range-progress {
   height: 6px;
-  border-radius: 999px;
+  border-radius: 0;
   background: var(--accent);
   transition:
     height var(--motion-fast) var(--motion-ease),
@@ -378,7 +421,7 @@ input[type='range']::-webkit-slider-thumb {
   height: 18px;
   margin-top: -6px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 0;
   appearance: none;
   background: var(--accent);
   box-shadow: 0 0 0 4px var(--paper);
@@ -391,7 +434,7 @@ input[type='range']::-moz-range-thumb {
   width: 18px;
   height: 18px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 0;
   background: var(--accent);
   box-shadow: 0 0 0 4px var(--paper);
   transition:

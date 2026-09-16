@@ -27,7 +27,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -58,6 +57,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
@@ -310,7 +310,7 @@ internal fun SearchNotesField(
               if (hasQuery) controller.searchValue = "" else onDismiss?.invoke()
             },
           shape = AppShape.Control,
-          color = contrastControlColor(),
+          color = Color.Transparent,
           tonalElevation = 0.dp,
           shadowElevation = 0.dp,
         ) {
@@ -356,8 +356,7 @@ private fun SearchControlButton(
   Surface(
     modifier = Modifier.size(44.dp).clip(AppShape.ControlLarge).clickable(onClick = onClick),
     shape = AppShape.ControlLarge,
-    color = contrastControlColor(active = active),
-    border = if (active) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null,
+    color = Color.Transparent,
     tonalElevation = 0.dp,
     shadowElevation = 0.dp,
   ) {
@@ -366,7 +365,9 @@ private fun SearchControlButton(
         icon,
         contentDescription,
         modifier = Modifier.size(21.dp),
-        tint = contrastControlContentColor(active = active),
+        tint =
+          if (active) MaterialTheme.colorScheme.primary
+          else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
       )
     }
   }
@@ -696,7 +697,7 @@ private fun SelectedTitleDot(selected: Boolean) {
       label = "selected-title-dot-color",
     )
   Box(Modifier.width(width).height(7.dp)) {
-    Box(Modifier.size(7.dp).clip(CircleShape).background(color))
+    Box(Modifier.size(7.dp).clip(RectangleShape).background(color))
   }
 }
 

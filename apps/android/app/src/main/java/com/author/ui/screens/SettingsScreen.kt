@@ -19,8 +19,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -63,6 +61,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalUriHandler
@@ -200,48 +199,43 @@ private fun SettingsNavRow(
   val contentColor =
     if (active) MaterialTheme.colorScheme.primary
     else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f)
-  Surface(
-    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)),
-    color = if (active) rowColor(active = true) else rowColor(),
-    shape = RoundedCornerShape(18.dp),
-    border = BorderStroke(1.dp, appDividerColor().copy(alpha = if (active) 0.9f else 0.72f)),
+  Row(
+    Modifier.fillMaxWidth()
+      .heightIn(min = 64.dp)
+      .clickable(onClick = onClick)
+      .padding(horizontal = 12.dp, vertical = 10.dp),
+    verticalAlignment = Alignment.CenterVertically,
+    horizontalArrangement = Arrangement.spacedBy(10.dp),
   ) {
-    Row(
-      Modifier.fillMaxWidth()
-        .heightIn(min = 64.dp)
-        .clickable(onClick = onClick)
-        .padding(horizontal = 12.dp, vertical = 10.dp),
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-      MaterialIconTile(icon, null, tint = contentColor, active = active)
-      Column(Modifier.weight(1f)) {
-        Text(
-          label,
-          color = contentColor,
-          fontSize = AppTextSize.Body,
-          fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-          maxLines = 1,
-          overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-          subtitle.ifBlank { " " },
-          color =
-            if (syncStatus) syncStatusColor(subtitle)
-            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.48f),
-          fontSize = AppTextSize.Label,
-          fontWeight = if (syncStatus) FontWeight.SemiBold else FontWeight.Normal,
-          maxLines = 1,
-          overflow = TextOverflow.Ellipsis,
-        )
-      }
-      Icon(
-        Icons.Outlined.ChevronRight,
-        null,
-        modifier = Modifier.size(18.dp),
-        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (active) 0.52f else 0.32f),
+    Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) {
+      Icon(icon, null, modifier = Modifier.size(21.dp), tint = contentColor)
+    }
+    Column(Modifier.weight(1f)) {
+      Text(
+        label,
+        color = contentColor,
+        fontSize = AppTextSize.Body,
+        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+      )
+      Text(
+        subtitle.ifBlank { " " },
+        color =
+          if (syncStatus) syncStatusColor(subtitle)
+          else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.48f),
+        fontSize = AppTextSize.Label,
+        fontWeight = if (syncStatus) FontWeight.SemiBold else FontWeight.Normal,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
       )
     }
+    Icon(
+      Icons.Outlined.ChevronRight,
+      null,
+      modifier = Modifier.size(18.dp),
+      tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (active) 0.52f else 0.32f),
+    )
   }
 }
 
@@ -397,9 +391,9 @@ private fun AccountMenuRow(
     if (destructive) MaterialTheme.colorScheme.error
     else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
   Surface(
-    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)),
+    modifier = Modifier.fillMaxWidth().clip(RectangleShape),
     color = rowColor(),
-    shape = RoundedCornerShape(16.dp),
+    shape = RectangleShape,
     border = BorderStroke(1.dp, appDividerColor().copy(alpha = 0.72f)),
   ) {
     Row(
@@ -458,9 +452,9 @@ private fun AccountDetailPanel(controller: NotesController, panel: String) {
 @Composable
 private fun AccountDetailHeader(title: String, detail: String, onBack: () -> Unit) {
   Surface(
-    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)),
+    modifier = Modifier.fillMaxWidth().clip(RectangleShape),
     color = rowColor(active = true),
-    shape = RoundedCornerShape(16.dp),
+    shape = RectangleShape,
     border = BorderStroke(1.dp, appDividerColor().copy(alpha = 0.9f)),
   ) {
     Row(
@@ -1150,7 +1144,7 @@ private fun ThemeChoiceRow(choice: ThemeChoice, active: Boolean, onClick: () -> 
   Surface(
     modifier =
       Modifier.fillMaxWidth()
-        .clip(RoundedCornerShape(16.dp))
+        .clip(RectangleShape)
         .semantics {
           contentDescription = choice.label
           stateDescription = if (active) "Selected" else "Not selected"
@@ -1158,7 +1152,7 @@ private fun ThemeChoiceRow(choice: ThemeChoice, active: Boolean, onClick: () -> 
         .clickable(onClick = onClick),
     color = background,
     contentColor = MaterialTheme.colorScheme.onSurface,
-    shape = RoundedCornerShape(16.dp),
+    shape = RectangleShape,
     border = BorderStroke(1.dp, appDividerColor().copy(alpha = if (active) 0.9f else 0.72f)),
   ) {
     Row(
@@ -1199,15 +1193,19 @@ private fun ThemeSwatch(theme: String) {
   val borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.62f)
   Surface(
     modifier = Modifier.size(18.dp),
-    shape = CircleShape,
+    shape = RectangleShape,
     color = if (theme == "system") Color.Transparent else themeDotColor(theme),
     border = BorderStroke(1.dp, borderColor),
   ) {
     if (theme == "system") {
       Canvas(Modifier.fillMaxSize()) {
-        drawArc(Color.White, startAngle = 90f, sweepAngle = 180f, useCenter = true)
-        drawArc(Color(0xFF151515), startAngle = -90f, sweepAngle = 180f, useCenter = true)
-        drawCircle(borderColor, style = Stroke(width = 1.dp.toPx()))
+        drawRect(Color.White, size = Size(size.width / 2f, size.height))
+        drawRect(
+          Color(0xFF151515),
+          topLeft = Offset(size.width / 2f, 0f),
+          size = Size(size.width / 2f, size.height),
+        )
+        drawRect(borderColor, style = Stroke(width = 1.dp.toPx()))
       }
     }
   }
@@ -1241,7 +1239,7 @@ private fun TotpQrCode(value: String) {
     modifier = Modifier.semantics { contentDescription = "Authenticator setup QR code" },
     color = Color.White,
     contentColor = Color.Black,
-    shape = RoundedCornerShape(8.dp),
+    shape = RectangleShape,
     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
   ) {
     Canvas(Modifier.size(190.dp).padding(12.dp)) {
@@ -1275,10 +1273,9 @@ private fun FontDropdown(controller: NotesController) {
   SettingsChoiceGroup("Font") {
     Box {
       Surface(
-        modifier =
-          Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { open = true },
+        modifier = Modifier.fillMaxWidth().clip(RectangleShape).clickable { open = true },
         color = rowColor(),
-        shape = RoundedCornerShape(16.dp),
+        shape = RectangleShape,
         border = BorderStroke(1.dp, appDividerColor().copy(alpha = 0.72f)),
       ) {
         Row(
@@ -1338,9 +1335,9 @@ private fun SettingsStepper(
   controls: @Composable RowScope.() -> Unit,
 ) {
   Surface(
-    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)),
+    modifier = Modifier.fillMaxWidth().clip(RectangleShape),
     color = rowColor(),
-    shape = RoundedCornerShape(16.dp),
+    shape = RectangleShape,
     border = BorderStroke(1.dp, appDividerColor().copy(alpha = 0.72f)),
   ) {
     Row(

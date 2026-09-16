@@ -13,13 +13,10 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
@@ -137,7 +135,7 @@ internal fun LoginDialog(controller: NotesController) {
 private fun AuthModeTabs(controller: NotesController) {
   Surface(
     modifier = Modifier.fillMaxWidth(),
-    shape = RoundedCornerShape(18.dp),
+    shape = RectangleShape,
     color = rowColor(),
     border = BorderStroke(1.dp, appDividerColor().copy(alpha = 0.72f)),
   ) {
@@ -179,9 +177,9 @@ private fun AuthModeTab(
     modifier =
       modifier
         .heightIn(min = 40.dp)
-        .clip(RoundedCornerShape(14.dp))
+        .clip(RectangleShape)
         .clickable(enabled = enabled, onClick = onClick),
-    shape = RoundedCornerShape(14.dp),
+    shape = RectangleShape,
     color = if (active) dialogContainerColor() else Color.Transparent,
     tonalElevation = 0.dp,
     shadowElevation = 0.dp,
@@ -302,9 +300,9 @@ internal fun SignupRecoveryDialog(controller: NotesController, onSaveRecoveryKit
 @Composable
 private fun RecoveryConfirmRow(controller: NotesController) {
   Surface(
-    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)),
+    modifier = Modifier.fillMaxWidth().clip(RectangleShape),
     color = rowColor(),
-    shape = RoundedCornerShape(16.dp),
+    shape = RectangleShape,
     border = BorderStroke(1.dp, appDividerColor().copy(alpha = 0.72f)),
   ) {
     Row(
@@ -314,10 +312,9 @@ private fun RecoveryConfirmRow(controller: NotesController) {
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-      Checkbox(
+      AppCheckbox(
         checked = controller.signupRecoverySaved,
         onCheckedChange = { controller.signupRecoverySaved = it },
-        colors = appCheckboxColors(),
       )
       Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(
@@ -416,7 +413,7 @@ private fun NotificationContent(notification: AppNotification, controller: Notes
     verticalAlignment = Alignment.Top,
     horizontalArrangement = Arrangement.spacedBy(10.dp),
   ) {
-    Box(Modifier.padding(top = 4.dp).size(9.dp).clip(CircleShape).background(colors.accent))
+    Box(Modifier.padding(top = 4.dp).size(9.dp).clip(RectangleShape).background(colors.accent))
     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
       Text(
         notification.title,
@@ -471,7 +468,7 @@ private fun NotificationSurface(
   val colors = notificationColors(kind)
   Surface(
     modifier = modifier.padding(horizontal = 12.dp),
-    shape = RoundedCornerShape(18.dp),
+    shape = RectangleShape,
     color = colors.background,
     border = BorderStroke(1.dp, colors.border),
     tonalElevation = 0.dp,

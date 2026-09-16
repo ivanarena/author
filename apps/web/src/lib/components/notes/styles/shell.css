@@ -196,7 +196,7 @@
   height: 10px;
   border: 1.5px solid currentColor;
   border-right-color: transparent;
-  border-radius: 999px;
+  border-radius: 0;
   content: '';
   flex: 0 0 auto;
   animation: sync-spin 720ms linear infinite;
@@ -359,7 +359,7 @@ aside {
   grid-column: 1;
 }
 
-.notes .select-all-control {
+.notes .selection-summary {
   grid-column: 2;
   justify-self: start;
   max-width: 100%;
@@ -368,12 +368,6 @@ aside {
 .notes .batch-actions {
   grid-column: 3;
   justify-self: end;
-}
-
-.notes .selection-clear {
-  grid-column: 1 / -1;
-  justify-self: start;
-  max-width: 100%;
 }
 
 .icon-button {
@@ -396,7 +390,7 @@ aside {
 .icon-button:focus-visible {
   color: var(--text);
   border-color: transparent;
-  background: var(--hover);
+  background: transparent;
 }
 
 .active.icon-button {
@@ -482,8 +476,8 @@ aside {
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 7px;
   align-items: center;
-  width: 104px;
-  min-width: 104px;
+  width: 148px;
+  min-width: 148px;
   height: var(--control-height);
   border: 0;
   padding: 0 10px;
@@ -604,10 +598,10 @@ aside {
   border: 0;
   border-radius: var(--radius-lg);
   padding: 0 12px 0 16px;
-  background: var(--field);
+  background: transparent;
   color: var(--muted);
-  -webkit-backdrop-filter: var(--surface-blur);
-  backdrop-filter: var(--surface-blur);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .search-row input {

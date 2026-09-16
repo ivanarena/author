@@ -3,6 +3,7 @@ package com.author.ui.common
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,7 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -29,7 +30,6 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
-import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -51,10 +51,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -141,7 +143,7 @@ internal fun AppHorizontalDivider(
 
 @Composable internal fun dialogContainerColor(): Color = MaterialTheme.colorScheme.surfaceVariant
 
-internal fun appDialogShape(): RoundedCornerShape = AppShape.Modal
+internal fun appDialogShape() = AppShape.Modal
 
 @Composable
 internal fun AppModal(
@@ -540,14 +542,48 @@ internal fun textFieldColors() =
   )
 
 @Composable
-internal fun appCheckboxColors() =
-  CheckboxDefaults.colors(
-    checkedColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.82f),
-    uncheckedColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.42f),
-    checkmarkColor = MaterialTheme.colorScheme.background,
-    disabledCheckedColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.28f),
-    disabledUncheckedColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f),
-  )
+internal fun AppCheckbox(
+  checked: Boolean,
+  onCheckedChange: (Boolean) -> Unit,
+  modifier: Modifier = Modifier,
+  enabled: Boolean = true,
+) {
+  val color =
+    MaterialTheme.colorScheme.onSurface.copy(
+      alpha =
+        when {
+          !enabled -> 0.24f
+          checked -> 0.82f
+          else -> 0.48f
+        }
+    )
+  Box(
+    modifier =
+      modifier
+        .size(48.dp)
+        .toggleable(
+          value = checked,
+          enabled = enabled,
+          role = Role.Checkbox,
+          onValueChange = onCheckedChange,
+        ),
+    contentAlignment = Alignment.Center,
+  ) {
+    Box(
+      modifier = Modifier.size(20.dp).border(1.dp, color, RectangleShape),
+      contentAlignment = Alignment.Center,
+    ) {
+      if (checked) {
+        Icon(
+          Icons.Outlined.Check,
+          contentDescription = null,
+          modifier = Modifier.size(15.dp),
+          tint = color,
+        )
+      }
+    }
+  }
+}
 
 @Composable
 internal fun SmallTextButton(
@@ -632,32 +668,17 @@ internal fun GlassIcon(
   icon: ImageVector,
   label: String,
   active: Boolean = false,
-  accent: Boolean = false,
   enabled: Boolean = true,
   onClick: () -> Unit,
 ) {
-  val useAccent = active && accent
-  IconButton(onClick = onClick, enabled = enabled) {
-    Surface(
-      modifier = Modifier.size(48.dp),
-      shape = RoundedCornerShape(24.dp),
-      color = contrastControlColor(active = useAccent, enabled = enabled),
-      border =
-        if (useAccent && enabled) {
-          BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-        } else null,
-      tonalElevation = 0.dp,
-      shadowElevation = 0.dp,
-    ) {
-      Box(contentAlignment = Alignment.Center) {
-        Icon(
-          icon,
-          label,
-          modifier = Modifier.size(21.dp),
-          tint = contrastControlContentColor(active = useAccent, enabled = enabled),
-        )
-      }
+  val tint =
+    when {
+      !enabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.34f)
+      active -> MaterialTheme.colorScheme.primary
+      else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
     }
+  IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(48.dp)) {
+    Icon(icon, label, modifier = Modifier.size(21.dp), tint = tint)
   }
 }
 
@@ -670,7 +691,7 @@ internal fun GlassPanel(
   Surface(
     modifier = modifier.animateContentSize(appTween(AppMotion.Medium)),
     color = panelColor(active),
-    shape = RoundedCornerShape(24.dp),
+    shape = RectangleShape,
     border = BorderStroke(1.dp, appDividerColor().copy(alpha = if (active) 0.9f else 0.72f)),
     tonalElevation = if (active) 1.dp else 0.dp,
     shadowElevation = 0.dp,

@@ -198,26 +198,45 @@
     >
       <FilePlus size={16} strokeWidth={1.8} />
     </button>
-    <label class="select-all-control">
-      <input
-        type="checkbox"
-        checked={model.allVisibleNotesSelected}
-        disabled={!model.visibleNotes.length}
-        aria-label={model.allVisibleNotesSelected
-          ? 'Deselect all visible notes'
-          : 'Select all visible notes'}
-        use:indeterminate={model.someVisibleNotesSelected &&
-          !model.allVisibleNotesSelected}
-        onchange={(event) =>
-          model.toggleAllVisibleNotes(
-            (event.currentTarget as HTMLInputElement).checked
-          )}
-        onclick={(event) => event.stopPropagation()}
-      />
-      <span
-        >{model.allVisibleNotesSelected ? 'Deselect all' : 'Select all'}</span
-      >
-    </label>
+    <div
+      class="selection-summary"
+      class:selecting={model.selectedNoteCount > 0}
+    >
+      <label class="select-all-control">
+        <input
+          type="checkbox"
+          checked={model.allVisibleNotesSelected}
+          disabled={!model.visibleNotes.length}
+          aria-label={model.allVisibleNotesSelected
+            ? 'Deselect all visible notes'
+            : 'Select all visible notes'}
+          use:indeterminate={model.someVisibleNotesSelected &&
+            !model.allVisibleNotesSelected}
+          onchange={(event) =>
+            model.toggleAllVisibleNotes(
+              (event.currentTarget as HTMLInputElement).checked
+            )}
+          onclick={(event) => event.stopPropagation()}
+        />
+        <span
+          >{model.allVisibleNotesSelected ? 'Deselect all' : 'Select all'}</span
+        >
+      </label>
+      {#if model.selectedNoteCount}
+        <span class="selection-count" role="status" aria-live="polite"
+          >{model.selectedNoteCount} selected</span
+        >
+        <button
+          class="selection-clear icon-button mini"
+          type="button"
+          title="Clear selected notes"
+          aria-label="Clear selected notes"
+          onclick={model.clearSelectedNotes}
+        >
+          <X size={13} strokeWidth={1.8} />
+        </button>
+      {/if}
+    </div>
     {#if model.selectedNoteCount}
       <div
         class="batch-actions"
@@ -275,16 +294,6 @@
           </button>
         {/if}
       </div>
-      <button
-        class="selection-clear"
-        type="button"
-        title="Clear selected notes"
-        aria-label="Clear selected notes"
-        onclick={model.clearSelectedNotes}
-      >
-        <X size={13} strokeWidth={1.8} />
-        <span>{model.selectedNoteCount} selected</span>
-      </button>
     {/if}
     <p class="sync-line">
       <span

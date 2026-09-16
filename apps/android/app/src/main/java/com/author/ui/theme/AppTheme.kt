@@ -4,7 +4,9 @@ import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.TweenSpec
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -17,6 +19,7 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.author.R
 
@@ -93,6 +96,15 @@ internal val ThemeChoices =
   )
 
 private val BaseTypography = Typography()
+private val SquareCornerShape = RoundedCornerShape(0.dp)
+private val AppShapes =
+  Shapes(
+    extraSmall = SquareCornerShape,
+    small = SquareCornerShape,
+    medium = SquareCornerShape,
+    large = SquareCornerShape,
+    extraLarge = SquareCornerShape,
+  )
 
 private fun typography(fontFamily: FontFamily) =
   Typography(
@@ -265,6 +277,11 @@ internal fun AuthorTheme(theme: String, font: String, content: @Composable () ->
 
   val family = fontFamily(font)
   CompositionLocalProvider(LocalAppFontFamily provides family) {
-    MaterialTheme(colorScheme = colors, typography = typography(family), content = content)
+    MaterialTheme(
+      colorScheme = colors,
+      typography = typography(family),
+      shapes = AppShapes,
+      content = content,
+    )
   }
 }

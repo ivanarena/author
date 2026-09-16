@@ -1,7 +1,6 @@
 package com.author.ui.theme
 
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.sp
 
 internal object AppTextSize {
@@ -12,14 +11,14 @@ internal object AppTextSize {
 }
 
 internal object AppShape {
-  val NavRow = RoundedCornerShape(12.dp)
-  val Tile = RoundedCornerShape(16.dp)
-  val Control = RoundedCornerShape(16.dp)
-  val ControlLarge = RoundedCornerShape(18.dp)
-  val Search = RoundedCornerShape(26.dp)
-  val Panel = RoundedCornerShape(22.dp)
-  val Menu = RoundedCornerShape(20.dp)
-  val Modal = RoundedCornerShape(32.dp)
-  val NoteRow = RoundedCornerShape(20.dp)
-  val Pill = RoundedCornerShape(999.dp)
+  val NavRow = RectangleShape
+  val Tile = RectangleShape
+  val Control = RectangleShape
+  val ControlLarge = RectangleShape
+  val Search = RectangleShape
+  val Panel = RectangleShape
+  val Menu = RectangleShape
+  val Modal = RectangleShape
+  val NoteRow = RectangleShape
+  val Pill = RectangleShape
 }

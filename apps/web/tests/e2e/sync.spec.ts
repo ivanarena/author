@@ -697,14 +697,26 @@ test('updates note list pressed states from visible actions', async ({
   await expect(
     selectionSummary.getByRole('button', { name: 'Clear selected notes' })
   ).toBeVisible();
+  await expect(firstRow).toHaveCSS('box-shadow', 'none');
 
-  const [firstRowBox, firstCheckboxBox] = await Promise.all([
-    firstRow.boundingBox(),
-    firstRow.locator('input[type="checkbox"]').boundingBox()
-  ]);
-  if (!firstRowBox || !firstCheckboxBox) {
-    throw new Error('Selected note row checkbox is not visible');
+  const [firstRowBox, firstCheckboxBox, selectionSummaryBox, newNoteButtonBox] =
+    await Promise.all([
+      firstRow.boundingBox(),
+      firstRow.locator('input[type="checkbox"]').boundingBox(),
+      selectionSummary.boundingBox(),
+      notesPanel.getByRole('button', { name: 'New note' }).boundingBox()
+    ]);
+  if (
+    !firstRowBox ||
+    !firstCheckboxBox ||
+    !selectionSummaryBox ||
+    !newNoteButtonBox
+  ) {
+    throw new Error('Selection controls are not visible');
   }
+  expect(newNoteButtonBox.x).toBeGreaterThan(
+    selectionSummaryBox.x + selectionSummaryBox.width
+  );
   expect(
     Math.abs(
       firstRowBox.y +

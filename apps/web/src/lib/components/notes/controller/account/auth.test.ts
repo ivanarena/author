@@ -128,6 +128,49 @@ describe('account auth actions', () => {
     mocks.recoveryKitText.mockReturnValue('original-kit-json');
   });
 
+  it('signs in a trusted device with an authenticator code and no password', async () => {
+    mocks.login.mockResolvedValue({
+      token: 'trusted-device-session-token',
+      user: {
+        username: 'owner',
+        email: null,
+        displayName: null,
+        twoFactorEnabled: true
+      },
+      device: { id: 'device-1', name: 'This browser' },
+      expiresAt: '2026-05-29T12:00:00.000Z'
+    });
+    const model = controller({
+      loginUsernameValue: 'owner',
+      loginTotpCodeValue: '123456'
+    });
+
+    await submitLoginMenu(model);
+
+    expect(mocks.login).toHaveBeenCalledWith('owner', null, '123456');
+    expect(mocks.prepareEncryptionPassword).not.toHaveBeenCalled();
+    expect(mocks.adoptLocalWorkspaceForAccount).toHaveBeenCalledWith({
+      username: 'owner',
+      fallbackOwnerUsername: null,
+      previousMaterial: 'old-local-material',
+      nextMaterial: 'old-local-material'
+    });
+    expect(mocks.commitEncryptionKeyMaterial).toHaveBeenCalledWith(
+      'old-local-material'
+    );
+    expect(mocks.setStoredSession).toHaveBeenCalledWith({
+      token: 'trusted-device-session-token',
+      user: expect.objectContaining({
+        username: 'owner',
+        twoFactorEnabled: true
+      }),
+      expiresAt: '2026-05-29T12:00:00.000Z'
+    });
+    expect(model.loginOpen).toBe(false);
+    expect(model.accountMessage).toBe('Signed in');
+    expect(model.syncNow).toHaveBeenCalled();
+  });
+
   it('shows the original signup recovery code and kit after account creation', async () => {
     const recoveryKit = {
       type: 'author-recovery-kit',

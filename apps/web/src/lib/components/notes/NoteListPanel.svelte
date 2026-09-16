@@ -190,14 +190,6 @@
   </div>
 
   <div class="icon-row">
-    <button
-      class="icon-button"
-      title="New note"
-      aria-label="New note"
-      onclick={model.newNote}
-    >
-      <FilePlus size={16} strokeWidth={1.8} />
-    </button>
     <div
       class="selection-summary"
       class:selecting={model.selectedNoteCount > 0}
@@ -295,6 +287,14 @@
         {/if}
       </div>
     {/if}
+    <button
+      class="icon-button"
+      title="New note"
+      aria-label="New note"
+      onclick={model.newNote}
+    >
+      <FilePlus size={16} strokeWidth={1.8} />
+    </button>
     <p class="sync-line">
       <span
         class={`sync-state ${model.syncIndicator.tone}`}

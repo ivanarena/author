@@ -302,13 +302,11 @@ textarea::-webkit-scrollbar {
 @keyframes note-selection-in {
   from {
     background: transparent;
-    box-shadow: inset 0 0 0 transparent;
     transform: translateX(-2px);
   }
 
   to {
     background: var(--active);
-    box-shadow: inset 3px 0 0 var(--accent);
     transform: translateX(0);
   }
 }
@@ -416,7 +414,6 @@ textarea::-webkit-scrollbar {
   margin: 0 0 var(--space-2);
   transition:
     background-color var(--motion-fast) var(--motion-ease),
-    box-shadow var(--motion-medium) var(--motion-ease),
     transform var(--motion-medium) var(--motion-ease);
 }
 
@@ -445,7 +442,6 @@ textarea::-webkit-scrollbar {
 
 .note-row.selected {
   background: var(--active);
-  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .note-select-cell {

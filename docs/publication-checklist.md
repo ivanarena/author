@@ -52,6 +52,10 @@ does not prove that a deployment or binary release is production-ready.
       Uploaded versions inherit production secrets and database bindings, so
       branch previews belong on the isolated staging Worker. The stable
       production route remains enabled and healthy.
+- [x] Keep Cloudflare Workers Builds from bypassing release gates. The `main`
+      trigger builds but does not deploy, while the non-production trigger uses
+      Aube 1.16.0 and uploads only `development`; the manual GitHub Actions
+      workflow remains the production deployment authority.
 
 ## GitHub Repository Settings
 

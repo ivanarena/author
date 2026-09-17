@@ -4,15 +4,16 @@ on:
   workflow_dispatch:
     inputs:
       channel:
-        description: Build a private staging APK or publish a production APK
+        description: Build a staging test, build a private production candidate, or publish that candidate
         required: true
         default: test
         type: choice
         options:
           - test
+          - candidate
           - production
       ref:
-        description: Main-branch ref for a private test artifact
+        description: Main-branch ref for a private test or candidate artifact
         required: true
         default: main
         type: string
@@ -76,9 +77,9 @@ jobs:
               echo "::error::Production APKs can only be built from commits on main."
               exit 1
             fi
-          elif [ "$RELEASE_CHANNEL" = test ]; then
+          elif [ "$RELEASE_CHANNEL" = test ] || [ "$RELEASE_CHANNEL" = candidate ]; then
             if [ "$release_sha" != "$current_main" ]; then
-              echo "::error::Private test APKs must use the current main commit."
+              echo "::error::Private test and candidate APKs must use the current main commit."
               exit 1
             fi
           else
@@ -104,22 +105,27 @@ jobs:
             "CI" "$release_sha" \
             "Workflow lint" "Web" "Android" "Android Connected"
           scripts/require-successful-workflow-jobs.sh \
-            "Docker" "$release_sha" "Publish signed image"
-          scripts/require-successful-workflow-jobs.sh \
             "Security" "$release_sha" \
             "Secret scan" \
             "OpenSSF Scorecard" \
             "CodeQL (javascript-typescript, none)" \
             "CodeQL (java-kotlin, manual)"
-          scripts/require-successful-workflow-jobs.sh \
-            "Remote Staging Smoke" "$release_sha" "Staging Worker and Turso"
+          if [ "$RELEASE_CHANNEL" != candidate ]; then
+            scripts/require-successful-workflow-jobs.sh \
+              "Docker" "$release_sha" "Publish signed image"
+            scripts/require-successful-workflow-jobs.sh \
+              "Remote Staging Smoke" "$release_sha" "Staging Worker and Turso"
+          fi
           if [ "$RELEASE_CHANNEL" = production ]; then
             scripts/require-successful-workflow-jobs.sh \
               "Cloudflare Deploy" "$release_sha" "Deploy Worker"
+            scripts/require-successful-workflow-jobs.sh \
+              "Android Release APK" "$release_sha" "Signed APK"
           fi
 
   signed-apk:
     name: Signed APK
+    if: inputs.channel != 'production'
     runs-on: ubuntu-latest
     needs: release-gate
     environment: ${{ inputs.channel == 'production' && 'production' || 'staging' }}
@@ -170,10 +176,10 @@ jobs:
             fi
           done
 
-          if [ "$RELEASE_CHANNEL" = production ]; then
-            release_api_url="${PRODUCTION_AUTHOR_API_URL:-}"
-          else
+          if [ "$RELEASE_CHANNEL" = test ]; then
             release_api_url="${STAGING_AUTHOR_API_URL:-}"
+          else
+            release_api_url="${PRODUCTION_AUTHOR_API_URL:-}"
           fi
           case "$release_api_url" in
             https://*) ;;
@@ -232,10 +238,10 @@ jobs:
         env:
           APK_PATH: apps/android/app/build/outputs/apk/release/app-release.apk
         run: |
-          if [ "$RELEASE_CHANNEL" = production ]; then
-            release_id="${RELEASE_TAG//\//-}"
+          version_name="$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)".*/\1/p' apps/android/app/build.gradle.kts)"
+          if [ "$RELEASE_CHANNEL" = candidate ]; then
+            release_id="v${version_name}-candidate-$(git rev-parse --short=8 HEAD)"
           else
-            version_name="$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)".*/\1/p' apps/android/app/build.gradle.kts)"
             release_id="v${version_name}-test-$(git rev-parse --short=8 HEAD)"
           fi
           asset_path="${RUNNER_TEMP}/author-${release_id}-release-signed.apk"
@@ -266,35 +272,145 @@ jobs:
             echo "- Certificate SHA-256: \`${CERT_SHA256}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  publish-apk:
+  promote-apk:
     name: Publish production APK
     if: inputs.channel == 'production'
-    needs: signed-apk
+    needs: release-gate
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    environment: production
+    timeout-minutes: 15
     permissions:
-      actions: read # Download the signed artifact from this workflow run.
+      actions: read # Download the successful exact-commit candidate artifact.
       contents: write # Create or update the requested GitHub release.
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          name: ${{ needs.signed-apk.outputs.asset-name }}
-          path: ${{ runner.temp }}/android-release
+          ref: ${{ needs.release-gate.outputs.release-sha }}
+          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Attach signed APK to release
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          packages: platform-tools build-tools;36.0.0
+
+      - name: Download the accepted production candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ needs.release-gate.outputs.release-sha }}
+        run: |
+          version_name="$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)".*/\1/p' apps/android/app/build.gradle.kts)"
+          short_sha="$(git rev-parse --short=8 HEAD)"
+          candidate_name="author-v${version_name}-candidate-${short_sha}-release-signed.apk"
+          artifact_dir="${RUNNER_TEMP}/android-candidate"
+          mkdir -p "$artifact_dir"
+
+          candidate_run_id=""
+          mapfile -t candidate_runs < <(
+            gh run list \
+              --workflow "Android Release APK" \
+              --commit "$RELEASE_SHA" \
+              --status success \
+              --limit 20 \
+              --json databaseId \
+              --jq '.[].databaseId'
+          )
+          for run_id in "${candidate_runs[@]}"; do
+            jobs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100")"
+            signed_conclusion="$(
+              jq -r \
+                '[.jobs[] | select(.name == "Signed APK")] | if length == 1 then .[0].conclusion else "" end' \
+                <<<"$jobs"
+            )"
+            [[ "$signed_conclusion" == success ]] || continue
+            rm -rf "${artifact_dir:?}"/*
+            if gh run download "$run_id" \
+              --name "$candidate_name" \
+              --dir "$artifact_dir"; then
+              candidate_run_id="$run_id"
+              break
+            fi
+          done
+          if [ -z "$candidate_run_id" ]; then
+            echo "::error::No successful candidate artifact ${candidate_name} was found for ${RELEASE_SHA}."
+            exit 1
+          fi
+
+          candidate_path="${artifact_dir}/${candidate_name}"
+          test -f "$candidate_path"
+          echo "CANDIDATE_APK_PATH=$candidate_path" >> "$GITHUB_ENV"
+          echo "CANDIDATE_RUN_ID=$candidate_run_id" >> "$GITHUB_ENV"
+
+      - name: Verify and name the promoted APK
+        id: asset
+        env:
+          ANDROID_RELEASE_CERT_SHA256: ${{ secrets.ANDROID_RELEASE_CERT_SHA256 }}
+        run: |
+          apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
+          aapt="$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort -V | tail -n 1)"
+          cert_output="$("$apksigner" verify --verbose --print-certs "$CANDIDATE_APK_PATH")"
+          printf '%s\n' "$cert_output"
+          actual_cert="$(printf '%s\n' "$cert_output" | scripts/extract-android-cert-sha256.sh)"
+          expected_cert="$(printf '%s' "$ANDROID_RELEASE_CERT_SHA256" | tr '[:upper:]' '[:lower:]' | tr -d ':')"
+          if [ -z "$actual_cert" ] || [ "$actual_cert" != "$expected_cert" ]; then
+            echo "::error::Candidate signing certificate does not match ANDROID_RELEASE_CERT_SHA256."
+            exit 1
+          fi
+
+          expected_version="${RELEASE_TAG#v}"
+          actual_version="$(
+            "$aapt" dump badging "$CANDIDATE_APK_PATH" |
+              sed -n "s/^package:.*versionName='\([^']*\)'.*/\1/p"
+          )"
+          if [ "$actual_version" != "$expected_version" ]; then
+            echo "::error::Candidate version ${actual_version} does not match ${expected_version}."
+            exit 1
+          fi
+
+          asset_name="author-${RELEASE_TAG}-release-signed.apk"
+          asset_path="${RUNNER_TEMP}/${asset_name}"
+          cp "$CANDIDATE_APK_PATH" "$asset_path"
+          apk_sha256="$(sha256sum "$asset_path" | cut -d ' ' -f 1)"
+          {
+            echo "asset_name=$asset_name"
+            echo "asset_path=$asset_path"
+            echo "apk_sha256=$apk_sha256"
+            echo "cert_sha256=$actual_cert"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Attach the promoted APK to the release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          ASSET_NAME: ${{ needs.signed-apk.outputs.asset-name }}
+          ASSET_NAME: ${{ steps.asset.outputs.asset_name }}
+          ASSET_PATH: ${{ steps.asset.outputs.asset_path }}
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
-          asset_path="${RUNNER_TEMP}/android-release/${ASSET_NAME}"
-          test -f "$asset_path"
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" "$asset_path" --clobber
+            gh release upload "$RELEASE_TAG" "$ASSET_PATH" --clobber
           else
-            gh release create "$RELEASE_TAG" "$asset_path" \
+            gh release create "$RELEASE_TAG" "$ASSET_PATH" \
               --title "Author ${RELEASE_TAG}" \
               --generate-notes \
               --latest
           fi
+
+      - name: Record promoted artifact identity
+        env:
+          APK_SHA256: ${{ steps.asset.outputs.apk_sha256 }}
+          CERT_SHA256: ${{ steps.asset.outputs.cert_sha256 }}
+          ASSET_NAME: ${{ steps.asset.outputs.asset_name }}
+        run: |
+          {
+            echo '## Promoted Android artifact identity'
+            echo
+            echo "- Candidate run: \`${CANDIDATE_RUN_ID}\`"
+            echo "- Commit: \`$(git rev-parse HEAD)\`"
+            echo "- Artifact: \`${ASSET_NAME}\`"
+            echo "- APK SHA-256: \`${APK_SHA256}\`"
+            echo "- Certificate SHA-256: \`${CERT_SHA256}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

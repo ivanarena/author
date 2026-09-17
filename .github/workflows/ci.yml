@@ -6,7 +6,6 @@ on:
   push:
     branches:
       - main
-      - development
 
 permissions:
   contents: read
@@ -54,8 +53,8 @@ jobs:
           persona: pedantic
           version: 1.29.0
 
-  web:
-    name: Web
+  web_build:
+    name: Web build
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -101,9 +100,7 @@ jobs:
       - name: Lint
         run: npx -y "@endevco/aube@${AUBE_VERSION}" run lint
 
-      - name: Unit tests
-        run: npx -y "@endevco/aube@${AUBE_VERSION}" run test
-
+      # Coverage executes the complete unit/spec suite, so do not run it twice.
       - name: Coverage
         run: npx -y "@endevco/aube@${AUBE_VERSION}" run test:coverage
 
@@ -116,19 +113,125 @@ jobs:
             apps/web/coverage
             packages/sync-spec/coverage
 
-      - name: Install Playwright browsers
-        run: npx -y "@endevco/aube@${AUBE_VERSION}" -F @author/web exec -- playwright install --with-deps chromium firefox webkit
-        timeout-minutes: 20
-
-      - name: Browser sync tests
-        run: npx -y "@endevco/aube@${AUBE_VERSION}" -F @author/web run test:e2e
-        timeout-minutes: 15
-
       - name: Production build
         run: npx -y "@endevco/aube@${AUBE_VERSION}" run build
 
       - name: Cloudflare Worker build
         run: npx -y "@endevco/aube@${AUBE_VERSION}" -F @author/web run cf:build
+
+      - name: Package immutable Cloudflare Worker bundle
+        run: |
+          code_dir="${RUNNER_TEMP}/cloudflare-worker-code"
+          bundle_dir="${RUNNER_TEMP}/cloudflare-worker-bundle"
+          archive="${RUNNER_TEMP}/cloudflare-worker.tar.gz"
+          (
+            cd apps/web
+            ./node_modules/.bin/wrangler deploy \
+              --config wrangler.jsonc \
+              --dry-run \
+              --outdir "$code_dir"
+          )
+
+          mkdir -p "$bundle_dir/code" "$bundle_dir/assets"
+          cp "$code_dir/_worker.js" "$bundle_dir/code/_worker.js"
+          cp -a apps/web/.svelte-kit/cloudflare/. "$bundle_dir/assets/"
+          rm -f \
+            "$bundle_dir/assets/_worker.js" \
+            "$bundle_dir/assets/_worker.generated.js"
+          tar -C "$RUNNER_TEMP" -czf "$archive" cloudflare-worker-bundle
+          (
+            cd "$RUNNER_TEMP"
+            sha256sum cloudflare-worker.tar.gz > cloudflare-worker.tar.gz.sha256
+          )
+          bundle_sha="$(sha256sum "$archive" | cut -d ' ' -f 1)"
+          {
+            echo '## Cloudflare Worker artifact'
+            echo
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- SHA-256: \`${bundle_sha}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Cloudflare Worker bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloudflare-worker-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/cloudflare-worker.tar.gz
+            ${{ runner.temp }}/cloudflare-worker.tar.gz.sha256
+          retention-days: 14
+
+  web_e2e:
+    name: Web E2E (${{ matrix.project }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: chromium
+            browser: chromium
+          - project: firefox
+            browser: firefox
+          - project: webkit
+            browser: webkit
+          - project: mobile-chromium
+            browser: chromium
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: |
+          for attempt in 1 2 3; do
+            npx -y "@endevco/aube@${AUBE_VERSION}" install --frozen-lockfile && exit 0
+            sleep_seconds=$((attempt * 20))
+            echo "Dependency install failed on attempt ${attempt}; retrying in ${sleep_seconds}s..."
+            sleep "${sleep_seconds}"
+          done
+
+          npx -y "@endevco/aube@${AUBE_VERSION}" install --frozen-lockfile
+
+      - name: Install Playwright browser
+        env:
+          PLAYWRIGHT_BROWSER: ${{ matrix.browser }}
+        run: npx -y "@endevco/aube@${AUBE_VERSION}" -F @author/web exec -- playwright install --with-deps "$PLAYWRIGHT_BROWSER"
+        timeout-minutes: 20
+
+      - name: Browser sync tests
+        env:
+          PLAYWRIGHT_PROJECT: ${{ matrix.project }}
+        run: npx -y "@endevco/aube@${AUBE_VERSION}" -F @author/web exec -- playwright test --project="$PLAYWRIGHT_PROJECT"
+        timeout-minutes: 15
+
+      - name: Upload browser failure report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: playwright-${{ matrix.project }}-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+
+  web:
+    name: Web
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - web_build
+      - web_e2e
+    steps:
+      - name: Verify Web jobs
+        env:
+          WEB_BUILD_RESULT: ${{ needs.web_build.result }}
+          WEB_E2E_RESULT: ${{ needs.web_e2e.result }}
+        run: |
+          test "$WEB_BUILD_RESULT" = success
+          test "$WEB_E2E_RESULT" = success
 
   android:
     name: Android
@@ -179,7 +282,6 @@ jobs:
   android-connected:
     name: Android Connected
     runs-on: ubuntu-latest
-    needs: android
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

@@ -68,9 +68,9 @@ Already in place:
   scanning, SBOM/provenance generation, and Cosign image signing. CodeQL and
   Scorecard always retain SARIF artifacts and upload findings to GitHub code
   scanning when the repository is public.
-- Signed Android release automation with a private staging-API test channel
-  gated by exact-commit CI, Docker, Security, and staging smoke; production
-  additionally requires the exact Cloudflare Deploy run and matching tag.
+- Signed Android release automation with separate private staging-test and
+  production-candidate channels. Production promotes the verified candidate
+  bytes only after the exact Cloudflare Deploy run and matching tag exist.
 
 Known limits:
 
@@ -137,8 +137,9 @@ Required external blockers:
 - Review CodeQL and OpenSSF Scorecard SARIF artifacts, or code-scanning alerts
   if code scanning is enabled, for the release commit.
 - Clear or explicitly accept remaining Scorecard findings before public release.
-  `main` now enforces the four CI jobs, linear history, conversation resolution,
-  and no force-push/deletion, but repo-setting/practice findings such as
+  `main` now enforces the CI aggregator, Android jobs, full-history secret scan,
+  and both CodeQL analyses, plus linear history, conversation resolution, and
+  no force-push/deletion. Repo-setting/practice findings such as
   independent code-review enforcement, OpenSSF best-practices badge status, fuzzing coverage,
   Gradle wrapper binary review, and Docker npm-command pinning require either an
   admin/platform change or a written exception in release notes.
@@ -148,10 +149,12 @@ Required external blockers:
   not qualify as release evidence. Verify that production deployment before
   publishing release notes.
 - Verify Cosign-signed container images and protected Android release keys.
-- Dispatch the private Android `test` channel against staging, verify its
-  signing certificate and checksum, and install it over the previous production
-  APK. After uploading the production asset, verify that a separate `v1.0.20`
-  device receives and opens the update notification before broader distribution.
+- Dispatch the private Android `test` channel for staging-only device checks.
+  For publication, use the production-configured `candidate` artifact, verify
+  its signing certificate and checksum, and install it over the previous
+  production APK. The production workflow must promote those exact APK bytes,
+  not rebuild them. After upload, verify that a separate older device receives
+  and opens the update notification before broader distribution.
 - Confirm production has real `NOTES_LOGIN_PASSWORD` and `NOTES_SERVER_SECRET`,
   HTTPS, server-only Turso tokens, authenticated metrics, enabled backup or
   managed export flow, the Cloudflare Cron cleanup trigger, and production
@@ -297,7 +300,7 @@ Acceptance:
 
 ## Test Release Sequence
 
-Use this sequence for `v1.0.21`; do not create the production tag until the
+Use this sequence for every release; do not create the production tag until the
 private candidate is accepted. Before starting, verify
 `ANDROID_RELEASE_CERT_SHA256` and `NOTES_METRICS_TOKEN` in GitHub, configure the
 `staging` and `production` environments, require a reviewer for production where
@@ -310,48 +313,53 @@ private-test exception. Keep scheduled staging smoke able to run unattended.
 2. From a clean checkout with Node 24.12+ and Aube 1.16.0, run
    `aube run release:verify:connected`, `aube run docker:verify`, and the local
    restore drill. After those gates, generate
-   `aube run release:evidence -- v1.0.21-test.1` without amending the candidate
+   `aube run release:evidence -- v1.0.22-test.1` without amending the candidate
    commit, then record command timestamps and results in that evidence file.
 3. Open a pull request. Require green `CI`, pull-request Docker scanning, and
    `Security`; review coverage, Gitleaks, CodeQL, Scorecard, and Trivy artifacts.
 4. Merge the reviewed commit to `main`. Production publication/deployment is
-   manual, so this does not publish or deploy the candidate. Wait for
-   exact-commit `CI` and `Security`, then manually dispatch `Docker` on `main`;
-   review its Trivy result, digest, attestations, and signature.
-5. Manually run `Remote Staging Smoke` on `main`. Confirm it deployed only the
-   staging Worker/database and passed login/session, encrypted push/pull,
-   stale-write conflict, and cleanup checks. Complete a managed Turso restore
-   into a separate staging database and run `db:check` against it.
-6. Manually dispatch `Android Release APK` with `channel=test` and `ref=main`.
-   Download the private 14-day artifact, verify its recorded SHA-256 and signing
-   certificate, and keep it out of a public GitHub release.
-7. Test the candidate in supported browsers and on a disposable Android device:
-   offline create/edit/reload, encrypted sync, conflict handling, signup
-   invitation replay rejection, password/keyring rotation and recovery,
-   export/import, trash/cleanup, and foreground/background sync. Install the
-   test APK over a production-signed `v1.0.20` APK on disposable data to verify
-   upgrade and SQLCipher migration; also test a clean install against staging.
-8. Record a go/no-go decision. On failure, leave production undeployed, fix on a
+   manual, so this does not publish or deploy the candidate. Wait for the
+   exact-commit `CI` and `Security` workflows.
+5. Dispatch `Release` with `phase=candidate` and the proposed version tag. The
+   orchestrator runs Docker scan/sign/publish, isolated staging deploy/smoke,
+   and the private production-configured Android candidate in parallel. CI has
+   already retained the exact Worker bundle. Review the Trivy result, image
+   digest, attestations, signature, staging smoke, APK checksum, and signing
+   certificate.
+6. Complete a managed Turso restore into a separate staging database and run
+   `db:check` against it. Test the candidate in supported browsers and on a
+   disposable Android device: offline create/edit/reload, encrypted sync,
+   conflict handling, signup invitation replay rejection, password/keyring
+   rotation and recovery, export/import, trash/cleanup, and foreground/
+   background sync. Install the production candidate over the previous
+   production-signed APK on disposable data to verify upgrade and SQLCipher
+   migration. Dispatch the Android `test` channel separately when a clean
+   install or network smoke against staging is required.
+7. Record a go/no-go decision. On failure, leave production undeployed, fix on a
    new candidate commit, and repeat all exact-commit remote gates.
-9. On acceptance, manually dispatch `Cloudflare Deploy` for current `main`,
-   perform a production read-only health/metrics smoke, then create and push the
-   `v1.0.21` tag. Dispatch `Android Release APK` with `channel=production` and
-   `tag=v1.0.21`; verify the attached APK, container digest, SBOM/provenance,
-   Cosign signature, update notification, and rollback references before final
-   sign-off. Commit the completed evidence file afterward as release
-   documentation; do not move the `v1.0.21` tag from the tested candidate SHA.
+8. On acceptance, dispatch `Release` again with `phase=production` and the same
+   tag. It verifies the accepted candidate evidence, promotes the immutable
+   CI-built Worker bundle, refuses a stale `main`, creates the annotated release
+   tag only after deployment succeeds, and promotes the exact accepted Android
+   candidate APK without rebuilding it.
+9. Verify production health/metrics, the attached APK, container digest,
+   SBOM/provenance, Cosign signature, update notification, and rollback
+   references before final sign-off. Commit the completed evidence file as
+   release documentation; never move the release tag from the tested commit.
 
 Use these dispatch forms after the candidate reaches `main`:
 
 ```sh
-gh workflow run docker.yml --ref main
-gh workflow run remote-staging.yml --ref main
-gh workflow run android-release.yml --ref main -f channel=test -f ref=main
-# Only after test acceptance:
-gh workflow run cloudflare.yml --ref main
-gh workflow run android-release.yml --ref main \
-  -f channel=production -f ref=main -f tag=v1.0.21
+gh workflow run release.yml --ref main \
+  -f phase=candidate -f tag=v1.0.22
+# Only after reviewing and accepting the private candidate:
+gh workflow run release.yml --ref main \
+  -f phase=production -f tag=v1.0.22
 ```
+
+The component workflows remain manually dispatchable for recovery and focused
+reruns. Do not dispatch `Docker` twice for one commit: its immutable commit image
+is intentionally non-replaceable.
 
 The Docker workflow creates portable keyless Cosign SLSA-provenance and
 SPDX-SBOM attestations directly in GHCR. It verifies

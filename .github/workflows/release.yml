@@ -1,0 +1,250 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: Build and test a candidate, or promote an accepted candidate
+        required: true
+        default: candidate
+        type: choice
+        options:
+          - candidate
+          - production
+      tag:
+        description: Version tag matching the Android and web versions (for example v1.0.22)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  validate:
+    name: Validate release source
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read # Verify exact-commit CI and release-candidate workflow gates.
+      contents: read
+    outputs:
+      phase: ${{ steps.source.outputs.phase }}
+      release_sha: ${{ steps.source.outputs.release_sha }}
+      release_tag: ${{ steps.source.outputs.release_tag }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate exact main commit and version
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PHASE: ${{ inputs.phase }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::Releases must be dispatched from main, not $GITHUB_REF."
+            exit 1
+          fi
+          if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tag must look like v1.2.3."
+            exit 1
+          fi
+
+          release_sha="$(git rev-parse HEAD)"
+          current_main="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
+          if [ "$release_sha" != "$current_main" ]; then
+            echo "::error::Release commit ${release_sha} is stale; main is ${current_main}."
+            exit 1
+          fi
+          if git show-ref --verify --quiet "refs/tags/${RELEASE_TAG}"; then
+            echo "::error::Release tag ${RELEASE_TAG} already exists."
+            exit 1
+          fi
+
+          scripts/validate-android-release-version.sh "$RELEASE_TAG"
+          scripts/require-successful-workflow-jobs.sh \
+            "CI" "$release_sha" \
+            "Workflow lint" "Web" "Android" "Android Connected"
+          scripts/require-successful-workflow-jobs.sh \
+            "Security" "$release_sha" \
+            "Secret scan" \
+            "OpenSSF Scorecard" \
+            "CodeQL (javascript-typescript, none)" \
+            "CodeQL (java-kotlin, manual)"
+
+          if [ "$RELEASE_PHASE" = production ]; then
+            scripts/require-successful-workflow-jobs.sh \
+              "Docker" "$release_sha" "Publish signed image"
+            scripts/require-successful-workflow-jobs.sh \
+              "Remote Staging Smoke" "$release_sha" "Staging Worker and Turso"
+            scripts/require-successful-workflow-jobs.sh \
+              "Android Release APK" "$release_sha" "Signed APK"
+          fi
+
+          {
+            echo "phase=$RELEASE_PHASE"
+            echo "release_sha=$release_sha"
+            echo "release_tag=$RELEASE_TAG"
+          } >> "$GITHUB_OUTPUT"
+
+  docker:
+    name: Candidate container
+    if: needs.validate.outputs.phase == 'candidate'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    permissions:
+      actions: write # Dispatch and monitor the existing gated Docker workflow.
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Build, scan, sign, and publish the exact image
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ needs.validate.outputs.release_sha }}
+        run: scripts/dispatch-workflow-and-wait.sh docker.yml "$RELEASE_SHA" main
+
+  staging:
+    name: Candidate staging smoke
+    if: needs.validate.outputs.phase == 'candidate'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      actions: write # Dispatch and monitor the isolated staging workflow.
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Deploy and smoke-test the exact staging Worker
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ needs.validate.outputs.release_sha }}
+        run: scripts/dispatch-workflow-and-wait.sh remote-staging.yml "$RELEASE_SHA" main
+
+  android_candidate:
+    name: Candidate signed Android APK
+    if: needs.validate.outputs.phase == 'candidate'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions:
+      actions: write # Dispatch and monitor the private Android candidate build.
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Build the private production candidate APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ needs.validate.outputs.release_sha }}
+        run: |
+          scripts/dispatch-workflow-and-wait.sh \
+            android-release.yml "$RELEASE_SHA" main \
+            -f channel=candidate \
+            -f ref="$RELEASE_SHA"
+
+  production:
+    name: Promote production Worker
+    if: needs.validate.outputs.phase == 'production'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      actions: write # Dispatch and monitor the production deployment workflow.
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Deploy the accepted exact commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ needs.validate.outputs.release_sha }}
+        run: scripts/dispatch-workflow-and-wait.sh cloudflare.yml "$RELEASE_SHA" main
+
+  tag:
+    name: Create immutable release tag
+    if: needs.validate.outputs.phase == 'production'
+    needs:
+      - validate
+      - production
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # Create the release tag only after production succeeds.
+    steps:
+      - name: Tag the deployed exact commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ needs.validate.outputs.release_sha }}
+          RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
+        run: |
+          current_main="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
+          if [ "$current_main" != "$RELEASE_SHA" ]; then
+            echo "::error::Refusing to tag stale commit ${RELEASE_SHA}; main is ${current_main}."
+            exit 1
+          fi
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "::error::Release tag ${RELEASE_TAG} already exists."
+            exit 1
+          fi
+
+          tag_object="$(
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/tags" \
+              -f tag="$RELEASE_TAG" \
+              -f message="Author ${RELEASE_TAG}" \
+              -f object="$RELEASE_SHA" \
+              -f type=commit \
+              --jq .sha
+          )"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/tags/${RELEASE_TAG}" \
+            -f sha="$tag_object" >/dev/null
+          echo "Created ${RELEASE_TAG} at ${RELEASE_SHA}."
+
+  android_production:
+    name: Publish production Android APK
+    if: needs.validate.outputs.phase == 'production'
+    needs:
+      - validate
+      - tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions:
+      actions: write # Dispatch and monitor the tagged Android publication.
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Build and attach the production APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ needs.validate.outputs.release_sha }}
+          RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
+        run: |
+          scripts/dispatch-workflow-and-wait.sh \
+            android-release.yml "$RELEASE_SHA" "$RELEASE_TAG" \
+            -f channel=production \
+            -f ref=main \
+            -f tag="$RELEASE_TAG"

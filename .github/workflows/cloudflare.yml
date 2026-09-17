@@ -12,8 +12,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  AUBE_VERSION: 1.16.0
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  WRANGLER_VERSION: 4.123.0
 
 jobs:
   release-gate:
@@ -69,31 +69,64 @@ jobs:
         with:
           node-version: 24
 
-      - name: Install dependencies
+      - name: Refuse a stale main commit
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          for attempt in 1 2 3; do
-            npx -y "@endevco/aube@${AUBE_VERSION}" install --frozen-lockfile && exit 0
-            sleep_seconds=$((attempt * 20))
-            echo "Dependency install failed on attempt ${attempt}; retrying in ${sleep_seconds}s..."
-            sleep "${sleep_seconds}"
+          deploy_sha="$(git rev-parse HEAD)"
+          current_main="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
+          if [ "$deploy_sha" != "$current_main" ]; then
+            echo "::error::Refusing to deploy stale commit ${deploy_sha}; main is ${current_main}."
+            exit 1
+          fi
+
+      - name: Download the exact CI-built Worker bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          deploy_sha="$(git rev-parse HEAD)"
+          artifact_name="cloudflare-worker-${deploy_sha}"
+          artifact_dir="${RUNNER_TEMP}/cloudflare-worker-artifact"
+          mkdir -p "$artifact_dir"
+          ci_run_id=""
+          mapfile -t ci_runs < <(
+            gh run list \
+              --workflow CI \
+              --commit "$deploy_sha" \
+              --status success \
+              --limit 20 \
+              --json databaseId \
+              --jq '.[].databaseId'
+          )
+          for run_id in "${ci_runs[@]}"; do
+            rm -rf "${artifact_dir:?}"/*
+            if gh run download "$run_id" \
+              --name "$artifact_name" \
+              --dir "$artifact_dir"; then
+              ci_run_id="$run_id"
+              break
+            fi
           done
+          if [ -z "$ci_run_id" ]; then
+            echo "::error::No successful CI artifact ${artifact_name} was found."
+            exit 1
+          fi
+          (
+            cd "$artifact_dir"
+            sha256sum -c cloudflare-worker.tar.gz.sha256
+          )
+          bundle_sha="$(sha256sum "$artifact_dir/cloudflare-worker.tar.gz" | cut -d ' ' -f 1)"
 
-          npx -y "@endevco/aube@${AUBE_VERSION}" install --frozen-lockfile
-
-      - name: Toolchain check
-        run: npx -y "@endevco/aube@${AUBE_VERSION}" run toolchain:check
-
-      - name: Dependency graph check
-        run: npx -y "@endevco/aube@${AUBE_VERSION}" run deps:check
-
-      - name: Quality gate
-        run: npx -y "@endevco/aube@${AUBE_VERSION}" run quality
-
-      - name: Unit tests
-        run: npx -y "@endevco/aube@${AUBE_VERSION}" run test
-
-      - name: Cloudflare Worker build
-        run: npx -y "@endevco/aube@${AUBE_VERSION}" -F @author/web run cf:build
+          bundle_dir="${RUNNER_TEMP}/cloudflare-worker-bundle"
+          mkdir -p "$bundle_dir"
+          tar -xzf "$artifact_dir/cloudflare-worker.tar.gz" -C "$bundle_dir"
+          test -f "$bundle_dir/cloudflare-worker-bundle/code/_worker.js"
+          test -d "$bundle_dir/cloudflare-worker-bundle/assets"
+          {
+            echo "WORKER_BUNDLE_DIR=$bundle_dir/cloudflare-worker-bundle"
+            echo "WORKER_BUNDLE_SHA=$bundle_sha"
+            echo "WORKER_CI_RUN_ID=$ci_run_id"
+          } >> "$GITHUB_ENV"
 
       - name: Validate deployment secrets
         env:
@@ -140,7 +173,15 @@ jobs:
           NOTES_RECORD_LIMIT_NOTEBOOK_BYTES: ${{ secrets.NOTES_RECORD_LIMIT_NOTEBOOK_BYTES }}
           NOTES_SIGNUP_ALLOWED_EMAILS: ${{ secrets.NOTES_SIGNUP_ALLOWED_EMAILS }}
           AUTHOR_API_URL: ${{ secrets.AUTHOR_API_URL }}
+          GH_TOKEN: ${{ github.token }}
         run: |
+          deploy_sha="$(git rev-parse HEAD)"
+          current_main="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
+          if [ "$deploy_sha" != "$current_main" ]; then
+            echo "::error::Refusing to deploy stale commit ${deploy_sha}; main is ${current_main}."
+            exit 1
+          fi
+
           node <<'NODE'
           const fs = require('node:fs');
 
@@ -170,4 +211,16 @@ jobs:
           NODE
 
           trap 'rm -f .worker-secrets.json' EXIT
-          ./node_modules/.bin/wrangler deploy --secrets-file .worker-secrets.json
+          npx -y "wrangler@${WRANGLER_VERSION}" deploy \
+            "${WORKER_BUNDLE_DIR}/code/_worker.js" \
+            --config wrangler.jsonc \
+            --no-bundle \
+            --assets "${WORKER_BUNDLE_DIR}/assets" \
+            --secrets-file .worker-secrets.json
+          {
+            echo '## Promoted Cloudflare Worker artifact'
+            echo
+            echo "- Commit: \`${deploy_sha}\`"
+            echo "- CI run: \`${WORKER_CI_RUN_ID}\`"
+            echo "- Bundle SHA-256: \`${WORKER_BUNDLE_SHA}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

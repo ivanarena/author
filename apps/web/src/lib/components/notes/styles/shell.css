@@ -196,7 +196,7 @@
   height: 10px;
   border: 1.5px solid currentColor;
   border-right-color: transparent;
-  border-radius: 0;
+  border-radius: 50%;
   content: '';
   flex: 0 0 auto;
   animation: sync-spin 720ms linear infinite;
@@ -422,7 +422,7 @@ aside {
 .profile-trigger:hover,
 .profile-trigger:focus-visible,
 .profile-trigger.active {
-  transform: translateY(-1px);
+  transform: none;
 }
 
 .menu-trigger:hover svg,
@@ -432,11 +432,11 @@ aside {
 .profile-trigger:focus-visible svg,
 .profile-trigger.active svg {
   opacity: 1;
-  transform: scale(1.08);
+  transform: scale(1.03);
 }
 
 .icon-button:not(:disabled):hover {
-  transform: translateY(-1px);
+  transform: none;
 }
 
 .mini {

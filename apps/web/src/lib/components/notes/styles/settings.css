@@ -1158,7 +1158,7 @@
   border: 0;
   border-radius: var(--radius-md);
   padding: 3px;
-  background: var(--field);
+  background: transparent;
 }
 
 .auth-mode-tabs button {
@@ -1172,13 +1172,9 @@
 }
 
 .auth-mode-tabs button:hover,
-.auth-mode-tabs button:focus-visible {
-  background: var(--hover);
-  color: var(--text);
-}
-
+.auth-mode-tabs button:focus-visible,
 .auth-mode-tabs button.active {
-  background: var(--paper);
+  background: transparent;
   color: var(--text);
 }
 

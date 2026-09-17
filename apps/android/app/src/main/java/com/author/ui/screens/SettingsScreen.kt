@@ -395,7 +395,7 @@ private fun AccountMenuRow(
     else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
   Surface(
     modifier = Modifier.fillMaxWidth().clip(RectangleShape),
-    color = rowColor(),
+    color = Color.Transparent,
     shape = RectangleShape,
     border = BorderStroke(1.dp, appDividerColor().copy(alpha = 0.72f)),
   ) {
@@ -407,7 +407,13 @@ private fun AccountMenuRow(
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-      MaterialIconTile(icon, null, tint = contentColor, destructive = destructive)
+      MaterialIconTile(
+        icon,
+        null,
+        tint = contentColor,
+        destructive = destructive,
+        transparent = true,
+      )
       Column(Modifier.weight(1f)) {
         Text(
           label,
@@ -456,7 +462,7 @@ private fun AccountDetailPanel(controller: NotesController, panel: String) {
 private fun AccountDetailHeader(title: String, detail: String, onBack: () -> Unit) {
   Surface(
     modifier = Modifier.fillMaxWidth().clip(RectangleShape),
-    color = rowColor(active = true),
+    color = Color.Transparent,
     shape = RectangleShape,
     border = BorderStroke(1.dp, appDividerColor().copy(alpha = 0.9f)),
   ) {
@@ -475,6 +481,7 @@ private fun AccountDetailHeader(title: String, detail: String, onBack: () -> Uni
         active = true,
         size = 34.dp,
         iconSize = 18.dp,
+        transparent = true,
       )
       Column(Modifier.weight(1f)) {
         Text(
@@ -1093,7 +1100,6 @@ private fun AppearanceSettings(controller: NotesController) {
     ActionRow(
       Icons.Outlined.FolderOpen,
       "Compact notes",
-      active = controller.compactView,
       detail = if (controller.compactView) "Enabled" else "Disabled",
     ) {
       controller.toggleCompactView()
@@ -1158,7 +1164,6 @@ private fun ThemePicker(controller: NotesController) {
 
 @Composable
 private fun ThemeChoiceRow(choice: ThemeChoice, active: Boolean, onClick: () -> Unit) {
-  val background = if (active) rowColor(active = true) else rowColor()
   Surface(
     modifier =
       Modifier.fillMaxWidth()
@@ -1168,7 +1173,7 @@ private fun ThemeChoiceRow(choice: ThemeChoice, active: Boolean, onClick: () -> 
           stateDescription = if (active) "Selected" else "Not selected"
         }
         .clickable(onClick = onClick),
-    color = background,
+    color = Color.Transparent,
     contentColor = MaterialTheme.colorScheme.onSurface,
     shape = RectangleShape,
     border = BorderStroke(1.dp, appDividerColor().copy(alpha = if (active) 0.9f else 0.72f)),
@@ -1292,7 +1297,7 @@ private fun FontDropdown(controller: NotesController) {
     Box {
       Surface(
         modifier = Modifier.fillMaxWidth().clip(RectangleShape).clickable { open = true },
-        color = rowColor(),
+        color = Color.Transparent,
         shape = RectangleShape,
         border = BorderStroke(1.dp, appDividerColor().copy(alpha = 0.72f)),
       ) {
@@ -1354,7 +1359,7 @@ private fun SettingsStepper(
 ) {
   Surface(
     modifier = Modifier.fillMaxWidth().clip(RectangleShape),
-    color = rowColor(),
+    color = Color.Transparent,
     shape = RectangleShape,
     border = BorderStroke(1.dp, appDividerColor().copy(alpha = 0.72f)),
   ) {

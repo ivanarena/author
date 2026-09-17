@@ -18,11 +18,9 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -136,7 +134,7 @@ private fun AuthModeTabs(controller: NotesController) {
   Surface(
     modifier = Modifier.fillMaxWidth(),
     shape = RectangleShape,
-    color = rowColor(),
+    color = Color.Transparent,
     border = BorderStroke(1.dp, appDividerColor().copy(alpha = 0.72f)),
   ) {
     Row(Modifier.fillMaxWidth().padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -180,7 +178,7 @@ private fun AuthModeTab(
         .clip(RectangleShape)
         .clickable(enabled = enabled, onClick = onClick),
     shape = RectangleShape,
-    color = if (active) dialogContainerColor() else Color.Transparent,
+    color = Color.Transparent,
     tonalElevation = 0.dp,
     shadowElevation = 0.dp,
   ) {
@@ -435,17 +433,13 @@ private fun NotificationContent(notification: AppNotification, controller: Notes
       }
     }
     if (notification.actionLabel.isNotBlank()) {
-      TextButton(onClick = { controller.runNotificationAction(notification.id) }) {
-        Text(
-          notification.actionLabel,
-          color = colors.content,
-          fontWeight = FontWeight.SemiBold,
-          fontSize = AppTextSize.Label,
-          maxLines = 1,
-        )
-      }
+      SmallTextButton(
+        notification.actionLabel,
+        color = colors.content,
+        onClick = { controller.runNotificationAction(notification.id) },
+      )
     }
-    IconButton(
+    AppIconButton(
       onClick = { controller.dismissNotification(notification.id) },
       modifier = Modifier.size(32.dp),
     ) {

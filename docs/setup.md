@@ -298,14 +298,25 @@ custom install/build command. Cloudflare's build image defaults to Node 22 and
 does not install Aube projects automatically, so the dashboard must be pointed
 at the repo's package manager and Node version.
 
-In the Worker dashboard, go to `Settings > Build` and set:
+In the Worker dashboard, go to `Settings > Build`. The production trigger may
+build `main`, but it must not deploy it; production deployment belongs to the
+gated GitHub Actions workflow. Configure the triggers as follows (the API can
+also manage these fields):
 
 ```text
-Root directory: /
-Build command: npx -y @endevco/aube@1.16.0 install --frozen-lockfile && npx -y @endevco/aube@1.16.0 run cf:build
-Deploy command: ./apps/web/node_modules/.bin/wrangler deploy --config apps/web/wrangler.jsonc
-Non-production branch deploy command: ./apps/web/node_modules/.bin/wrangler versions upload --config apps/web/wrangler.jsonc
+Production branches: main
+Production build command: npx -y @endevco/aube@1.16.0 install --frozen-lockfile && npx -y @endevco/aube@1.16.0 run cf:build
+Production deploy command: echo "Production deployment is manual via the gated GitHub Actions workflow."
+
+Non-production branches: * excluding main
+Non-production build command: if [ "${WORKERS_CI_BRANCH:-}" = "development" ]; then npx -y @endevco/aube@1.16.0 install --frozen-lockfile && npx -y @endevco/aube@1.16.0 run cf:build; else echo "Skipping Cloudflare build for non-development branch ${WORKERS_CI_BRANCH:-unknown}"; fi
+Non-production deploy command: if [ "${WORKERS_CI_BRANCH:-}" = "development" ]; then ./apps/web/node_modules/.bin/wrangler versions upload --config apps/web/wrangler.jsonc; else echo "Skipping Cloudflare deploy for non-development branch ${WORKERS_CI_BRANCH:-unknown}"; fi
 ```
+
+Restricting non-production uploads to `development` prevents arbitrary public
+pull-request branches from uploading code with the production Worker's bindings.
+With production Preview URLs disabled, the development upload creates a version
+for build validation without exposing it or promoting it to active traffic.
 
 Add these build variables:
 

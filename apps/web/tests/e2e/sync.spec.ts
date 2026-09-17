@@ -462,6 +462,15 @@ test('keeps the note list open until the pointer moves toward the editor', async
     'background-color',
     'rgba(0, 0, 0, 0)'
   );
+  const syncState = notesPanel.locator('.sync-state');
+  await expect
+    .poll(() =>
+      syncState.evaluate((element) => {
+        element.classList.add('syncing');
+        return getComputedStyle(element, '::before').borderRadius;
+      })
+    )
+    .toBe('50%');
 
   const firstTitle = `First open note ${Date.now()}`;
   await page.getByLabel('Note title').fill(firstTitle);
@@ -484,6 +493,16 @@ test('keeps the note list open until the pointer moves toward the editor', async
   await page.waitForTimeout(1_200);
   await expect(menuButton).toHaveAttribute('aria-expanded', 'true');
   await expect(notesPanel).toBeVisible();
+  await menuButton.hover();
+  await expect(menuButton).toHaveCSS('transform', 'none');
+  await expect
+    .poll(() =>
+      menuButton.locator('svg').evaluate((element) => {
+        const transform = getComputedStyle(element).transform;
+        return transform === 'none' ? 1 : new DOMMatrix(transform).a;
+      })
+    )
+    .toBeCloseTo(1.03, 2);
 
   const dockBox = await page
     .getByRole('navigation', { name: 'Navigation' })
@@ -895,6 +914,15 @@ test('logs in from the profile menu when no session is stored', async ({
   await openProfileMenu(page);
   await page.getByRole('menuitem', { name: 'Sign in to sync' }).click();
   const loginDialog = page.getByRole('dialog', { name: 'Sign in' });
+  const authModeTabs = loginDialog.getByRole('tablist', {
+    name: 'Authentication mode'
+  });
+  const signInTab = authModeTabs.getByRole('tab', { name: 'Sign in' });
+  const signUpTab = authModeTabs.getByRole('tab', { name: 'Sign up' });
+  await expect(authModeTabs).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(signInTab).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await signUpTab.hover();
+  await expect(signUpTab).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   await loginDialog.getByLabel('Username').fill(loginUsername);
   await loginDialog.getByLabel('Password', { exact: true }).fill(loginPassword);
   await clickSignInSubmit(page);

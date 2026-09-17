@@ -35,11 +35,9 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -213,7 +211,11 @@ internal fun AppModalTitle(
       overflow = TextOverflow.Ellipsis,
     )
     if (onDismiss != null) {
-      IconButton(onClick = onDismiss, enabled = dismissEnabled, modifier = Modifier.size(42.dp)) {
+      AppIconButton(
+        onClick = onDismiss,
+        enabled = dismissEnabled,
+        modifier = Modifier.size(42.dp),
+      ) {
         Icon(
           Icons.Outlined.Close,
           "Close",
@@ -236,9 +238,11 @@ internal fun MaterialIconTile(
   destructive: Boolean = false,
   size: Dp = 36.dp,
   iconSize: Dp = 19.dp,
+  transparent: Boolean = false,
 ) {
   val background =
     when {
+      transparent -> Color.Transparent
       destructive -> MaterialTheme.colorScheme.errorContainer
       active -> MaterialTheme.colorScheme.primaryContainer
       else -> MaterialTheme.colorScheme.surfaceVariant
@@ -397,7 +401,7 @@ internal fun ActionRow(
     else MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha)
   Surface(
     modifier = Modifier.fillMaxWidth().clip(AppShape.Panel),
-    color = rowColor(rowActive),
+    color = Color.Transparent,
     shape = AppShape.Panel,
     border = BorderStroke(1.dp, appDividerColor().copy(alpha = if (rowActive) 0.9f else 0.72f)),
   ) {
@@ -417,6 +421,7 @@ internal fun ActionRow(
         destructive = destructive,
         size = 36.dp,
         iconSize = 18.dp,
+        transparent = true,
       )
       Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(
@@ -509,7 +514,7 @@ internal fun PasswordField(value: String, placeholder: String, onChange: (String
     keyboardOptions =
       KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Password),
     trailingIcon = {
-      IconButton(onClick = { visible = !visible }) {
+      AppIconButton(onClick = { visible = !visible }, modifier = Modifier.size(48.dp)) {
         Icon(
           if (visible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
           if (visible) "Hide password" else "Show password",
@@ -590,14 +595,24 @@ internal fun SmallTextButton(
   label: String,
   modifier: Modifier = Modifier,
   active: Boolean = false,
+  color: Color? = null,
   onClick: () -> Unit,
 ) {
-  TextButton(onClick = onClick, modifier = modifier.clip(AppShape.NavRow)) {
+  Box(
+    modifier =
+      modifier
+        .heightIn(min = 40.dp)
+        .clip(AppShape.NavRow)
+        .clickable(role = Role.Button, onClick = onClick)
+        .padding(horizontal = 12.dp, vertical = 8.dp),
+    contentAlignment = Alignment.Center,
+  ) {
     Text(
       label,
       color =
-        if (active) MaterialTheme.colorScheme.primary
-        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+        color
+          ?: if (active) MaterialTheme.colorScheme.primary
+          else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
       fontSize = AppTextSize.Label,
       fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
     )
@@ -664,6 +679,23 @@ internal fun ModalActionButton(
 }
 
 @Composable
+internal fun AppIconButton(
+  onClick: () -> Unit,
+  modifier: Modifier = Modifier,
+  enabled: Boolean = true,
+  content: @Composable () -> Unit,
+) {
+  Box(
+    modifier =
+      modifier
+        .clip(RectangleShape)
+        .clickable(enabled = enabled, role = Role.Button, onClick = onClick),
+    contentAlignment = Alignment.Center,
+    content = { content() },
+  )
+}
+
+@Composable
 internal fun GlassIcon(
   icon: ImageVector,
   label: String,
@@ -677,7 +709,7 @@ internal fun GlassIcon(
       active -> MaterialTheme.colorScheme.primary
       else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
     }
-  IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(48.dp)) {
+  AppIconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(48.dp)) {
     Icon(icon, label, modifier = Modifier.size(21.dp), tint = tint)
   }
 }

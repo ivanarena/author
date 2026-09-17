@@ -3,6 +3,8 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "license": "MIT",
+  "repository": "github:ivanarena/author",
   "dependencies": {
     "@author/schema": "workspace:*"
   },

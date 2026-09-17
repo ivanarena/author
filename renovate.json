@@ -27,6 +27,17 @@
     },
     {
       "customType": "regex",
+      "description": "Update the Gitleaks version used by the security workflow.",
+      "managerFilePatterns": ["/^\\.github/workflows/security\\.yml$/"],
+      "matchStrings": [
+        "GITLEAKS_VERSION:\\s*(?<currentValue>v?\\d+\\.\\d+\\.\\d+)"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "gitleaks/gitleaks",
+      "versioningTemplate": "semver-coerced"
+    },
+    {
+      "customType": "regex",
       "description": "Update the Aube package manager version used by this repo.",
       "managerFilePatterns": [
         "/(^|/)package\\.json$/",

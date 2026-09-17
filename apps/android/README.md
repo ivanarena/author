@@ -2,6 +2,10 @@
 
 Native Android client for the Author offline-first notes app.
 
+The Android client must be built for a specific Author HTTPS API and signed by
+the service operator. An APK built for the upstream service is not automatically
+suitable for another self-hosted domain or fork.
+
 ## Build
 
 ```sh
@@ -101,4 +105,15 @@ CI validates debug compile/lint/unit/APK, release lint/unit/APK, and connected d
 ./gradlew :app:connectedDebugAndroidTest
 ```
 
-The full cross-app release checklist lives in `../../docs/production-readiness.md`.
+The full cross-app release checklist lives in
+[`../../docs/production-readiness.md`](../../docs/production-readiness.md).
+Self-hosted operators should also follow
+[`../../docs/self-hosting.md`](../../docs/self-hosting.md) and keep their APK
+signing key, certificate fingerprint, API URL, update URL, and rollback APK under
+their own control.
+
+## License
+
+The Android client is part of Author and is distributed under the repository's
+[MIT License](../../LICENSE). AndroidX and other dependencies retain their own
+licenses; see [Third-Party Notices](../../THIRD_PARTY_NOTICES.md).

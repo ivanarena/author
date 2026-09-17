@@ -47,6 +47,7 @@ jobs:
             "Workflow lint" "Web" "Android" "Android Connected"
           scripts/require-successful-workflow-jobs.sh \
             "Security" "$image_sha" \
+            "Secret scan" \
             "OpenSSF Scorecard" \
             "CodeQL (javascript-typescript, none)" \
             "CodeQL (java-kotlin, manual)"

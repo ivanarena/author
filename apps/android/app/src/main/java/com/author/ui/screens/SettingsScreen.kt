@@ -84,7 +84,10 @@ import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import java.util.Locale
 
-private const val RELEASE_NOTES_URL = "https://github.com/ivanarena/author/releases/latest"
+private const val SOURCE_URL = "https://github.com/ivanarena/author"
+private const val RELEASE_NOTES_URL = "$SOURCE_URL/releases/latest"
+private const val LICENSE_URL = "$SOURCE_URL/blob/main/LICENSE"
+private const val THIRD_PARTY_NOTICES_URL = "$SOURCE_URL/blob/main/THIRD_PARTY_NOTICES.md"
 
 @Composable
 internal fun SettingsPage(
@@ -763,6 +766,21 @@ private fun AboutSettings(controller: NotesController) {
         detail = "See what's new in the latest release",
       ) {
         runCatching { uriHandler.openUri(RELEASE_NOTES_URL) }
+      }
+    }
+    SettingsChoiceGroup("Open source") {
+      ActionRow(Icons.Outlined.Info, "Source code", detail = "GitHub repository") {
+        runCatching { uriHandler.openUri(SOURCE_URL) }
+      }
+      ActionRow(Icons.Outlined.Info, "MIT License", detail = "Author project license") {
+        runCatching { uriHandler.openUri(LICENSE_URL) }
+      }
+      ActionRow(
+        Icons.Outlined.Info,
+        "Third-party notices",
+        detail = "Dependency licenses and attributions",
+      ) {
+        runCatching { uriHandler.openUri(THIRD_PARTY_NOTICES_URL) }
       }
     }
   }

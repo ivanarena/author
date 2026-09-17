@@ -3,6 +3,8 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "license": "MIT",
+  "repository": "github:ivanarena/author",
   "dependencies": {
     "@libsql/client": "^0.17.3",
     "@noble/hashes": "^2.2.0",

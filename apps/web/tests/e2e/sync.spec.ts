@@ -1501,6 +1501,9 @@ test('has no serious app-shell accessibility violations @a11y @cross-browser', a
     'href',
     'https://github.com/ivanarena/author/releases/latest'
   );
+  await expect(
+    settings.getByRole('link', { name: 'Source code' })
+  ).toHaveAttribute('href', 'https://github.com/ivanarena/author');
   await settings.getByRole('button', { name: 'Account' }).click();
   await expect
     .poll(() =>

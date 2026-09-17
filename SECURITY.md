@@ -20,7 +20,9 @@ repository checks.
 
 Please report security issues privately to the project maintainer instead of
 opening a public issue. Include reproduction steps, affected commit or release,
-and whether the issue affects web, server, Android, or sync.
+and whether the issue affects web, server, Android, or sync. Operators of forks
+should also notify their own users and upstream a report when the issue applies
+to Author itself.
 
 Preferred channel:
 
@@ -73,6 +75,9 @@ Supported surface:
 ## Hardening Checklist
 
 - Run the commands in `docs/production-readiness.md` before release.
+- Deploy immutable tagged releases rather than a moving development branch.
+- Scan complete Git history with the Gitleaks command in
+  `docs/publication-checklist.md` before making any fork or repository public.
 - Use HTTPS in production.
 - Keep `NOTES_SERVER_SECRET` stable and private across restores.
 - Back up and restore-test SQLite/libSQL data before upgrades.

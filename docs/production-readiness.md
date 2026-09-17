@@ -64,9 +64,10 @@ Already in place:
   security artifact reviews, backup drills, and artifact traceability.
 - GitHub Actions pinned to immutable SHAs, with Renovate-managed version
   comments.
-- CodeQL, OpenSSF Scorecard, Trivy image scanning, SBOM/provenance generation,
-  and Cosign image signing. CodeQL and Scorecard upload SARIF artifacts for
-  private-repo review even when GitHub code scanning is not enabled.
+- Full-history Gitleaks scanning, CodeQL, OpenSSF Scorecard, Trivy image
+  scanning, SBOM/provenance generation, and Cosign image signing. CodeQL and
+  Scorecard always retain SARIF artifacts and upload findings to GitHub code
+  scanning when the repository is public.
 - Signed Android release automation with a private staging-API test channel
   gated by exact-commit CI, Docker, Security, and staging smoke; production
   additionally requires the exact Cloudflare Deploy run and matching tag.
@@ -130,6 +131,8 @@ Required external blockers:
 - Run Cloudflare/Turso staging smoke with isolated staging credentials.
 - Restore a fresh SQLite or Turso backup into a separate environment and run
   `aube -F @author/web run db:check`.
+- Confirm the full-history Gitleaks `Secret scan` job passed for the release
+  commit and investigate any new allow-list entry.
 - Review the Trivy SARIF uploaded by CI for the release commit.
 - Review CodeQL and OpenSSF Scorecard SARIF artifacts, or code-scanning alerts
   if code scanning is enabled, for the release commit.
@@ -147,11 +150,12 @@ Required external blockers:
 - Verify Cosign-signed container images and protected Android release keys.
 - Dispatch the private Android `test` channel against staging, verify its
   signing certificate and checksum, and install it over the previous production
-  APK. After uploading the production asset, verify that a separate `v1.0.17`
+  APK. After uploading the production asset, verify that a separate `v1.0.20`
   device receives and opens the update notification before broader distribution.
 - Confirm production has real `NOTES_LOGIN_PASSWORD` and `NOTES_SERVER_SECRET`,
   HTTPS, server-only Turso tokens, authenticated metrics, enabled backup or
-  managed export flow, and the Cloudflare Cron cleanup trigger.
+  managed export flow, the Cloudflare Cron cleanup trigger, and production
+  Worker Preview URLs disabled.
 
 Acceptance:
 
@@ -293,7 +297,7 @@ Acceptance:
 
 ## Test Release Sequence
 
-Use this sequence for `v1.0.18`; do not create the production tag until the
+Use this sequence for `v1.0.21`; do not create the production tag until the
 private candidate is accepted. Before starting, verify
 `ANDROID_RELEASE_CERT_SHA256` and `NOTES_METRICS_TOKEN` in GitHub, configure the
 `staging` and `production` environments, require a reviewer for production where
@@ -306,10 +310,10 @@ private-test exception. Keep scheduled staging smoke able to run unattended.
 2. From a clean checkout with Node 24.12+ and Aube 1.16.0, run
    `aube run release:verify:connected`, `aube run docker:verify`, and the local
    restore drill. After those gates, generate
-   `aube run release:evidence -- v1.0.18-test.1` without amending the candidate
+   `aube run release:evidence -- v1.0.21-test.1` without amending the candidate
    commit, then record command timestamps and results in that evidence file.
 3. Open a pull request. Require green `CI`, pull-request Docker scanning, and
-   `Security`; review coverage plus CodeQL, Scorecard, and Trivy artifacts.
+   `Security`; review coverage, Gitleaks, CodeQL, Scorecard, and Trivy artifacts.
 4. Merge the reviewed commit to `main`. Production publication/deployment is
    manual, so this does not publish or deploy the candidate. Wait for
    exact-commit `CI` and `Security`, then manually dispatch `Docker` on `main`;
@@ -325,17 +329,17 @@ private-test exception. Keep scheduled staging smoke able to run unattended.
    offline create/edit/reload, encrypted sync, conflict handling, signup
    invitation replay rejection, password/keyring rotation and recovery,
    export/import, trash/cleanup, and foreground/background sync. Install the
-   test APK over a production-signed `v1.0.17` APK on disposable data to verify
+   test APK over a production-signed `v1.0.20` APK on disposable data to verify
    upgrade and SQLCipher migration; also test a clean install against staging.
 8. Record a go/no-go decision. On failure, leave production undeployed, fix on a
    new candidate commit, and repeat all exact-commit remote gates.
 9. On acceptance, manually dispatch `Cloudflare Deploy` for current `main`,
    perform a production read-only health/metrics smoke, then create and push the
-   `v1.0.18` tag. Dispatch `Android Release APK` with `channel=production` and
-   `tag=v1.0.18`; verify the attached APK, container digest, SBOM/provenance,
+   `v1.0.21` tag. Dispatch `Android Release APK` with `channel=production` and
+   `tag=v1.0.21`; verify the attached APK, container digest, SBOM/provenance,
    Cosign signature, update notification, and rollback references before final
    sign-off. Commit the completed evidence file afterward as release
-   documentation; do not move the `v1.0.18` tag from the tested candidate SHA.
+   documentation; do not move the `v1.0.21` tag from the tested candidate SHA.
 
 Use these dispatch forms after the candidate reaches `main`:
 
@@ -346,12 +350,11 @@ gh workflow run android-release.yml --ref main -f channel=test -f ref=main
 # Only after test acceptance:
 gh workflow run cloudflare.yml --ref main
 gh workflow run android-release.yml --ref main \
-  -f channel=production -f ref=main -f tag=v1.0.18
+  -f channel=production -f ref=main -f tag=v1.0.21
 ```
 
-Because GitHub's hosted attestation and private signing APIs are unavailable to
-user-owned private repositories, the Docker workflow creates keyless Cosign
-SLSA-provenance and SPDX-SBOM attestations directly in private GHCR. It verifies
+The Docker workflow creates portable keyless Cosign SLSA-provenance and
+SPDX-SBOM attestations directly in GHCR. It verifies
 the OCI attestations and image signature against the immutable digest and exact
 workflow identity before promoting `main`. A successful image push followed by
 an attestation, signing, or verification failure is not publication evidence
@@ -398,13 +401,24 @@ aube -F @author/web exec -- playwright install chromium
 
 ## Release Decision
 
-Ready for a private or self-hosted release when:
+Ready to publish the source repository when:
+
+- The complete history has passed Gitleaks and the maintainer has reviewed Git
+  author emails, asset provenance, and all branches/tags for information that
+  will become public.
+- `main` contains the intended public source, required CI and Security jobs pass
+  for that exact commit, and license, contribution, support, security, and
+  third-party notice files are current.
+- The repository settings in
+  [the publication checklist](publication-checklist.md) are complete.
+
+Ready for a supported self-hosted release when:
 
 - P0 local and deployment gates pass.
 - Restore drills and staging smoke pass.
 - Docs accurately describe current security limits.
-- No high/critical dependency, image, CodeQL, or Scorecard issue is unresolved
-  without a written exception.
+- No unresolved secret-scan result or high/critical dependency, image, CodeQL,
+  or Scorecard issue remains without a written exception.
 - Android release artifacts are signed and update notifications are verified if
   the APK is distributed.
 

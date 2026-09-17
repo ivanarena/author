@@ -107,6 +107,7 @@ jobs:
             "Docker" "$release_sha" "Publish signed image"
           scripts/require-successful-workflow-jobs.sh \
             "Security" "$release_sha" \
+            "Secret scan" \
             "OpenSSF Scorecard" \
             "CodeQL (javascript-typescript, none)" \
             "CodeQL (java-kotlin, manual)"
@@ -142,6 +143,8 @@ jobs:
           cache: gradle
 
       - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          packages: platform-tools # Avoid the action's obsolete default `tools` package.
 
       - name: Validate release configuration
         env:

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
 
-  const updated = 'August 17, 2026';
+  const updated = 'September 17, 2026';
 </script>
 
 <svelte:head>
@@ -16,6 +16,17 @@
   <a href={resolve('/')} class="legal-back">Author</a>
   <h1>Privacy</h1>
   <p class="legal-updated">Updated {updated}</p>
+
+  <section>
+    <h2>Service operator</h2>
+    <p>
+      Author is self-hostable software. The operator of the instance you use
+      chooses its server, database, logs, backups, retention, account access,
+      and legal policy. The upstream source project does not automatically
+      receive data from independent self-hosted instances. Ask your operator for
+      the policy that applies to their deployment.
+    </p>
+  </section>
 
   <section>
     <h2>Encrypted content</h2>

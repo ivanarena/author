@@ -12,8 +12,9 @@ packages/
   api-types/    Request and response payloads
   sync-spec/    Sync rules, conflict helpers, cursor helpers, retention helpers
   test-fixtures/ deterministic seed/test data
-docs/           Architecture and setup notes
-.github/        CI, Docker, Cloudflare, Android release, staging, security flows
+docs/           Architecture, self-hosting, operations, protocol, and release notes
+.github/        CI, issue/PR templates, Docker, Cloudflare, Android release,
+                staging, and security flows
 scripts/        Release evidence, Docker verification, Android version checks
 ```
 

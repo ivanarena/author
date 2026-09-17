@@ -1,7 +1,7 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
 
-  const updated = 'August 17, 2026';
+  const updated = 'September 17, 2026';
 </script>
 
 <svelte:head>
@@ -67,6 +67,17 @@
       version, or when the remote content is identical. Stale writes, remote
       deletes, and duplicate active notebook names become explicit conflicts
       instead of silent overwrites.
+    </p>
+  </section>
+
+  <section>
+    <h2>Self-hosting</h2>
+    <p>
+      Self-hosted operators control the deployed source, TLS endpoint, server
+      secrets, database, backups, logs, and update process. Publishing source
+      code improves inspectability but does not make a running web bundle
+      immutable or independently audited. Use tagged releases, verify release
+      artifacts, protect backups and secrets, and test restores.
     </p>
   </section>
 

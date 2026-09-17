@@ -59,6 +59,10 @@ RUN aube --filter-prod @author/runtime install --prod --frozen-lockfile \
 
 FROM node:24-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43 AS runtime
 
+LABEL org.opencontainers.image.title="Author" \
+  org.opencontainers.image.source="https://github.com/ivanarena/author" \
+  org.opencontainers.image.licenses="MIT"
+
 WORKDIR /app
 
 RUN apk upgrade --no-cache libcrypto3 libssl3 \
@@ -74,6 +78,7 @@ RUN apk upgrade --no-cache libcrypto3 libssl3 \
 
 COPY --from=runtime-deps /app /app
 COPY --from=builder /app/apps/web/build ./apps/web/build
+COPY LICENSE THIRD_PARTY_NOTICES.md ./
 
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0

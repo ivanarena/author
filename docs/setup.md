@@ -8,6 +8,10 @@
 
 The self-hosted server uses libSQL with a local SQLite file. When Turso is configured for self-hosting, the server treats it as a remote sync peer and reconciles both databases. Cloudflare Workers deployments use Turso directly as their primary database.
 
+For a first production Docker/SQLite installation, start with the dedicated
+[self-hosting guide](self-hosting.md). This document is the detailed reference
+for all development and deployment modes.
+
 Recommended tool install:
 
 ```sh
@@ -28,7 +32,7 @@ aube --version
 
 ## Environment
 
-There are three checked-in env templates:
+There are five checked-in env templates:
 
 - `.env.example` at the repo root is the canonical production/self-host template. Android builds read only Android-relevant values from the ignored root `.env`, such as `AUTHOR_API_URL`, update URLs, and release signing settings; server and deploy tokens are ignored.
 - `.env.staging.example` at the repo root is the staging-only Turso and Cloudflare template. Keep these values pointed at `author-staging` resources, never production.
@@ -116,6 +120,9 @@ The committed `.envrc` loads root `.env` automatically and adds the repo's local
 
 ## Self-Hosted Docker
 
+Follow [Self-Hosting Author](self-hosting.md) for the supported first-install,
+TLS, backup, restore, and upgrade sequence.
+
 The self-hosted default is a local SQLite/libSQL database mounted at `/data`. The checked-in Compose file binds to localhost by default, passes only an explicit server-runtime environment allow-list, runs the container with a read-only root filesystem plus writable `/data` and `/tmp`, drops Linux capabilities, and enables scheduled SQLite snapshots unless overridden. Use `HOST_PORT` to change the host mapping; the container always listens on port 3000.
 
 ```sh
@@ -127,6 +134,8 @@ docker compose up -d --build
 Important production values:
 
 ```env
+BIND_ADDRESS=127.0.0.1
+HOST_PORT=3000
 NOTES_DB_PATH=/data/notes.sqlite
 NOTES_LOGIN_USERNAME=owner
 NOTES_LOGIN_PASSWORD=use-a-long-random-password
@@ -168,7 +177,7 @@ cd apps/web
 aube run cf:secrets
 ```
 
-`apps/web/wrangler.jsonc` sets `NOTES_DB_PROVIDER=turso`, so Cloudflare Workers use Turso directly as the primary database. The app initializes the Turso schema on first API access, using the same idempotent schema/migration code as local SQLite. The Worker build wraps SvelteKit's generated `fetch` handler with a Cloudflare Cron `scheduled` handler, so the default `NOTES_CLEANUP_ENABLED=true` setting runs trash cleanup directly against Turso once a day. Password authentication uses a client-side Argon2id challenge/proof verifier, so Worker login and signup requests do not run Argon2 and can stay inside the free plan CPU budget without weakening the password KDF.
+`apps/web/wrangler.jsonc` sets `NOTES_DB_PROVIDER=turso`, so Cloudflare Workers use Turso directly as the primary database. It keeps the stable `workers.dev` deployment enabled but sets `preview_urls=false`. Uploaded Worker versions inherit the production Worker's secrets and Turso bindings, so a version-specific preview URL would expose unreviewed code to production data. Use the separate `author-staging` Worker for preview and branch testing; never enable production version previews. The app initializes the Turso schema on first API access, using the same idempotent schema/migration code as local SQLite. The Worker build wraps SvelteKit's generated `fetch` handler with a Cloudflare Cron `scheduled` handler, so the default `NOTES_CLEANUP_ENABLED=true` setting runs trash cleanup directly against Turso once a day. Password authentication uses a client-side Argon2id challenge/proof verifier, so Worker login and signup requests do not run Argon2 and can stay inside the free plan CPU budget without weakening the password KDF.
 `cf:secrets` reads the ignored repo-root `.env` and uploads only production
 Worker runtime keys with `wrangler secret bulk`; it never prints secret values.
 Keep production Turso values out of your local `.env` unless you are actively
@@ -544,8 +553,8 @@ This clears the configured server database, then seeds the deterministic fixture
 GitHub Actions includes:
 
 - `.github/workflows/ci.yml`: Actionlint and Zizmor workflow audits, install/check, unit tests, coverage, Playwright browser sync tests, Android debug/release validation, connected Android tests, and builds.
-- `.github/workflows/docker.yml`: scan pull-request images without publishing; after successful required `main` CI and Security jobs, a manual `main` dispatch builds one image archive, scans and publishes that exact archive under a non-replaceable commit tag, creates keyless Cosign SLSA-provenance and SPDX-SBOM attestations directly in private GHCR (rather than the unavailable GitHub attestation/private-signing APIs for user-owned private repositories), signs the digest, and verifies all three identities before promotion.
+- `.github/workflows/docker.yml`: scan pull-request images without publishing; after successful required `main` CI and Security jobs, a manual `main` dispatch builds one image archive, scans and publishes that exact archive under a non-replaceable commit tag, creates keyless Cosign SLSA-provenance and SPDX-SBOM attestations in GHCR, signs the digest, and verifies all three identities before promotion. GHCR package visibility is configured separately from repository visibility.
 - `.github/workflows/remote-staging.yml`: deploy and smoke-test the isolated staging Worker/Turso pair manually and weekly.
 - `.github/workflows/cloudflare.yml`: manually deploy the current `main` commit to production only after exact-commit CI, Docker, Security, and staging-smoke gates.
 - `.github/workflows/android-release.yml`: create a private, production-signed test APK against staging after exact-commit CI, Docker, Security, and staging gates; production mode additionally requires the production Cloudflare deployment and a matching version tag.
-- `.github/workflows/security.yml`: run OpenSSF Scorecard and CodeQL on pushes, pull requests, weekly schedule, and manual dispatch. The workflow uploads SARIF artifacts for private-repo review even when GitHub code scanning is not enabled.
+- `.github/workflows/security.yml`: scan full Git history with Gitleaks and run OpenSSF Scorecard and CodeQL on pushes, pull requests, weekly schedule, and manual dispatch. The workflow always retains SARIF artifacts and uploads findings to GitHub code scanning when the repository is public.

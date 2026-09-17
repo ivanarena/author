@@ -20,6 +20,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
@@ -376,6 +377,9 @@ class AuthorAppInstrumentedTest {
     compose.onNodeWithText("Build ${BuildConfig.VERSION_CODE}").assertIsDisplayed()
     compose.onNodeWithText("Check for updates").assertIsDisplayed()
     compose.onNodeWithText("Release notes").assertIsDisplayed()
+    compose.onNodeWithText("Source code").performScrollTo().assertIsDisplayed()
+    compose.onNodeWithText("MIT License").performScrollTo().assertIsDisplayed()
+    compose.onNodeWithText("Third-party notices").performScrollTo().assertIsDisplayed()
   }
 
   @Test

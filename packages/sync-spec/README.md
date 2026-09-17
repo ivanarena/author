@@ -8,4 +8,9 @@ This package contains executable helpers for the v1 sync protocol:
 - cursor-stability checks
 - 90-day retention cutoff calculation
 
-The prose protocol lives in `docs/sync-protocol.md` and `docs/conflict-handling.md`.
+The prose protocol lives in
+[`docs/sync-protocol.md`](../../docs/sync-protocol.md) and
+[`docs/conflict-handling.md`](../../docs/conflict-handling.md).
+
+This package is part of Author and is distributed under the repository's
+[MIT License](../../LICENSE).

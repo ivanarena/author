@@ -1,6 +1,6 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
-  import { Info, Landmark, ScrollText } from '@lucide/svelte';
+  import { CodeXml, Info, Landmark, ScrollText } from '@lucide/svelte';
   import { version as appVersion } from '../../../../../package.json' with { type: 'json' };
 
   const releaseNotesUrl = 'https://github.com/ivanarena/author/releases/latest';
@@ -48,6 +48,15 @@
     >
       <ScrollText size={15} strokeWidth={1.8} />
       <span>Release notes</span>
+    </a>
+    <a
+      class="settings-action"
+      href="https://github.com/ivanarena/author"
+      rel="noreferrer"
+      target="_blank"
+    >
+      <CodeXml size={15} strokeWidth={1.8} />
+      <span>Source code</span>
     </a>
   </div>
 </div>

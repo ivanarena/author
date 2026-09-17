@@ -1,0 +1,76 @@
+name: Bug report
+description: Report a reproducible non-security problem
+title: '[Bug]: '
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include passwords, tokens, recovery material, private note text, databases, or `.env` files. Report vulnerabilities through SECURITY.md instead.
+  - type: input
+    id: version
+    attributes:
+      label: Author version
+      description: Release tag or commit SHA
+      placeholder: vX.Y.Z or a commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      options:
+        - Web app
+        - Self-hosted server or Docker
+        - Cloudflare Workers or Turso
+        - Android
+        - Sync or shared contracts
+        - Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, browser/Android version, and deployment type
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. …
+        2. …
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs or screenshots
+      description: Remove note content, identities, URLs containing credentials, tokens, and secrets.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues and release notes.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true
+        - label: I removed private data and secrets from this report.
+          required: true

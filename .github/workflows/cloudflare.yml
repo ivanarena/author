@@ -44,6 +44,7 @@ jobs:
             "Docker" "$deploy_sha" "Publish signed image"
           scripts/require-successful-workflow-jobs.sh \
             "Security" "$deploy_sha" \
+            "Secret scan" \
             "OpenSSF Scorecard" \
             "CodeQL (javascript-typescript, none)" \
             "CodeQL (java-kotlin, manual)"

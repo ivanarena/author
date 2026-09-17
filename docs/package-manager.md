@@ -45,6 +45,8 @@ aube run android:verify
 aube run release:verify
 aube run release:verify:local
 aube run release:verify:connected
+aube licenses --prod
+aube licenses --dev
 ```
 
 ## Build Scripts
@@ -63,3 +65,8 @@ That explicitly approves the Vite/esbuild native build step, records that
 Workers tooling may build `workerd`, and keeps `sharp` disabled. Do not add
 `npm`, `pnpm`, `yarn`, or `bun` lockfiles; `aube-lock.yaml` is the source of
 truth.
+
+Dependency license output is an installed-package inventory, not a replacement
+for reviewing and preserving upstream license texts when redistributing web
+bundles, containers, or APKs. See
+[Third-Party Notices](../THIRD_PARTY_NOTICES.md).

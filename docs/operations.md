@@ -1,5 +1,14 @@
 # Operations
 
+Start with [Self-Hosting Author](self-hosting.md) for a first Docker/SQLite
+installation. This document covers ongoing operation and failure handling.
+
+A self-hosted operator is responsible for TLS, account policy, legal notices,
+backups, monitoring, incident response, and the availability of the chosen
+infrastructure. Author's built-in privacy and terms pages describe the upstream
+project's data model; they are not automatically a complete policy for a
+third-party service offered to other users.
+
 ## Signup
 
 Signup requires both an allow-listed email and a signed, expiring invitation. Add addresses to `signup_allowed_emails` in the remote database (`NOTES_SIGNUP_ALLOWED_EMAILS` may seed it), then run `aube -F @author/web run signup:invite -- <email> [days]`. Deliver the code separately. The code is HMAC-bound to the email and expiry with `NOTES_SERVER_SECRET`; its SHA-256 hash is consumed atomically with account creation, so replay remains blocked after account deletion. Rotating the server secret invalidates outstanding invitations and encrypted TOTP recovery.
@@ -118,7 +127,17 @@ The production `cf:secrets` path requires `AUTHOR_DEPLOY_TARGET=production` and
 also refuses inherited shell-only production Turso values by default, which
 prevents stale direnv/session exports from being used accidentally.
 
-## Backups
+## Worker Version Previews
+
+Keep `preview_urls=false` in `apps/web/wrangler.jsonc` for the production Worker.
+Every uploaded version inherits that Worker's secrets and Turso bindings, even
+when the version is not receiving production traffic. Enabling version-specific
+preview URLs can therefore let old or unreviewed code access production data.
+Use the isolated `author-staging` Worker and staging database for previews and
+branch testing. After Cloudflare configuration changes, verify in the Worker
+Domains & Routes settings that production Preview URLs remain disabled.
+
+## Backups and Upgrades
 
 Self-hosted Node deployments can write automatic local SQLite snapshots when
 `NOTES_BACKUP_ENABLED=true`. Keep `NOTES_BACKUP_DIR` on a mounted path that is
@@ -136,6 +155,20 @@ Before upgrades:
 5. Start the upgraded app only after the restore check passes.
 
 Turso backups should be restored through Turso first, then checked with the app pointed at the restored database. Keep `NOTES_SERVER_SECRET` with the restore; encrypted 2FA seeds cannot be verified if that secret is lost or changed.
+
+Before every version upgrade:
+
+1. Read the release notes and supported migration path.
+2. Export important notes as Markdown and make an off-host database backup.
+3. Restore that backup into an isolated path and run `db:check`.
+4. Deploy the exact version tag, never a moving development branch.
+5. Verify health, authenticated metrics, login, decryption, create/edit sync,
+   export, cleanup, and the timestamp of the next scheduled backup.
+6. Keep the prior image/tag and backup available until the new version has been
+   exercised.
+
+Do not downgrade a database unless the release notes explicitly describe a
+safe path. Restore the pre-upgrade backup instead.
 
 ## Containers
 

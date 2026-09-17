@@ -22,8 +22,8 @@ Record the exact workflow run URL, conclusion, and commit SHA.
 - CI:
 - Docker:
 - Cloudflare Deploy:
-- Android private test APK:
-- Android production Release APK:
+- Android production candidate APK:
+- Android promoted production APK:
 - CodeQL SARIF or code-scanning review:
 - OpenSSF Scorecard SARIF review:
 - Trivy SARIF review:
@@ -76,8 +76,9 @@ Record command, result, timestamp, and notes for failures or accepted skips.
 - Container digest:
 - Cosign verification:
 - SBOM/provenance:
-- Android private test APK artifact:
-- Android test-device upgrade/smoke result:
+- Android production candidate APK artifact:
+- Android candidate upgrade/smoke result:
+- Optional Android staging-test APK result:
 - Android production APK URL:
 - Android APK SHA-256:
 - Android signing verification:

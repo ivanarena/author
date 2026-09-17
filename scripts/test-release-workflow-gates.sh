@@ -43,4 +43,24 @@ if FAKE_JOB_CONCLUSION=success \
   exit 1
 fi
 
+release_workflow="$repo_root/.github/workflows/release.yml"
+grep -Fq 'workflow_dispatch:' "$release_workflow"
+grep -Fq "needs.validate.outputs.phase == 'candidate'" "$release_workflow"
+grep -Fq 'dispatch-workflow-and-wait.sh docker.yml' "$release_workflow"
+grep -Fq 'dispatch-workflow-and-wait.sh remote-staging.yml' "$release_workflow"
+grep -Fq 'dispatch-workflow-and-wait.sh cloudflare.yml' "$release_workflow"
+grep -Fq -- '-f channel=candidate' "$release_workflow"
+grep -Fq 'Create immutable release tag' "$release_workflow"
+
+ci_workflow="$repo_root/.github/workflows/ci.yml"
+cloudflare_workflow="$repo_root/.github/workflows/cloudflare.yml"
+android_workflow="$repo_root/.github/workflows/android-release.yml"
+grep -Fq 'cloudflare-worker-${{ github.sha }}' "$ci_workflow"
+grep -Fq 'Download the exact CI-built Worker bundle' "$cloudflare_workflow"
+grep -Fq -- '--no-bundle' "$cloudflare_workflow"
+grep -Fq 'author-v${version_name}-candidate-${short_sha}-release-signed.apk' "$android_workflow"
+grep -Fq 'Download the accepted production candidate' "$android_workflow"
+
+"$repo_root/scripts/test-dispatch-workflow.sh"
+
 echo "Release workflow gate regressions passed"

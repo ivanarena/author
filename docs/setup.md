@@ -211,9 +211,9 @@ For GitHub Actions deploys, add these repository secrets:
 - `NOTES_RECORD_LIMIT_*`: optional Turso storage-budget estimate overrides.
 - `AUTHOR_API_URL`: optional public API URL override.
 
-The workflow writes a temporary secret file and passes it to `wrangler deploy --secrets-file`, so Worker code and updated secrets are uploaded together in one deployed version. If you deploy manually, run the `wrangler secret put` commands above once before using the app, or pass an equivalent secrets file to `wrangler deploy --secrets-file`.
+CI retains the exact Cloudflare Worker bundle as an immutable 14-day artifact. The production workflow verifies its checksum, writes a temporary secret file, and passes both the prebuilt bundle and secrets to `wrangler deploy --no-bundle --secrets-file`, so publication does not rebuild accepted source. If you deploy manually, run the `wrangler secret put` commands above once before using the app, or pass an equivalent secrets file to `wrangler deploy --secrets-file`.
 
-The `Cloudflare Deploy` workflow is manual and only deploys the current `main` commit. It refuses production deployment until that exact commit has successful required jobs in `CI`, `Security`, and `Remote Staging Smoke`, plus a successful `Publish signed image` Docker job. A workflow whose required release job was skipped does not satisfy the gate. Manual runs from other branches fail without deploying, so merging a release candidate does not deploy it before staging evidence is reviewed.
+The `Cloudflare Deploy` workflow is manual and only promotes the current `main` commit's CI artifact. It refuses production deployment until that exact commit has successful required jobs in `CI`, `Security`, and `Remote Staging Smoke`, plus a successful `Publish signed image` Docker job. A workflow whose required release job was skipped does not satisfy the gate. Manual runs from other branches fail without deploying, so merging a release candidate does not deploy it before staging evidence is reviewed.
 
 ### Staging Remote Smoke Tests
 
@@ -563,9 +563,10 @@ This clears the configured server database, then seeds the deterministic fixture
 
 GitHub Actions includes:
 
-- `.github/workflows/ci.yml`: Actionlint and Zizmor workflow audits, install/check, unit tests, coverage, Playwright browser sync tests, Android debug/release validation, connected Android tests, and builds.
+- `.github/workflows/ci.yml`: Actionlint and Zizmor workflow audits, install/check, unit coverage, parallel Playwright browser projects, parallel Android debug/release and connected validation, and builds. It retains the exact Worker bundle for later promotion. Pull requests run the candidate checks; pushes rerun them only on `main`, avoiding duplicate branch-push and pull-request suites for one commit.
 - `.github/workflows/docker.yml`: scan pull-request images without publishing; after successful required `main` CI and Security jobs, a manual `main` dispatch builds one image archive, scans and publishes that exact archive under a non-replaceable commit tag, creates keyless Cosign SLSA-provenance and SPDX-SBOM attestations in GHCR, signs the digest, and verifies all three identities before promotion. GHCR package visibility is configured separately from repository visibility.
 - `.github/workflows/remote-staging.yml`: deploy and smoke-test the isolated staging Worker/Turso pair manually and weekly.
-- `.github/workflows/cloudflare.yml`: manually deploy the current `main` commit to production only after exact-commit CI, Docker, Security, and staging-smoke gates.
-- `.github/workflows/android-release.yml`: create a private, production-signed test APK against staging after exact-commit CI, Docker, Security, and staging gates; production mode additionally requires the production Cloudflare deployment and a matching version tag.
-- `.github/workflows/security.yml`: scan full Git history with Gitleaks and run OpenSSF Scorecard and CodeQL on pushes, pull requests, weekly schedule, and manual dispatch. The workflow always retains SARIF artifacts and uploads findings to GitHub code scanning when the repository is public.
+- `.github/workflows/cloudflare.yml`: manually promote the current `main` commit's immutable CI-built Worker bundle to production only after exact-commit CI, Docker, Security, and staging-smoke gates.
+- `.github/workflows/android-release.yml`: build private, production-signed staging-test or production-candidate APKs after exact-commit gates. Production mode requires the Cloudflare deployment and matching tag, then verifies and publishes the accepted candidate APK without rebuilding it.
+- `.github/workflows/release.yml`: orchestrate a two-phase manual release. The candidate phase runs Docker, staging, and the private production Android candidate in parallel. After human acceptance, the production phase promotes prebuilt Worker and APK artifacts and creates the immutable tag between those gated promotions.
+- `.github/workflows/security.yml`: scan full Git history with Gitleaks and run OpenSSF Scorecard and CodeQL on pull requests, `main` pushes, the weekly schedule, and manual dispatch. The workflow always retains SARIF artifacts and uploads findings to GitHub code scanning when the repository is public.

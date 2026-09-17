@@ -215,18 +215,25 @@ class AuthorAppInstrumentedTest {
 
     val pendingBody = "Saved while swiping"
     compose.runOnIdle { controller.updateEditor("body", pendingBody) }
-    compose.onNodeWithTag("editor-pane").assertIsDisplayed().performTouchInput { swipeLeft() }
+    compose.waitForIdle()
+    compose.onNodeWithTag("editor-pane").assertIsDisplayed().performTouchInput {
+      swipeLeft(durationMillis = 500)
+    }
     compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
-      controller.selectedNote?.id == nextNote.id &&
-        repository.loadWorkspaceSnapshot().notes.any {
-          it.id == middleNote.id && it.body == pendingBody
-        }
+      controller.selectedNote?.id == nextNote.id
+    }
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      repository.loadWorkspaceSnapshot().notes.any {
+        it.id == middleNote.id && it.body == pendingBody
+      }
     }
 
-    compose.onNodeWithTag("editor-pane").performTouchInput { swipeRight() }
+    compose.waitForIdle()
+    compose.onNodeWithTag("editor-pane").performTouchInput { swipeRight(durationMillis = 500) }
     compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
-      controller.selectedNote?.id == middleNote.id && controller.bodyValue == pendingBody
+      controller.selectedNote?.id == middleNote.id
     }
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) { controller.bodyValue == pendingBody }
   }
 
   @Test

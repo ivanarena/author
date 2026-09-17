@@ -92,12 +92,14 @@ signed APK if its certificate does not match. The public production API endpoint
 the `AUTHOR_API_URL` repository variable.
 
 A manual `test` dispatch builds the current `main` commit against
-`STAGING_AUTHOR_API_URL`, verifies the production signing certificate, and
-uploads a private 14-day workflow artifact without creating a tag or GitHub
-release. It requires successful exact-commit CI, Docker, Security, and Remote
-Staging Smoke runs. Use this artifact for upgrade and device smoke testing.
-A `production` dispatch requires the version tag and successful production
-Cloudflare deployment before attaching the APK to a GitHub release.
+`STAGING_AUTHOR_API_URL` for staging-only device smoke. A `candidate` dispatch
+uses the public `AUTHOR_API_URL`, verifies the production signing certificate,
+and uploads the production-configured APK as a private 14-day artifact. Both
+require successful exact-commit CI and Security; staging tests also require
+Docker and Remote Staging Smoke. A `production` dispatch requires the matching
+tag and every candidate gate, including the successful Cloudflare deployment,
+then re-verifies the candidate certificate and version and
+attaches those exact candidate bytes to the GitHub release without rebuilding.
 
 CI validates debug compile/lint/unit/APK, release lint/unit/APK, and connected debug instrumentation tests. Run connected tests locally with an emulator booted:
 

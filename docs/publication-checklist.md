@@ -62,10 +62,10 @@ does not prove that a deployment or binary release is production-ready.
 - [ ] Set a concise description, homepage if applicable, and topics such as
       `notes`, `offline-first`, `self-hosted`, `sveltekit`, `sqlite`, and
       `android`.
-- [ ] Keep `main` protected: require the applicable CI and Security checks,
+- [x] Keep `main` protected: require the applicable CI and Security checks,
       linear history, resolved conversations, and no force-push or deletion.
-      Include the full-history secret scan and both CodeQL analyses rather than
-      protecting only the build/test workflow.
+      Protection includes the Web aggregator, Android jobs, full-history secret
+      scan, and both CodeQL analyses rather than only the build/test workflow.
 - [ ] Enable private vulnerability reporting and keep the
       [security advisory form](https://github.com/ivanarena/author/security/advisories/new)
       reachable.

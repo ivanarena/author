@@ -233,10 +233,10 @@ jobs:
           test "$WEB_BUILD_RESULT" = success
           test "$WEB_E2E_RESULT" = success
 
-  android:
-    name: Android
+  android_debug:
+    name: Android debug
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -256,28 +256,64 @@ jobs:
         run: ./gradlew spotlessCheck
         working-directory: apps/android
 
-      - name: Compile and test
-        run: ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest :app:assembleDebug
+      - name: Compile, test, assemble, and lint debug
+        run: ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
         working-directory: apps/android
 
-      - name: Lint debug
-        run: ./gradlew :app:lintDebug
-        working-directory: apps/android
+      - name: Upload Android debug reports
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: android-debug-reports
+          path: apps/android/app/build/reports
 
-      - name: Validate release
+  android_release:
+    name: Android release validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          packages: platform-tools # Avoid the action's obsolete default `tools` package.
+
+      - name: Lint and assemble release
         run: ./gradlew :app:lintRelease :app:assembleRelease
         working-directory: apps/android
         env:
           AUTHOR_API_URL: https://author.example.invalid
 
-      - name: Upload Android reports
+      - name: Upload Android release reports
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
-          name: android-reports
-          path: |
-            apps/android/app/build/reports
-            apps/android/app/build/outputs/androidTest-results
+          name: android-release-reports
+          path: apps/android/app/build/reports
+
+  android:
+    name: Android
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - android_debug
+      - android_release
+    steps:
+      - name: Verify Android jobs
+        env:
+          ANDROID_DEBUG_RESULT: ${{ needs.android_debug.result }}
+          ANDROID_RELEASE_RESULT: ${{ needs.android_release.result }}
+        run: |
+          test "$ANDROID_DEBUG_RESULT" = success
+          test "$ANDROID_RELEASE_RESULT" = success
 
   android-connected:
     name: Android Connected

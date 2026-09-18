@@ -319,6 +319,7 @@ async function loginForToken(request: APIRequestContext): Promise<string> {
 
 async function hoverMenusThroughBridge(page: Page) {
   const menuButton = page.getByRole('button', { name: 'Show menus' });
+  await expect(menuButton).toBeVisible();
   const box = await menuButton.boundingBox();
   if (!box) throw new Error('Menu button is not visible');
 
@@ -445,6 +446,27 @@ test('keeps the note list open until the pointer moves toward the editor', async
 }) => {
   await page.goto('/');
   await hoverMenusThroughBridge(page);
+
+  const navigationTransitionMs = await page
+    .locator('#navigation-menus')
+    .evaluate((element) =>
+      Math.max(
+        ...getComputedStyle(element)
+          .transitionDuration.split(',')
+          .map((duration) => Number.parseFloat(duration) * 1_000)
+      )
+    );
+  const editorTransitionMs = await page
+    .locator('.editor-wrap')
+    .evaluate((element) =>
+      Math.max(
+        ...getComputedStyle(element)
+          .transitionDuration.split(',')
+          .map((duration) => Number.parseFloat(duration) * 1_000)
+      )
+    );
+  expect(navigationTransitionMs).toBeLessThanOrEqual(520);
+  expect(editorTransitionMs).toBeLessThanOrEqual(520);
 
   const notesPanel = page.getByRole('complementary', { name: 'Notes' });
   const sortLabel = notesPanel
@@ -683,12 +705,12 @@ test('updates note list pressed states from visible actions', async ({
     'Second note for state checks'
   );
 
+  await hoverMenusThroughBridge(page);
   await notesPanel
     .getByRole('searchbox', { name: 'Search notes' })
     .fill(`${stateId}`);
   await expect(notesPanel.getByRole('listitem')).toHaveCount(2);
 
-  await hoverMenusThroughBridge(page);
   const firstRow = notesPanel.getByRole('listitem').filter({
     hasText: firstTitle
   });

@@ -6,7 +6,7 @@
   background: var(--paper);
   overscroll-behavior-x: contain;
   touch-action: pan-y pinch-zoom;
-  transition: margin-left var(--motion-slow) var(--motion-ease);
+  transition: margin-left var(--navigation-motion) var(--navigation-ease);
 }
 
 .app-shell:not(.settings-open):has(.menu-dock.open) .editor-wrap {

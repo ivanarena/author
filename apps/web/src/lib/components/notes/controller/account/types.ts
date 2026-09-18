@@ -23,6 +23,7 @@ export interface NotesAccountActionController {
   accountUsername: string;
   accountEmail: string;
   accountDisplayName: string;
+  accountProfileImage: string;
   accountTwoFactorEnabled: boolean;
   accountTrustedDevices: TrustedAuthDevice[];
   accountMessage: string;

@@ -74,6 +74,7 @@ function controller(
 ): NotesSyncActionController {
   return {
     accountDisplayName: '',
+    accountProfileImage: '',
     accountEmail: '',
     accountTrustedDevices: [] as TrustedAuthDevice[],
     accountTwoFactorEnabled: false,

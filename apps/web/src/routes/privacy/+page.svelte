@@ -1,7 +1,7 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
 
-  const updated = 'September 17, 2026';
+  const updated = 'September 18, 2026';
 </script>
 
 <svelte:head>
@@ -63,10 +63,12 @@
   <section>
     <h2>Account data</h2>
     <p>
-      Account records include your username, email address, legacy display name
-      if one already exists, password verifier data, encrypted keyring wrappers,
-      sessions, and device labels needed to operate login and sync. Passwords
-      and recovery codes are not stored in plaintext.
+      Account records include your username, email address, optional profile
+      picture, legacy display name if one already exists, password verifier
+      data, encrypted keyring wrappers, sessions, and device labels needed to
+      operate login and sync. Profile pictures are not end-to-end encrypted and
+      are visible to the server operator. Passwords and recovery codes are not
+      stored in plaintext.
     </p>
   </section>
 
@@ -74,22 +76,23 @@
     <h2>Operator access</h2>
     <p>
       Server operators and administrators may be able to see account records,
-      sessions, device labels, sync metadata, logs, and encrypted blobs. They do
-      not receive plaintext note content during normal sync, but users should
-      still trust the app build, browser or Android device, server runtime, and
-      backup handling they choose to use.
+      profile pictures, sessions, device labels, sync metadata, logs, and
+      encrypted blobs. They do not receive plaintext note content during normal
+      sync, but users should still trust the app build, browser or Android
+      device, server runtime, and backup handling they choose to use.
     </p>
   </section>
 
   <section>
     <h2>Controls</h2>
     <p>
-      You can export Markdown, change your password, sign out, or delete your
-      account from Settings. You can also download an E2EE recovery kit; keep
-      that kit and its recovery code separate from each other. If you lose both
-      password access and recovery material, encrypted note content may not be
-      recoverable. Deleted synced content is retained only as needed for trash
-      cleanup and conflict-safe sync.
+      You can export Markdown, upload or remove your profile picture, change
+      your password, sign out, or delete your account from Settings. You can
+      also download an E2EE recovery kit; keep that kit and its recovery code
+      separate from each other. If you lose both password access and recovery
+      material, encrypted note content may not be recoverable. Deleted synced
+      content is retained only as needed for trash cleanup and conflict-safe
+      sync.
     </p>
   </section>
 </main>

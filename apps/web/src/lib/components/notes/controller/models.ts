@@ -151,6 +151,7 @@ export interface NavigationDockModel
   accountUsername: string;
   accountEmail: string;
   accountDisplayName: string;
+  accountProfileImage: string;
   accountTwoFactorEnabled: boolean;
   accountTrustedDevices: TrustedAuthDevice[];
   accountMessage: string;
@@ -259,6 +260,7 @@ export interface SettingsModalModel {
   accountUsername: string;
   accountEmail: string;
   accountDisplayName: string;
+  accountProfileImage: string;
   accountTwoFactorEnabled: boolean;
   accountTrustedDevices: TrustedAuthDevice[];
   accountMessage: string;
@@ -338,6 +340,8 @@ export interface SettingsModalModel {
   clearAppDebugLog: () => void;
   syncNow: () => void | Promise<void>;
   saveAccountProfile: () => void | Promise<void>;
+  uploadAccountProfileImage: (file: File) => void | Promise<void>;
+  removeAccountProfileImage: () => void | Promise<void>;
   changeAccountPassword: () => void | Promise<void>;
   downloadRecoveryKit: () => void | Promise<void>;
   saveAccountTotp: () => void | Promise<void>;

@@ -10,6 +10,7 @@ const USERNAME_KEY = 'author-username';
 const LAST_USERNAME_KEY = 'author-last-username';
 const EMAIL_KEY = 'author-email';
 const DISPLAY_NAME_KEY = 'author-display-name';
+const PROFILE_IMAGE_KEY = 'author-profile-image';
 const TWO_FACTOR_KEY = 'author-two-factor-enabled';
 const SESSION_EXPIRES_KEY = 'author-session-expires-at';
 const THEME_KEY = 'author-theme';
@@ -47,6 +48,7 @@ export interface StoredAuthUser {
   username: string;
   email?: string | null;
   displayName: string | null;
+  profileImage?: string | null;
   twoFactorEnabled?: boolean;
 }
 
@@ -169,6 +171,7 @@ export function getStoredSession(): StoredSession | null {
       username,
       email: getEmail(),
       displayName: getDisplayName(),
+      profileImage: getProfileImage(),
       twoFactorEnabled: getTwoFactorEnabled()
     },
     expiresAt: localStorage.getItem(SESSION_EXPIRES_KEY)
@@ -180,6 +183,7 @@ export function setStoredSession(session: StoredSession): void {
   setUsername(session.user.username);
   setEmail(session.user.email ?? null);
   setDisplayName(session.user.displayName);
+  setProfileImage(session.user.profileImage ?? null);
   setTwoFactorEnabled(Boolean(session.user.twoFactorEnabled));
   if (session.expiresAt) {
     localStorage.setItem(SESSION_EXPIRES_KEY, session.expiresAt);
@@ -221,6 +225,7 @@ export function clearUsername(): void {
   localStorage.removeItem(USERNAME_KEY);
   localStorage.removeItem(EMAIL_KEY);
   localStorage.removeItem(DISPLAY_NAME_KEY);
+  localStorage.removeItem(PROFILE_IMAGE_KEY);
   localStorage.removeItem(TWO_FACTOR_KEY);
 }
 
@@ -238,6 +243,18 @@ export function getDisplayName(): string | null {
 
 export function getEmail(): string | null {
   return localStorage.getItem(EMAIL_KEY);
+}
+
+export function getProfileImage(): string | null {
+  return localStorage.getItem(PROFILE_IMAGE_KEY);
+}
+
+export function setProfileImage(profileImage: string | null): void {
+  if (profileImage) {
+    localStorage.setItem(PROFILE_IMAGE_KEY, profileImage);
+  } else {
+    localStorage.removeItem(PROFILE_IMAGE_KEY);
+  }
 }
 
 export function setEmail(email: string | null): void {

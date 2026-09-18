@@ -285,6 +285,7 @@ const MAX_SIGNUP_ATTEMPTS = 4;
 const MAX_SYNC_PUSHES_PER_MINUTE = 60;
 const MAX_LOGIN_ATTEMPT_KEYS = 500;
 const MAX_LOGIN_BODY_BYTES = 16 * 1024;
+const MAX_ACCOUNT_BODY_BYTES = 256 * 1024;
 const MAX_SYNC_BODY_BYTES = 5 * 1024 * 1024;
 const MAX_SYNC_CHANGES_PER_PUSH = 20;
 const REMOTE_SYNC_RETRY_BASE_MS = 5_000;
@@ -1115,7 +1116,10 @@ function accountUpdateError(
   error: unknown
 ): { error: string; status: 400 | 409 } | null {
   const message = error instanceof Error ? error.message : '';
-  if (message === 'A valid email address is required') {
+  if (
+    message === 'A valid email address is required' ||
+    message.startsWith('Profile picture must be')
+  ) {
     return { error: message, status: 400 };
   }
   if (
@@ -1739,7 +1743,7 @@ api.get(API_PATHS.account, async (c) => {
   }
 });
 
-api.patch(API_PATHS.account, async (c) => {
+api.on(['PATCH', 'PUT'], API_PATHS.account, async (c) => {
   const db = await openPrimaryDatabase(c);
   try {
     let session = await sessionFromRequest(db, c.req.raw);
@@ -1749,7 +1753,7 @@ api.patch(API_PATHS.account, async (c) => {
     }
     const parsed = await jsonOrSizeError<AccountUpdateRequest>(
       c.req.raw,
-      MAX_LOGIN_BODY_BYTES,
+      MAX_ACCOUNT_BODY_BYTES,
       'Account payload too large'
     );
     if (!parsed.ok) return parsed.response;
@@ -1757,6 +1761,8 @@ api.patch(API_PATHS.account, async (c) => {
     if (
       (body.displayName !== undefined && !isNullableString(body.displayName)) ||
       (body.email !== undefined && !isNullableString(body.email)) ||
+      (body.profileImage !== undefined &&
+        !isNullableString(body.profileImage)) ||
       (body.e2eeKeyring !== undefined && !isNullableString(body.e2eeKeyring)) ||
       (body.proof !== undefined &&
         body.proof !== null &&
@@ -1771,6 +1777,7 @@ api.patch(API_PATHS.account, async (c) => {
       keyringUpdate &&
       (body.displayName !== undefined ||
         body.email !== undefined ||
+        body.profileImage !== undefined ||
         typeof body.e2eeKeyring !== 'string' ||
         !body.e2eeKeyring.trim() ||
         !body.proof)
@@ -1846,7 +1853,8 @@ api.patch(API_PATHS.account, async (c) => {
             session.user.username,
             body.displayName,
             body.email,
-            undefined
+            undefined,
+            body.profileImage
           );
           return c.json(await accountResponse(db, session, user));
         } catch (error) {
@@ -1875,7 +1883,8 @@ api.patch(API_PATHS.account, async (c) => {
           session.user.username,
           body.displayName,
           body.email,
-          undefined
+          undefined,
+          body.profileImage
         );
       } catch (error) {
         const mapped = accountUpdateError(error);

@@ -179,6 +179,7 @@ export class NotesPageController
   accountUsername = $state('');
   accountEmail = $state('');
   accountDisplayName = $state('');
+  accountProfileImage = $state('');
   accountTwoFactorEnabled = $state(false);
   accountTrustedDevices = $state<TrustedAuthDevice[]>([]);
   accountMessage = $state('');
@@ -1128,6 +1129,14 @@ export class NotesPageController
     await accountActions.saveAccountProfile(this);
   };
 
+  uploadAccountProfileImage = async (file: File) => {
+    await accountActions.uploadAccountProfileImage(this, file);
+  };
+
+  removeAccountProfileImage = async () => {
+    await accountActions.removeAccountProfileImage(this);
+  };
+
   changeAccountPassword = async () => {
     await accountActions.changeAccountPassword(this);
   };
@@ -1225,6 +1234,7 @@ export class NotesPageController
       this.accountUsername = storedSession?.user.username ?? '';
       this.accountEmail = storedSession?.user.email ?? '';
       this.accountDisplayName = storedSession?.user.displayName ?? '';
+      this.accountProfileImage = storedSession?.user.profileImage ?? '';
       this.accountTwoFactorEnabled = Boolean(
         storedSession?.user.twoFactorEnabled
       );
@@ -1536,6 +1546,7 @@ export class NotesPageController
     this.accountUsername = '';
     this.accountEmail = '';
     this.accountDisplayName = '';
+    this.accountProfileImage = '';
     this.accountTwoFactorEnabled = false;
     this.accountTrustedDevices = [];
     this.accountMessage = accountMessage;

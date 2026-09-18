@@ -150,6 +150,7 @@ export async function changeAccountPassword(
     controller.accountUsername = response.user.username;
     controller.accountEmail = response.user.email ?? '';
     controller.accountDisplayName = response.user.displayName ?? '';
+    controller.accountProfileImage = response.user.profileImage ?? '';
     controller.accountTwoFactorEnabled = response.user.twoFactorEnabled;
     controller.accountTrustedDevices = response.trustedDevices ?? [];
     controller.currentPasswordValue = '';
@@ -279,6 +280,7 @@ export async function saveAccountTotp(
     controller.accountUsername = response.user.username;
     controller.accountEmail = response.user.email ?? '';
     controller.accountDisplayName = response.user.displayName ?? '';
+    controller.accountProfileImage = response.user.profileImage ?? '';
     controller.accountTwoFactorEnabled = response.user.twoFactorEnabled;
     controller.accountTrustedDevices = response.trustedDevices ?? [];
     controller.accountTotpEditing = false;

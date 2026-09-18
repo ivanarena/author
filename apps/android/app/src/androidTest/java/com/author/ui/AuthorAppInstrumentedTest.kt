@@ -1,6 +1,14 @@
 package com.author.ui
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.media.ExifInterface
+import android.net.Uri
+import android.util.Base64
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -11,6 +19,7 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
@@ -36,9 +45,12 @@ import androidx.test.runner.lifecycle.Stage
 import com.author.BuildConfig
 import com.author.core.LocalNote
 import com.author.core.NotesRepository
+import com.author.core.prepareProfileImage
 import com.author.ui.app.AuthorApp
 import com.author.ui.state.NotesController
 import com.author.ui.state.visibleNotes
+import java.io.File
+import java.io.FileOutputStream
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.runBlocking
@@ -458,6 +470,96 @@ class AuthorAppInstrumentedTest {
     pressSystemBack()
     compose.onNodeWithTag("note-title-field").assertIsDisplayed()
     compose.runOnIdle { assertTrue(controller.currentPage == "editor") }
+  }
+
+  @Test
+  fun profileImagePreparationProducesBoundedSquareJpeg() {
+    val source = Bitmap.createBitmap(600, 300, Bitmap.Config.ARGB_8888)
+    Canvas(source).apply {
+      drawRect(0f, 0f, 300f, 300f, Paint().apply { color = Color.RED })
+      drawRect(300f, 0f, 600f, 300f, Paint().apply { color = Color.BLUE })
+    }
+    val file = File(context.cacheDir, "profile-image-source.jpg")
+    FileOutputStream(file).use { output -> source.compress(Bitmap.CompressFormat.JPEG, 95, output) }
+    source.recycle()
+    ExifInterface(file.absolutePath).apply {
+      setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_ROTATE_90.toString())
+      saveAttributes()
+    }
+
+    try {
+      val dataUrl = prepareProfileImage(Uri.fromFile(file), context.contentResolver)
+      assertTrue(dataUrl.startsWith("data:image/jpeg;base64,"))
+      val bytes = Base64.decode(dataUrl.substringAfter("base64,"), Base64.DEFAULT)
+      assertTrue(bytes.size <= 128 * 1024)
+      val decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+      assertTrue(decoded.width == 256)
+      assertTrue(decoded.height == 256)
+      val top = decoded.getPixel(128, 32)
+      val bottom = decoded.getPixel(128, 224)
+      assertTrue(kotlin.math.abs(Color.red(top) - Color.red(bottom)) > 100)
+      assertTrue(kotlin.math.abs(Color.blue(top) - Color.blue(bottom)) > 100)
+      decoded.recycle()
+    } finally {
+      file.delete()
+    }
+  }
+
+  @Test
+  fun notesToolbarOrderAndNotebookSelectionAreExplicit() {
+    val repository = newRepository()
+    val notebook = runBlocking { repository.createNotebook("Ideas")!! }
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      val controller = remember {
+        NotesController(repository, scope).also {
+          it.currentPage = "notes"
+          it.notebooks = listOf(notebook)
+        }
+      }
+
+      AuthorApp(controller = controller, onExport = {}, onImport = {})
+    }
+
+    val notebooksLeft =
+      compose.onNodeWithContentDescription("Notebooks").fetchSemanticsNode().boundsInRoot.left
+    val sortLeft =
+      compose.onNodeWithContentDescription("Sort notes").fetchSemanticsNode().boundsInRoot.left
+    val searchLeft =
+      compose.onNodeWithContentDescription("Search notes").fetchSemanticsNode().boundsInRoot.left
+    assertTrue(notebooksLeft < sortLeft)
+    assertTrue(sortLeft < searchLeft)
+
+    compose.onNodeWithText(notebook.name).performClick().assertIsSelected()
+  }
+
+  @Test
+  fun accountProfilePictureOpensUploadAction() {
+    val repository = newRepository()
+    val pickerOpened = AtomicBoolean(false)
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      val controller = remember {
+        NotesController(repository, scope).also {
+          it.currentPage = "account"
+          it.hasToken = true
+          it.accountUsername = "owner"
+        }
+      }
+
+      AuthorApp(
+        controller = controller,
+        onExport = {},
+        onImport = {},
+        onPickProfileImage = { pickerOpened.set(true) },
+      )
+    }
+
+    compose.onNodeWithText("Profile picture").performScrollTo().assertIsDisplayed().performClick()
+    compose.onNodeWithText("Upload picture").performScrollTo().assertIsDisplayed().performClick()
+    assertTrue(pickerOpened.get())
   }
 
   @Test

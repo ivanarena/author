@@ -5,6 +5,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -45,6 +46,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -74,6 +77,8 @@ private fun NotesTopBar(controller: NotesController) {
           verticalAlignment = Alignment.CenterVertically,
           horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+          GlassIcon(Icons.Outlined.Book, "Notebooks") { controller.navigateTo("notebooks") }
+          NotesSortButton(controller)
           GlassIcon(
             Icons.Outlined.Search,
             "Search notes",
@@ -81,8 +86,6 @@ private fun NotesTopBar(controller: NotesController) {
           ) {
             controller.notesSearchOpen = !controller.notesSearchOpen
           }
-          NotesSortButton(controller)
-          GlassIcon(Icons.Outlined.Book, "Notebooks") { controller.navigateTo("notebooks") }
           Box(Modifier.weight(1f))
           ProfileMenu(controller)
         }
@@ -189,14 +192,22 @@ private fun NotebookFilterChip(
   onClick: () -> Unit,
 ) {
   val useAccent = active && accent
+  val contentColor =
+    if (useAccent) MaterialTheme.colorScheme.onPrimary else contrastControlContentColor()
   Surface(
     modifier =
       Modifier.heightIn(min = 40.dp)
         .widthIn(max = 180.dp)
         .clip(AppShape.Pill)
+        .semantics { selected = useAccent }
         .clickable(onClick = onClick),
     shape = AppShape.Pill,
-    color = contrastControlColor(active = useAccent),
+    color = if (useAccent) MaterialTheme.colorScheme.primary else contrastControlColor(),
+    border =
+      BorderStroke(
+        if (useAccent) 2.dp else 1.dp,
+        if (useAccent) MaterialTheme.colorScheme.primary else appDividerColor(),
+      ),
     tonalElevation = 0.dp,
     shadowElevation = 0.dp,
   ) {
@@ -205,16 +216,11 @@ private fun NotebookFilterChip(
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-      Icon(
-        icon,
-        null,
-        modifier = Modifier.size(15.dp),
-        tint = contrastControlContentColor(active = useAccent),
-      )
+      Icon(icon, null, modifier = Modifier.size(15.dp), tint = contentColor)
       Text(
         label,
         modifier = Modifier.weight(1f, fill = false),
-        color = contrastControlContentColor(active = useAccent),
+        color = contentColor,
         fontSize = AppTextSize.Label,
         fontWeight = FontWeight.SemiBold,
         maxLines = 1,
@@ -223,7 +229,7 @@ private fun NotebookFilterChip(
       if (detail.isNotBlank()) {
         Text(
           detail,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
+          color = contentColor.copy(alpha = 0.82f),
           fontSize = AppTextSize.Label,
           fontWeight = FontWeight.SemiBold,
           maxLines = 1,
@@ -237,7 +243,13 @@ private fun NotebookFilterChip(
 private fun ProfileMenu(controller: NotesController) {
   var open by remember { mutableStateOf(false) }
   Box {
-    GlassIcon(Icons.Outlined.AccountCircle, "Profile and settings", active = open) { open = true }
+    AppIconButton(onClick = { open = true }, modifier = Modifier.size(48.dp)) {
+      ProfileAvatar(
+        profileImage = controller.accountProfileImage,
+        size = 24.dp,
+        contentDescription = "Profile and settings",
+      )
+    }
     if (open) ProfileModal(controller) { open = false }
   }
 }
@@ -327,12 +339,10 @@ private fun ProfileIdentitySummary(controller: NotesController) {
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(12.dp),
   ) {
-    MaterialIconTile(
-      Icons.Outlined.AccountCircle,
-      null,
-      active = controller.hasToken,
+    ProfileAvatar(
+      profileImage = controller.accountProfileImage,
       size = 44.dp,
-      iconSize = 24.dp,
+      contentDescription = null,
     )
     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
       Text(
@@ -380,7 +390,7 @@ internal fun NotebooksPage(controller: NotesController) {
 }
 
 @Composable
-internal fun AccountPage(controller: NotesController) {
+internal fun AccountPage(controller: NotesController, onPickProfileImage: () -> Unit) {
   Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
     PageHeader(
       leading = {
@@ -406,7 +416,7 @@ internal fun AccountPage(controller: NotesController) {
       verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
       AccountSummary(controller)
-      AccountSettings(controller, showIdentity = false)
+      AccountSettings(controller, showIdentity = false, onPickProfileImage = onPickProfileImage)
     }
   }
 }
@@ -419,9 +429,11 @@ private fun AccountSummary(controller: NotesController) {
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-      Box(modifier = Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-        Icon(Icons.Outlined.AccountCircle, null, modifier = Modifier.size(28.dp))
-      }
+      ProfileAvatar(
+        profileImage = controller.accountProfileImage,
+        size = 48.dp,
+        contentDescription = null,
+      )
       Column(Modifier.weight(1f)) {
         Text(
           if (controller.hasToken) controller.accountUsername else "Local workspace",

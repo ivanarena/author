@@ -356,13 +356,15 @@ async function auxiliaryStorageBytes(
           256 + length(CAST(COALESCE(entity_id, '') AS BLOB)) +
           length(CAST(COALESCE(device_id, '') AS BLOB))
         ), 0) FROM entity_tombstones WHERE owner_username = ?) +
+       (SELECT COALESCE(MAX(length(CAST(COALESCE(profile_image, '') AS BLOB))), 0)
+        FROM users WHERE username = ?) +
        (SELECT COALESCE(SUM(${recordBytesSql('notes')}), 0)
         FROM notes WHERE owner_username = ? AND deleted_at IS NOT NULL) +
        (SELECT COALESCE(SUM(${recordBytesSql('notebooks')}), 0)
         FROM notebooks WHERE owner_username = ? AND deleted_at IS NOT NULL)
        AS bytes`,
     'bytes',
-    Array.from({ length: 7 }, () => ownerUsername)
+    Array.from({ length: 8 }, () => ownerUsername)
   );
 }
 

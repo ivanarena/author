@@ -175,9 +175,16 @@ class SyncClient(private val baseUrlProvider: () -> String) {
     return parsePullResponse(requestJson("/api/sync/pull", "POST", token = token, body = body))
   }
 
+  // HttpURLConnection rejects PATCH on the JVM and some Android releases; the API accepts PUT
+  // with the same partial-update payload for native clients.
   fun updateAccount(token: String, email: String?): AccountResponse {
     val body = JSONObject().putNullable("email", email)
-    return parseAccountResponse(requestJson("/api/account", "PATCH", token = token, body = body))
+    return parseAccountResponse(requestJson("/api/account", "PUT", token = token, body = body))
+  }
+
+  fun updateProfileImage(token: String, profileImage: String?): AccountResponse {
+    val body = JSONObject().putNullable("profileImage", profileImage)
+    return parseAccountResponse(requestJson("/api/account", "PUT", token = token, body = body))
   }
 
   fun updateE2eeKeyring(
@@ -191,7 +198,7 @@ class SyncClient(private val baseUrlProvider: () -> String) {
         .put("e2eeKeyring", e2eeKeyring)
         .put("proof", authProofToJson(proof))
         .putNullable("expectedE2eeKeyringHash", expectedE2eeKeyringHash)
-    return parseAccountResponse(requestJson("/api/account", "PATCH", token = token, body = body))
+    return parseAccountResponse(requestJson("/api/account", "PUT", token = token, body = body))
   }
 
   fun changePassword(
@@ -409,6 +416,7 @@ private fun parseAuthUser(user: JSONObject): AuthUser =
     username = user.getString("username"),
     email = user.optNullableString("email"),
     displayName = user.optNullableString("displayName"),
+    profileImage = user.optNullableString("profileImage"),
     twoFactorEnabled = user.optBoolean("twoFactorEnabled", false),
   )
 

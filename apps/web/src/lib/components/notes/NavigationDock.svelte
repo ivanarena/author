@@ -11,6 +11,7 @@
   } from '@lucide/svelte';
   import NoteListPanel from './NoteListPanel.svelte';
   import NotebookSidebar from './NotebookSidebar.svelte';
+  import ProfileAvatar from './ProfileAvatar.svelte';
   import type { NavigationDockModel } from './controller/page-controller.svelte.js';
 
   let { model }: { model: NavigationDockModel } = $props();
@@ -58,7 +59,11 @@
         aria-expanded={model.accountMenuOpen}
         onclick={model.openAccountMenu}
       >
-        <CircleUserRound size={18} strokeWidth={1.8} />
+        {#if model.accountProfileImage}
+          <ProfileAvatar src={model.accountProfileImage} size={22} />
+        {:else}
+          <CircleUserRound size={18} strokeWidth={1.8} />
+        {/if}
       </button>
 
       <div
@@ -69,7 +74,11 @@
         aria-hidden={!model.accountMenuOpen}
       >
         <header class="profile-card-header">
-          <CircleUserRound size={30} strokeWidth={1.6} />
+          {#if model.accountProfileImage}
+            <ProfileAvatar src={model.accountProfileImage} size={34} />
+          {:else}
+            <CircleUserRound size={30} strokeWidth={1.6} />
+          {/if}
           <div>
             <strong
               >{model.hasToken

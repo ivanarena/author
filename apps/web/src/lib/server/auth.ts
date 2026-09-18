@@ -53,6 +53,9 @@ const TOTP_DIGITS = 6;
 const SESSION_TOUCH_INTERVAL_MS = 60_000;
 const DEVICE_TRUST_SECRET_MIN_LENGTH = 32;
 const E2EE_KEYRING_MAX_BYTES = 64 * 1024;
+const PROFILE_IMAGE_MAX_BYTES = 128 * 1024;
+const PROFILE_IMAGE_PATTERN =
+  /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/;
 const SIGNUP_INVITATION_MAX_TTL_MS = 90 * 24 * 60 * 60_000;
 const SIGNUP_INVITATION_PREFIX = 'invite:v1:';
 const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,62}[a-z0-9]$|^[a-z0-9]$/;
@@ -64,6 +67,7 @@ type UserRow = {
   username: string;
   email: string | null;
   display_name: string | null;
+  profile_image: string | null;
   password_hash: string;
   password_salt: string;
   e2ee_keyring: string | null;
@@ -116,6 +120,7 @@ export interface AuthUser {
   username: string;
   email: string | null;
   displayName: string | null;
+  profileImage: string | null;
   twoFactorEnabled: boolean;
 }
 
@@ -391,6 +396,130 @@ function cleanDisplayName(
   const trimmed = displayName?.trim();
   if (!trimmed) return null;
   return trimmed.slice(0, 80);
+}
+
+function jpegDimensions(bytes: Uint8Array): [number, number] | null {
+  const startOfFrameMarkers = new Set([
+    0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf
+  ]);
+  let offset = 2;
+  while (offset + 3 < bytes.length) {
+    if (bytes[offset] !== 0xff) {
+      offset += 1;
+      continue;
+    }
+    while (bytes[offset] === 0xff) offset += 1;
+    const marker = bytes[offset++];
+    if (marker === 0xd9 || marker === 0xda) break;
+    if (marker === 0xd8 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+    if (offset + 2 > bytes.length) return null;
+    const segmentLength = (bytes[offset] << 8) | bytes[offset + 1];
+    if (segmentLength < 2 || offset + segmentLength > bytes.length) return null;
+    if (startOfFrameMarkers.has(marker) && segmentLength >= 7) {
+      const height = (bytes[offset + 3] << 8) | bytes[offset + 4];
+      const width = (bytes[offset + 5] << 8) | bytes[offset + 6];
+      return [width, height];
+    }
+    offset += segmentLength;
+  }
+  return null;
+}
+
+function profileImageDimensions(
+  mime: string,
+  bytes: Uint8Array
+): [number, number] | null {
+  if (mime === 'jpeg') return jpegDimensions(bytes);
+  if (mime === 'png') {
+    if (
+      bytes.length < 24 ||
+      String.fromCharCode(...bytes.slice(12, 16)) !== 'IHDR'
+    ) {
+      return null;
+    }
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    return [view.getUint32(16), view.getUint32(20)];
+  }
+  if (mime !== 'webp' || bytes.length < 25) return null;
+  const chunk = String.fromCharCode(...bytes.slice(12, 16));
+  if (chunk === 'VP8X' && bytes.length >= 30) {
+    const width = 1 + bytes[24] + (bytes[25] << 8) + (bytes[26] << 16);
+    const height = 1 + bytes[27] + (bytes[28] << 8) + (bytes[29] << 16);
+    return [width, height];
+  }
+  if (chunk === 'VP8L' && bytes[20] === 0x2f) {
+    const width = 1 + bytes[21] + ((bytes[22] & 0x3f) << 8);
+    const height =
+      1 + (bytes[22] >> 6) + (bytes[23] << 2) + ((bytes[24] & 0x0f) << 10);
+    return [width, height];
+  }
+  if (
+    chunk === 'VP8 ' &&
+    bytes.length >= 30 &&
+    bytes[23] === 0x9d &&
+    bytes[24] === 0x01 &&
+    bytes[25] === 0x2a
+  ) {
+    const width = (bytes[26] | (bytes[27] << 8)) & 0x3fff;
+    const height = (bytes[28] | (bytes[29] << 8)) & 0x3fff;
+    return [width, height];
+  }
+  return null;
+}
+
+function cleanProfileImage(
+  profileImage: string | null | undefined
+): string | null {
+  if (profileImage === null || profileImage === undefined) return null;
+  const match = PROFILE_IMAGE_PATTERN.exec(profileImage);
+  const encoded = match?.[2] ?? '';
+  if (!match || encoded.length % 4 !== 0) {
+    throw new Error('Profile picture must be a JPEG, PNG, or WebP image');
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = Uint8Array.from(atob(encoded), (character) =>
+      character.charCodeAt(0)
+    );
+  } catch {
+    throw new Error('Profile picture must be a JPEG, PNG, or WebP image');
+  }
+  if (bytes.length <= 0 || bytes.length > PROFILE_IMAGE_MAX_BYTES) {
+    throw new Error('Profile picture must be 128 KB or smaller');
+  }
+  const mime = match[1];
+  const validHeader =
+    (mime === 'jpeg' &&
+      bytes.length >= 3 &&
+      bytes[0] === 0xff &&
+      bytes[1] === 0xd8 &&
+      bytes[2] === 0xff) ||
+    (mime === 'png' &&
+      bytes.length >= 8 &&
+      bytes[0] === 0x89 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x4e &&
+      bytes[3] === 0x47 &&
+      bytes[4] === 0x0d &&
+      bytes[5] === 0x0a &&
+      bytes[6] === 0x1a &&
+      bytes[7] === 0x0a) ||
+    (mime === 'webp' &&
+      bytes.length >= 12 &&
+      String.fromCharCode(...bytes.slice(0, 4)) === 'RIFF' &&
+      String.fromCharCode(...bytes.slice(8, 12)) === 'WEBP');
+  const dimensions = validHeader ? profileImageDimensions(mime, bytes) : null;
+  if (
+    !dimensions ||
+    dimensions[0] <= 0 ||
+    dimensions[1] <= 0 ||
+    dimensions[0] > 4096 ||
+    dimensions[1] > 4096 ||
+    dimensions[0] * dimensions[1] > 16_777_216
+  ) {
+    throw new Error('Profile picture must be a JPEG, PNG, or WebP image');
+  }
+  return profileImage;
 }
 
 function validWrappedKeyringBox(
@@ -720,7 +849,7 @@ async function getUserRow(
 ): Promise<UserRow | null> {
   const row = await get(
     db,
-    `SELECT username, email, display_name, password_hash, password_salt,
+    `SELECT username, email, display_name, profile_image, password_hash, password_salt,
             e2ee_keyring,
             totp_secret, totp_enabled_at
      FROM users
@@ -736,7 +865,7 @@ async function getUserRowByEmail(
 ): Promise<UserRow | null> {
   const row = await get(
     db,
-    `SELECT username, email, display_name, password_hash, password_salt,
+    `SELECT username, email, display_name, profile_image, password_hash, password_salt,
             e2ee_keyring,
             totp_secret, totp_enabled_at
      FROM users
@@ -772,6 +901,7 @@ function rowToAuthUser(row: UserRow): AuthUser {
     username: row.username,
     email: row.email,
     displayName: row.display_name,
+    profileImage: row.profile_image,
     twoFactorEnabled: Boolean(row.totp_secret && row.totp_enabled_at)
   };
 }
@@ -1122,6 +1252,7 @@ export async function setUserPasswordVerifier(
     username: normalized,
     email: null,
     displayName: null,
+    profileImage: null,
     twoFactorEnabled: false
   };
 }
@@ -1177,6 +1308,7 @@ export async function createUserAccount(
     username: normalized,
     email: normalizedEmail,
     displayName: nextDisplayName,
+    profileImage: null,
     twoFactorEnabled: false
   };
 }
@@ -1251,12 +1383,13 @@ export async function mirrorUserForLocalSession(
   await run(
     target,
     `INSERT INTO users (
-	       username, email, display_name, password_hash, password_salt,
+	       username, email, display_name, profile_image, password_hash, password_salt,
 	       e2ee_keyring, totp_secret, totp_enabled_at, created_at, updated_at
-	     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	     ON CONFLICT(username) DO UPDATE SET
 	       email = excluded.email,
 	       display_name = excluded.display_name,
+	       profile_image = excluded.profile_image,
 	       password_hash = excluded.password_hash,
 	       password_salt = excluded.password_salt,
 	       e2ee_keyring = excluded.e2ee_keyring,
@@ -1267,6 +1400,7 @@ export async function mirrorUserForLocalSession(
       normalized,
       sourceUser.email,
       sourceUser.display_name,
+      sourceUser.profile_image,
       sourceUser.password_hash,
       sourceUser.password_salt,
       sourceUser.e2ee_keyring,
@@ -1481,6 +1615,7 @@ export async function sessionFromToken(
         username: 'legacy-token',
         email: null,
         displayName: null,
+        profileImage: null,
         twoFactorEnabled: false
       },
       deviceId: null,
@@ -1493,7 +1628,7 @@ export async function sessionFromToken(
   const row = (await get(
     db,
     `SELECT auth_sessions.username, users.email, users.display_name,
-            users.totp_secret, users.totp_enabled_at,
+            users.profile_image, users.totp_secret, users.totp_enabled_at,
             auth_sessions.device_id, last_seen_at, expires_at
      FROM auth_sessions
      LEFT JOIN users ON users.username = auth_sessions.username
@@ -1503,6 +1638,7 @@ export async function sessionFromToken(
     | (SessionRow & {
         email: string | null;
         display_name: string | null;
+        profile_image: string | null;
         totp_secret: string | null;
         totp_enabled_at: string | null;
       })
@@ -1532,6 +1668,7 @@ export async function sessionFromToken(
       username: row.username,
       email: row.email,
       displayName: row.display_name,
+      profileImage: row.profile_image,
       twoFactorEnabled: Boolean(row.totp_secret && row.totp_enabled_at)
     },
     deviceId: row.device_id,
@@ -1545,7 +1682,8 @@ export async function updateUserProfile(
   username: string,
   displayName: string | null | undefined,
   email?: string | null | undefined,
-  e2eeKeyring?: string | null | undefined
+  e2eeKeyring?: string | null | undefined,
+  profileImage?: string | null | undefined
 ): Promise<AuthUser> {
   const normalized = requireUsername(username);
   const nextDisplayName =
@@ -1558,6 +1696,8 @@ export async function updateUserProfile(
         : requireEmail(email);
   const nextE2eeKeyring =
     e2eeKeyring === undefined ? undefined : cleanE2eeKeyring(e2eeKeyring);
+  const nextProfileImage =
+    profileImage === undefined ? undefined : cleanProfileImage(profileImage);
   const updates: string[] = [];
   const args: (string | null)[] = [];
   if (nextEmail !== undefined) {
@@ -1571,6 +1711,10 @@ export async function updateUserProfile(
   if (nextE2eeKeyring !== undefined) {
     updates.push('e2ee_keyring = ?');
     args.push(nextE2eeKeyring);
+  }
+  if (nextProfileImage !== undefined) {
+    updates.push('profile_image = ?');
+    args.push(nextProfileImage);
   }
   if (updates.length > 0) {
     updates.push('updated_at = ?');

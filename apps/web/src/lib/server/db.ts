@@ -93,6 +93,7 @@ const schemaSql = `
     username TEXT PRIMARY KEY,
     email TEXT,
     display_name TEXT,
+    profile_image TEXT,
 	    password_hash TEXT NOT NULL,
 	    password_salt TEXT NOT NULL,
 	    e2ee_keyring TEXT,
@@ -1405,6 +1406,17 @@ export const SERVER_MIGRATIONS: ServerMigration[] = [
            consumed_at TEXT NOT NULL
          );`
       );
+    }
+  },
+  {
+    version: 25,
+    name: 'user-profile-images',
+    rollback:
+      'Restore from the pre-upgrade backup; SQLite cannot drop the profile_image column safely in place.',
+    up: async (db) => {
+      if (!(await hasColumn(db, 'users', 'profile_image'))) {
+        await run(db, 'ALTER TABLE users ADD COLUMN profile_image TEXT');
+      }
     }
   }
 ];

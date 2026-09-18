@@ -38,10 +38,18 @@ internal fun AuthorApp(
   onExport: (Set<String>?) -> Unit,
   onSaveRecoveryKit: () -> Unit = {},
   onImport: () -> Unit,
+  onPickProfileImage: () -> Unit = {},
   onUnlockApp: () -> Unit = {},
 ) {
   AuthorTheme(theme = controller.theme, font = controller.editorFont) {
-    AuthorScaffold(controller, onExport, onSaveRecoveryKit, onImport, onUnlockApp)
+    AuthorScaffold(
+      controller,
+      onExport,
+      onSaveRecoveryKit,
+      onImport,
+      onPickProfileImage,
+      onUnlockApp,
+    )
   }
 }
 
@@ -51,6 +59,7 @@ private fun AuthorScaffold(
   onExport: (Set<String>?) -> Unit,
   onSaveRecoveryKit: () -> Unit,
   onImport: () -> Unit,
+  onPickProfileImage: () -> Unit,
   onUnlockApp: () -> Unit,
 ) {
   BackHandler(enabled = !controller.appLocked && controller.canHandleBack) {
@@ -63,7 +72,7 @@ private fun AuthorScaffold(
     floatingActionButton = { if (!controller.appLocked) PageFloatingAction(controller) },
   ) { innerPadding ->
     Box(Modifier.fillMaxSize().padding(innerPadding)) {
-      AppPage(controller, onExport, onSaveRecoveryKit, onImport, onUnlockApp)
+      AppPage(controller, onExport, onSaveRecoveryKit, onImport, onPickProfileImage, onUnlockApp)
     }
   }
 }
@@ -74,6 +83,7 @@ private fun AppPage(
   onExport: (Set<String>?) -> Unit,
   onSaveRecoveryKit: () -> Unit,
   onImport: () -> Unit,
+  onPickProfileImage: () -> Unit,
   onUnlockApp: () -> Unit,
 ) {
   Box(Modifier.fillMaxSize()) {
@@ -88,8 +98,8 @@ private fun AppPage(
         when (page) {
           "notes" -> NotesPage(controller)
           "notebooks" -> NotebooksPage(controller)
-          "account" -> AccountPage(controller)
-          "settings" -> SettingsPage(controller, onExport, onImport)
+          "account" -> AccountPage(controller, onPickProfileImage)
+          "settings" -> SettingsPage(controller, onExport, onImport, onPickProfileImage)
           else -> EditorPage(controller)
         }
       }

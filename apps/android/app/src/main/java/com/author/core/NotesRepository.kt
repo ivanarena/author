@@ -24,6 +24,7 @@ private const val USERNAME_KEY = "author-username"
 private const val LAST_USERNAME_KEY = "author-last-username"
 private const val EMAIL_KEY = "author-email"
 private const val DISPLAY_NAME_KEY = "author-display-name"
+private const val PROFILE_IMAGE_KEY = "author-profile-image"
 private const val TWO_FACTOR_KEY = "author-two-factor-enabled"
 private const val SESSION_EXPIRES_KEY = "author-session-expires-at"
 private const val THEME_KEY = "author-theme"
@@ -185,6 +186,7 @@ class NotesRepository(context: Context) : AutoCloseable {
           username = username,
           email = prefs.getString(EMAIL_KEY, null),
           displayName = prefs.getString(DISPLAY_NAME_KEY, null),
+          profileImage = prefs.getString(PROFILE_IMAGE_KEY, null),
           twoFactorEnabled = prefs.getBoolean(TWO_FACTOR_KEY, false),
         ),
       expiresAt = prefs.getString(SESSION_EXPIRES_KEY, null),
@@ -198,6 +200,7 @@ class NotesRepository(context: Context) : AutoCloseable {
       putString(LAST_USERNAME_KEY, session.user.username)
       putNullableString(EMAIL_KEY, session.user.email)
       putNullableString(DISPLAY_NAME_KEY, session.user.displayName)
+      putNullableString(PROFILE_IMAGE_KEY, session.user.profileImage)
       putBoolean(TWO_FACTOR_KEY, session.user.twoFactorEnabled)
       putNullableString(SESSION_EXPIRES_KEY, session.expiresAt)
     }
@@ -211,6 +214,7 @@ class NotesRepository(context: Context) : AutoCloseable {
       remove(USERNAME_KEY)
       remove(EMAIL_KEY)
       remove(DISPLAY_NAME_KEY)
+      remove(PROFILE_IMAGE_KEY)
       remove(TWO_FACTOR_KEY)
       remove(SESSION_EXPIRES_KEY)
     }
@@ -1024,6 +1028,9 @@ class NotesRepository(context: Context) : AutoCloseable {
 
   suspend fun updateAccount(token: String, email: String?): AccountResponse =
     withContext(Dispatchers.IO) { syncClient.updateAccount(token, email) }
+
+  suspend fun updateProfileImage(token: String, profileImage: String?): AccountResponse =
+    withContext(Dispatchers.IO) { syncClient.updateProfileImage(token, profileImage) }
 
   suspend fun changePassword(
     token: String,

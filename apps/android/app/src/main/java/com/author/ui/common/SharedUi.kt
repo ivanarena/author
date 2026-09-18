@@ -1,8 +1,11 @@
 package com.author.ui.common
 
+import android.graphics.BitmapFactory
+import android.util.Base64
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -14,6 +17,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
@@ -26,6 +30,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Visibility
@@ -50,8 +55,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.Role
@@ -693,6 +700,49 @@ internal fun AppIconButton(
     contentAlignment = Alignment.Center,
     content = { content() },
   )
+}
+
+@Composable
+internal fun ProfileAvatar(
+  profileImage: String,
+  modifier: Modifier = Modifier,
+  size: Dp = 44.dp,
+  contentDescription: String? = "Profile picture",
+) {
+  val bitmap =
+    remember(profileImage) {
+      runCatching {
+          val encoded = profileImage.substringAfter("base64,", "")
+          if (encoded.isBlank()) return@runCatching null
+          val bytes = Base64.decode(encoded, Base64.DEFAULT)
+          BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+        }
+        .getOrNull()
+    }
+  Surface(
+    modifier = modifier.size(size),
+    shape = RectangleShape,
+    color = MaterialTheme.colorScheme.surfaceVariant,
+    border = BorderStroke(1.dp, appDividerColor()),
+  ) {
+    if (bitmap != null) {
+      Image(
+        bitmap = bitmap,
+        contentDescription = contentDescription,
+        modifier = Modifier.fillMaxSize(),
+        contentScale = ContentScale.Crop,
+      )
+    } else {
+      Box(contentAlignment = Alignment.Center) {
+        Icon(
+          Icons.Outlined.AccountCircle,
+          contentDescription,
+          modifier = Modifier.size(size * 0.58f),
+          tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+        )
+      }
+    }
+  }
 }
 
 @Composable

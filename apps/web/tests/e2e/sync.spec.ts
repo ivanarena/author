@@ -445,6 +445,7 @@ test('keeps the note list open until the pointer moves toward the editor', async
   page
 }) => {
   await page.goto('/');
+  await expect(page).toHaveTitle('Author');
   await hoverMenusThroughBridge(page);
 
   const navigationTransitionMs = await page

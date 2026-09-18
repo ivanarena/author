@@ -15,7 +15,7 @@
 </script>
 
 <svelte:head>
-  <title>Notes</title>
+  <title>Author</title>
 </svelte:head>
 
 <svelte:window

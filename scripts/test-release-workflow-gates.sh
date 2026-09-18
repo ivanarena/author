@@ -50,6 +50,7 @@ grep -Fq 'dispatch-workflow-and-wait.sh docker.yml' "$release_workflow"
 grep -Fq 'dispatch-workflow-and-wait.sh remote-staging.yml' "$release_workflow"
 grep -Fq 'dispatch-workflow-and-wait.sh cloudflare.yml' "$release_workflow"
 grep -Fq -- '-f channel=candidate' "$release_workflow"
+[[ "$(grep -Fc 'android-release.yml "$RELEASE_SHA" main' "$release_workflow")" -eq 2 ]]
 grep -Fq 'Create immutable release tag' "$release_workflow"
 
 ci_workflow="$repo_root/.github/workflows/ci.yml"

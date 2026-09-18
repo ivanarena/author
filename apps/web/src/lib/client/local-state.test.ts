@@ -164,6 +164,7 @@ describe('local browser state', () => {
         username: 'owner',
         email: 'owner@example.com',
         displayName: 'Iv',
+        profileImage: 'data:image/jpeg;base64,/9j/2Q==',
         twoFactorEnabled: true
       },
       expiresAt: '2026-05-10T12:00:00.000Z'
@@ -177,6 +178,7 @@ describe('local browser state', () => {
         username: 'owner',
         email: 'owner@example.com',
         displayName: 'Iv',
+        profileImage: 'data:image/jpeg;base64,/9j/2Q==',
         twoFactorEnabled: true
       },
       expiresAt: '2026-05-10T12:00:00.000Z'
@@ -187,6 +189,7 @@ describe('local browser state', () => {
 
     expect(getStoredSession()).toBeNull();
     expect(getLoginHint()).toBe('owner');
+    expect(localStorage.getItem('author-profile-image')).toBeNull();
     expect(clearStoredEncryptionKeyMaterial).not.toHaveBeenCalled();
   });
 

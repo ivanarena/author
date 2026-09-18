@@ -94,6 +94,7 @@ internal fun SettingsPage(
   controller: NotesController,
   onExport: (Set<String>?) -> Unit,
   onImport: () -> Unit,
+  onPickProfileImage: () -> Unit,
 ) {
   val compactScreen = isCompactWindow()
   val showingMenu = compactScreen && controller.settingsSection == "menu"
@@ -121,7 +122,7 @@ internal fun SettingsPage(
               .verticalScroll(rememberScrollState())
               .padding(horizontal = pageHorizontalPadding(), vertical = 16.dp)
           ) {
-            SettingsContent(controller, onExport, onImport, section)
+            SettingsContent(controller, onExport, onImport, onPickProfileImage, section)
           }
         }
       } else {
@@ -131,7 +132,7 @@ internal fun SettingsPage(
         ) {
           SettingsSectionSelector(controller, modifier = Modifier.width(220.dp))
           Column(Modifier.weight(1f).widthIn(max = 760.dp).verticalScroll(rememberScrollState())) {
-            SettingsContent(controller, onExport, onImport, section)
+            SettingsContent(controller, onExport, onImport, onPickProfileImage, section)
           }
         }
       }
@@ -270,6 +271,7 @@ private fun SettingsContent(
   controller: NotesController,
   onExport: (Set<String>?) -> Unit,
   onImport: () -> Unit,
+  onPickProfileImage: () -> Unit,
   section: String = activeSettingsSection(controller.settingsSection),
 ) {
   Column(
@@ -277,7 +279,7 @@ private fun SettingsContent(
     verticalArrangement = Arrangement.spacedBy(14.dp),
   ) {
     when (section) {
-      "account" -> AccountSettings(controller)
+      "account" -> AccountSettings(controller, onPickProfileImage = onPickProfileImage)
       "sync" -> SyncSettings(controller)
       "data" -> DataSettings(controller, onExport, onImport)
       "about" -> AboutSettings(controller)
@@ -287,13 +289,17 @@ private fun SettingsContent(
 }
 
 @Composable
-internal fun AccountSettings(controller: NotesController, showIdentity: Boolean = true) {
+internal fun AccountSettings(
+  controller: NotesController,
+  showIdentity: Boolean = true,
+  onPickProfileImage: () -> Unit = {},
+) {
   LaunchedEffect(controller) { controller.refreshAppLockState() }
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
     if (controller.hasToken) {
       val panel = controller.accountPanel
       if (panel != null) {
-        AccountDetailPanel(controller, panel)
+        AccountDetailPanel(controller, panel, onPickProfileImage)
       } else {
         if (showIdentity) {
           InfoTile(
@@ -304,6 +310,13 @@ internal fun AccountSettings(controller: NotesController, showIdentity: Boolean 
         }
         AccountMenuRow(Icons.Outlined.Security, "App lock", appLockLabel(controller)) {
           controller.toggleAppLock()
+        }
+        AccountMenuRow(
+          Icons.Outlined.AccountCircle,
+          "Profile picture",
+          if (controller.accountProfileImage.isBlank()) "Not set" else "Uploaded",
+        ) {
+          controller.openAccountPanel("profile-image")
         }
         AccountMenuRow(
           Icons.Outlined.Email,
@@ -436,12 +449,17 @@ private fun AccountMenuRow(
 }
 
 @Composable
-private fun AccountDetailPanel(controller: NotesController, panel: String) {
+private fun AccountDetailPanel(
+  controller: NotesController,
+  panel: String,
+  onPickProfileImage: () -> Unit,
+) {
   Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
     AccountDetailHeader(accountPanelTitle(panel), accountPanelDetail(controller, panel)) {
       controller.handleBack()
     }
     when (panel) {
+      "profile-image" -> ProfileImageSettings(controller, onPickProfileImage)
       "email" -> AccountEmailPanel(controller)
       "device" -> DeviceNameSettings(controller)
       "trusted-devices" -> TrustedDevicesSettings(controller)
@@ -499,6 +517,7 @@ private fun AccountDetailHeader(title: String, detail: String, onBack: () -> Uni
 
 private fun accountPanelTitle(panel: String): String =
   when (panel) {
+    "profile-image" -> "Profile picture"
     "email" -> "Email"
     "device" -> "This device"
     "trusted-devices" -> "Trusted devices"
@@ -510,6 +529,7 @@ private fun accountPanelTitle(panel: String): String =
 
 private fun accountPanelDetail(controller: NotesController, panel: String): String =
   when (panel) {
+    "profile-image" -> if (controller.accountProfileImage.isBlank()) "Not set" else "Uploaded"
     "email" -> controller.accountEmail.ifBlank { "Signed in without email" }
     "device" -> controller.currentDeviceName.ifBlank { "Android device" }
     "trusted-devices" -> trustedDeviceCountLabel(controller.accountTrustedDevices.size)
@@ -518,6 +538,40 @@ private fun accountPanelDetail(controller: NotesController, panel: String): Stri
     "delete" -> "Permanent account removal"
     else -> "Account"
   }
+
+@Composable
+private fun ProfileImageSettings(controller: NotesController, onPickProfileImage: () -> Unit) {
+  Column(
+    modifier = Modifier.fillMaxWidth(),
+    horizontalAlignment = Alignment.CenterHorizontally,
+    verticalArrangement = Arrangement.spacedBy(12.dp),
+  ) {
+    ProfileAvatar(controller.accountProfileImage, size = 112.dp)
+    Text(
+      "Profile pictures are visible to the Author server operator.",
+      color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+      fontSize = AppTextSize.Label,
+    )
+  }
+  ActionRow(
+    Icons.Outlined.Upload,
+    if (controller.accountProfileImage.isBlank()) "Upload picture" else "Change picture",
+    detail = "Images up to 8 MB",
+    enabled = !controller.isProfileImageBusy,
+  ) {
+    onPickProfileImage()
+  }
+  if (controller.accountProfileImage.isNotBlank()) {
+    ActionRow(
+      Icons.Outlined.Delete,
+      "Remove picture",
+      enabled = !controller.isProfileImageBusy,
+      destructive = true,
+    ) {
+      controller.removeProfileImage()
+    }
+  }
+}
 
 @Composable
 private fun AccountEmailPanel(controller: NotesController) {

@@ -116,6 +116,7 @@ data class AuthUser(
   val username: String,
   val email: String?,
   val displayName: String?,
+  val profileImage: String? = null,
   val twoFactorEnabled: Boolean,
 )
 

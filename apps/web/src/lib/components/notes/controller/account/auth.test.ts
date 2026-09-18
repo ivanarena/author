@@ -50,6 +50,7 @@ function controller(
   return {
     accountDeleteEditing: false,
     accountDisplayName: '',
+    accountProfileImage: '',
     accountEmail: '',
     accountError: '',
     accountMenuOpen: false,

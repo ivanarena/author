@@ -441,6 +441,43 @@ test.beforeEach(async ({ page, request }, testInfo) => {
   );
 });
 
+test('uploads and removes a profile picture', async ({ page }) => {
+  await page.goto('/');
+  await waitForDraftEditorReady(page);
+  await openProfileMenu(page);
+  await page.getByRole('menuitem', { name: 'Settings' }).click();
+
+  const settings = page.getByRole('dialog', { name: 'Settings' });
+  await settings.getByRole('button', { name: 'Account', exact: true }).click();
+  await settings.getByLabel('Upload profile picture file').setInputFiles({
+    name: 'profile.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2n1cAAAAASUVORK5CYII=',
+      'base64'
+    )
+  });
+
+  await expect(settings.getByText('Profile picture saved')).toBeVisible();
+  await expect(settings.getByAltText('Profile picture')).toBeVisible();
+
+  await page.reload();
+  await waitForDraftEditorReady(page);
+  await expect(
+    page
+      .getByRole('button', { name: 'Profile and settings' })
+      .getByAltText('Profile picture')
+  ).toBeVisible();
+  await openProfileMenu(page);
+  await page.getByRole('menuitem', { name: 'Settings' }).click();
+  await settings.getByRole('button', { name: 'Account', exact: true }).click();
+  await settings
+    .getByRole('button', { name: 'Remove profile picture' })
+    .click();
+  await expect(settings.getByText('Profile picture removed')).toBeVisible();
+  await expect(settings.getByAltText('Profile picture')).toHaveCount(0);
+});
+
 test('keeps the note list open until the pointer moves toward the editor', async ({
   page
 }) => {

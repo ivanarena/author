@@ -7,6 +7,7 @@ import {
   revokeTrustedDevice as revokeTrustedDeviceRequest,
   updateAccount
 } from '$lib/client/api-client';
+import { prepareProfileImage } from '$lib/client/profile-image';
 import type { NotesAccountActionController } from './types';
 
 export function startAccountProfileEdit(
@@ -44,6 +45,7 @@ export async function saveAccountProfile(
     controller.accountUsername = response.user.username;
     controller.accountEmail = response.user.email ?? '';
     controller.accountDisplayName = response.user.displayName ?? '';
+    controller.accountProfileImage = response.user.profileImage ?? '';
     controller.accountTwoFactorEnabled = response.user.twoFactorEnabled;
     controller.accountTrustedDevices = response.trustedDevices ?? [];
     setStoredSession({
@@ -61,6 +63,70 @@ export async function saveAccountProfile(
   } finally {
     controller.isAccountBusy = false;
   }
+}
+
+async function saveAccountProfileImage(
+  controller: NotesAccountActionController,
+  profileImage: string | null
+): Promise<void> {
+  const storedSession = getStoredSession();
+  const token = storedSession?.token ?? null;
+  if (!token) throw new Error('Sign in again to update your profile picture');
+
+  const response = await updateAccount(token, { profileImage });
+  controller.accountUsername = response.user.username;
+  controller.accountEmail = response.user.email ?? '';
+  controller.accountDisplayName = response.user.displayName ?? '';
+  controller.accountProfileImage = response.user.profileImage ?? '';
+  controller.accountTwoFactorEnabled = response.user.twoFactorEnabled;
+  controller.accountTrustedDevices = response.trustedDevices ?? [];
+  setStoredSession({
+    token,
+    user: response.user,
+    expiresAt: storedSession?.expiresAt ?? null
+  });
+  controller.accountMessage = profileImage
+    ? 'Profile picture saved'
+    : 'Profile picture removed';
+  controller.notify('success', controller.accountMessage);
+}
+
+async function runProfileImageUpdate(
+  controller: NotesAccountActionController,
+  prepare: () => Promise<string | null>
+): Promise<void> {
+  if (controller.isAccountBusy) return;
+  controller.isAccountBusy = true;
+  controller.accountError = '';
+  controller.accountMessage = '';
+  try {
+    await saveAccountProfileImage(controller, await prepare());
+  } catch (error) {
+    controller.accountError =
+      error instanceof Error
+        ? error.message
+        : 'Could not update profile picture';
+    controller.notify(
+      'error',
+      'Profile picture update failed',
+      controller.accountError
+    );
+  } finally {
+    controller.isAccountBusy = false;
+  }
+}
+
+export async function uploadAccountProfileImage(
+  controller: NotesAccountActionController,
+  file: File
+): Promise<void> {
+  await runProfileImageUpdate(controller, () => prepareProfileImage(file));
+}
+
+export async function removeAccountProfileImage(
+  controller: NotesAccountActionController
+): Promise<void> {
+  await runProfileImageUpdate(controller, async () => null);
 }
 
 export function startDeviceNameEdit(
@@ -140,6 +206,7 @@ export async function revokeTrustedDevice(
     controller.accountUsername = response.user.username;
     controller.accountEmail = response.user.email ?? '';
     controller.accountDisplayName = response.user.displayName ?? '';
+    controller.accountProfileImage = response.user.profileImage ?? '';
     controller.accountTwoFactorEnabled = response.user.twoFactorEnabled;
     controller.accountTrustedDevices = response.trustedDevices ?? [];
     setStoredSession({

@@ -119,6 +119,7 @@ export interface AuthUser {
   username: string;
   email: string | null;
   displayName: string | null;
+  profileImage: string | null;
   twoFactorEnabled: boolean;
 }
 
@@ -157,6 +158,7 @@ export interface AccountUpdateRequest {
   /** @deprecated Display names are accepted only for older clients. */
   displayName?: string | null;
   email?: string | null;
+  profileImage?: string | null;
   e2eeKeyring?: string | null;
   proof?: AuthProof | null;
   expectedE2eeKeyringHash?: string | null;

@@ -1746,6 +1746,23 @@ describe('Hono API', () => {
       error: 'A valid email address is required'
     });
 
+    const invalidImage = await api.fetch(
+      new Request('http://localhost/api/account', {
+        method: 'PATCH',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          profileImage: 'data:image/png;base64,iVBORw0KGgo='
+        })
+      })
+    );
+    expect(invalidImage.status).toBe(400);
+    await expect(invalidImage.json()).resolves.toMatchObject({
+      error: 'Profile picture must be a JPEG, PNG, or WebP image'
+    });
+
     const duplicate = await api.fetch(
       new Request('http://localhost/api/account', {
         method: 'PATCH',
@@ -1784,17 +1801,43 @@ describe('Hono API', () => {
 
     const profile = await api.fetch(
       new Request('http://localhost/api/account', {
-        method: 'PATCH',
+        method: 'PUT',
         headers: {
           authorization: `Bearer ${token}`,
           'content-type': 'application/json'
         },
-        body: JSON.stringify({ displayName: 'Iv' })
+        body: JSON.stringify({
+          displayName: 'Iv',
+          profileImage:
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2n1cAAAAASUVORK5CYII='
+        })
       })
     );
     expect(profile.status).toBe(200);
     await expect(profile.json()).resolves.toMatchObject({
-      user: { username: 'owner', displayName: 'Iv' }
+      user: {
+        username: 'owner',
+        displayName: 'Iv',
+        profileImage:
+          'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2n1cAAAAASUVORK5CYII='
+      }
+    });
+
+    const jpegProfileImage =
+      'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AVN//2Q==';
+    const androidProfile = await api.fetch(
+      new Request('http://localhost/api/account', {
+        method: 'PUT',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({ profileImage: jpegProfileImage })
+      })
+    );
+    expect(androidProfile.status).toBe(200);
+    await expect(androidProfile.json()).resolves.toMatchObject({
+      user: { profileImage: jpegProfileImage }
     });
 
     const accountKeyring = (

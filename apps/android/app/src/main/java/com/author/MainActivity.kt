@@ -52,6 +52,11 @@ class MainActivity : ComponentActivity() {
       controller.importMarkdownUris(uris, contentResolver)
     }
 
+  private val profileImageLauncher =
+    registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+      if (uri != null) controller.updateProfileImage(uri, contentResolver)
+    }
+
   private val appUnlockLauncher =
     registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
       appLockAuthenticating = false
@@ -104,6 +109,7 @@ class MainActivity : ComponentActivity() {
         onImport = {
           importLauncher.launch(arrayOf("text/markdown", "text/plain", "application/octet-stream"))
         },
+        onPickProfileImage = { profileImageLauncher.launch("image/*") },
         onUnlockApp = { requestAppUnlock() },
       )
     }

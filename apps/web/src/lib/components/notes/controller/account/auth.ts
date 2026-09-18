@@ -201,6 +201,7 @@ export async function submitLoginMenu(
     controller.accountUsername = session.user.username;
     controller.accountEmail = session.user.email ?? '';
     controller.accountDisplayName = session.user.displayName ?? '';
+    controller.accountProfileImage = session.user.profileImage ?? '';
     controller.accountTwoFactorEnabled = session.user.twoFactorEnabled;
     controller.accountTrustedDevices = [
       {

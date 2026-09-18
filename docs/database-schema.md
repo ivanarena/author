@@ -45,7 +45,7 @@ the active browser session.
 
 ## Server SQLite/libSQL
 
-Server schema migrations are tracked through version 24 in
+Server schema migrations are tracked through version 25 in
 `apps/web/src/lib/server/db.ts`.
 
 Tables:
@@ -86,6 +86,8 @@ value, never the untrusted client timestamp. Restoring clears it.
 
 `account_tombstones` contains an explicit deletion id/time. Mirror sync never
 infers deletion from an absent user row; only this table propagates deletion.
+
+Optional profile pictures are stored in `users.profile_image` as validated JPEG, PNG, or WebP data URLs capped at 128 KB. Clients resize uploads before sending them. Unlike encrypted note content, profile pictures are account metadata visible to the server operator.
 
 Account E2EE keyrings are stored in `users.e2ee_keyring` as client-produced JSON. The server validates the wrapper's version/algorithm/context/encoding while treating its ciphertext as opaque. Session-based keyring replacement requires a fresh `keyring_update` password proof and compare-and-swap hash of the previous wrapper. It contains the account data-key keyring wrapped by
 password-derived `password:v4` material and, when the user generated one, a recovery-code wrap. The server

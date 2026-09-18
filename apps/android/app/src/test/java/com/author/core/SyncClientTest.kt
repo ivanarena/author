@@ -65,6 +65,35 @@ class SyncClientTest {
   }
 
   @Test
+  fun updateProfileImagePostsDataUrlAndParsesAccount() {
+    val profileImage = "data:image/jpeg;base64,/9j/2Q=="
+    OneShotJsonServer(
+        """
+        {
+          "user": {
+            "username": "owner",
+            "email": "owner@example.com",
+            "displayName": null,
+            "profileImage": "$profileImage",
+            "twoFactorEnabled": false
+          },
+          "trustedDevices": []
+        }
+        """
+          .trimIndent()
+      )
+      .use { server ->
+        val response =
+          SyncClient { server.baseUrl }.updateProfileImage("session-token", profileImage)
+
+        assertEquals(profileImage, response.user.profileImage)
+        val request = server.awaitRequest()
+        assertEquals("PUT /api/account HTTP/1.1", request.requestLine)
+        assertEquals(profileImage, JSONObject(request.body).getString("profileImage"))
+      }
+  }
+
+  @Test
   fun loginTrustedDevicePostsOtpOnlyPayload() {
     OneShotJsonServer(
         """

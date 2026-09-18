@@ -481,22 +481,40 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
+.profile-image-trigger {
+  display: grid;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  place-items: center;
+}
+
+.profile-image-trigger:hover,
+.profile-image-trigger:focus-visible,
+.profile-image-trigger:active {
+  border-color: transparent;
+  background: transparent;
+}
+
+.account-profile-card .account-profile-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
 .account-hover-action {
   opacity: 0;
-  pointer-events: none;
   transition: opacity var(--motion-fast) var(--motion-ease);
 }
 
 .account-profile-card:hover .account-hover-action,
 .account-profile-card:focus-within .account-hover-action {
   opacity: 1;
-  pointer-events: auto;
 }
 
 @media (hover: none) {
   .account-hover-action {
     opacity: 1;
-    pointer-events: auto;
   }
 }
 

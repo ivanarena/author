@@ -33,6 +33,7 @@ import com.author.core.formatDateTime
 import com.author.core.normalizedNotebookName
 import com.author.core.noteNotebookIds
 import com.author.core.notesForMarkdownExport
+import com.author.core.prepareProfileImage
 import com.author.core.readBoundedUtf8
 import com.author.ui.app.AppNotification
 import com.author.ui.theme.resolveThemeChoice
@@ -114,6 +115,8 @@ class NotesController(private val repository: NotesRepository, private val scope
   var accountUsername by mutableStateOf(initialSession?.user?.username ?: "")
   var accountEmail by mutableStateOf(initialSession?.user?.email ?: "")
   var accountDisplayName by mutableStateOf(initialSession?.user?.displayName ?: "")
+  var accountProfileImage by mutableStateOf(initialSession?.user?.profileImage ?: "")
+  var isProfileImageBusy by mutableStateOf(false)
   var accountTwoFactorEnabled by mutableStateOf(initialSession?.user?.twoFactorEnabled ?: false)
   var accountTrustedDevices by mutableStateOf<List<TrustedAuthDevice>>(emptyList())
   var accountMessage by mutableStateOf("")
@@ -1378,6 +1381,54 @@ class NotesController(private val repository: NotesRepository, private val scope
     }
   }
 
+  fun updateProfileImage(uri: Uri, resolver: ContentResolver) {
+    val token = repository.getStoredSession()?.token ?: return
+    if (isProfileImageBusy) return
+    scope.launch {
+      isProfileImageBusy = true
+      accountError = ""
+      accountMessage = ""
+      try {
+        val profileImage = withContext(Dispatchers.IO) { prepareProfileImage(uri, resolver) }
+        saveProfileImage(token, profileImage)
+        accountMessage = "Profile picture saved"
+        notify("success", accountMessage)
+      } catch (error: Throwable) {
+        accountError = error.message ?: "Could not update profile picture"
+        notify("error", "Profile picture not saved", accountError)
+      } finally {
+        isProfileImageBusy = false
+      }
+    }
+  }
+
+  fun removeProfileImage() {
+    val token = repository.getStoredSession()?.token ?: return
+    if (isProfileImageBusy) return
+    scope.launch {
+      isProfileImageBusy = true
+      accountError = ""
+      accountMessage = ""
+      try {
+        saveProfileImage(token, null)
+        accountMessage = "Profile picture removed"
+        notify("success", accountMessage)
+      } catch (error: Throwable) {
+        accountError = error.message ?: "Could not remove profile picture"
+        notify("error", "Profile picture not removed", accountError)
+      } finally {
+        isProfileImageBusy = false
+      }
+    }
+  }
+
+  private suspend fun saveProfileImage(token: String, profileImage: String?) {
+    val response = repository.updateProfileImage(token, profileImage)
+    val session = repository.getStoredSession()
+    if (session != null) repository.setStoredSession(session.copy(user = response.user))
+    applyAccount(response.user, response.trustedDevices)
+  }
+
   fun startDeviceNameEdit() {
     deviceNameEditing = true
     deviceNameValue = currentDeviceName
@@ -1884,6 +1935,7 @@ class NotesController(private val repository: NotesRepository, private val scope
     accountUsername = user.username
     accountEmail = user.email ?: ""
     accountDisplayName = user.displayName ?: ""
+    accountProfileImage = user.profileImage ?: ""
     accountTwoFactorEnabled = user.twoFactorEnabled
   }
 
@@ -1907,6 +1959,8 @@ class NotesController(private val repository: NotesRepository, private val scope
     accountUsername = ""
     accountEmail = ""
     accountDisplayName = ""
+    accountProfileImage = ""
+    isProfileImageBusy = false
     accountTwoFactorEnabled = false
     accountTrustedDevices = emptyList()
     accountMessage = message

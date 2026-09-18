@@ -36,6 +36,7 @@ interface ClearLocalSessionOptions {
 
 export interface NotesSyncActionController {
   accountDisplayName: string;
+  accountProfileImage: string;
   accountEmail: string;
   accountTrustedDevices: TrustedAuthDevice[];
   accountTwoFactorEnabled: boolean;
@@ -183,6 +184,7 @@ export async function refreshAccount(
     controller.accountUsername = account.user.username;
     controller.accountEmail = account.user.email ?? '';
     controller.accountDisplayName = account.user.displayName ?? '';
+    controller.accountProfileImage = account.user.profileImage ?? '';
     controller.accountTwoFactorEnabled = account.user.twoFactorEnabled;
     controller.accountTrustedDevices = account.trustedDevices ?? [];
     setStoredSession({
@@ -217,6 +219,7 @@ export async function resumeOnlineSession(
     controller.accountUsername = session.user.username;
     controller.accountEmail = session.user.email ?? '';
     controller.accountDisplayName = session.user.displayName ?? '';
+    controller.accountProfileImage = session.user.profileImage ?? '';
     controller.accountTwoFactorEnabled = session.user.twoFactorEnabled;
     setStoredSession({
       token,

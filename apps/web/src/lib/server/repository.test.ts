@@ -2348,6 +2348,7 @@ describe('server repository', () => {
         username: 'owner',
         email: null,
         displayName: null,
+        profileImage: null,
         twoFactorEnabled: false
       });
       await expect(
@@ -2356,6 +2357,7 @@ describe('server repository', () => {
         username: 'owner',
         email: null,
         displayName: null,
+        profileImage: null,
         twoFactorEnabled: false
       });
     } finally {

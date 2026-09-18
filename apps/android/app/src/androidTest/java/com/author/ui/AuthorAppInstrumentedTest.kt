@@ -427,7 +427,7 @@ class AuthorAppInstrumentedTest {
 
     compose.onNodeWithText("Current password").assertIsDisplayed()
     pressSystemBack()
-    compose.onNodeWithText("Change password").assertIsDisplayed()
+    compose.onNodeWithText("Change password").performScrollTo().assertIsDisplayed()
     compose.runOnIdle {
       assertTrue(controller.accountPanel == null)
       assertTrue(controller.currentPage == "settings")

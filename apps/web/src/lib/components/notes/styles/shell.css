@@ -8,6 +8,8 @@
   --side-menu-left: 24px;
   --side-menu-top: 24px;
   --side-menu-width: clamp(760px, 64vw, 1040px);
+  --navigation-motion: 520ms;
+  --navigation-ease: cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
 .menu-dock {
@@ -20,14 +22,15 @@
   transform: none;
   pointer-events: auto;
   transition:
-    width var(--motion-slow) var(--motion-ease),
-    height var(--motion-slow) var(--motion-ease);
+    width 0s linear var(--navigation-motion),
+    height 0s linear var(--navigation-motion);
 }
 
 .menu-dock.open {
   width: var(--side-menu-width);
   height: calc(100vh - 48px);
   height: calc(100dvh - 48px);
+  transition-delay: 0s;
 }
 
 .dock-buttons {
@@ -292,26 +295,29 @@
   visibility: hidden;
   opacity: 0;
   pointer-events: none;
-  transform: translateX(-20px) scale(0.985);
+  transform: translate3d(-12px, 0, 0);
   transform-origin: center left;
   transition:
-    opacity var(--motion-slow) var(--motion-ease),
-    transform var(--motion-slow) var(--motion-ease),
-    visibility var(--motion-slow) var(--motion-ease);
+    opacity 420ms var(--navigation-ease),
+    transform var(--navigation-motion) var(--navigation-ease),
+    visibility 0s linear var(--navigation-motion);
+  will-change: opacity, transform;
+  contain: layout;
 }
 
 .menu-dock.open .menu-panels {
   visibility: visible;
   opacity: 1;
   pointer-events: auto;
-  transform: translateX(0);
+  transform: translate3d(0, 0, 0);
+  transition-delay: 0s;
 }
 
 .menu-dock:has(.profile-menu.open) .menu-panels {
   visibility: hidden;
   opacity: 0;
   pointer-events: none;
-  transform: translateX(-20px) scale(0.985);
+  transform: translate3d(-12px, 0, 0);
 }
 
 aside {

@@ -150,26 +150,27 @@
     visibility: hidden;
     opacity: 0;
     pointer-events: none;
-    transform: translateX(-16px) scale(0.98);
+    transform: translate3d(-12px, 0, 0);
     transform-origin: center left;
     transition:
-      opacity var(--motion-slow) var(--motion-ease),
-      transform var(--motion-slow) var(--motion-ease),
-      visibility var(--motion-slow) var(--motion-ease);
+      opacity 420ms var(--navigation-ease),
+      transform var(--navigation-motion) var(--navigation-ease),
+      visibility 0s linear var(--navigation-motion);
   }
 
   .menu-dock.open .menu-panels {
     visibility: visible;
     opacity: 1;
     pointer-events: auto;
-    transform: translateX(0);
+    transform: translate3d(0, 0, 0);
+    transition-delay: 0s;
   }
 
   .menu-dock:has(.profile-menu.open) .menu-panels {
     visibility: hidden;
     opacity: 0;
     pointer-events: none;
-    transform: translateX(-16px) scale(0.98);
+    transform: translate3d(-12px, 0, 0);
   }
 
   .app-shell:not(.settings-open):has(.menu-dock.open) .editor-wrap {

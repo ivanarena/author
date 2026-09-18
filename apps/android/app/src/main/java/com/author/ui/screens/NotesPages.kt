@@ -55,25 +55,14 @@ import com.author.ui.theme.*
 
 @Composable
 internal fun NotesPage(controller: NotesController) {
-  var searchOpen by remember { mutableStateOf(false) }
   Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-    NotesTopBar(
-      controller = controller,
-      searchOpen = searchOpen,
-      onSearchOpen = { searchOpen = true },
-      onSearchClose = { searchOpen = false },
-    )
+    NotesTopBar(controller)
     NoteListPanel(controller, Modifier.fillMaxSize())
   }
 }
 
 @Composable
-private fun NotesTopBar(
-  controller: NotesController,
-  searchOpen: Boolean,
-  onSearchOpen: () -> Unit,
-  onSearchClose: () -> Unit,
-) {
+private fun NotesTopBar(controller: NotesController) {
   val compactScreen = isCompactWindow()
   Column {
     Surface(color = toolbarColor()) {
@@ -88,9 +77,9 @@ private fun NotesTopBar(
           GlassIcon(
             Icons.Outlined.Search,
             "Search notes",
-            active = searchOpen || controller.searchValue.isNotBlank(),
+            active = controller.notesSearchOpen || controller.searchValue.isNotBlank(),
           ) {
-            if (searchOpen) onSearchClose() else onSearchOpen()
+            controller.notesSearchOpen = !controller.notesSearchOpen
           }
           NotesSortButton(controller)
           GlassIcon(Icons.Outlined.Book, "Notebooks") { controller.navigateTo("notebooks") }
@@ -98,7 +87,7 @@ private fun NotesTopBar(
           ProfileMenu(controller)
         }
         AnimatedVisibility(
-          visible = searchOpen,
+          visible = controller.notesSearchOpen,
           enter =
             fadeIn(appTween(AppMotion.Fast)) +
               expandVertically(
@@ -122,7 +111,7 @@ private fun NotesTopBar(
                   top = 0.dp,
                   bottom = 8.dp,
                 ),
-            onDismiss = onSearchClose,
+            onDismiss = { controller.notesSearchOpen = false },
           )
         }
         NotebookFilterRail(controller)

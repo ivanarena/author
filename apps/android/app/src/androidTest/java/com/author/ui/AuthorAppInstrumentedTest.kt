@@ -1,6 +1,7 @@
 package com.author.ui
 
 import android.content.Context
+import androidx.activity.ComponentActivity
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -29,6 +30,9 @@ import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.test.swipeUp
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+import androidx.test.runner.lifecycle.Stage
 import com.author.BuildConfig
 import com.author.core.LocalNote
 import com.author.core.NotesRepository
@@ -390,6 +394,103 @@ class AuthorAppInstrumentedTest {
   }
 
   @Test
+  fun systemBackReturnsThroughNestedSettingsMenus() {
+    val repository = newRepository()
+    lateinit var controller: NotesController
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      controller = remember {
+        NotesController(repository, scope).also {
+          it.currentPage = "settings"
+          it.settingsSection = "account"
+          it.hasToken = true
+          it.accountUsername = "back-test"
+          it.openAccountPanel("password")
+        }
+      }
+
+      AuthorApp(controller = controller, onExport = {}, onImport = {})
+    }
+
+    compose.onNodeWithText("Current password").assertIsDisplayed()
+    pressSystemBack()
+    compose.onNodeWithText("Change password").assertIsDisplayed()
+    compose.runOnIdle {
+      assertTrue(controller.accountPanel == null)
+      assertTrue(controller.currentPage == "settings")
+      assertTrue(controller.settingsSection == "account")
+    }
+
+    pressSystemBack()
+    compose.onNodeWithText("Sync").assertIsDisplayed()
+    compose.runOnIdle { assertTrue(controller.settingsSection == "menu") }
+
+    pressSystemBack()
+    compose.onNodeWithTag("note-title-field").assertIsDisplayed()
+    compose.runOnIdle { assertTrue(controller.currentPage == "editor") }
+  }
+
+  @Test
+  fun systemBackClosesSearchBeforeLeavingNotes() {
+    val repository = newRepository()
+    lateinit var controller: NotesController
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      controller = remember {
+        NotesController(repository, scope).also {
+          it.currentPage = "notes"
+          it.notesSearchOpen = true
+        }
+      }
+
+      AuthorApp(controller = controller, onExport = {}, onImport = {})
+    }
+
+    compose.onNodeWithText("Search notes").assertIsDisplayed()
+    pressSystemBack()
+    compose.runOnIdle {
+      assertTrue(!controller.notesSearchOpen)
+      assertTrue(controller.currentPage == "notes")
+    }
+
+    pressSystemBack()
+    compose.onNodeWithTag("note-title-field").assertIsDisplayed()
+    compose.runOnIdle { assertTrue(controller.currentPage == "editor") }
+  }
+
+  @Test
+  fun systemBackReturnsFromSyncTroubleshootingToSyncMenu() {
+    val repository = newRepository()
+    lateinit var controller: NotesController
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      controller = remember {
+        NotesController(repository, scope).also {
+          it.currentPage = "settings"
+          it.settingsSection = "sync"
+          it.settingsTroubleshootingPanel = "app"
+        }
+      }
+
+      AuthorApp(controller = controller, onExport = {}, onImport = {})
+    }
+
+    compose.onNodeWithText("Clear diagnostic log").performScrollTo().assertIsDisplayed()
+    pressSystemBack()
+    compose.onNodeWithText("Repair diagnostics").performScrollTo().assertIsDisplayed()
+    compose.runOnIdle {
+      assertTrue(controller.settingsTroubleshootingPanel == null)
+      assertTrue(controller.settingsSection == "sync")
+    }
+
+    pressSystemBack()
+    compose.runOnIdle { assertTrue(controller.settingsSection == "menu") }
+  }
+
+  @Test
   fun selectionToolbarSelectAllReflectsPressedState() {
     val repository = newRepository()
     val first = runBlocking { repository.createBlankNote("Select all first", "Body") }
@@ -634,6 +735,19 @@ class AuthorAppInstrumentedTest {
       }
     }
     compose.onNodeWithText(text).assertIsDisplayed()
+  }
+
+  private fun pressSystemBack() {
+    val instrumentation = InstrumentationRegistry.getInstrumentation()
+    instrumentation.runOnMainSync {
+      val activity =
+        ActivityLifecycleMonitorRegistry.getInstance()
+          .getActivitiesInStage(Stage.RESUMED)
+          .filterIsInstance<ComponentActivity>()
+          .single()
+      activity.onBackPressedDispatcher.onBackPressed()
+    }
+    compose.waitForIdle()
   }
 
   private fun waitUntilContentDescriptionDisplayed(contentDescription: String) {

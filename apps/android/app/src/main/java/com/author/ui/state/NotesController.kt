@@ -73,6 +73,7 @@ class NotesController(private val repository: NotesRepository, private val scope
   var bodyValue by mutableStateOf("")
   var filterId by mutableStateOf("all")
   var searchValue by mutableStateOf("")
+  var notesSearchOpen by mutableStateOf(false)
   var noteSort by mutableStateOf(repository.getSort())
   var noteGroup by mutableStateOf(repository.getGroup())
   var noteFilterNotebookIds by mutableStateOf<Set<String>>(emptySet())
@@ -90,6 +91,7 @@ class NotesController(private val repository: NotesRepository, private val scope
   var currentPage by mutableStateOf("editor")
   var loginOpen by mutableStateOf(false)
   var settingsSection by mutableStateOf("account")
+  var settingsTroubleshootingPanel by mutableStateOf<String?>(null)
   var newNotebookOpen by mutableStateOf(false)
   var notebookNameValue by mutableStateOf("")
   var notebookError by mutableStateOf("")
@@ -272,6 +274,12 @@ class NotesController(private val repository: NotesRepository, private val scope
     get() =
       loginOpen ||
         signupRecoveryOpen ||
+        (currentPage == "notes" && notesSearchOpen) ||
+        ((currentPage == "account" ||
+          (currentPage == "settings" && settingsSection == "account")) && accountPanel != null) ||
+        (currentPage == "settings" &&
+          settingsSection == "sync" &&
+          settingsTroubleshootingPanel != null) ||
         noteSelectionMode ||
         selectedNoteIds.isNotEmpty() ||
         (currentPage == "settings" && settingsSection != "menu") ||
@@ -282,7 +290,13 @@ class NotesController(private val repository: NotesRepository, private val scope
     if (page == currentPage) return
     if (addToBackStack) pageBackStack = (pageBackStack + currentPage).takeLast(24)
     currentPage = page
-    if (page == "settings") settingsSection = "menu"
+    if (page == "settings") openSettingsSection("menu")
+  }
+
+  fun openSettingsSection(section: String) {
+    settingsSection = section
+    if (section != "account" && accountPanel != null) closeAccountPanel()
+    if (section != "sync") settingsTroubleshootingPanel = null
   }
 
   fun handleBack() {
@@ -291,12 +305,33 @@ class NotesController(private val repository: NotesRepository, private val scope
       if (!isLoggingIn) loginOpen = false
       return
     }
+    if (currentPage == "notes" && notesSearchOpen) {
+      notesSearchOpen = false
+      return
+    }
+    if (
+      (currentPage == "account" || (currentPage == "settings" && settingsSection == "account")) &&
+        accountPanel != null
+    ) {
+      if (accountPanel == "device" && deviceNameEditing) {
+        cancelDeviceNameEdit()
+      } else {
+        closeAccountPanel()
+      }
+      return
+    }
+    if (
+      currentPage == "settings" && settingsSection == "sync" && settingsTroubleshootingPanel != null
+    ) {
+      settingsTroubleshootingPanel = null
+      return
+    }
     if (noteSelectionMode || selectedNoteIds.isNotEmpty()) {
       clearSelection()
       return
     }
     if (currentPage == "settings" && settingsSection != "menu") {
-      settingsSection = "menu"
+      openSettingsSection("menu")
       return
     }
 
@@ -304,7 +339,7 @@ class NotesController(private val repository: NotesRepository, private val scope
     if (previous != null) {
       pageBackStack = pageBackStack.dropLast(1)
       currentPage = previous
-      if (previous == "settings") settingsSection = "menu"
+      if (previous == "settings") openSettingsSection("menu")
       return
     }
 

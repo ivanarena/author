@@ -103,13 +103,7 @@ internal fun SettingsPage(
     Column(Modifier.fillMaxSize()) {
       PageHeader(
         leading = {
-          GlassIcon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") {
-            if (compactScreen && controller.settingsSection != "menu") {
-              controller.settingsSection = "menu"
-            } else {
-              controller.handleBack()
-            }
-          }
+          GlassIcon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") { controller.handleBack() }
         }
       )
       if (compactScreen) {
@@ -184,7 +178,7 @@ private fun SettingsSectionSelector(controller: NotesController, modifier: Modif
         active = activeSettingsSection(controller.settingsSection) == section.id,
         syncStatus = section.syncStatus,
       ) {
-        controller.settingsSection = section.id
+        controller.openSettingsSection(section.id)
       }
     }
   }
@@ -445,7 +439,7 @@ private fun AccountMenuRow(
 private fun AccountDetailPanel(controller: NotesController, panel: String) {
   Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
     AccountDetailHeader(accountPanelTitle(panel), accountPanelDetail(controller, panel)) {
-      controller.closeAccountPanel()
+      controller.handleBack()
     }
     when (panel) {
       "email" -> AccountEmailPanel(controller)
@@ -672,8 +666,6 @@ private fun DeleteAccountPanel(controller: NotesController) {
 
 @Composable
 private fun SyncSettings(controller: NotesController) {
-  var troubleshootingPanel by remember { mutableStateOf<String?>(null) }
-
   LaunchedEffect(controller) { controller.refreshRepairDiagnostics() }
 
   Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -715,22 +707,24 @@ private fun SyncSettings(controller: NotesController) {
     }
 
     SettingsChoiceGroup("Troubleshooting") {
-      val panel = troubleshootingPanel
+      val panel = controller.settingsTroubleshootingPanel
       if (panel != null) {
-        TroubleshootingDetailPanel(controller, panel) { troubleshootingPanel = null }
+        TroubleshootingDetailPanel(controller, panel) {
+          controller.settingsTroubleshootingPanel = null
+        }
       } else {
         AccountMenuRow(
           Icons.Outlined.Security,
           "Repair diagnostics",
           controller.repairDiagnosticsTitle,
         ) {
-          troubleshootingPanel = "repair"
+          controller.settingsTroubleshootingPanel = "repair"
         }
         AccountMenuRow(Icons.Outlined.Refresh, "Last sync error", controller.syncDebugTitle) {
-          troubleshootingPanel = "sync"
+          controller.settingsTroubleshootingPanel = "sync"
         }
         AccountMenuRow(Icons.Outlined.Settings, "Diagnostic log", controller.appDebugTitle) {
-          troubleshootingPanel = "app"
+          controller.settingsTroubleshootingPanel = "app"
         }
       }
     }

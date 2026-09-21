@@ -204,4 +204,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_SHA: ${{ github.sha }}
-        run: gh workflow run auto-candidate.yml --ref main -f sha="$RELEASE_SHA"
+        run: >-
+          gh workflow run auto-candidate.yml --repo "$GITHUB_REPOSITORY"
+          --ref main -f sha="$RELEASE_SHA"

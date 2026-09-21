@@ -10,7 +10,9 @@ on:
     - cron: '37 4 * * 1'
 
 permissions:
+  actions: read # Verify content-identical reviewed checks.
   contents: read
+  pull-requests: read # Resolve rebased main commits to reviewed sources.
 
 concurrency:
   group: security-${{ github.event.pull_request.number || github.ref }}
@@ -21,8 +23,28 @@ env:
   GITLEAKS_VERSION: v8.30.0
 
 jobs:
+  reviewed-source:
+    name: Resolve reviewed source
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      reusable: ${{ steps.reuse.outputs.reusable }}
+      source-sha: ${{ steps.reuse.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve a content-identical reviewed commit
+        id: reuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/reuse-reviewed-source.sh "$GITHUB_SHA"
+
   secret-scan:
     name: Secret scan
+    needs: reviewed-source
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -36,11 +58,34 @@ jobs:
           go-version: stable
           cache: false
 
-      - name: Scan complete Git history
-        run: go run "github.com/zricethezav/gitleaks/v8@${GITLEAKS_VERSION}" git --log-opts="--all" --redact --verbose .
+      - name: Restore pinned Gitleaks
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: gitleaks-${{ runner.os }}-${{ env.GITLEAKS_VERSION }}
+
+      - name: Scan new commits or complete history
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            log_opts="${PR_BASE_SHA}..${PR_HEAD_SHA}"
+          elif [[ "$EVENT_NAME" == push && -n "$BEFORE_SHA" && ! "$BEFORE_SHA" =~ ^0+$ ]]; then
+            log_opts="${BEFORE_SHA}..${GITHUB_SHA}"
+          else
+            log_opts="--all"
+          fi
+          go run "github.com/zricethezav/gitleaks/v8@${GITLEAKS_VERSION}" \
+            git --log-opts="$log_opts" --redact --verbose .
 
   scorecard:
     name: OpenSSF Scorecard
+    needs: reviewed-source
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -59,6 +104,7 @@ jobs:
           persist-credentials: false
 
       - name: Analyze repository security posture
+        if: needs.reviewed-source.outputs.reusable != 'true'
         uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
         with:
           results_file: scorecard-results.sarif
@@ -66,14 +112,16 @@ jobs:
           publish_results: ${{ github.event.repository.private == false && github.ref == 'refs/heads/main' }}
 
       - name: Upload Scorecard SARIF
+        if: always() && needs.reviewed-source.outputs.reusable != 'true' && hashFiles('scorecard-results.sarif') != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always() && hashFiles('scorecard-results.sarif') != ''
         with:
           name: scorecard-results
           path: scorecard-results.sarif
+          retention-days: 14
 
   codeql:
     name: CodeQL
+    needs: reviewed-source
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -94,29 +142,31 @@ jobs:
           persist-credentials: false
 
       - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
-        if: matrix.language == 'java-kotlin'
+        if: matrix.language == 'java-kotlin' && needs.reviewed-source.outputs.reusable != 'true'
         with:
           distribution: temurin
           java-version: 21
           cache: gradle
 
       - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
-        if: matrix.language == 'java-kotlin'
+        if: matrix.language == 'java-kotlin' && needs.reviewed-source.outputs.reusable != 'true'
         with:
           packages: platform-tools # Avoid the action's obsolete default `tools` package.
 
       - name: Initialize CodeQL
+        if: needs.reviewed-source.outputs.reusable != 'true'
         uses: github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
 
       - name: Build Android for CodeQL
-        if: matrix.language == 'java-kotlin'
-        run: ./gradlew :app:compileDebugKotlin :app:assembleDebug
+        if: matrix.language == 'java-kotlin' && needs.reviewed-source.outputs.reusable != 'true'
+        run: ./gradlew --no-build-cache :app:assembleDebug
         working-directory: apps/android
 
       - name: Analyze
+        if: needs.reviewed-source.outputs.reusable != 'true'
         uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
         with:
           upload: ${{ github.event.repository.private == false && github.event_name != 'pull_request' && 'always' || 'never' }}
@@ -124,8 +174,34 @@ jobs:
           upload-database: false
 
       - name: Upload CodeQL SARIF
+        if: always() && needs.reviewed-source.outputs.reusable != 'true' && hashFiles('codeql-results/**/*.sarif') != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always() && hashFiles('codeql-results/**/*.sarif') != ''
         with:
           name: codeql-${{ matrix.language }}-results
           path: codeql-results/**/*.sarif
+          retention-days: 14
+
+  auto-candidate:
+    name: Queue candidate automation
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.secret-scan.result == 'success' &&
+      needs.scorecard.result == 'success' &&
+      needs.codeql.result == 'success'
+    needs:
+      - secret-scan
+      - scorecard
+      - codeql
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write # Dispatch candidate automation after Security completes.
+      contents: read
+    steps:
+      - name: Dispatch candidate automation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.sha }}
+        run: gh workflow run auto-candidate.yml --ref main -f sha="$RELEASE_SHA"

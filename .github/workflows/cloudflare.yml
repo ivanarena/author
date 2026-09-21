@@ -86,44 +86,21 @@ jobs:
         run: |
           deploy_sha="$(git rev-parse HEAD)"
           artifact_name="cloudflare-worker-${deploy_sha}"
-          artifact_dir="${RUNNER_TEMP}/cloudflare-worker-artifact"
-          mkdir -p "$artifact_dir"
-          ci_run_id=""
-          mapfile -t ci_runs < <(
-            gh run list \
-              --workflow CI \
-              --commit "$deploy_sha" \
-              --status success \
-              --limit 20 \
-              --json databaseId \
-              --jq '.[].databaseId'
-          )
-          for run_id in "${ci_runs[@]}"; do
-            rm -rf "${artifact_dir:?}"/*
-            if gh run download "$run_id" \
-              --name "$artifact_name" \
-              --dir "$artifact_dir"; then
-              ci_run_id="$run_id"
-              break
-            fi
-          done
-          if [ -z "$ci_run_id" ]; then
-            echo "::error::No successful CI artifact ${artifact_name} was found."
-            exit 1
-          fi
-          (
-            cd "$artifact_dir"
-            sha256sum -c cloudflare-worker.tar.gz.sha256
-          )
+          artifact_dir="$RUNNER_TEMP/cloudflare-worker-artifact"
+          ci_run_id="$(scripts/download-workflow-artifact.sh \
+            CI "$deploy_sha" "$artifact_name" "$artifact_dir")"
+          (cd "$artifact_dir" && sha256sum -c cloudflare-worker.tar.gz.sha256)
+          test "$(cat "$artifact_dir/cloudflare-worker.tree")" = "$(git rev-parse 'HEAD^{tree}')"
           bundle_sha="$(sha256sum "$artifact_dir/cloudflare-worker.tar.gz" | cut -d ' ' -f 1)"
 
-          bundle_dir="${RUNNER_TEMP}/cloudflare-worker-bundle"
-          mkdir -p "$bundle_dir"
-          tar -xzf "$artifact_dir/cloudflare-worker.tar.gz" -C "$bundle_dir"
-          test -f "$bundle_dir/cloudflare-worker-bundle/code/_worker.js"
-          test -d "$bundle_dir/cloudflare-worker-bundle/assets"
+          bundle_root="$RUNNER_TEMP/cloudflare-worker-bundle"
+          mkdir -p "$bundle_root"
+          tar -xzf "$artifact_dir/cloudflare-worker.tar.gz" -C "$bundle_root"
+          bundle_dir="$bundle_root/cloudflare-worker-bundle"
+          test -f "$bundle_dir/code/_worker.js"
+          test -d "$bundle_dir/assets"
           {
-            echo "WORKER_BUNDLE_DIR=$bundle_dir/cloudflare-worker-bundle"
+            echo "WORKER_BUNDLE_DIR=$bundle_dir"
             echo "WORKER_BUNDLE_SHA=$bundle_sha"
             echo "WORKER_CI_RUN_ID=$ci_run_id"
           } >> "$GITHUB_ENV"

@@ -88,20 +88,20 @@ secrets. Store the keystore as base64 in `ANDROID_RELEASE_KEYSTORE_BASE64`, then
 set `ANDROID_RELEASE_KEYSTORE_PASSWORD`, `ANDROID_RELEASE_KEY_ALIAS`,
 `ANDROID_RELEASE_KEY_PASSWORD`, and the normalized expected signing certificate
 fingerprint in `ANDROID_RELEASE_CERT_SHA256`. The workflow rejects a validly
-signed APK if its certificate does not match. The public production API endpoint belongs in
-the `AUTHOR_API_URL` repository variable.
+signed APK if its certificate does not match. The public production API endpoint
+belongs in the `AUTHOR_API_URL` repository variable.
 
-A manual `test` dispatch builds the current `main` commit against
-`STAGING_AUTHOR_API_URL` for staging-only device smoke. A `candidate` dispatch
-uses the public `AUTHOR_API_URL`, verifies the production signing certificate,
-and uploads the production-configured APK as a private 14-day artifact. Both
-require successful exact-commit CI and Security; staging tests also require
-Docker and Remote Staging Smoke. A `production` dispatch requires the matching
-tag and every candidate gate, including the successful Cloudflare deployment,
-then re-verifies the candidate certificate and version and
-attaches those exact candidate bytes to the GitHub release without rebuilding.
+Exact-main CI builds and checksums one production-configured unsigned release
+APK. A `candidate` dispatch downloads that artifact, verifies its package,
+version, checksum, and API origin, signs it with the protected release key, and
+uploads it as a private 14-day artifact. A `production` dispatch requires the
+matching tag and every candidate gate, including the successful Cloudflare
+deployment, then re-verifies the candidate certificate and version and attaches
+those exact candidate bytes to the GitHub release without rebuilding.
 
-CI validates debug compile/lint/unit/APK, release lint/unit/APK, and connected debug instrumentation tests. Run connected tests locally with an emulator booted:
+CI validates debug format/lint/unit/APK, release lint/APK, and connected debug
+instrumentation tests. Instrumentation APKs are assembled once and installed
+directly on the emulator. Run connected tests locally with an emulator booted:
 
 ```sh
 ./gradlew :app:connectedDebugAndroidTest

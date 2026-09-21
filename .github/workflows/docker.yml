@@ -5,14 +5,17 @@ on:
   pull_request:
 
 permissions:
-  actions: read # Query CI and transfer the scanned image artifact.
+  actions: read # Query CI and transfer exact scanned artifacts.
   contents: read
+  pull-requests: read # Resolve rebased main commits to reviewed sources.
 
 concurrency:
   group: docker-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
+  ARTIFACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  DOCKER_BUILD_RECORD_RETENTION_DAYS: 7
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   TRIVY_IMAGE: aquasec/trivy@sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e # 0.70.0
 
@@ -26,7 +29,38 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Resolve reviewed image source
+        id: reuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/reuse-reviewed-source.sh "$GITHUB_SHA"
+
+      - name: Reuse the reviewed scanned image
+        id: scanned-image
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REUSABLE: ${{ steps.reuse.outputs.reusable }}
+          SOURCE_SHA: ${{ steps.reuse.outputs.source_sha }}
+        run: |
+          if [ "$REUSABLE" = true ]; then
+            artifact_dir="$RUNNER_TEMP/reviewed-image"
+            if run_id="$(scripts/download-workflow-artifact.sh \
+              Docker "$SOURCE_SHA" "author-scanned-image-${SOURCE_SHA}" "$artifact_dir")"; then
+              cp "$artifact_dir/author-scanned-image.tar" .
+              cp "$artifact_dir/author-scanned-image.tar.sha256" .
+              cp "$artifact_dir/source-tree.txt" .
+              cp "$artifact_dir/image-origin.json" .
+              sha256sum -c author-scanned-image.tar.sha256
+              test "$(cat source-tree.txt)" = "$(git rev-parse 'HEAD^{tree}')"
+              echo "Reused the reviewed image from Docker run ${run_id}."
+              echo "reused=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo "reused=false" >> "$GITHUB_OUTPUT"
 
       - name: Validate publish source
         if: github.event_name == 'workflow_dispatch'
@@ -53,8 +87,10 @@ jobs:
             "CodeQL (java-kotlin, manual)"
 
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+        if: steps.scanned-image.outputs.reused != 'true'
 
       - uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        if: steps.scanned-image.outputs.reused != 'true'
         id: build-for-scan
         with:
           context: .
@@ -64,9 +100,38 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Export image for scanning and publication
-        run: docker save --output author-scanned-image.tar "${IMAGE_REF}"
+        if: steps.scanned-image.outputs.reused != 'true'
+        run: |
+          docker save --output author-scanned-image.tar "${IMAGE_REF}"
+          sha256sum author-scanned-image.tar > author-scanned-image.tar.sha256
+          built_tree="$(git rev-parse 'HEAD^{tree}')"
+          source_tree="$(git rev-parse "${ARTIFACT_SHA}^{tree}")"
+          test "$built_tree" = "$source_tree"
+          printf '%s\n' "$source_tree" > source-tree.txt
+          jq -n \
+            --arg sourceSha "$ARTIFACT_SHA" \
+            --arg sourceTree "$source_tree" \
+            --arg runId "$GITHUB_RUN_ID" \
+            '{sourceSha: $sourceSha, sourceTree: $sourceTree, runId: $runId}' \
+            > image-origin.json
+
+      - name: Resolve Trivy cache date
+        if: steps.scanned-image.outputs.reused != 'true'
+        id: trivy-cache
+        run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Trivy vulnerability database
+        if: steps.scanned-image.outputs.reused != 'true'
+        # zizmor: ignore[cache-poisoning]
+        # This cache contains only Trivy's signed vulnerability database.
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-${{ runner.os }}-${{ steps.trivy-cache.outputs.date }}
+          restore-keys: trivy-${{ runner.os }}-
 
       - name: Run Trivy
+        if: steps.scanned-image.outputs.reused != 'true'
         run: |
           mkdir -p "${HOME}/.cache/trivy"
 
@@ -86,20 +151,24 @@ jobs:
             --timeout 10m
 
       - name: Upload scan artifact
+        if: always() && steps.scanned-image.outputs.reused != 'true' && hashFiles('trivy-results.sarif') != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always() && hashFiles('trivy-results.sarif') != ''
         with:
           name: trivy-results
           path: trivy-results.sarif
+          retention-days: 14
 
       - name: Upload the scanned image
-        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: author-scanned-image
-          path: author-scanned-image.tar
+          name: author-scanned-image-${{ env.ARTIFACT_SHA }}
+          path: |
+            author-scanned-image.tar
+            author-scanned-image.tar.sha256
+            source-tree.txt
+            image-origin.json
           compression-level: 0
-          retention-days: 1
+          retention-days: 7
 
   publish:
     name: Publish signed image
@@ -128,11 +197,20 @@ jobs:
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: author-scanned-image
+          name: author-scanned-image-${{ github.sha }}
           path: .
 
       - name: Load scanned image
-        run: docker load --input author-scanned-image.tar
+        run: |
+          sha256sum -c author-scanned-image.tar.sha256
+          jq -e --arg tree "$(cat source-tree.txt)" \
+            '.sourceTree == $tree and (.sourceSha | length == 40) and (.runId | length > 0)' \
+            image-origin.json >/dev/null
+          load_output="$(docker load --input author-scanned-image.tar)"
+          printf '%s\n' "$load_output"
+          loaded_ref="$(sed -n 's/^Loaded image: //p' <<<"$load_output" | tail -n 1)"
+          test -n "$loaded_ref"
+          docker tag "$loaded_ref" "${IMAGE_REPOSITORY}:sha-${IMAGE_SHA}"
 
       - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
@@ -164,6 +242,7 @@ jobs:
           format: spdx-json
           output-file: author-image.spdx.json
           upload-artifact: true
+          upload-artifact-retention: 14
 
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
@@ -171,12 +250,20 @@ jobs:
         env:
           IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
         run: |
+          origin_sha="$(jq -r .sourceSha image-origin.json)"
+          origin_tree="$(jq -r .sourceTree image-origin.json)"
+          origin_run="$(jq -r .runId image-origin.json)"
+          archive_sha="$(cut -d ' ' -f 1 author-scanned-image.tar.sha256)"
           jq -n \
             --arg buildType "https://github.com/Attestations/GitHubActionsWorkflow@v1" \
             --arg workflowRef "$GITHUB_WORKFLOW_REF" \
             --arg eventName "$GITHUB_EVENT_NAME" \
             --arg sourceUri "git+https://github.com/${GITHUB_REPOSITORY}@${IMAGE_SHA}" \
             --arg sourceSha "$IMAGE_SHA" \
+            --arg originUri "https://github.com/${GITHUB_REPOSITORY}/actions/runs/${origin_run}" \
+            --arg originSha "$origin_sha" \
+            --arg originTree "$origin_tree" \
+            --arg archiveSha "$archive_sha" \
             --arg builderId "https://github.com/${GITHUB_WORKFLOW_REF}" \
             --arg invocationId "https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}" \
             '{
@@ -186,18 +273,27 @@ jobs:
                   workflow: $workflowRef,
                   event: $eventName
                 },
-                internalParameters: {},
+                internalParameters: {
+                  reviewedSourceSha: $originSha,
+                  reviewedSourceTree: $originTree
+                },
                 resolvedDependencies: [
                   {
                     uri: $sourceUri,
-                    digest: { gitCommit: $sourceSha }
+                    digest: { gitCommit: $sourceSha, gitTree: $originTree }
                   }
                 ]
               },
               runDetails: {
                 builder: { id: $builderId },
                 metadata: { invocationId: $invocationId },
-                byproducts: []
+                byproducts: [
+                  {
+                    name: "reviewed scanned image archive",
+                    uri: $originUri,
+                    digest: { sha256: $archiveSha }
+                  }
+                ]
               }
             }' > author-provenance.json
           jq -e . author-provenance.json >/dev/null
@@ -241,6 +337,7 @@ jobs:
       - name: Promote current commit to the main image tag
         env:
           GH_TOKEN: ${{ github.token }}
+          IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
         run: |
           current_main="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
           if [ "$current_main" != "$IMAGE_SHA" ]; then
@@ -250,3 +347,13 @@ jobs:
           image_ref="${IMAGE_REPOSITORY}:sha-${IMAGE_SHA}"
           docker tag "$image_ref" "${IMAGE_REPOSITORY}:main"
           docker push "${IMAGE_REPOSITORY}:main"
+          origin_run="$(jq -r .runId image-origin.json)"
+          origin_sha="$(jq -r .sourceSha image-origin.json)"
+          {
+            echo '## Published container artifact'
+            echo
+            echo "- Commit: \`${IMAGE_SHA}\`"
+            echo "- Reviewed source: \`${origin_sha}\`"
+            echo "- Scan/build run: \`${origin_run}\`"
+            echo "- Digest: \`${IMAGE_DIGEST}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -4,19 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       channel:
-        description: Build a staging test, build a private production candidate, or publish that candidate
+        description: Sign a private production candidate or publish the accepted candidate
         required: true
-        default: test
+        default: candidate
         type: choice
         options:
-          - test
           - candidate
           - production
-      ref:
-        description: Main-branch ref for a private test or candidate artifact
-        required: true
-        default: main
-        type: string
       tag:
         description: Existing version tag required for a production dispatch
         required: false
@@ -33,7 +27,7 @@ concurrency:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   RELEASE_CHANNEL: ${{ inputs.channel }}
-  RELEASE_REF: ${{ inputs.channel == 'production' && inputs.tag || inputs.ref }}
+  RELEASE_REF: ${{ inputs.channel == 'production' && inputs.tag || 'main' }}
   RELEASE_TAG: ${{ inputs.tag }}
 
 jobs:
@@ -77,9 +71,9 @@ jobs:
               echo "::error::Production APKs can only be built from commits on main."
               exit 1
             fi
-          elif [ "$RELEASE_CHANNEL" = test ] || [ "$RELEASE_CHANNEL" = candidate ]; then
+          elif [ "$RELEASE_CHANNEL" = candidate ]; then
             if [ "$release_sha" != "$current_main" ]; then
-              echo "::error::Private test and candidate APKs must use the current main commit."
+              echo "::error::Private candidate APKs must use the current main commit."
               exit 1
             fi
           else
@@ -125,10 +119,10 @@ jobs:
 
   signed-apk:
     name: Signed APK
-    if: inputs.channel != 'production'
+    if: inputs.channel == 'candidate'
     runs-on: ubuntu-latest
     needs: release-gate
-    environment: ${{ inputs.channel == 'production' && 'production' || 'staging' }}
+    environment: staging
     timeout-minutes: 35
     permissions:
       actions: read # Query gates and upload the private artifact.
@@ -142,20 +136,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
-        with:
-          distribution: temurin
-          java-version: 21
-          cache: gradle
-
       - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
         with:
-          packages: platform-tools # Avoid the action's obsolete default `tools` package.
+          packages: platform-tools build-tools;36.0.0
 
       - name: Validate release configuration
         env:
-          PRODUCTION_AUTHOR_API_URL: ${{ vars.AUTHOR_API_URL }}
-          STAGING_AUTHOR_API_URL: ${{ secrets.STAGING_AUTHOR_API_URL }}
+          PRODUCTION_AUTHOR_API_URL: ${{ vars.AUTHOR_API_URL || 'https://author.ivannn.workers.dev' }}
           ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
           ANDROID_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
           ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
@@ -175,49 +162,72 @@ jobs:
               missing=1
             fi
           done
-
-          if [ "$RELEASE_CHANNEL" = test ]; then
-            release_api_url="${STAGING_AUTHOR_API_URL:-}"
-          else
-            release_api_url="${PRODUCTION_AUTHOR_API_URL:-}"
-          fi
-          case "$release_api_url" in
+          case "$PRODUCTION_AUTHOR_API_URL" in
             https://*) ;;
             *)
-              echo "::error::The ${RELEASE_CHANNEL} Author API URL must be configured as HTTPS."
+              echo "::error::The production Author API URL must be configured as HTTPS."
               missing=1
               ;;
           esac
-
           if [ "$missing" -eq 0 ]; then
-            echo "RELEASE_API_URL=$release_api_url" >> "$GITHUB_ENV"
+            echo "RELEASE_API_URL=$PRODUCTION_AUTHOR_API_URL" >> "$GITHUB_ENV"
           fi
           exit "$missing"
+
+      - name: Download the exact CI-built unsigned APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ needs.release-gate.outputs.release-sha }}
+        run: |
+          artifact_name="android-release-unsigned-${RELEASE_SHA}"
+          artifact_dir="$RUNNER_TEMP/android-release-unsigned"
+          ci_run_id="$(scripts/download-workflow-artifact.sh \
+            CI "$RELEASE_SHA" "$artifact_name" "$artifact_dir")"
+          (cd "$artifact_dir" && sha256sum -c author-release-unsigned.apk.sha256)
+          test "$(cat "$artifact_dir/source-tree.txt")" = "$(git rev-parse 'HEAD^{tree}')"
+          unsigned_apk="$artifact_dir/author-release-unsigned.apk"
+          version_name="$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)".*/\1/p' apps/android/app/build.gradle.kts)"
+          version_code="$(sed -n 's/^[[:space:]]*versionCode = \([0-9]*\).*/\1/p' apps/android/app/build.gradle.kts)"
+          aapt="$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort -V | tail -n 1)"
+          badging="$("$aapt" dump badging "$unsigned_apk")"
+          grep -Fq "package: name='com.author' versionCode='${version_code}' versionName='${version_name}'" <<<"$badging"
+          unzip -p "$unsigned_apk" 'classes*.dex' | strings > "$RUNNER_TEMP/android-release-strings.txt"
+          grep -Fq "$RELEASE_API_URL" "$RUNNER_TEMP/android-release-strings.txt"
+          echo "APK_CI_RUN_ID=$ci_run_id" >> "$GITHUB_ENV"
+          echo "UNSIGNED_APK_PATH=$unsigned_apk" >> "$GITHUB_ENV"
 
       - name: Restore release keystore
         env:
           ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
         run: |
-          signing_dir="${RUNNER_TEMP}/android-signing"
-          keystore_path="${signing_dir}/author-release.p12"
+          signing_dir="$RUNNER_TEMP/android-signing"
+          keystore_path="$signing_dir/author-release.p12"
           mkdir -p "$signing_dir"
           printf '%s' "$ANDROID_RELEASE_KEYSTORE_BASE64" | base64 -d > "$keystore_path"
           chmod 600 "$keystore_path"
           echo "ANDROID_RELEASE_KEYSTORE_PATH=$keystore_path" >> "$GITHUB_ENV"
 
-      - name: Build signed release APK
-        working-directory: apps/android
+      - name: Sign the accepted unsigned APK
         env:
-          AUTHOR_API_URL: ${{ env.RELEASE_API_URL }}
           ANDROID_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
           ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
           ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
-        run: ./gradlew :app:lintRelease :app:assembleRelease
+        run: |
+          build_tools="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1 | xargs dirname)"
+          "$build_tools/zipalign" -c -P 16 4 "$UNSIGNED_APK_PATH"
+          signed_apk="$RUNNER_TEMP/app-release.apk"
+          cp "$UNSIGNED_APK_PATH" "$signed_apk"
+          "$build_tools/apksigner" sign \
+            --ks "$ANDROID_RELEASE_KEYSTORE_PATH" \
+            --ks-pass env:ANDROID_RELEASE_KEYSTORE_PASSWORD \
+            --ks-key-alias "$ANDROID_RELEASE_KEY_ALIAS" \
+            --key-pass env:ANDROID_RELEASE_KEY_PASSWORD \
+            "$signed_apk"
+          echo "APK_PATH=$signed_apk" >> "$GITHUB_ENV"
 
       - name: Verify APK signature
         id: verify
         env:
-          APK_PATH: apps/android/app/build/outputs/apk/release/app-release.apk
           ANDROID_RELEASE_CERT_SHA256: ${{ secrets.ANDROID_RELEASE_CERT_SHA256 }}
         run: |
           apksigner="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
@@ -235,15 +245,9 @@ jobs:
 
       - name: Prepare release asset
         id: asset
-        env:
-          APK_PATH: apps/android/app/build/outputs/apk/release/app-release.apk
         run: |
           version_name="$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)".*/\1/p' apps/android/app/build.gradle.kts)"
-          if [ "$RELEASE_CHANNEL" = candidate ]; then
-            release_id="v${version_name}-candidate-$(git rev-parse --short=8 HEAD)"
-          else
-            release_id="v${version_name}-test-$(git rev-parse --short=8 HEAD)"
-          fi
+          release_id="v${version_name}-candidate-$(git rev-parse --short=8 HEAD)"
           asset_path="${RUNNER_TEMP}/author-${release_id}-release-signed.apk"
           cp "$APK_PATH" "$asset_path"
           echo "asset_path=$asset_path" >> "$GITHUB_OUTPUT"
@@ -268,6 +272,7 @@ jobs:
             echo "- Channel: \`${RELEASE_CHANNEL}\`"
             echo "- Commit: \`$(git rev-parse HEAD)\`"
             echo "- Artifact: \`${ASSET_NAME}\`"
+            echo "- Unsigned APK CI run: \`${APK_CI_RUN_ID}\`"
             echo "- APK SHA-256: \`${APK_SHA256}\`"
             echo "- Certificate SHA-256: \`${CERT_SHA256}\`"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -289,11 +294,6 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
-        with:
-          distribution: temurin
-          java-version: 21
-
       - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
         with:
           packages: platform-tools build-tools;36.0.0
@@ -306,40 +306,9 @@ jobs:
           version_name="$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)".*/\1/p' apps/android/app/build.gradle.kts)"
           short_sha="$(git rev-parse --short=8 HEAD)"
           candidate_name="author-v${version_name}-candidate-${short_sha}-release-signed.apk"
-          artifact_dir="${RUNNER_TEMP}/android-candidate"
-          mkdir -p "$artifact_dir"
-
-          candidate_run_id=""
-          mapfile -t candidate_runs < <(
-            gh run list \
-              --workflow "Android Release APK" \
-              --commit "$RELEASE_SHA" \
-              --status success \
-              --limit 20 \
-              --json databaseId \
-              --jq '.[].databaseId'
-          )
-          for run_id in "${candidate_runs[@]}"; do
-            jobs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100")"
-            signed_conclusion="$(
-              jq -r \
-                '[.jobs[] | select(.name == "Signed APK")] | if length == 1 then .[0].conclusion else "" end' \
-                <<<"$jobs"
-            )"
-            [[ "$signed_conclusion" == success ]] || continue
-            rm -rf "${artifact_dir:?}"/*
-            if gh run download "$run_id" \
-              --name "$candidate_name" \
-              --dir "$artifact_dir"; then
-              candidate_run_id="$run_id"
-              break
-            fi
-          done
-          if [ -z "$candidate_run_id" ]; then
-            echo "::error::No successful candidate artifact ${candidate_name} was found for ${RELEASE_SHA}."
-            exit 1
-          fi
-
+          artifact_dir="$RUNNER_TEMP/android-candidate"
+          candidate_run_id="$(scripts/download-workflow-artifact.sh \
+            'Android Release APK' "$RELEASE_SHA" "$candidate_name" "$artifact_dir")"
           candidate_path="${artifact_dir}/${candidate_name}"
           test -f "$candidate_path"
           echo "CANDIDATE_APK_PATH=$candidate_path" >> "$GITHUB_ENV"

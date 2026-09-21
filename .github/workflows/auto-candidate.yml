@@ -1,0 +1,143 @@
+name: Auto Candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Exact main commit to evaluate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auto-candidate-${{ inputs.sha }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  candidate:
+    name: Start accepted candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      actions: write # Dispatch and monitor the gated candidate workflow.
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require the matching exact-main gates
+        id: gates
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ inputs.sha }}
+        run: |
+          current_main="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
+          if [ "$current_main" != "$RELEASE_SHA" ]; then
+            echo "Commit ${RELEASE_SHA} is no longer current main; no candidate is needed."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          ready=false
+          for _ in $(seq 1 90); do
+            if scripts/require-successful-workflow-jobs.sh \
+              "CI" "$RELEASE_SHA" \
+              "Workflow lint" "Web" "Android" "Android Connected" >/dev/null 2>&1 && \
+              scripts/require-successful-workflow-jobs.sh \
+                "Security" "$RELEASE_SHA" \
+                "Secret scan" \
+                "OpenSSF Scorecard" \
+                "CodeQL (javascript-typescript, none)" \
+                "CodeQL (java-kotlin, manual)" >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 10
+          done
+          if [ "$ready" != true ]; then
+            echo "::error::Exact-main CI and Security gates did not become ready."
+            exit 1
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve the unreleased version
+        id: version
+        if: steps.gates.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version_name="$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)".*/\1/p' apps/android/app/build.gradle.kts)"
+          release_tag="v${version_name}"
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${release_tag}" >/dev/null 2>&1; then
+            echo "${release_tag} already exists; no candidate is needed."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          scripts/validate-android-release-version.sh "$release_tag"
+          {
+            echo "skip=false"
+            echo "tag=$release_tag"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Refuse a duplicate candidate
+        id: duplicate
+        if: steps.gates.outputs.skip != 'true' && steps.version.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ inputs.sha }}
+        run: |
+          found=false
+          mapfile -t release_runs < <(
+            gh run list \
+              --workflow Release \
+              --commit "$RELEASE_SHA" \
+              --event workflow_dispatch \
+              --limit 20 \
+              --json databaseId,status \
+              --jq '.[] | "\(.databaseId)\t\(.status)"'
+          )
+          for release_run in "${release_runs[@]}"; do
+            run_id="${release_run%%$'\t'*}"
+            run_status="${release_run#*$'\t'}"
+            if [ "$run_status" != completed ]; then
+              found=true
+              break
+            fi
+            jobs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100")"
+            if jq -e '[.jobs[] | select(
+              (.name == "Candidate container" or
+               .name == "Candidate staging smoke" or
+               .name == "Candidate signed Android APK") and
+              .conclusion == "success"
+            )] | length == 3' <<<"$jobs" >/dev/null; then
+              found=true
+              break
+            fi
+          done
+          echo "found=$found" >> "$GITHUB_OUTPUT"
+          if [ "$found" = true ]; then
+            echo "A candidate run already exists for ${RELEASE_SHA}."
+          fi
+
+      - name: Build and validate the candidate
+        if: >-
+          steps.gates.outputs.skip != 'true' &&
+          steps.version.outputs.skip != 'true' &&
+          steps.duplicate.outputs.found != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ inputs.sha }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          scripts/dispatch-workflow-and-wait.sh \
+            release.yml "$RELEASE_SHA" main \
+            -f phase=candidate \
+            -f tag="$RELEASE_TAG"

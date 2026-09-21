@@ -441,7 +441,13 @@ test.beforeEach(async ({ page, request }, testInfo) => {
   );
 });
 
-test('uploads and removes a profile picture', async ({ page }) => {
+test('uploads and removes a profile picture', async ({ page, request }) => {
+  const nativeAccountUpdate = await request.put('/api/account', {
+    headers: { authorization: `Bearer ${token}` },
+    data: { profileImage: null }
+  });
+  expect(nativeAccountUpdate.ok()).toBe(true);
+
   await page.goto('/');
   await waitForDraftEditorReady(page);
   await openProfileMenu(page);

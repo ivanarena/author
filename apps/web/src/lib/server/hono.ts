@@ -133,7 +133,14 @@ type ApiMetricEntry = {
 
 const apiMetrics = new Map<string, ApiMetricEntry>();
 const METRIC_PATHS = new Set<string>(Object.values(API_PATHS));
-const METRIC_METHODS = new Set(['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS']);
+const METRIC_METHODS = new Set([
+  'GET',
+  'POST',
+  'PATCH',
+  'PUT',
+  'DELETE',
+  'OPTIONS'
+]);
 
 function normalizedMetricMethod(method: string): string {
   const normalized = method.toUpperCase();

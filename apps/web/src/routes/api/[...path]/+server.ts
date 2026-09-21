@@ -12,6 +12,10 @@ export function PATCH({ request, platform }) {
   return api.fetch(request, platform?.env);
 }
 
+export function PUT({ request, platform }) {
+  return api.fetch(request, platform?.env);
+}
+
 export function DELETE({ request, platform }) {
   return api.fetch(request, platform?.env);
 }

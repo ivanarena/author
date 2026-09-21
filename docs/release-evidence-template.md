@@ -76,9 +76,9 @@ Record command, result, timestamp, and notes for failures or accepted skips.
 - Container digest:
 - Cosign verification:
 - SBOM/provenance:
+- Android unsigned CI artifact and checksum:
 - Android production candidate APK artifact:
 - Android candidate upgrade/smoke result:
-- Optional Android staging-test APK result:
 - Android production APK URL:
 - Android APK SHA-256:
 - Android signing verification:

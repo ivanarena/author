@@ -158,8 +158,7 @@ jobs:
         run: |
           scripts/dispatch-workflow-and-wait.sh \
             android-release.yml "$RELEASE_SHA" main \
-            -f channel=candidate \
-            -f ref="$RELEASE_SHA"
+            -f channel=candidate
 
   production:
     name: Promote production Worker
@@ -246,5 +245,4 @@ jobs:
           scripts/dispatch-workflow-and-wait.sh \
             android-release.yml "$RELEASE_SHA" main \
             -f channel=production \
-            -f ref=main \
             -f tag="$RELEASE_TAG"

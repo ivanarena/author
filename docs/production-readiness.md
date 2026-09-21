@@ -64,13 +64,15 @@ Already in place:
   security artifact reviews, backup drills, and artifact traceability.
 - GitHub Actions pinned to immutable SHAs, with Renovate-managed version
   comments.
-- Full-history Gitleaks scanning, CodeQL, OpenSSF Scorecard, Trivy image
-  scanning, SBOM/provenance generation, and Cosign image signing. CodeQL and
-  Scorecard always retain SARIF artifacts and upload findings to GitHub code
-  scanning when the repository is public.
-- Signed Android release automation with separate private staging-test and
-  production-candidate channels. Production promotes the verified candidate
-  bytes only after the exact Cloudflare Deploy run and matching tag exist.
+- Incremental Gitleaks scanning on pull requests and `main`, scheduled and
+  manual full-history scans, CodeQL, OpenSSF Scorecard, Trivy image scanning,
+  SBOM/provenance generation, and Cosign image signing. Security evidence uses
+  bounded artifact retention and uploads findings to GitHub code scanning when
+  the repository is public.
+- Build-once Android release automation: exact-main CI produces the checksummed
+  production-configured unsigned APK, the private candidate gate signs it, and
+  production promotes those verified candidate bytes only after the exact
+  Cloudflare Deploy run and matching tag exist.
 
 Known limits:
 
@@ -137,7 +139,7 @@ Required external blockers:
 - Review CodeQL and OpenSSF Scorecard SARIF artifacts, or code-scanning alerts
   if code scanning is enabled, for the release commit.
 - Clear or explicitly accept remaining Scorecard findings before public release.
-  `main` now enforces the CI aggregator, Android jobs, full-history secret scan,
+  `main` now enforces the CI aggregator, Android jobs, exact-range secret scan,
   and both CodeQL analyses, plus linear history, conversation resolution, and
   no force-push/deletion. Repo-setting/practice findings such as
   independent code-review enforcement, OpenSSF best-practices badge status, fuzzing coverage,
@@ -145,11 +147,12 @@ Required external blockers:
   admin/platform change or a written exception in release notes.
 - Verify the release commit has successful required jobs in `CI`, `Security`,
   and `Remote Staging Smoke`, plus the successful `Publish signed image` Docker
-  job, before manually dispatching `Cloudflare Deploy`. Skipped/no-op jobs do
-  not qualify as release evidence. Verify that production deployment before
-  publishing release notes.
+  job, before manually dispatching `Cloudflare Deploy`. Ordinary skipped jobs
+  do not qualify as release evidence; successful content-identity reuse must
+  include the reviewed-source attestation and checksummed artifact transfer.
+  Verify the production deployment before publishing release notes.
 - Verify Cosign-signed container images and protected Android release keys.
-- Dispatch the private Android `test` channel for staging-only device checks.
+- Use a locally signed debug build for optional staging-only device checks.
   For publication, use the production-configured `candidate` artifact, verify
   its signing certificate and checksum, and install it over the previous
   production APK. The production workflow must promote those exact APK bytes,
@@ -319,13 +322,17 @@ private-test exception. Keep scheduled staging smoke able to run unattended.
    `Security`; review coverage, Gitleaks, CodeQL, Scorecard, and Trivy artifacts.
 4. Merge the reviewed commit to `main`. Production publication/deployment is
    manual, so this does not publish or deploy the candidate. Wait for the
-   exact-commit `CI` and `Security` workflows.
-5. Dispatch `Release` with `phase=candidate` and the proposed version tag. The
-   orchestrator runs Docker scan/sign/publish, isolated staging deploy/smoke,
-   and the private production-configured Android candidate in parallel. CI has
-   already retained the exact Worker bundle. Review the Trivy result, image
-   digest, attestations, signature, staging smoke, APK checksum, and signing
-   certificate.
+   exact-main `CI` and `Security` workflows. A content-identical rebased tree
+   may reuse successful pull-request validation only when automation files were
+   unchanged; the exact main commit still receives required checks and a new
+   secret scan.
+5. `Auto Candidate` dispatches `Release` with `phase=candidate` when the exact
+   main gates are green and the synchronized version has no tag. Use a manual
+   candidate dispatch only to retry or recover automation. The orchestrator
+   runs Docker scan/sign/publish, exact-bundle staging deploy/smoke, and signing
+   of the CI-built production Android APK in parallel. Review the Trivy result,
+   image digest, attestations, signature, staging smoke, APK checksum, and
+   signing certificate.
 6. Complete a managed Turso restore into a separate staging database and run
    `db:check` against it. Test the candidate in supported browsers and on a
    disposable Android device: offline create/edit/reload, encrypted sync,
@@ -333,8 +340,9 @@ private-test exception. Keep scheduled staging smoke able to run unattended.
    rotation and recovery, export/import, trash/cleanup, and foreground/
    background sync. Install the production candidate over the previous
    production-signed APK on disposable data to verify upgrade and SQLCipher
-   migration. Dispatch the Android `test` channel separately when a clean
-   install or network smoke against staging is required.
+   migration. For an optional device smoke against staging, install a local
+   debug build configured with `STAGING_AUTHOR_API_URL`; it is not a releasable
+   or production-signed artifact.
 7. Record a go/no-go decision. On failure, leave production undeployed, fix on a
    new candidate commit, and repeat all exact-commit remote gates.
 8. On acceptance, dispatch `Release` again with `phase=production` and the same
@@ -347,9 +355,11 @@ private-test exception. Keep scheduled staging smoke able to run unattended.
    references before final sign-off. Commit the completed evidence file as
    release documentation; never move the release tag from the tested commit.
 
-Use these dispatch forms after the candidate reaches `main`:
+`Auto Candidate` normally dispatches the first command. Use it manually only
+for recovery; production always remains an explicit decision:
 
 ```sh
+# Recovery/retry only:
 gh workflow run release.yml --ref main \
   -f phase=candidate -f tag=v1.0.22
 # Only after reviewing and accepting the private candidate:

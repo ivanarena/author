@@ -8,7 +8,9 @@ on:
       - main
 
 permissions:
+  actions: read # Verify reviewed checks and transfer exact artifacts.
   contents: read
+  pull-requests: read # Resolve a rebased main commit to its reviewed source.
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -16,11 +18,32 @@ concurrency:
 
 env:
   ACTIONLINT_VERSION: v1.7.12
+  ARTIFACT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   AUBE_VERSION: 1.16.0
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  reviewed-source:
+    name: Resolve reviewed source
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      reusable: ${{ steps.reuse.outputs.reusable }}
+      source-sha: ${{ steps.reuse.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve a content-identical reviewed commit
+        id: reuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/reuse-reviewed-source.sh "$GITHUB_SHA"
+
   workflow-lint:
+    needs: reviewed-source
     name: Workflow lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -33,19 +56,32 @@ jobs:
           persist-credentials: false
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        if: needs.reviewed-source.outputs.reusable != 'true'
         with:
           go-version: stable
           cache: false
 
+      - name: Restore pinned Go tools
+        if: needs.reviewed-source.outputs.reusable != 'true'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: actionlint-${{ runner.os }}-${{ env.ACTIONLINT_VERSION }}
+
       - name: Actionlint
+        if: needs.reviewed-source.outputs.reusable != 'true'
         run: go run "github.com/rhysd/actionlint/cmd/actionlint@${ACTIONLINT_VERSION}"
 
       - name: Release workflow gate regressions
+        if: needs.reviewed-source.outputs.reusable != 'true'
         run: |
           scripts/test-release-workflow-gates.sh
           scripts/test-android-cert-parser.sh
 
       - name: Audit workflows with zizmor
+        if: needs.reviewed-source.outputs.reusable != 'true'
         uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
         with:
           advanced-security: false
@@ -55,18 +91,22 @@ jobs:
 
   web_build:
     name: Web build
+    needs: reviewed-source
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        if: needs.reviewed-source.outputs.reusable != 'true'
         with:
           node-version: 24
 
       - name: Install dependencies
+        if: needs.reviewed-source.outputs.reusable != 'true'
         run: |
           for attempt in 1 2 3; do
             npx -y "@endevco/aube@${AUBE_VERSION}" install --frozen-lockfile && exit 0
@@ -78,48 +118,60 @@ jobs:
           npx -y "@endevco/aube@${AUBE_VERSION}" install --frozen-lockfile
 
       - name: Toolchain check
+        if: needs.reviewed-source.outputs.reusable != 'true'
         run: npx -y "@endevco/aube@${AUBE_VERSION}" run toolchain:check
 
       - name: Dependency graph check
+        if: needs.reviewed-source.outputs.reusable != 'true'
         run: npx -y "@endevco/aube@${AUBE_VERSION}" run deps:check
 
       - name: Dependency audit
+        if: needs.reviewed-source.outputs.reusable != 'true'
         run: |
           npx -y "@endevco/aube@${AUBE_VERSION}" audit --prod
           npx -y "@endevco/aube@${AUBE_VERSION}" audit --audit-level high
 
       - name: Deprecation check
+        if: needs.reviewed-source.outputs.reusable != 'true'
         run: npx -y "@endevco/aube@${AUBE_VERSION}" deprecations --transitive --exit-code
 
       - name: Typecheck
+        if: needs.reviewed-source.outputs.reusable != 'true'
         run: npx -y "@endevco/aube@${AUBE_VERSION}" run check
 
       - name: Format check
+        if: needs.reviewed-source.outputs.reusable != 'true'
         run: npx -y "@endevco/aube@${AUBE_VERSION}" run format:check
 
       - name: Lint
+        if: needs.reviewed-source.outputs.reusable != 'true'
         run: npx -y "@endevco/aube@${AUBE_VERSION}" run lint
 
       # Coverage executes the complete unit/spec suite, so do not run it twice.
       - name: Coverage
+        if: needs.reviewed-source.outputs.reusable != 'true'
         run: npx -y "@endevco/aube@${AUBE_VERSION}" run test:coverage
 
       - name: Upload coverage report
+        if: always() && needs.reviewed-source.outputs.reusable != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always()
         with:
           name: coverage-report
           path: |
             apps/web/coverage
             packages/sync-spec/coverage
+          retention-days: 7
 
       - name: Production build
+        if: needs.reviewed-source.outputs.reusable != 'true'
         run: npx -y "@endevco/aube@${AUBE_VERSION}" run build
 
       - name: Cloudflare Worker build
+        if: needs.reviewed-source.outputs.reusable != 'true'
         run: npx -y "@endevco/aube@${AUBE_VERSION}" -F @author/web run cf:build
 
       - name: Package immutable Cloudflare Worker bundle
+        if: needs.reviewed-source.outputs.reusable != 'true'
         run: |
           code_dir="${RUNNER_TEMP}/cloudflare-worker-code"
           bundle_dir="${RUNNER_TEMP}/cloudflare-worker-bundle"
@@ -143,25 +195,51 @@ jobs:
             cd "$RUNNER_TEMP"
             sha256sum cloudflare-worker.tar.gz > cloudflare-worker.tar.gz.sha256
           )
-          bundle_sha="$(sha256sum "$archive" | cut -d ' ' -f 1)"
+          built_tree="$(git rev-parse 'HEAD^{tree}')"
+          source_tree="$(git rev-parse "${ARTIFACT_SHA}^{tree}")"
+          test "$built_tree" = "$source_tree"
+          printf '%s\n' "$source_tree" > "$RUNNER_TEMP/cloudflare-worker.tree"
+
+      - name: Reuse reviewed Worker bundle
+        if: needs.reviewed-source.outputs.reusable == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.reviewed-source.outputs.source-sha }}
+        run: |
+          artifact_dir="$RUNNER_TEMP/reviewed-worker"
+          run_id="$(scripts/download-workflow-artifact.sh \
+            CI "$SOURCE_SHA" "cloudflare-worker-${SOURCE_SHA}" "$artifact_dir")"
+          (cd "$artifact_dir" && sha256sum -c cloudflare-worker.tar.gz.sha256)
+          expected_tree="$(git rev-parse 'HEAD^{tree}')"
+          test "$(cat "$artifact_dir/cloudflare-worker.tree")" = "$expected_tree"
+          cp "$artifact_dir/cloudflare-worker.tar.gz" "$RUNNER_TEMP/"
+          cp "$artifact_dir/cloudflare-worker.tar.gz.sha256" "$RUNNER_TEMP/"
+          cp "$artifact_dir/cloudflare-worker.tree" "$RUNNER_TEMP/"
+          echo "Reused reviewed Worker artifact from CI run ${run_id}."
+
+      - name: Record Worker artifact identity
+        run: |
+          bundle_sha="$(sha256sum "$RUNNER_TEMP/cloudflare-worker.tar.gz" | cut -d ' ' -f 1)"
           {
             echo '## Cloudflare Worker artifact'
             echo
-            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Source: \`${ARTIFACT_SHA}\`"
             echo "- SHA-256: \`${bundle_sha}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Cloudflare Worker bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cloudflare-worker-${{ github.sha }}
+          name: cloudflare-worker-${{ env.ARTIFACT_SHA }}
           path: |
             ${{ runner.temp }}/cloudflare-worker.tar.gz
             ${{ runner.temp }}/cloudflare-worker.tar.gz.sha256
+            ${{ runner.temp }}/cloudflare-worker.tree
           retention-days: 14
 
   web_e2e:
     name: Web E2E (${{ matrix.project }})
+    needs: reviewed-source
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
@@ -182,10 +260,12 @@ jobs:
           persist-credentials: false
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        if: needs.reviewed-source.outputs.reusable != 'true'
         with:
           node-version: 24
 
       - name: Install dependencies
+        if: needs.reviewed-source.outputs.reusable != 'true'
         run: |
           for attempt in 1 2 3; do
             npx -y "@endevco/aube@${AUBE_VERSION}" install --frozen-lockfile && exit 0
@@ -196,26 +276,36 @@ jobs:
 
           npx -y "@endevco/aube@${AUBE_VERSION}" install --frozen-lockfile
 
+      - name: Restore Playwright browser
+        if: needs.reviewed-source.outputs.reusable != 'true'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ matrix.browser }}-${{ hashFiles('aube-lock.yaml') }}
+
       - name: Install Playwright browser
+        if: needs.reviewed-source.outputs.reusable != 'true'
         env:
           PLAYWRIGHT_BROWSER: ${{ matrix.browser }}
         run: npx -y "@endevco/aube@${AUBE_VERSION}" -F @author/web exec -- playwright install --with-deps "$PLAYWRIGHT_BROWSER"
         timeout-minutes: 20
 
       - name: Browser sync tests
+        if: needs.reviewed-source.outputs.reusable != 'true'
         env:
           PLAYWRIGHT_PROJECT: ${{ matrix.project }}
         run: npx -y "@endevco/aube@${AUBE_VERSION}" -F @author/web exec -- playwright test --project="$PLAYWRIGHT_PROJECT"
         timeout-minutes: 15
 
       - name: Upload browser failure report
+        if: failure() && needs.reviewed-source.outputs.reusable != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: failure()
         with:
           name: playwright-${{ matrix.project }}-report
           path: |
             apps/web/playwright-report
             apps/web/test-results
+          retention-days: 7
 
   web:
     name: Web
@@ -235,6 +325,7 @@ jobs:
 
   android_debug:
     name: Android debug
+    needs: reviewed-source
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -243,61 +334,191 @@ jobs:
           persist-credentials: false
 
       - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        if: needs.reviewed-source.outputs.reusable != 'true'
         with:
           distribution: temurin
           java-version: 21
           cache: gradle
 
+      - name: Restore Android build cache
+        if: needs.reviewed-source.outputs.reusable != 'true'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.gradle/caches/build-cache-1
+          key: gradle-build-${{ runner.os }}-${{ github.job }}-${{ github.sha }}
+          restore-keys: gradle-build-${{ runner.os }}-${{ github.job }}-
+
       - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        if: needs.reviewed-source.outputs.reusable != 'true'
         with:
           packages: platform-tools # Avoid the action's obsolete default `tools` package.
 
       - name: Format check
+        if: needs.reviewed-source.outputs.reusable != 'true'
         run: ./gradlew spotlessCheck
         working-directory: apps/android
 
-      - name: Compile, test, assemble, and lint debug
-        run: ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
+      - name: Test, assemble, and lint debug
+        if: needs.reviewed-source.outputs.reusable != 'true'
+        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
         working-directory: apps/android
 
       - name: Upload Android debug reports
+        if: failure() && needs.reviewed-source.outputs.reusable != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: failure()
         with:
           name: android-debug-reports
           path: apps/android/app/build/reports
+          retention-days: 7
 
   android_release:
     name: Android release validation
+    needs: reviewed-source
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        if: needs.reviewed-source.outputs.reusable != 'true'
         with:
           distribution: temurin
           java-version: 21
           cache: gradle
 
+      - name: Restore Android build cache
+        if: needs.reviewed-source.outputs.reusable != 'true'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.gradle/caches/build-cache-1
+          key: gradle-build-${{ runner.os }}-${{ github.job }}-${{ github.sha }}
+          restore-keys: gradle-build-${{ runner.os }}-${{ github.job }}-
+
       - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        if: needs.reviewed-source.outputs.reusable != 'true'
         with:
           packages: platform-tools # Avoid the action's obsolete default `tools` package.
 
-      - name: Lint and assemble release
+      - name: Lint and assemble release once
+        if: needs.reviewed-source.outputs.reusable != 'true'
         run: ./gradlew :app:lintRelease :app:assembleRelease
         working-directory: apps/android
         env:
-          AUTHOR_API_URL: https://author.example.invalid
+          AUTHOR_API_URL: ${{ vars.AUTHOR_API_URL || 'https://author.ivannn.workers.dev' }}
+
+      - name: Prepare unsigned release artifact
+        if: needs.reviewed-source.outputs.reusable != 'true'
+        run: |
+          source_apk="apps/android/app/build/outputs/apk/release/app-release-unsigned.apk"
+          test -f "$source_apk"
+          artifact_dir="$RUNNER_TEMP/android-release-unsigned"
+          mkdir -p "$artifact_dir"
+          cp "$source_apk" "$artifact_dir/author-release-unsigned.apk"
+          (cd "$artifact_dir" && sha256sum author-release-unsigned.apk > author-release-unsigned.apk.sha256)
+          built_tree="$(git rev-parse 'HEAD^{tree}')"
+          source_tree="$(git rev-parse "${ARTIFACT_SHA}^{tree}")"
+          test "$built_tree" = "$source_tree"
+          printf '%s\n' "$source_tree" > "$artifact_dir/source-tree.txt"
+
+      - name: Reuse reviewed unsigned release artifact
+        if: needs.reviewed-source.outputs.reusable == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.reviewed-source.outputs.source-sha }}
+        run: |
+          artifact_dir="$RUNNER_TEMP/android-release-unsigned"
+          run_id="$(scripts/download-workflow-artifact.sh \
+            CI "$SOURCE_SHA" "android-release-unsigned-${SOURCE_SHA}" "$artifact_dir")"
+          (cd "$artifact_dir" && sha256sum -c author-release-unsigned.apk.sha256)
+          test "$(cat "$artifact_dir/source-tree.txt")" = "$(git rev-parse 'HEAD^{tree}')"
+          echo "Reused reviewed Android release artifact from CI run ${run_id}."
+
+      - name: Upload unsigned release artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-release-unsigned-${{ env.ARTIFACT_SHA }}
+          path: ${{ runner.temp }}/android-release-unsigned
+          retention-days: 14
 
       - name: Upload Android release reports
+        if: failure() && needs.reviewed-source.outputs.reusable != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: failure()
         with:
           name: android-release-reports
           path: apps/android/app/build/reports
+          retention-days: 7
+
+  android_instrumentation:
+    name: Android instrumentation APKs
+    needs: reviewed-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        if: needs.reviewed-source.outputs.reusable != 'true'
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Restore Android build cache
+        if: needs.reviewed-source.outputs.reusable != 'true'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.gradle/caches/build-cache-1
+          key: gradle-build-${{ runner.os }}-${{ github.job }}-${{ github.sha }}
+          restore-keys: gradle-build-${{ runner.os }}-${{ github.job }}-
+
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        if: needs.reviewed-source.outputs.reusable != 'true'
+        with:
+          packages: platform-tools # Avoid the action's obsolete default `tools` package.
+
+      - name: Assemble instrumentation APKs
+        if: needs.reviewed-source.outputs.reusable != 'true'
+        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest
+        working-directory: apps/android
+
+      - name: Prepare instrumentation artifacts
+        if: needs.reviewed-source.outputs.reusable != 'true'
+        run: |
+          artifact_dir="$RUNNER_TEMP/android-instrumentation"
+          mkdir -p "$artifact_dir"
+          cp apps/android/app/build/outputs/apk/debug/app-debug.apk "$artifact_dir/"
+          cp apps/android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk "$artifact_dir/"
+          (cd "$artifact_dir" && sha256sum ./*.apk > checksums.sha256)
+          built_tree="$(git rev-parse 'HEAD^{tree}')"
+          source_tree="$(git rev-parse "${ARTIFACT_SHA}^{tree}")"
+          test "$built_tree" = "$source_tree"
+          printf '%s\n' "$source_tree" > "$artifact_dir/source-tree.txt"
+
+      - name: Reuse reviewed instrumentation artifacts
+        if: needs.reviewed-source.outputs.reusable == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.reviewed-source.outputs.source-sha }}
+        run: |
+          artifact_dir="$RUNNER_TEMP/android-instrumentation"
+          run_id="$(scripts/download-workflow-artifact.sh \
+            CI "$SOURCE_SHA" "android-instrumentation-${SOURCE_SHA}" "$artifact_dir")"
+          (cd "$artifact_dir" && sha256sum -c checksums.sha256)
+          test "$(cat "$artifact_dir/source-tree.txt")" = "$(git rev-parse 'HEAD^{tree}')"
+          echo "Reused reviewed Android instrumentation artifacts from CI run ${run_id}."
+
+      - name: Upload instrumentation APKs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-instrumentation-${{ env.ARTIFACT_SHA }}
+          path: ${{ runner.temp }}/android-instrumentation
+          retention-days: 7
 
   android:
     name: Android
@@ -306,17 +527,24 @@ jobs:
     needs:
       - android_debug
       - android_release
+      - android_instrumentation
     steps:
       - name: Verify Android jobs
         env:
           ANDROID_DEBUG_RESULT: ${{ needs.android_debug.result }}
           ANDROID_RELEASE_RESULT: ${{ needs.android_release.result }}
+          ANDROID_INSTRUMENTATION_RESULT: ${{ needs.android_instrumentation.result }}
         run: |
           test "$ANDROID_DEBUG_RESULT" = success
           test "$ANDROID_RELEASE_RESULT" = success
+          test "$ANDROID_INSTRUMENTATION_RESULT" = success
 
   android-connected:
     name: Android Connected
+    if: always()
+    needs:
+      - reviewed-source
+      - android_instrumentation
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -324,35 +552,50 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+      - name: Require instrumentation APKs
+        env:
+          BUILD_RESULT: ${{ needs.android_instrumentation.result }}
+        run: test "$BUILD_RESULT" = success
+
+      - name: Download instrumentation APKs
+        if: needs.reviewed-source.outputs.reusable != 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          distribution: temurin
-          java-version: 21
-          cache: gradle
+          name: android-instrumentation-${{ env.ARTIFACT_SHA }}
+          path: ${{ runner.temp }}/android-instrumentation
+
+      - name: Verify instrumentation artifacts
+        if: needs.reviewed-source.outputs.reusable != 'true'
+        run: |
+          sha256sum -c checksums.sha256
+          test "$(cat source-tree.txt)" = "$(git -C "$GITHUB_WORKSPACE" rev-parse 'HEAD^{tree}')"
+        working-directory: ${{ runner.temp }}/android-instrumentation
 
       - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        if: needs.reviewed-source.outputs.reusable != 'true'
         with:
           packages: platform-tools # Avoid the action's obsolete default `tools` package.
 
       - name: Enable KVM
+        if: needs.reviewed-source.outputs.reusable != 'true'
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
       - name: Android connected tests
+        if: needs.reviewed-source.outputs.reusable != 'true'
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 35
           arch: x86_64
           disable-animations: true
-          script: cd apps/android && ./gradlew :app:connectedDebugAndroidTest
+          script: scripts/run-android-instrumentation.sh "$RUNNER_TEMP/android-instrumentation/app-debug.apk" "$RUNNER_TEMP/android-instrumentation/app-debug-androidTest.apk" "$RUNNER_TEMP/android-instrumentation.txt"
 
-      - name: Upload connected test reports
+      - name: Upload connected test report
+        if: failure() && needs.reviewed-source.outputs.reusable != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: failure()
         with:
-          name: android-connected-reports
-          path: |
-            apps/android/app/build/reports
-            apps/android/app/build/outputs/androidTest-results
+          name: android-connected-report
+          path: ${{ runner.temp }}/android-instrumentation.txt
+          retention-days: 7

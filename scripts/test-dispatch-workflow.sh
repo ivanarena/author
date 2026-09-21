@@ -39,8 +39,7 @@ export GITHUB_STEP_SUMMARY="$temp_dir/summary"
 
 "$repo_root/scripts/dispatch-workflow-and-wait.sh" \
   android-release.yml candidate-sha main \
-  -f channel=test \
-  -f ref=candidate-sha
+  -f channel=candidate
 
 grep -Fxq 'run_id=456' "$GITHUB_OUTPUT"
 grep -Fxq 'run_url=https://example.invalid/actions/runs/456' "$GITHUB_OUTPUT"

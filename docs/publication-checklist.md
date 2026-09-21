@@ -64,8 +64,9 @@ does not prove that a deployment or binary release is production-ready.
       `android`.
 - [x] Keep `main` protected: require the applicable CI and Security checks,
       linear history, resolved conversations, and no force-push or deletion.
-      Protection includes the Web aggregator, Android jobs, full-history secret
-      scan, and both CodeQL analyses rather than only the build/test workflow.
+      Protection includes the Web aggregator, Android jobs, exact-range secret
+      scan, and both CodeQL analyses rather than only the build/test workflow;
+      scheduled and manual Security runs still scan complete history.
 - [ ] Enable private vulnerability reporting and keep the
       [security advisory form](https://github.com/ivanarena/author/security/advisories/new)
       reachable.

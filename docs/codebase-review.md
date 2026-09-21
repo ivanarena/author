@@ -151,8 +151,9 @@ The post-review working tree addresses them as follows:
   Gradle/certificate verification, consistent operator backups, cursor-stable
   change compaction, stale-device/auth pruning, and reusable modal focus
   isolation were added.
-- L-01 through L-06: Android uses `FLAG_SECURE`, cleanup metrics were added,
-  diagnostic fields are redacted and tested, Android lint is clean, focused
+- L-01 through L-06: Android intentionally permits user-initiated screenshots while
+  app lock still activates on stop, cleanup metrics were added, diagnostic fields
+  are redacted and tested, Android lint is clean, focused
   race/migration/storage tests and Firefox E2E were added, and all identified
   documentation/configuration drift was corrected, and the release gate now
   rejects active Node or Aube versions that do not match the repository's pinned
@@ -766,11 +767,10 @@ scan.
 
 ### L-01: Android screenshot/task-switcher privacy is not hardened
 
-No `FLAG_SECURE` or equivalent policy is present in `MainActivity.kt` or the
-manifest. App lock activates on stop, but the system may still capture the note
-surface for screenshots or recents. Decide whether this should be always on or
-a privacy setting; at minimum obscure the recents surface when app lock is
-enabled.
+Author intentionally does not set `FLAG_SECURE` so users can capture screenshots.
+App lock activates on stop, but the system may still capture the note surface for
+recents. This is an explicit product tradeoff; a future privacy setting could
+separately obscure recents without blocking user-initiated screenshots.
 
 ### L-02: Cleanup observability and metric disclosure policy are incomplete
 

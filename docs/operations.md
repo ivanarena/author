@@ -1,11 +1,11 @@
 # Operations
 
-Start with [Self-Hosting Author](self-hosting.md) for a first Docker/SQLite
+Start with [Self-Hosting author](self-hosting.md) for a first Docker/SQLite
 installation. This document covers ongoing operation and failure handling.
 
 A self-hosted operator is responsible for TLS, account policy, legal notices,
 backups, monitoring, incident response, and the availability of the chosen
-infrastructure. Author's built-in privacy and terms pages describe the upstream
+infrastructure. author's built-in privacy and terms pages describe the upstream
 project's data model; they are not automatically a complete policy for a
 third-party service offered to other users.
 

@@ -1,6 +1,6 @@
-# Contributing to Author
+# Contributing to author
 
-Thank you for helping improve Author. The project intentionally stays small: a
+Thank you for helping improve author. The project intentionally stays small: a
 plain-text, offline-first notes app with explicit, conflict-safe sync.
 
 ## Before Opening a Change
@@ -44,7 +44,8 @@ and [docs/setup.md](docs/setup.md).
 - Keep local-only sync metadata out of API contracts.
 - Preserve keyboard and screen-reader access for note actions and settings.
 - Do not include secrets, production data, private notes, recovery material, or
-  customer information in code, fixtures, screenshots, issues, or logs.
+  customer information in code, fixtures, screenshots, issues, or logs. Use
+  synthetic content or material explicitly approved for public display.
 - Keep changes focused; avoid unrelated formatting or refactors.
 
 Read [docs/sync-protocol.md](docs/sync-protocol.md) and
@@ -71,8 +72,7 @@ run connected instrumentation when an emulator or device is available:
 aube run android:verify:connected
 ```
 
-Release-affecting changes should follow
-[docs/production-readiness.md](docs/production-readiness.md).
+Run `aube run release:verify` for release-affecting changes.
 
 ## Pull Requests
 

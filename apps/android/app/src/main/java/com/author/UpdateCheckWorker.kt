@@ -93,7 +93,7 @@ class UpdateCheckWorker(appContext: Context, params: WorkerParameters) :
         connectTimeout = 15_000
         readTimeout = 15_000
         setRequestProperty("accept", "text/html,application/json,text/plain,*/*")
-        setRequestProperty("user-agent", "AuthorAndroid/${BuildConfig.VERSION_NAME}")
+        setRequestProperty("user-agent", "authorAndroid/${BuildConfig.VERSION_NAME}")
       }
 
     try {
@@ -405,7 +405,7 @@ private fun normalizeVersionName(value: String): String = stripKnownVersionPrefi
 
 private fun stripKnownVersionPrefixes(value: String): String {
   var normalized = value.trim()
-  val prefixes = listOf("author-android-", "android-", "Author Android ", "v")
+  val prefixes = listOf("author-android-", "android-", "author Android ", "v")
   var changed = true
   while (changed) {
     changed = false

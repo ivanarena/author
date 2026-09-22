@@ -28,7 +28,7 @@
       <dd>
         <strong>Automatic</strong>
         <small
-          >The latest deployed version loads when Author is refreshed.</small
+          >The latest deployed version loads when author is refreshed.</small
         >
       </dd>
     </div>

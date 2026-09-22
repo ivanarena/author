@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-  <string name="app_name">Author</string>
+  <string name="app_name">author</string>
   <string name="update_notification_channel_name">App updates</string>
-  <string name="update_notification_channel_description">Notifications when a newer Author APK is available.</string>
-  <string name="update_notification_title">New Author APK available</string>
+  <string name="update_notification_channel_description">Notifications when a newer author APK is available.</string>
+  <string name="update_notification_title">New author APK available</string>
   <string name="update_notification_body">Version %1$s is ready to install.</string>
   <string name="update_download_chooser_title">Open update download</string>
 </resources>

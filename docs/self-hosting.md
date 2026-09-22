@@ -1,10 +1,10 @@
-# Self-Hosting Author
+# Self-Hosting author
 
-This guide is for a single-user or small trusted deployment of Author with
-Docker Compose and local SQLite. Author is local-first: browser and Android
+This guide is for a single-user or small trusted deployment of author with
+Docker Compose and local SQLite. author is local-first: browser and Android
 clients write locally before they sync to this server.
 
-Author is not a turnkey public SaaS. If you offer accounts to other people, you
+author is not a turnkey public SaaS. If you offer accounts to other people, you
 become the service operator and are responsible for access policy, privacy and
 terms, abuse handling, backups, monitoring, and applicable law.
 
@@ -13,7 +13,7 @@ terms, abuse handling, backups, monitoring, and applicable law.
 - A Linux host with Docker Engine and Docker Compose v2
 - A domain name and HTTPS reverse proxy for access outside the host
 - Persistent storage with a separate backup destination
-- A tagged Author release from
+- A tagged author release from
   [GitHub Releases](https://github.com/ivanarena/author/releases)
 
 Do not deploy a moving development branch as production. Check out the release
@@ -96,7 +96,7 @@ in separate secure locations.
 
 ## 4. Add HTTPS
 
-Keep Author bound to localhost or a private container network and terminate TLS
+Keep author bound to localhost or a private container network and terminate TLS
 with Caddy, Nginx, or another trusted reverse proxy.
 
 Caddy example:
@@ -161,12 +161,12 @@ docker compose up -d
 curl --fail http://127.0.0.1:3000/api/health
 ```
 
-Do not run two Author processes against the same SQLite file. Local write and
+Do not run two author processes against the same SQLite file. Local write and
 remote-mirror serialization is process-local.
 
 ## Android
 
-A published Android APK must be built for your HTTPS Author API URL and signed
+A published Android APK must be built for your HTTPS author API URL and signed
 with a key you control. The upstream APK, when available, targets the upstream
 configured service and is not automatically suitable for a fork or another
 self-hosted domain. See the [Android README](../apps/android/README.md).
@@ -181,11 +181,11 @@ self-hosted domain. See the [Android README](../apps/android/README.md).
 
 ## Security Boundaries
 
-Author encrypts note titles, bodies, notebook names, and account keyrings before
+author encrypts note titles, bodies, notebook names, and account keyrings before
 sync. It does not hide all metadata, and hosted web JavaScript can access
 plaintext while the app is running. There has been no independent security
 audit. Read [SECURITY.md](../SECURITY.md) and the in-app security model before
-using Author for sensitive or critical records.
+using author for sensitive or critical records.
 
 ## Troubleshooting
 

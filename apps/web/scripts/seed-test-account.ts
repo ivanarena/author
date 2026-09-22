@@ -17,7 +17,7 @@ import {
 import { pushChanges, upsertDevice } from '../src/lib/server/repository';
 
 const DEFAULT_USERNAME = 'author-test';
-const DEFAULT_PASSWORD = 'AuthorTest!2026';
+const DEFAULT_PASSWORD = 'authorTest!2026';
 const DEFAULT_EMAIL = 'author-test@example.local';
 
 function usage(): never {

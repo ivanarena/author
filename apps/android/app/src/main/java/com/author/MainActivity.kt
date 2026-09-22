@@ -24,7 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.author.core.NotesRepository
-import com.author.ui.app.AuthorApp
+import com.author.ui.app.NotesApp
 import com.author.ui.state.NotesController
 
 class MainActivity : ComponentActivity() {
@@ -83,7 +83,7 @@ class MainActivity : ComponentActivity() {
           horizontalAlignment = Alignment.Start,
         ) {
           Text(
-            "Author could not unlock secure local storage",
+            "author could not unlock secure local storage",
             style = MaterialTheme.typography.titleLarge,
           )
           Text(
@@ -96,7 +96,7 @@ class MainActivity : ComponentActivity() {
 
       controller = notesController
       LaunchedEffect(Unit) { notesController.initialize() }
-      AuthorApp(
+      NotesApp(
         controller = notesController,
         onExport = { notebookIds ->
           notesController.prepareMarkdownExport(notebookIds) { exportLauncher.launch(it) }
@@ -148,7 +148,7 @@ class MainActivity : ComponentActivity() {
     }
     val intent =
       keyguard.createConfirmDeviceCredentialIntent(
-        "Unlock Author",
+        "Unlock author",
         "Use this device's screen lock to reopen notes.",
       )
     if (intent == null) {

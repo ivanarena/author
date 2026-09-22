@@ -15,7 +15,7 @@
 </script>
 
 <svelte:head>
-  <title>Author</title>
+  <title>author</title>
 </svelte:head>
 
 <svelte:window

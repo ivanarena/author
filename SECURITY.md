@@ -1,12 +1,12 @@
 # Security Policy
 
-Author is an offline-first personal notes app. It encrypts note fields before
+author is an offline-first personal notes app. It encrypts note fields before
 sync so routine server storage does not need plaintext note titles or bodies,
 but it is not designed or marketed as a hardened zero-knowledge system.
 
 ## Security Claims
 
-Current supported claim: Author encrypts synced note fields and account keyrings
+Current supported claim: author encrypts synced note fields and account keyrings
 on the client, supports recovery-kit, operator recovery, and encrypted local
 previous-version recovery flows, and keeps sync conflict handling explicit.
 
@@ -22,7 +22,7 @@ Please report security issues privately to the project maintainer instead of
 opening a public issue. Include reproduction steps, affected commit or release,
 and whether the issue affects web, server, Android, or sync. Operators of forks
 should also notify their own users and upstream a report when the issue applies
-to Author itself.
+to author itself.
 
 Preferred channel:
 
@@ -53,7 +53,7 @@ Supported surface:
   receiving fixes.
 - Security reports about generated dependency code, Gradle wrapper binaries, or
   platform services should include the upstream version and why the issue is
-  reachable from Author.
+  reachable from author.
 
 ## Current Threat Model
 
@@ -74,10 +74,10 @@ Supported surface:
 
 ## Hardening Checklist
 
-- Run the commands in `docs/production-readiness.md` before release.
+- Run `aube run release:verify` before release.
 - Deploy immutable tagged releases rather than a moving development branch.
-- Scan complete Git history with the Gitleaks command in
-  `docs/publication-checklist.md` before making any fork or repository public.
+- Scan complete Git history before making any fork or repository public:
+  `go run github.com/zricethezav/gitleaks/v8@v8.30.0 git --log-opts="--all" --redact --verbose .`
 - Use HTTPS in production.
 - Keep `NOTES_SERVER_SECRET` stable and private across restores.
 - Back up and restore-test SQLite/libSQL data before upgrades.

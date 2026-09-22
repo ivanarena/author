@@ -46,7 +46,7 @@ import com.author.BuildConfig
 import com.author.core.LocalNote
 import com.author.core.NotesRepository
 import com.author.core.prepareProfileImage
-import com.author.ui.app.AuthorApp
+import com.author.ui.app.NotesApp
 import com.author.ui.state.NotesController
 import com.author.ui.state.visibleNotes
 import java.io.File
@@ -62,7 +62,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
-class AuthorAppInstrumentedTest {
+class NotesAppInstrumentedTest {
   private companion object {
     const val SAVE_DELAY_ADVANCE_MS = 250L
     const val SAVE_TIMEOUT_MS = 15_000L
@@ -97,7 +97,7 @@ class AuthorAppInstrumentedTest {
       val controller = remember { NotesController(repository, scope) }
 
       LaunchedEffect(Unit) { controller.initialize() }
-      AuthorApp(controller = controller, onExport = {}, onImport = {})
+      NotesApp(controller = controller, onExport = {}, onImport = {})
     }
 
     compose.onNodeWithTag("note-title-field").assertIsDisplayed().performTextInput(title)
@@ -124,7 +124,7 @@ class AuthorAppInstrumentedTest {
       val controller = remember { NotesController(repository, scope) }
 
       LaunchedEffect(Unit) { controller.initialize() }
-      AuthorApp(controller = controller, onExport = {}, onImport = {})
+      NotesApp(controller = controller, onExport = {}, onImport = {})
     }
 
     var expectedTitle = ""
@@ -158,7 +158,7 @@ class AuthorAppInstrumentedTest {
       val controller = remember { NotesController(repository, scope) }
 
       LaunchedEffect(Unit) { controller.initialize() }
-      AuthorApp(controller = controller, onExport = {}, onImport = {})
+      NotesApp(controller = controller, onExport = {}, onImport = {})
     }
 
     compose.onNodeWithTag("note-body-field").assertIsDisplayed().performTextInput(body)
@@ -186,7 +186,7 @@ class AuthorAppInstrumentedTest {
         }
       }
 
-      AuthorApp(controller = controller, onExport = {}, onImport = {})
+      NotesApp(controller = controller, onExport = {}, onImport = {})
     }
 
     compose.onNodeWithTag("note-body-field").assertIsDisplayed().performTouchInput { swipeUp() }
@@ -226,7 +226,7 @@ class AuthorAppInstrumentedTest {
         }
       }
 
-      AuthorApp(controller = controller, onExport = {}, onImport = {})
+      NotesApp(controller = controller, onExport = {}, onImport = {})
     }
 
     val pendingBody = "Saved while swiping"
@@ -267,7 +267,7 @@ class AuthorAppInstrumentedTest {
         }
       }
 
-      AuthorApp(
+      NotesApp(
         controller = controller,
         onExport = {},
         onImport = {},
@@ -275,7 +275,7 @@ class AuthorAppInstrumentedTest {
       )
     }
 
-    compose.onNodeWithText("Author locked").assertIsDisplayed()
+    compose.onNodeWithText("author locked").assertIsDisplayed()
     compose.onNodeWithText("Unlock").assertIsDisplayed().performClick()
 
     compose.waitForIdle()
@@ -294,7 +294,7 @@ class AuthorAppInstrumentedTest {
       controller = remember { NotesController(repository, scope).also { it.currentPage = "notes" } }
 
       LaunchedEffect(Unit) { controller.initialize() }
-      AuthorApp(controller = controller, onExport = {}, onImport = {})
+      NotesApp(controller = controller, onExport = {}, onImport = {})
     }
 
     compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
@@ -359,7 +359,7 @@ class AuthorAppInstrumentedTest {
       }
 
       LaunchedEffect(Unit) { controller.initialize() }
-      AuthorApp(
+      NotesApp(
         controller = controller,
         onExport = { notebookIds ->
           exportedNotebookIds.set(notebookIds.orEmpty())
@@ -392,7 +392,7 @@ class AuthorAppInstrumentedTest {
         }
       }
 
-      AuthorApp(controller = controller, onExport = {}, onImport = {})
+      NotesApp(controller = controller, onExport = {}, onImport = {})
     }
 
     compose.onNodeWithText("About").assertIsDisplayed().performClick()
@@ -422,7 +422,7 @@ class AuthorAppInstrumentedTest {
         }
       }
 
-      AuthorApp(controller = controller, onExport = {}, onImport = {})
+      NotesApp(controller = controller, onExport = {}, onImport = {})
     }
 
     compose.onNodeWithText("Current password").assertIsDisplayed()
@@ -457,7 +457,7 @@ class AuthorAppInstrumentedTest {
         }
       }
 
-      AuthorApp(controller = controller, onExport = {}, onImport = {})
+      NotesApp(controller = controller, onExport = {}, onImport = {})
     }
 
     compose.onNodeWithText("Search notes").assertIsDisplayed()
@@ -519,7 +519,7 @@ class AuthorAppInstrumentedTest {
         }
       }
 
-      AuthorApp(controller = controller, onExport = {}, onImport = {})
+      NotesApp(controller = controller, onExport = {}, onImport = {})
     }
 
     val notebooksLeft =
@@ -549,7 +549,7 @@ class AuthorAppInstrumentedTest {
         }
       }
 
-      AuthorApp(
+      NotesApp(
         controller = controller,
         onExport = {},
         onImport = {},
@@ -577,7 +577,7 @@ class AuthorAppInstrumentedTest {
         }
       }
 
-      AuthorApp(controller = controller, onExport = {}, onImport = {})
+      NotesApp(controller = controller, onExport = {}, onImport = {})
     }
 
     compose.onNodeWithText("Clear diagnostic log").performScrollTo().assertIsDisplayed()
@@ -608,7 +608,7 @@ class AuthorAppInstrumentedTest {
       }
 
       LaunchedEffect(Unit) { controller.initialize() }
-      AuthorApp(controller = controller, onExport = {}, onImport = {})
+      NotesApp(controller = controller, onExport = {}, onImport = {})
     }
 
     compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
@@ -651,7 +651,7 @@ class AuthorAppInstrumentedTest {
       }
 
       LaunchedEffect(Unit) { controller.initialize() }
-      AuthorApp(controller = controller, onExport = {}, onImport = {})
+      NotesApp(controller = controller, onExport = {}, onImport = {})
     }
 
     waitUntilContentDescriptionDisplayed("Selected note is in Ideas")
@@ -676,7 +676,7 @@ class AuthorAppInstrumentedTest {
         }
       }
 
-      AuthorApp(controller = controller, onExport = {}, onImport = {})
+      NotesApp(controller = controller, onExport = {}, onImport = {})
     }
 
     compose.onNodeWithContentDescription("Note actions").assertIsDisplayed().performClick()
@@ -710,7 +710,7 @@ class AuthorAppInstrumentedTest {
         }
       }
 
-      AuthorApp(controller = controller, onExport = {}, onImport = {})
+      NotesApp(controller = controller, onExport = {}, onImport = {})
     }
 
     compose.onNodeWithContentDescription("Note actions").assertIsDisplayed().performClick()
@@ -748,7 +748,7 @@ class AuthorAppInstrumentedTest {
       controller = remember { NotesController(repository, scope).also { it.currentPage = "notes" } }
 
       LaunchedEffect(Unit) { controller.initialize() }
-      AuthorApp(controller = controller, onExport = {}, onImport = {})
+      NotesApp(controller = controller, onExport = {}, onImport = {})
     }
 
     compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
@@ -782,7 +782,7 @@ class AuthorAppInstrumentedTest {
         }
       }
 
-      AuthorApp(
+      NotesApp(
         controller = controller,
         onExport = {},
         onSaveRecoveryKit = {

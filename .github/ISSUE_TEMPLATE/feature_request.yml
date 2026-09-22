@@ -1,5 +1,5 @@
 name: Feature proposal
-description: Propose a focused improvement within Author's product scope
+description: Propose a focused improvement within author's product scope
 title: '[Proposal]: '
 labels:
   - enhancement
@@ -7,7 +7,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Author intentionally stays a plain-text, offline-first notes app. Blocks, rich-text storage, Markdown rendering, public sharing, and collaboration are out of scope unless the project direction changes explicitly.
+        author intentionally stays a plain-text, offline-first notes app. Blocks, rich-text storage, Markdown rendering, public sharing, and collaboration are out of scope unless the project direction changes explicitly.
   - type: textarea
     id: problem
     attributes:

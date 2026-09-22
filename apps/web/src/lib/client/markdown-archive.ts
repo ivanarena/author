@@ -312,20 +312,6 @@ function formatPortableDate(value: string): string {
   return Number.isNaN(date.getTime()) ? '' : date.toISOString();
 }
 
-/** @deprecated Retained for importing older Author archives. */
-export function formatMarkdownDate(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-
-  const day = pad(date.getDate());
-  const month = pad(date.getMonth() + 1);
-  const year = date.getFullYear();
-  const hour24 = date.getHours();
-  const hour12 = hour24 % 12 || 12;
-  const suffix = hour24 >= 12 ? 'PM' : 'AM';
-  return `${day}-${month}-${year} ${pad(hour12)}:${pad(date.getMinutes())} ${suffix}`;
-}
-
 function splitFrontmatter(content: string): {
   frontmatter: Map<string, string>;
   body: string;
@@ -529,10 +515,6 @@ function escapeYamlString(value: string): string {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function pad(value: number): string {
-  return value.toString().padStart(2, '0');
 }
 
 function zipLocalFileHeader(

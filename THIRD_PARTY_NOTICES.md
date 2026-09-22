@@ -1,9 +1,9 @@
 # Third-Party Notices
 
-Author's original source code is distributed under the
+author's original source code is distributed under the
 [MIT License](LICENSE). Project-owned artwork is recorded in
 [ASSET_PROVENANCE.md](ASSET_PROVENANCE.md); the MIT License does not grant rights
-to third-party assets. Author also depends on third-party software and fonts
+to third-party assets. author also depends on third-party software and fonts
 that remain under their respective licenses.
 
 This file is a practical notice for source users and redistributors, not a

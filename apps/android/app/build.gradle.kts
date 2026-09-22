@@ -102,7 +102,7 @@ val releaseSigningConfigured =
   }
 
 require(!defaultApiBaseUrl.startsWith("libsql://")) {
-  "The Android sync API URL must be the Author HTTP API URL, not TURSO_DATABASE_URL. Use AUTHOR_API_URL or ANDROID_SYNC_API_URL. Keep Turso credentials server-side."
+  "The Android sync API URL must be the author HTTP API URL, not TURSO_DATABASE_URL. Use AUTHOR_API_URL or ANDROID_SYNC_API_URL. Keep Turso credentials server-side."
 }
 
 require(defaultApiBaseUrl.startsWith("http://") || defaultApiBaseUrl.startsWith("https://")) {
@@ -134,7 +134,7 @@ if (releaseBuildRequested) {
     "Release Android builds require AUTHOR_API_URL or ANDROID_SYNC_API_URL."
   }
   require(defaultApiBaseUrl.startsWith("https://")) {
-    "Release Android builds require an https:// Author API URL. Use debug builds for local http:// emulator sync."
+    "Release Android builds require an https:// author API URL. Use debug builds for local http:// emulator sync."
   }
   require(androidUpdateCheckUrl.startsWith("https://")) {
     "Release Android builds require an https:// update check URL."

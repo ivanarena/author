@@ -1,6 +1,6 @@
 # Agent Guidelines
 
-Author is a minimal offline-first notes app. Keep changes small, boring, and aligned with the existing architecture.
+author is a minimal offline-first notes app. Keep changes small, boring, and aligned with the existing architecture.
 
 ## Core Intent
 
@@ -51,7 +51,7 @@ Use this skill when editing `apps/android`.
 
 Use this skill when editing Docker, Cloudflare, Turso/libSQL, auth, or cleanup behavior.
 
-- Check `docs/setup.md`, `docs/operations.md`, and `docs/production-readiness.md`.
+- Check `docs/setup.md` and `docs/operations.md`.
 - Do not expose secrets through public config, metrics, logs, or client bundles.
 - Self-hosted local SQLite may mirror to Turso; Cloudflare Workers use Turso directly. Keep that distinction intact.
 - Account mutations should sync remote state first when remote sync is enabled.
@@ -86,5 +86,5 @@ Update docs when changing:
 
 - sync behavior: `docs/sync-protocol.md` or `docs/conflict-handling.md`
 - persistence schema: `docs/database-schema.md`
-- deployment, auth, or runtime config: `docs/setup.md`, `docs/operations.md`, or `docs/production-readiness.md`
+- deployment, auth, or runtime config: `docs/setup.md` or `docs/operations.md`
 - package-manager workflow: `docs/package-manager.md`

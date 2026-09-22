@@ -46,7 +46,7 @@ class UpdateCheckWorkerTest {
         """
         {
           "tag_name": "android-v1.1",
-          "name": "Author Android 1.1",
+          "name": "author Android 1.1",
           "html_url": "https://github.com/ivanarena/author/releases/tag/android-v1.1",
           "assets": [
             {

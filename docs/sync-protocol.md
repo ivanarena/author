@@ -54,7 +54,7 @@ material to session-only storage; after a browser restart the user must sign in
 again before encrypted notes can sync or decrypt. Unsigned local-only browsers
 generate random local key material in `localStorage` so offline drafts still work
 without an account. This avoids storing note plaintext remotely by default, but
-Author is intentionally not a hardened zero-knowledge system: account recovery
+author is intentionally not a hardened zero-knowledge system: account recovery
 and offline usability are allowed to take priority over making every server or
 browser compromise unrecoverable.
 Account authentication also runs Argon2id on the client, using a separate

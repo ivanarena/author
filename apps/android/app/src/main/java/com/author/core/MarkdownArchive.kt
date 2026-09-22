@@ -155,15 +155,6 @@ fun writeMarkdownZip(
   return "$rootName.zip"
 }
 
-fun buildMarkdownZip(
-  notes: List<LocalNote>,
-  notebooks: List<LocalNotebook>,
-): Pair<String, ByteArray> {
-  val output = ByteArrayOutputStream()
-  val fileName = writeMarkdownZip(notes, notebooks, output)
-  return fileName to output.toByteArray()
-}
-
 fun markdownNoteContent(
   note: LocalNote,
   title: String,
@@ -190,25 +181,6 @@ fun markdownNoteContent(
 
 private fun portableMarkdownDate(value: String): String =
   runCatching { Instant.parse(value).toString() }.getOrDefault("")
-
-fun formatMarkdownDate(value: String): String =
-  runCatching {
-      val instant = Instant.parse(value)
-      val date = java.time.LocalDateTime.ofInstant(instant, ZoneId.systemDefault())
-      val suffix = if (date.hour >= 12) "PM" else "AM"
-      val hour12 = date.hour % 12
-      "%02d-%02d-%04d %02d:%02d %s"
-        .format(
-          Locale.US,
-          date.dayOfMonth,
-          date.monthValue,
-          date.year,
-          if (hour12 == 0) 12 else hour12,
-          date.minute,
-          suffix,
-        )
-    }
-    .getOrDefault("")
 
 private fun parseNotebookNames(value: String?): List<String> {
   if (value.isNullOrBlank()) return emptyList()

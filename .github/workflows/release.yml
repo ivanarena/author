@@ -210,7 +210,7 @@ jobs:
           tag_object="$(
             gh api --method POST "repos/${GITHUB_REPOSITORY}/git/tags" \
               -f tag="$RELEASE_TAG" \
-              -f message="Author ${RELEASE_TAG}" \
+              -f message="author ${RELEASE_TAG}" \
               -f object="$RELEASE_SHA" \
               -f type=commit \
               --jq .sha

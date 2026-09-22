@@ -548,7 +548,7 @@ private fun ProfileImageSettings(controller: NotesController, onPickProfileImage
   ) {
     ProfileAvatar(controller.accountProfileImage, size = 112.dp)
     Text(
-      "Profile pictures are visible to the Author server operator.",
+      "Profile pictures are visible to the author server operator.",
       color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
       fontSize = AppTextSize.Label,
     )
@@ -750,7 +750,7 @@ private fun SyncSettings(controller: NotesController) {
         serverApiDetail(controller),
       )
       InfoTile("Remote database", remoteDatabaseValue(controller), remoteDatabaseDetail(controller))
-      MiniField(controller.apiBaseUrl, "Author API URL", Modifier.fillMaxWidth()) {
+      MiniField(controller.apiBaseUrl, "author API URL", Modifier.fillMaxWidth()) {
         controller.apiBaseUrl = it
       }
       ActionRow(Icons.Outlined.Check, "Save API URL") { controller.saveApiBaseUrl() }
@@ -827,7 +827,7 @@ private fun AboutSettings(controller: NotesController) {
       ActionRow(Icons.Outlined.Info, "Source code", detail = "GitHub repository") {
         runCatching { uriHandler.openUri(SOURCE_URL) }
       }
-      ActionRow(Icons.Outlined.Info, "MIT License", detail = "Author project license") {
+      ActionRow(Icons.Outlined.Info, "MIT License", detail = "author project license") {
         runCatching { uriHandler.openUri(LICENSE_URL) }
       }
       ActionRow(
@@ -941,7 +941,7 @@ private fun buildApiDetail(): String =
 
 private fun serverApiDetail(controller: NotesController): String =
   controller.serverConfigError.ifBlank {
-    "Reported by the Author API. Database credentials stay on the server."
+    "Reported by the author API. Database credentials stay on the server."
   }
 
 private fun remoteDatabaseValue(controller: NotesController): String =

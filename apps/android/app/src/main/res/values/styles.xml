@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-  <style name="Theme.Author" parent="android:style/Theme.Material.Light.NoActionBar">
+  <style name="Theme.author" parent="android:style/Theme.Material.Light.NoActionBar">
     <item name="android:fontFamily">@font/dm_sans</item>
     <item name="android:windowActionBar">false</item>
     <item name="android:windowNoTitle">true</item>
@@ -9,5 +9,5 @@
     <item name="android:statusBarColor">@android:color/transparent</item>
   </style>
 
-  <style name="Theme.Author.NoDisplay" parent="android:style/Theme.NoDisplay" />
+  <style name="Theme.author.NoDisplay" parent="android:style/Theme.NoDisplay" />
 </resources>

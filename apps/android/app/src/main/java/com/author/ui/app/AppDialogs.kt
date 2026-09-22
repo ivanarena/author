@@ -273,7 +273,7 @@ internal fun SignupRecoveryDialog(controller: NotesController, onSaveRecoveryKit
       scope.launch {
         clipboard.setClipEntry(
           ClipEntry(
-            ClipData.newPlainText("Author recovery key", controller.signupRecoveryCodeValue)
+            ClipData.newPlainText("author recovery key", controller.signupRecoveryCodeValue)
           )
         )
         controller.signupRecoveryMessage = "Recovery key copied"

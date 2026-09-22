@@ -12,10 +12,10 @@ packages/
   api-types/    Request and response payloads
   sync-spec/    Sync rules, conflict helpers, cursor helpers, retention helpers
   test-fixtures/ deterministic seed/test data
-docs/           Architecture, self-hosting, operations, protocol, and release notes
+docs/           Architecture, self-hosting, operations, and protocol guidance
 .github/        CI, issue/PR templates, Docker, Cloudflare, Android release,
                 staging, and security flows
-scripts/        Release evidence, Docker verification, Android version checks
+scripts/        Deployment verification, workflow gates, and Android checks
 ```
 
 The v1 backend is a Hono app in `apps/web/src/lib/server/hono.ts`. SvelteKit owns the web app and forwards `/api/*` requests to Hono through `apps/web/src/routes/api/[...path]/+server.ts`.

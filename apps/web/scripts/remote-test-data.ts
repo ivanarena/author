@@ -60,7 +60,7 @@ export async function seedRemoteTestAccount(
   const now = new Date().toISOString();
   const device: Device = {
     id: REMOTE_TEST_DEVICE_ID,
-    name: 'Author remote staging seed'
+    name: 'author remote staging seed'
   };
   const notebooks: Notebook[] = [
     {
@@ -166,7 +166,7 @@ export function createRemoteTestRunFixture(
   const now = new Date().toISOString();
   const device: Device = {
     id: `${REMOTE_TEST_RUN_PREFIX}-${safeRunId}-device`,
-    name: 'Author remote staging smoke'
+    name: 'author remote staging smoke'
   };
   const note: Note = {
     id: `${REMOTE_TEST_RUN_PREFIX}-${safeRunId}-note`,

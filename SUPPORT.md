@@ -1,20 +1,19 @@
 # Support
 
-Author is maintained as a small open-source personal notes app. Community
+author is maintained as a small open-source personal notes app. Community
 support is best-effort; there is no guaranteed response time or hosted-service
 SLA.
 
 ## Before Asking
 
 - Read the [self-hosting guide](docs/self-hosting.md).
-- Check [setup](docs/setup.md), [operations](docs/operations.md), and the
-  [production-readiness checklist](docs/production-readiness.md).
+- Check [setup](docs/setup.md) and [operations](docs/operations.md).
 - Search existing GitHub issues and release notes.
 - Reproduce with the latest supported release when possible.
 
 For a setup or bug report, include:
 
-- the Author version or commit;
+- the author version or commit;
 - deployment type: Docker/SQLite, Node, Cloudflare/Turso, or Android;
 - operating system, browser, and Android version where relevant;
 - exact steps and the expected/actual result; and

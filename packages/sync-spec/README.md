@@ -12,5 +12,5 @@ The prose protocol lives in
 [`docs/sync-protocol.md`](../../docs/sync-protocol.md) and
 [`docs/conflict-handling.md`](../../docs/conflict-handling.md).
 
-This package is part of Author and is distributed under the repository's
+This package is part of author and is distributed under the repository's
 [MIT License](../../LICENSE).

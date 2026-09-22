@@ -5,18 +5,18 @@
 </script>
 
 <svelte:head>
-  <title>License | Author</title>
-  <meta name="description" content="MIT License for Author." />
+  <title>License | author</title>
+  <meta name="description" content="MIT License for author." />
 </svelte:head>
 
 <main class="legal-page">
-  <a href={resolve('/')} class="legal-back">Author</a>
+  <a href={resolve('/')} class="legal-back">author</a>
   <h1>License</h1>
   <p class="legal-updated">Updated {updated}</p>
 
   <section>
     <h2>MIT License</h2>
-    <p>Copyright (c) 2026 Author contributors</p>
+    <p>Copyright (c) 2026 author contributors</p>
   </section>
 
   <section>

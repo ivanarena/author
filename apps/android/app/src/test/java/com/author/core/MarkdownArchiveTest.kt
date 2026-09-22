@@ -53,7 +53,7 @@ class MarkdownArchiveTest {
   }
 
   @Test
-  fun roundTripsPortableAuthorMetadata() {
+  fun roundTripsPortableMetadata() {
     val note =
       LocalNote(
         id = "note-1",

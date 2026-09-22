@@ -190,7 +190,7 @@ internal fun themeChoiceLabel(theme: String): String =
   ThemeChoices.find { it.value == theme }?.label ?: theme
 
 @Composable
-internal fun AuthorTheme(theme: String, font: String, content: @Composable () -> Unit) {
+internal fun AppTheme(theme: String, font: String, content: @Composable () -> Unit) {
   val resolvedTheme = resolveThemeChoice(theme, isSystemInDarkTheme())
   val colors =
     if (resolvedTheme.startsWith("dark")) {

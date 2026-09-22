@@ -3,7 +3,6 @@ import type { Note, Notebook } from '@author/schema';
 import {
   buildNotesMarkdownArchive,
   createZipBytes,
-  formatMarkdownDate,
   parseMarkdownNote,
   parseNotesMarkdownImportFiles,
   type MarkdownImportFile
@@ -34,7 +33,7 @@ describe('Markdown archive import and export', () => {
       sourceNotebookNames: [],
       trashedAt: null
     });
-    expect(formatMarkdownDate(parsed.createdAt!)).toBe('15-12-2023 04:35 PM');
+    expect(parsed.createdAt).toBe(new Date(2023, 11, 15, 16, 35).toISOString());
     expect(parsed.updatedAt).toBe(parsed.createdAt);
   });
 

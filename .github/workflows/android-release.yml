@@ -165,7 +165,7 @@ jobs:
           case "$PRODUCTION_AUTHOR_API_URL" in
             https://*) ;;
             *)
-              echo "::error::The production Author API URL must be configured as HTTPS."
+              echo "::error::The production author API URL must be configured as HTTPS."
               missing=1
               ;;
           esac
@@ -363,7 +363,7 @@ jobs:
             gh release upload "$RELEASE_TAG" "$ASSET_PATH" --clobber
           else
             gh release create "$RELEASE_TAG" "$ASSET_PATH" \
-              --title "Author ${RELEASE_TAG}" \
+              --title "author ${RELEASE_TAG}" \
               --generate-notes \
               --latest
           fi

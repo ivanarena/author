@@ -1057,7 +1057,7 @@ class NotesRepository(context: Context) : AutoCloseable {
       val replacementSession =
         response.session
           ?: throw IllegalStateException(
-            "Password changed, but Author could not create a session to sync encrypted notes"
+            "Password changed, but author could not create a session to sync encrypted notes"
           )
       reencryptLocalNotesInternal(current, current)
       crypto.commitEncryptionKeyMaterial(current)
@@ -1069,7 +1069,7 @@ class NotesRepository(context: Context) : AutoCloseable {
       } catch (error: Throwable) {
         recordSyncErrorInternal(error, "Password change sync")
         throw IllegalStateException(
-          "Password changed, but Author could not finish syncing: ${error.message ?: "Sync failed"}",
+          "Password changed, but author could not finish syncing: ${error.message ?: "Sync failed"}",
           error,
         )
       }

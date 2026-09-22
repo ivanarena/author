@@ -170,13 +170,6 @@ function yearLabel(iso: string): string {
   return String(date.getFullYear());
 }
 
-export function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  });
-}
-
 export function formatListDate(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {
     month: 'short',
@@ -203,13 +196,6 @@ export function relativeAge(iso: string, now = new Date()): string {
 
   const yearsAgo = Math.floor(daysAgo / 365);
   return `${yearsAgo}y ago`;
-}
-
-export function formatClock(date: Date): string {
-  return date.toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  });
 }
 
 export function countWords(text: string): number {

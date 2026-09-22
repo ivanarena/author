@@ -136,7 +136,7 @@ export async function changeAccountPassword(
     passwordChanged = true;
     if (!response.session) {
       throw new Error(
-        'Password changed, but Author could not create a replacement session.'
+        'Password changed, but author could not create a replacement session.'
       );
     }
     await reencryptLocalNotes(currentMaterial, currentMaterial);
@@ -189,7 +189,7 @@ export async function changeAccountPassword(
       controller.syncMessage = 'Password changed; sync retry needed';
     }
     controller.accountError = passwordChanged
-      ? `Password changed, but Author could not finish syncing. ${detail}`
+      ? `Password changed, but author could not finish syncing. ${detail}`
       : detail;
     controller.notify(
       'error',

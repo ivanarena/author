@@ -659,8 +659,8 @@ export function generateTotpSecret(): string {
 }
 
 export function totpOtpauthUrl(user: AuthUser, secret: string): string {
-  const label = encodeURIComponent(`Author:${user.email ?? user.username}`);
-  const issuer = encodeURIComponent('Author');
+  const label = encodeURIComponent(`author:${user.email ?? user.username}`);
+  const issuer = encodeURIComponent('author');
   return `otpauth://totp/${label}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=${TOTP_DIGITS}&period=${TOTP_PERIOD_SECONDS}`;
 }
 

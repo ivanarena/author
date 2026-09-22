@@ -135,7 +135,7 @@ every push.
 Server libSQL connections enable foreign keys and set a short SQLite
 `busy_timeout`; write transactions are serialized and retried in-process for a
 single Node/self-hosted app instance. This does not make one local SQLite file
-safe for multiple Author server processes.
+safe for multiple author server processes.
 
 ## Android Local SQLCipher
 
@@ -167,12 +167,15 @@ reopened cleanly.
 
 ## Trash
 
-Moving a note to Trash sets `trashedAt` and keeps the row syncable. Cleanup permanently removes notes whose `trashedAt` is older than 90 days, after writing a final snapshot and an `entity_tombstones` row. Tombstones let stale offline clients receive `deleted_remotely` conflicts instead of recreating cleaned-up rows.
+Moving a note to Trash sets `trashedAt` and keeps the row syncable. When the server accepts that transition, it records `retention_started_at` using server time. Cleanup permanently removes notes whose server-controlled retention start is older than 90 days, after writing a final snapshot and an `entity_tombstones` row. Tombstones let stale offline clients receive `deleted_remotely` conflicts instead of recreating cleaned-up rows.
 
-The server starts a cleanup scheduler unless `NOTES_CLEANUP_ENABLED=false`. It
-runs on startup by default and then every `NOTES_CLEANUP_INTERVAL_MINUTES`.
-Cleanup also prunes version snapshots older than 365 days, scoped to the same
-account when cleanup is invoked for a signed-in user.
+Self-hosted Node starts the cleanup scheduler when
+`NOTES_CLEANUP_ENABLED=true`. The shipped Docker configuration enables it,
+runs it after startup by default, and repeats it every
+`NOTES_CLEANUP_INTERVAL_MINUTES`. Cloudflare Workers run the same cleanup path
+from the configured Cron trigger. Cleanup also prunes version snapshots older
+than 365 days, scoped to the same account when cleanup is invoked for a
+signed-in user.
 
 ## Migrations
 

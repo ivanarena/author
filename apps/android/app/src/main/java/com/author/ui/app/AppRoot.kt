@@ -33,7 +33,7 @@ import com.author.ui.state.NotesController
 import com.author.ui.theme.*
 
 @Composable
-internal fun AuthorApp(
+internal fun NotesApp(
   controller: NotesController,
   onExport: (Set<String>?) -> Unit,
   onSaveRecoveryKit: () -> Unit = {},
@@ -41,20 +41,13 @@ internal fun AuthorApp(
   onPickProfileImage: () -> Unit = {},
   onUnlockApp: () -> Unit = {},
 ) {
-  AuthorTheme(theme = controller.theme, font = controller.editorFont) {
-    AuthorScaffold(
-      controller,
-      onExport,
-      onSaveRecoveryKit,
-      onImport,
-      onPickProfileImage,
-      onUnlockApp,
-    )
+  AppTheme(theme = controller.theme, font = controller.editorFont) {
+    AppScaffold(controller, onExport, onSaveRecoveryKit, onImport, onPickProfileImage, onUnlockApp)
   }
 }
 
 @Composable
-private fun AuthorScaffold(
+private fun AppScaffold(
   controller: NotesController,
   onExport: (Set<String>?) -> Unit,
   onSaveRecoveryKit: () -> Unit,
@@ -127,7 +120,7 @@ private fun AppLockPage(controller: NotesController, onUnlockApp: () -> Unit) {
         tint = MaterialTheme.colorScheme.primary,
       )
       Text(
-        "Author locked",
+        "author locked",
         color = MaterialTheme.colorScheme.onSurface,
         fontWeight = FontWeight.SemiBold,
         style = MaterialTheme.typography.titleMedium,

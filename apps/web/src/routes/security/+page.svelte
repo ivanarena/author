@@ -5,22 +5,22 @@
 </script>
 
 <svelte:head>
-  <title>Security Model | Author</title>
+  <title>Security Model | author</title>
   <meta
     name="description"
-    content="Security model for Author's local-first encrypted sync design."
+    content="Security model for author's local-first encrypted sync design."
   />
 </svelte:head>
 
 <main class="legal-page">
-  <a href={resolve('/')} class="legal-back">Author</a>
+  <a href={resolve('/')} class="legal-back">author</a>
   <h1>Security Model</h1>
   <p class="legal-updated">Updated {updated}</p>
 
   <section>
     <h2>Supported claim</h2>
     <p>
-      Author encrypts synced note titles, note bodies, notebook names, account
+      author encrypts synced note titles, note bodies, notebook names, account
       keyrings, browser note-history snapshots, and browser editor crash
       recovery on the client. Sync is local-first: edits are saved to the device
       before the network is asked to push or pull anything.
@@ -42,7 +42,7 @@
   <section>
     <h2>Browser limits</h2>
     <p>
-      Author is not a hardened zero-knowledge web service. A compromised app
+      author is not a hardened zero-knowledge web service. A compromised app
       origin, malicious deployed JavaScript bundle, browser exploit, or XSS bug
       can read passwords, local key material, active sessions, and decrypted
       notes while the app is running.
@@ -84,7 +84,7 @@
   <section>
     <h2>Claims not made</h2>
     <p>
-      Author does not claim audited cryptography, enterprise-grade E2EE,
+      author does not claim audited cryptography, enterprise-grade E2EE,
       hardened zero-knowledge delivery, key transparency, reproducible signed
       web bundles, or protection from malicious hosted web code. Those claims
       require independent review and distribution hardening beyond the current

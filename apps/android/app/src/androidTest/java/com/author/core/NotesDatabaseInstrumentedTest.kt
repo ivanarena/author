@@ -106,7 +106,7 @@ class NotesDatabaseInstrumentedTest {
           opened.rawQuery("SELECT count(*) FROM devices", null).use { it.moveToFirst() }
         }
         if (query.isSuccess) {
-          fail("Android SQLite opened the encrypted Author database without SQLCipher")
+          fail("Android SQLite opened the encrypted author database without SQLCipher")
         }
       }
     } finally {

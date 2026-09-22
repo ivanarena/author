@@ -5,22 +5,22 @@
 </script>
 
 <svelte:head>
-  <title>Privacy | Author</title>
+  <title>Privacy | author</title>
   <meta
     name="description"
-    content="Privacy notice for Author and its encrypted sync model."
+    content="Privacy notice for author and its encrypted sync model."
   />
 </svelte:head>
 
 <main class="legal-page">
-  <a href={resolve('/')} class="legal-back">Author</a>
+  <a href={resolve('/')} class="legal-back">author</a>
   <h1>Privacy</h1>
   <p class="legal-updated">Updated {updated}</p>
 
   <section>
     <h2>Service operator</h2>
     <p>
-      Author is self-hostable software. The operator of the instance you use
+      author is self-hostable software. The operator of the instance you use
       chooses its server, database, logs, backups, retention, account access,
       and legal policy. The upstream source project does not automatically
       receive data from independent self-hosted instances. Ask your operator for

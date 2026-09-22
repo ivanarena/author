@@ -1,8 +1,8 @@
-# Author Android
+# author Android
 
-Native Android client for the Author offline-first notes app.
+Native Android client for the author offline-first notes app.
 
-The Android client must be built for a specific Author HTTPS API and signed by
+The Android client must be built for a specific author HTTPS API and signed by
 the service operator. An APK built for the upstream service is not automatically
 suitable for another self-hosted domain or fork.
 
@@ -57,14 +57,14 @@ local records remain queued for the next manual or scheduled sync.
 
 ## Local App Lock
 
-Author includes an optional device-credential app lock under Account settings.
+author includes an optional device-credential app lock under Account settings.
 When enabled, leaving the app locks the Compose surface until Android confirms
 the device screen lock again. This protects casual local access without changing
 the sync encryption contract or requiring network access after unlock.
 
 ## Release Validation
 
-Release builds require HTTPS Author API and update URLs:
+Release builds require HTTPS author API and update URLs:
 
 ```sh
 AUTHOR_API_URL=https://author.example.com ./gradlew :app:lintRelease :app:assembleRelease
@@ -107,15 +107,13 @@ directly on the emulator. Run connected tests locally with an emulator booted:
 ./gradlew :app:connectedDebugAndroidTest
 ```
 
-The full cross-app release checklist lives in
-[`../../docs/production-readiness.md`](../../docs/production-readiness.md).
-Self-hosted operators should also follow
+Self-hosted operators should follow
 [`../../docs/self-hosting.md`](../../docs/self-hosting.md) and keep their APK
 signing key, certificate fingerprint, API URL, update URL, and rollback APK under
 their own control.
 
 ## License
 
-The Android client is part of Author and is distributed under the repository's
+The Android client is part of author and is distributed under the repository's
 [MIT License](../../LICENSE). AndroidX and other dependencies retain their own
 licenses; see [Third-Party Notices](../../THIRD_PARTY_NOTICES.md).

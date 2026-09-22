@@ -2516,7 +2516,7 @@ api.post(API_PATHS.syncPush, async (c) => {
       return c.json(
         {
           error:
-            'Too many changes in one sync push; refresh Author and try again.'
+            'Too many changes in one sync push; refresh author and try again.'
         },
         413
       );

@@ -59,7 +59,7 @@ RUN aube --filter-prod @author/runtime install --prod --frozen-lockfile \
 
 FROM node:24-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43 AS runtime
 
-LABEL org.opencontainers.image.title="Author" \
+LABEL org.opencontainers.image.title="author" \
   org.opencontainers.image.source="https://github.com/ivanarena/author" \
   org.opencontainers.image.licenses="MIT"
 

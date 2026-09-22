@@ -42,7 +42,7 @@ There are five checked-in env templates:
 
 For local web development, copy `apps/web/.env.example` to `apps/web/.env`.
 The web dev/build config also loads the repo-root `.env` as defaults for known
-Author server and Android keys before Vite reads `apps/web/.env`, so shared
+author server and Android keys before Vite reads `apps/web/.env`, so shared
 values such as `NOTES_LOGIN_PASSWORD`, `TURSO_DATABASE_URL`, and
 `AUTHOR_API_URL` can live in the root file and stay aligned with Android.
 For day-to-day local testing, keep `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`
@@ -87,7 +87,7 @@ Leave `NOTES_TRUST_PROXY_HEADERS=false` unless your reverse proxy strips incomin
 
 In Node/self-hosted runs, when Turso variables are present, the server keeps local SQLite active and mirrors local/remote records in both directions before reads and after writes. Set `NOTES_REMOTE_SYNC_ENABLED=false` to force local-only behavior temporarily.
 
-When Turso is configured, Author enables a conservative record-limit estimate by
+When Turso is configured, author enables a conservative record-limit estimate by
 default to help stay within Turso's free storage budget. The per-user note and
 notebook limits and projected active row bytes are recalculated from the
 current `users` count on each sync push, so adding accounts lowers the estimate
@@ -120,7 +120,7 @@ The committed `.envrc` loads root `.env` automatically and adds the repo's local
 
 ## Self-Hosted Docker
 
-Follow [Self-Hosting Author](self-hosting.md) for the supported first-install,
+Follow [Self-Hosting author](self-hosting.md) for the supported first-install,
 TLS, backup, restore, and upgrade sequence.
 
 The self-hosted default is a local SQLite/libSQL database mounted at `/data`. The checked-in Compose file binds to localhost by default, passes only an explicit server-runtime environment allow-list, runs the container with a read-only root filesystem plus writable `/data` and `/tmp`, drops Linux capabilities, and enables scheduled SQLite snapshots unless overridden. Use `HOST_PORT` to change the host mapping; the container always listens on port 3000.
@@ -379,7 +379,7 @@ Do not expose the Turso token to browser code. It belongs only in the SvelteKit 
 
 For a self-hosted app with a remote database, keep the app container on your server and set the Turso variables in `.env`. Only the server talks to Turso; browser sync still talks to your `/api/*` endpoints.
 
-Android sync follows the same rule: the APK talks to the Author HTTP API, and that server mirrors to Turso when `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` are set. Configure the Android API endpoint at build time with:
+Android sync follows the same rule: the APK talks to the author HTTP API, and that server mirrors to Turso when `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` are set. Configure the Android API endpoint at build time with:
 
 ```env
 AUTHOR_API_URL=https://your-author-api.example.com
@@ -507,10 +507,16 @@ Scheduled local backups are written as standalone `.sqlite` files under `NOTES_B
 
 ## Cleanup Schedule
 
-Trash cleanup runs inside the server process. By default, self-hosted Node runs once shortly after startup and then every 1440 minutes. Cloudflare Workers use the Cron trigger in `apps/web/wrangler.jsonc` to run the same cleanup path once a day against the Turso primary database.
-When remote mirroring is enabled, successful cleanup runs immediately trigger a remote database sync so hard-delete tombstones are not left only in local SQLite.
+Trash cleanup runs inside the server process. With
+`NOTES_CLEANUP_ENABLED=true`, the documented self-hosted configuration runs it
+once shortly after startup and then every 1440 minutes. Cloudflare Workers use
+the Cron trigger in `apps/web/wrangler.jsonc` to run the same cleanup path once
+a day against the Turso primary database. When remote mirroring is enabled,
+successful cleanup runs immediately trigger a remote database sync so
+hard-delete tombstones are not left only in local SQLite.
 
-Set `NOTES_CLEANUP_ENABLED=false` if you prefer an external cron job:
+Leave `NOTES_CLEANUP_ENABLED` unset or set it to `false` if you prefer an
+external cron job:
 
 ```sh
 aube -F @author/web run cleanup

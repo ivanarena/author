@@ -393,12 +393,12 @@ class NotesController(private val repository: NotesRepository, private val scope
       appLockEnabled = false
       appLocked = false
       appLockMessage = "App lock disabled."
-      notify("success", "App lock disabled", "Author will stay open after leaving the app.")
+      notify("success", "App lock disabled", "author will stay open after leaving the app.")
       return
     }
 
     if (!appLockAvailable) {
-      appLockMessage = "Set a device screen lock before enabling Author app lock."
+      appLockMessage = "Set a device screen lock before enabling author app lock."
       notify("error", "Screen lock unavailable", appLockMessage)
       return
     }
@@ -409,7 +409,7 @@ class NotesController(private val repository: NotesRepository, private val scope
     notify(
       "success",
       "App lock enabled",
-      "Author will ask for this device's screen lock when reopened.",
+      "author will ask for this device's screen lock when reopened.",
     )
   }
 
@@ -878,7 +878,7 @@ class NotesController(private val repository: NotesRepository, private val scope
     notify(
       "success",
       "Checking for updates",
-      "Author will notify you if a newer Android release is available.",
+      "author will notify you if a newer Android release is available.",
     )
   }
 
@@ -2004,7 +2004,7 @@ class NotesController(private val repository: NotesRepository, private val scope
   fun saveApiBaseUrl() {
     val normalized = apiBaseUrl.trim().trimEnd('/')
     if (!isHttpApiUrl(normalized)) {
-      notify("error", "Invalid API URL", "Use the Author HTTP API URL, not a database URL.")
+      notify("error", "Invalid API URL", "Use the author HTTP API URL, not a database URL.")
       return
     }
     val previous = repository.getApiBaseUrl().trim().trimEnd('/')

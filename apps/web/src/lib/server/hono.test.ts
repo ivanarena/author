@@ -2414,7 +2414,7 @@ describe('Hono API', () => {
 
     expect(push.status).toBe(413);
     await expect(push.json()).resolves.toMatchObject({
-      error: 'Too many changes in one sync push; refresh Author and try again.'
+      error: 'Too many changes in one sync push; refresh author and try again.'
     });
   });
 

@@ -2,7 +2,7 @@
 
 ## Our Commitment
 
-We are committed to making participation in Author welcoming and free from
+We are committed to making participation in author welcoming and free from
 harassment for everyone, regardless of age, body size, disability, ethnicity,
 sex characteristics, gender identity and expression, level of experience,
 education, socioeconomic status, nationality, personal appearance, race,
@@ -26,7 +26,7 @@ information without permission, or retaliation against a good-faith report.
 
 This code applies in repository issues, pull requests, reviews, discussions,
 release and support channels, and public spaces where someone is representing
-the Author project.
+the author project.
 
 ## Enforcement
 

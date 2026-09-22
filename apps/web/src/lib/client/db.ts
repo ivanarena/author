@@ -183,7 +183,7 @@ localDb.on('blocked', () => {
   recordDebugLog({
     level: 'warn',
     source: 'IndexedDB',
-    message: 'Database upgrade blocked by another open Author tab'
+    message: 'Database upgrade blocked by another open author tab'
   });
 });
 

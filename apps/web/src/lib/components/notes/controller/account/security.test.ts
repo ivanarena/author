@@ -272,7 +272,7 @@ describe('account security actions', () => {
     expect(model.accountPasswordEditing).toBe(false);
     expect(model.syncMessage).toBe('Password changed; sync retry needed');
     expect(model.accountError).toBe(
-      'Password changed, but Author could not finish syncing. network down'
+      'Password changed, but author could not finish syncing. network down'
     );
     expect(model.clearLocalSession).not.toHaveBeenCalled();
   });

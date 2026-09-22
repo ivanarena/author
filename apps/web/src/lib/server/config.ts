@@ -145,12 +145,6 @@ export function getRemoteDatabaseConfig(
   };
 }
 
-export function getDatabaseConfig(): DatabaseConfig {
-  // Backward-compatible name for callers that need the primary server DB.
-  // The primary DB is always local SQLite; Turso is an optional sync peer.
-  return getLocalDatabaseConfig();
-}
-
 export function shouldSyncRemoteDatabase(env?: RuntimeEnv | null): boolean {
   if (envValue('NOTES_REMOTE_SYNC_ENABLED', env) === 'false') return false;
   return Boolean(getRemoteDatabaseConfig(env));

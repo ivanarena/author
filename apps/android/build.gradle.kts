@@ -1,7 +1,7 @@
 plugins {
-  id("com.android.application") version "9.2.1" apply false
-  id("com.diffplug.spotless") version "8.6.0"
-  id("org.jetbrains.kotlin.plugin.compose") version "2.3.21" apply false
+  id("com.android.application") version "9.4.1" apply false
+  id("com.diffplug.spotless") version "8.10.3"
+  id("org.jetbrains.kotlin.plugin.compose") version "2.4.20" apply false
 }
 
 spotless {

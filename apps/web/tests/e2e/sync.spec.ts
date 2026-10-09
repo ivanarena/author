@@ -1654,6 +1654,19 @@ test('keeps the editor usable on a narrow mobile viewport @mobile', async ({
 
   await expect(metadataStatus).toHaveText('Synced');
   await expect(metadataStatus).toHaveClass(/sync-ok/);
+  const syncDot = await metadataStatus.evaluate((element) => {
+    const style = getComputedStyle(element, '::before');
+    return {
+      width: style.width,
+      height: style.height,
+      borderRadius: style.borderRadius
+    };
+  });
+  expect(syncDot).toEqual({
+    width: '6px',
+    height: '6px',
+    borderRadius: '50%'
+  });
   await expect
     .poll(() =>
       metadataStrip.evaluate(

@@ -6,5 +6,6 @@ module.exports = {
     .filter(Boolean),
   onboarding: false,
   requireConfig: 'optional',
+  binarySource: 'install',
   allowedCommands: ['^npx -y @endevco/aube@1\\.16\\.0 install$']
 };

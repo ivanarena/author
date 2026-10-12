@@ -12,7 +12,10 @@
   "postUpgradeTasks": {
     "commands": ["npx -y @endevco/aube@1.16.0 install"],
     "fileFilters": ["aube-lock.yaml"],
-    "executionMode": "branch"
+    "executionMode": "branch",
+    "installTools": {
+      "node": {}
+    }
   },
   "customManagers": [
     {

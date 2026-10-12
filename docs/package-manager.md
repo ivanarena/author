@@ -49,6 +49,16 @@ aube licenses --prod
 aube licenses --dev
 ```
 
+## Renovate
+
+The self-hosted Renovate workflow runs inside its pinned Docker image. Node
+installed on the GitHub Actions runner is not available inside that container.
+The global Renovate config uses `binarySource: 'install'`, and
+`postUpgradeTasks.installTools` requests Node (including its bundled npm/npx)
+before running the pinned Aube install command. Only `aube-lock.yaml` is retained
+from that command, and the exact command remains allow-listed in the global
+config.
+
 ## Build Scripts
 
 `aube-workspace.yaml` includes:

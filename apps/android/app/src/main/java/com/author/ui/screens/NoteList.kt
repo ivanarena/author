@@ -281,7 +281,7 @@ internal fun SearchNotesField(
             fontSize = AppTextSize.Body,
             fontFamily = LocalAppFontFamily.current,
           ),
-        modifier = Modifier.weight(1f).focusRequester(focusRequester),
+        modifier = Modifier.weight(1f).focusRequester(focusRequester).testTag("notes-search-field"),
         decorationBox = { inner ->
           Box {
             if (controller.searchValue.isBlank()) {

@@ -106,6 +106,7 @@ private fun NotesTopBar(controller: NotesController) {
         ) {
           SearchNotesField(
             controller = controller,
+            autoFocus = controller.notesSearchOpen,
             modifier =
               Modifier.fillMaxWidth()
                 .padding(

@@ -18,8 +18,10 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
@@ -253,6 +255,49 @@ class NotesAppInstrumentedTest {
   }
 
   @Test
+  fun autosavePreservesFirstAdjacentNoteNavigationTarget() {
+    val repository = newRepository()
+    val notes = runBlocking {
+      listOf(
+        repository.createBlankNote("Oldest note", "Oldest body"),
+        repository.createBlankNote("Middle note", "Middle body"),
+        repository.createBlankNote("Newest note", "Newest body"),
+      )
+    }
+    val orderedNotes = notes.sortedByDescending { it.updatedAt }
+    val middleNote = orderedNotes[1]
+    val nextNote = orderedNotes[2]
+    lateinit var controller: NotesController
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      controller = remember {
+        NotesController(repository, scope).also {
+          it.notes = notes
+          it.selectedNote = middleNote
+          it.titleValue = middleNote.title
+          it.bodyValue = middleNote.body
+        }
+      }
+
+      NotesApp(controller = controller, onExport = {}, onImport = {})
+    }
+
+    val pendingBody = "Autosave must not skip the adjacent note"
+    compose.runOnIdle { controller.updateEditor("body", pendingBody) }
+    compose.mainClock.advanceTimeBy(SAVE_DELAY_ADVANCE_MS)
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      repository.loadWorkspaceSnapshot().notes.any {
+        it.id == middleNote.id && it.body == pendingBody
+      }
+    }
+    compose.runOnIdle { controller.navigateAdjacentNote(forward = true) }
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      controller.selectedNote?.id == nextNote.id
+    }
+  }
+
+  @Test
   fun appLockScreenBlocksNotesUntilUnlockRequested() {
     val repository = newRepository()
     val unlockRequested = AtomicBoolean(false)
@@ -441,6 +486,108 @@ class NotesAppInstrumentedTest {
     pressSystemBack()
     compose.onNodeWithTag("note-title-field").assertIsDisplayed()
     compose.runOnIdle { assertTrue(controller.currentPage == "editor") }
+  }
+
+  @Test
+  fun searchIconFocusesFieldAndReopeningPreservesQuery() {
+    val repository = newRepository()
+    val matching = runBlocking { repository.createBlankNote("Search target", "Find this note") }
+    val other = runBlocking { repository.createBlankNote("Other note", "Unrelated text") }
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      val controller = remember {
+        NotesController(repository, scope).also {
+          it.currentPage = "notes"
+          it.notes = listOf(matching, other)
+        }
+      }
+
+      NotesApp(controller = controller, onExport = {}, onImport = {})
+    }
+
+    compose.onNodeWithContentDescription("Search notes").performClick()
+    compose.onNodeWithTag("notes-search-field").assertIsDisplayed().assertIsFocused()
+    compose.onNodeWithTag("notes-search-field").performTextInput("target")
+    compose.onNodeWithTag("note-row-${matching.id}").assertIsDisplayed()
+    compose.onNodeWithTag("note-row-${other.id}").assertDoesNotExist()
+
+    compose.onNodeWithContentDescription("Search notes").performClick()
+    compose.onNodeWithTag("notes-search-field").assertDoesNotExist()
+    compose.onNodeWithContentDescription("Search notes").performClick()
+    compose.onNodeWithTag("notes-search-field").assertIsFocused().assertTextEquals("target")
+    compose.onNodeWithContentDescription("Clear search").performClick()
+    compose.onNodeWithTag("note-row-${other.id}").assertIsDisplayed()
+    compose.onNodeWithTag("notes-search-field").assertIsFocused().assertTextContains("")
+  }
+
+  @Test
+  fun searchRefocusesWhenReopenedDuringExitAnimation() {
+    val repository = newRepository()
+    lateinit var controller: NotesController
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      controller = remember { NotesController(repository, scope).also { it.currentPage = "notes" } }
+
+      NotesApp(controller = controller, onExport = {}, onImport = {})
+    }
+
+    compose.onNodeWithContentDescription("Search notes").performClick()
+    compose.onNodeWithTag("notes-search-field").assertIsFocused()
+    compose.mainClock.autoAdvance = false
+    compose.runOnIdle { controller.notesSearchOpen = false }
+    compose.mainClock.advanceTimeByFrame()
+    compose.runOnIdle { controller.notesSearchOpen = true }
+    compose.mainClock.autoAdvance = true
+    compose.onNodeWithTag("notes-search-field").assertIsDisplayed().assertIsFocused()
+  }
+
+  @Test
+  fun deletingOpenTrashedNoteClearsEditor() {
+    assertDeletingOpenTrashedNoteClearsEditor(bulk = false)
+  }
+
+  @Test
+  fun deletingSelectedOpenTrashedNoteClearsEditor() {
+    assertDeletingOpenTrashedNoteClearsEditor(bulk = true)
+  }
+
+  private fun assertDeletingOpenTrashedNoteClearsEditor(bulk: Boolean) {
+    val repository = newRepository()
+    val note = runBlocking {
+      val draft = repository.createBlankNote("Delete this note", "Do not leave this text behind")
+      repository.moveNoteToTrash(draft.id)
+      repository.loadNote(draft.id)!!
+    }
+    lateinit var controller: NotesController
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      controller = remember {
+        NotesController(repository, scope).also {
+          it.selectedNote = note
+          it.titleValue = note.title
+          it.bodyValue = note.body
+          it.trash = listOf(note)
+          if (bulk) it.selectedNoteIds = setOf(note.id)
+        }
+      }
+
+      NotesApp(controller = controller, onExport = {}, onImport = {})
+    }
+
+    compose.onNodeWithTag("note-body-field").assertTextEquals(note.body)
+    compose.runOnIdle {
+      if (bulk) controller.deleteSelectedPermanently() else controller.deleteNotePermanently(note)
+    }
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      repository.loadWorkspaceSnapshot().trash.none { it.id == note.id }
+    }
+    compose.waitForIdle()
+    compose.onNodeWithTag("note-title-field").assertTextContains("")
+    compose.onNodeWithTag("note-body-field").assertTextContains("")
+    compose.runOnIdle { assertTrue(controller.selectedNote == null) }
   }
 
   @Test

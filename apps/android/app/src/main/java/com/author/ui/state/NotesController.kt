@@ -687,8 +687,7 @@ class NotesController(private val repository: NotesRepository, private val scope
     scope.launch { openNote(note) }
   }
 
-  fun navigateAdjacentNote(forward: Boolean) {
-    if (adjacentNoteNavigationInProgress) return
+  private fun captureGestureNoteOrder() {
     val selectedId = selectedNote?.id ?: return
     val context =
       listOf(
@@ -703,6 +702,12 @@ class NotesController(private val repository: NotesRepository, private val scope
       gestureNoteOrderIds = visibleNotes.map { it.id }
       gestureNoteOrderContext = context
     }
+  }
+
+  fun navigateAdjacentNote(forward: Boolean) {
+    if (adjacentNoteNavigationInProgress) return
+    val selectedId = selectedNote?.id ?: return
+    captureGestureNoteOrder()
 
     val visibleNotesById = visibleNotes.associateBy { it.id }
     val gestureOrderedNotes = gestureNoteOrderIds.mapNotNull(visibleNotesById::get)
@@ -777,6 +782,8 @@ class NotesController(private val repository: NotesRepository, private val scope
     if (normalizedField == "title" && titleValue == value) return
     if (normalizedField == "body" && bodyValue == value) return
 
+    // Freeze the neighbors before autosave can move the edited note in date order.
+    captureGestureNoteOrder()
     val before = titleValue to bodyValue
     if (normalizedField == "title") titleValue = value else bodyValue = value
     val now = SystemClock.uptimeMillis()
@@ -1081,10 +1088,11 @@ class NotesController(private val repository: NotesRepository, private val scope
   fun deleteNotePermanently(note: LocalNote) {
     scope.launch {
       flushPendingSave()
+      val deletingOpenNote = selectedNote?.id == note.id
       repository.deleteNotePermanently(note.id)
       selectedNoteIds = selectedNoteIds - note.id
       refresh()
-      if (selectedNote?.id == note.id)
+      if (deletingOpenNote)
         (if (filterId == "trash") trash.firstOrNull() else notes.firstOrNull())?.let(::selectNote)
           ?: openDraftNote()
       scheduleSyncAfterLocalChange()
@@ -1132,10 +1140,11 @@ class NotesController(private val repository: NotesRepository, private val scope
     scope.launch {
       flushPendingSave()
       val targetIds = targets.map { it.id }.toSet()
+      val deletingOpenNote = selectedNote?.id in targetIds
       targets.forEach { repository.deleteNotePermanently(it.id) }
       selectedNoteIds = selectedNoteIds - targetIds
       refresh()
-      if (selectedNote?.id in targetIds) {
+      if (deletingOpenNote) {
         (if (filterId == "trash") trash.firstOrNull() else notes.firstOrNull())?.let(::selectNote)
           ?: openDraftNote()
       }

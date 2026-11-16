@@ -70,18 +70,35 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
   companion object {
     private const val LOCAL_DATABASE_BUSY_RETRY_LIMIT = 3
     private const val UNIQUE_WORK_NAME = "author-sync"
+    private const val IMMEDIATE_UNIQUE_WORK_NAME = "author-sync-now"
 
-    fun enqueue(context: Context) {
+    /**
+     * Background safety net after local edits. The foreground controller syncs a few seconds after
+     * edits stop; this delayed run covers the app being closed first, without pushing every pause.
+     */
+    const val LOCAL_CHANGE_DELAY_SECONDS = 30L
+
+    /**
+     * Enqueues a background sync. A delayed request runs once [LOCAL_CHANGE_DELAY_SECONDS] after
+     * the first edit it covers; an [immediate] request, used when the app leaves the foreground,
+     * runs as soon as the network allows. Both share the repository sync mutex.
+     */
+    fun enqueue(context: Context, immediate: Boolean = false) {
       val request =
         OneTimeWorkRequestBuilder<SyncWorker>()
           .setConstraints(
             Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
           )
           .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+          .apply { if (!immediate) setInitialDelay(LOCAL_CHANGE_DELAY_SECONDS, TimeUnit.SECONDS) }
           .build()
 
       WorkManager.getInstance(context.applicationContext)
-        .enqueueUniqueWork(UNIQUE_WORK_NAME, ExistingWorkPolicy.KEEP, request)
+        .enqueueUniqueWork(
+          if (immediate) IMMEDIATE_UNIQUE_WORK_NAME else UNIQUE_WORK_NAME,
+          ExistingWorkPolicy.KEEP,
+          request,
+        )
     }
   }
 }

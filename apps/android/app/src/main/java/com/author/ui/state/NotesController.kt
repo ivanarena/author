@@ -26,6 +26,7 @@ import com.author.core.NOTE_FILTER_UNFILED_ID
 import com.author.core.NotesRepository
 import com.author.core.RepairDiagnostics
 import com.author.core.StoredSession
+import com.author.core.SyncHttpException
 import com.author.core.SyncProgress
 import com.author.core.SyncProgressPhase
 import com.author.core.TrustedAuthDevice
@@ -54,6 +55,20 @@ class NotesController(private val repository: NotesRepository, private val scope
     const val MAX_MARKDOWN_IMPORT_FILE_BYTES = 2L * 1024L * 1024L
     const val MAX_MARKDOWN_IMPORT_TOTAL_BYTES = 20L * 1024L * 1024L
     const val UNDO_SNAPSHOT_INTERVAL_MS = 1_500L
+
+    // Sync a couple of seconds after local edits stop, and at least every AUTO_SYNC_MAX_WAIT_MS
+    // while editing continues. Every push uploads whole encrypted notes.
+    const val AUTO_SYNC_DELAY_MS = 2_000L
+    const val AUTO_SYNC_MAX_WAIT_MS = 20_000L
+
+    // The server's push rate limit uses a one-minute window.
+    const val RATE_LIMITED_RETRY_MS = 60_000L
+
+    // Push responses that reject the content; repeating the same toast on every retry is noise.
+    val REJECTED_SYNC_STATUSES = setOf(400, 409, 413)
+    const val UNSYNCABLE_DETAIL =
+      "A note or notebook name is larger than the server accepts. Split long notes or shorten " +
+        "long notebook names. Changes stay saved on this device."
 
     fun passwordMeetsMinimumLength(password: String): Boolean =
       password.codePointCount(0, password.length) >= MIN_PASSWORD_LENGTH
@@ -178,7 +193,11 @@ class NotesController(private val repository: NotesRepository, private val scope
 
   private var saveJob: Job? = null
   private var autoSyncJob: Job? = null
+  private var retrySyncJob: Job? = null
+  private var autoSyncWaitStartedAt: Long? = null
   private var syncQueued = false
+  private var unsyncableCount = 0
+  private var lastSyncRejection = ""
   private var lastSnapshot = "" to ""
   private var lastUndoSnapshotAt = 0L
   private var lastUndoSnapshotField = ""
@@ -209,6 +228,8 @@ class NotesController(private val repository: NotesRepository, private val scope
     } finally {
       autoSyncJob?.cancel()
       autoSyncJob = null
+      retrySyncJob?.cancel()
+      retrySyncJob = null
       repository.close()
     }
   }
@@ -1326,8 +1347,23 @@ class NotesController(private val repository: NotesRepository, private val scope
           repository.runSync(token) { progress ->
             withContext(Dispatchers.Main) { updateSyncProgress(progress) }
           }
+        lastSyncRejection = ""
+        val unsyncableMessage =
+          when {
+            result.unsyncable == 1 -> "1 change can't sync"
+            result.unsyncable > 1 -> "${result.unsyncable} changes can't sync"
+            else -> ""
+          }
         syncMessage =
-          if (result.conflicts > 0) "${result.conflicts} conflicts" else "Local changes saved"
+          if (result.conflicts > 0) {
+            "${result.conflicts} conflicts"
+          } else {
+            unsyncableMessage.ifEmpty { "Local changes saved" }
+          }
+        if (result.unsyncable > 0 && result.unsyncable != unsyncableCount) {
+          notify("error", "Some changes are too large to sync", UNSYNCABLE_DETAIL)
+        }
+        unsyncableCount = result.unsyncable
         refresh()
         try {
           val remote = repository.loadSyncStatus(token)
@@ -1359,12 +1395,27 @@ class NotesController(private val repository: NotesRepository, private val scope
       } catch (error: Throwable) {
         refresh()
         syncMessage = error.message ?: "Sync failed"
-        notify("error", "Sync failed", syncMessage)
+        if (error is SyncHttpException && error.status == 429) {
+          // Rate limited: retry quietly once the server's limit window has passed.
+          retrySyncJob?.cancel()
+          retrySyncJob =
+            scope.launch {
+              delay(RATE_LIMITED_RETRY_MS)
+              retrySyncJob = null
+              syncNow()
+            }
+        } else if (error is SyncHttpException && error.status in REJECTED_SYNC_STATUSES) {
+          if (lastSyncRejection != syncMessage) notify("error", "Sync failed", syncMessage)
+          lastSyncRejection = syncMessage
+        } else {
+          notify("error", "Sync failed", syncMessage)
+        }
       } finally {
         isSyncing = false
         syncActivityLabel = ""
         syncActivityDetail = ""
-        val shouldSyncAgain = syncCompleted && (syncQueued || pendingSyncCount > 0)
+        // Records too large to push stay pending and must not re-trigger syncs on their own.
+        val shouldSyncAgain = syncCompleted && (syncQueued || pendingSyncCount > unsyncableCount)
         syncQueued = false
         if (shouldSyncAgain) scheduleSyncAfterLocalChange()
       }
@@ -1908,13 +1959,30 @@ class NotesController(private val repository: NotesRepository, private val scope
       syncQueued = true
       return
     }
+    // A rate-limit retry is already scheduled; it will push this change too.
+    if (retrySyncJob?.isActive == true) return
+    // Debounce: each change moves the sync later, but never past the max wait.
+    val now = System.nanoTime() / 1_000_000
+    val waitStartedAt = autoSyncWaitStartedAt.takeIf { autoSyncJob?.isActive == true } ?: now
+    autoSyncWaitStartedAt = waitStartedAt
+    val delayMs =
+      minOf(AUTO_SYNC_DELAY_MS, waitStartedAt + AUTO_SYNC_MAX_WAIT_MS - now).coerceAtLeast(0L)
     autoSyncJob?.cancel()
     autoSyncJob =
       scope.launch {
-        delay(600)
+        delay(delayMs)
         autoSyncJob = null
+        autoSyncWaitStartedAt = null
         syncNow()
       }
+  }
+
+  /** Saves pending edits and syncs in the background when the app leaves the foreground. */
+  fun onAppBackgrounded() {
+    scope.launch {
+      flushPendingSave()
+      if (hasToken && pendingSyncCount > 0) repository.enqueueBackgroundSync(immediate = true)
+    }
   }
 
   private suspend fun resumeSession(token: String) {
@@ -2006,8 +2074,12 @@ class NotesController(private val repository: NotesRepository, private val scope
     remoteSyncState = "unknown"
     remoteSyncError = ""
     syncQueued = false
+    unsyncableCount = 0
+    lastSyncRejection = ""
     autoSyncJob?.cancel()
     autoSyncJob = null
+    retrySyncJob?.cancel()
+    retrySyncJob = null
   }
 
   fun saveApiBaseUrl() {

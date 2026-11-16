@@ -1149,7 +1149,7 @@ test('signs up with the real API and logs in again with the same password', asyn
   );
   await expect(
     trustedDevices.getByText(
-      'Removing trust stops future 2FA-code sign-in without a password. It does not log out an active session on that device.'
+      'Removing trust stops future 2FA-code sign-in without a password and signs that device out. This device stays signed in.'
     )
   ).toBeVisible();
   await expect(trustedDevices.getByText('This browser')).toBeVisible();

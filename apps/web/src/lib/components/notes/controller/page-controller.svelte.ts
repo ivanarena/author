@@ -1,4 +1,4 @@
-import { onMount, tick } from 'svelte';
+import { onMount, tick, untrack } from 'svelte';
 import type { Device } from '@author/schema';
 import type { RemoteSyncState, TrustedAuthDevice } from '@author/api-types';
 import type {
@@ -138,7 +138,11 @@ export type {
   Theme
 } from './models';
 
-const AUTO_SYNC_DELAY_MS = 600;
+// Sync a couple of seconds after local edits stop, and at least every
+// AUTO_SYNC_MAX_WAIT_MS while editing continues. Every push uploads whole
+// encrypted notes, so syncing on each pause would resend long manuscripts.
+const AUTO_SYNC_DELAY_MS = 2_000;
+const AUTO_SYNC_MAX_WAIT_MS = 20_000;
 const SYNC_RETRY_DELAY_MS = 12_000;
 const ONLINE_SESSION_SYNC_MS = 60_000;
 
@@ -287,6 +291,13 @@ export class NotesPageController
   saveTimer: ReturnType<typeof setTimeout> | null = null;
   pendingSaveNoteId: string | null = null;
   autoSyncTimer: ReturnType<typeof setTimeout> | null = null;
+  autoSyncWaitStartedAt: number | null = null;
+  autoSyncUrgent = false;
+  unsyncableCount = $state(0);
+  lastSyncRejection = '';
+  syncRejectionCount = 0;
+  syncBackoffUntil = 0;
+  private pullOnlySyncInFlight = false;
   retrySyncTimer: ReturnType<typeof setTimeout> | null = null;
   private onlineSessionTimer: ReturnType<typeof setInterval> | null = null;
   menuCloseTimer: ReturnType<typeof setTimeout> | null = null;
@@ -446,8 +457,14 @@ export class NotesPageController
     });
 
     $effect(() => {
-      if (this.hasToken && this.isBrowserOnline && this.pendingSyncCount > 0) {
-        this.scheduleSync(AUTO_SYNC_DELAY_MS);
+      if (
+        this.hasToken &&
+        this.isBrowserOnline &&
+        this.pendingSyncCount > this.unsyncableCount
+      ) {
+        // Untracked: scheduling reads sync state such as isSyncing, which must
+        // not re-run this effect and queue a sync after every sync.
+        untrack(() => this.scheduleSync(AUTO_SYNC_DELAY_MS));
       }
     });
 
@@ -467,7 +484,7 @@ export class NotesPageController
       }, 1000);
       this.onlineSessionTimer = setInterval(() => {
         if (document.visibilityState !== 'hidden') {
-          this.scheduleSync(0);
+          this.scheduleAutomaticSync();
         }
       }, ONLINE_SESSION_SYNC_MS);
 
@@ -476,6 +493,7 @@ export class NotesPageController
         this.handleVisibilityChange
       );
       window.addEventListener('pagehide', this.handlePageHide);
+      window.addEventListener('blur', this.handleWindowBlur);
       const stopWatchingSystemTheme = watchSystemTheme((theme) => {
         this.resolvedTheme = theme;
       });
@@ -501,6 +519,7 @@ export class NotesPageController
           this.handleVisibilityChange
         );
         window.removeEventListener('pagehide', this.handlePageHide);
+        window.removeEventListener('blur', this.handleWindowBlur);
         window.removeEventListener(
           debugLogUpdatedEventName(),
           handleDebugLogUpdated
@@ -531,15 +550,50 @@ export class NotesPageController
       if (!navigator.onLine) {
         this.isBrowserOnline = false;
       }
-      this.scheduleSync(0);
+      this.scheduleAutomaticSync();
       return;
     }
 
-    void this.flushPendingSave().then(() => this.scheduleSync(0));
+    void this.flushPendingSave().then(() => this.scheduleAutomaticSync());
   };
 
   handlePageHide = () => {
     void this.flushPendingSave();
+  };
+
+  handleWindowBlur = () => {
+    if (this.pendingSyncCount <= this.unsyncableCount && !this.saveTimer) {
+      return;
+    }
+    void this.flushPendingSave().then(() => this.scheduleAutomaticSync());
+  };
+
+  /**
+   * Syncs now for interval, focus, and visibility triggers. While a recent
+   * rejected push has automatic syncs backing off, these triggers only pull,
+   * so remote changes still arrive without resending the rejected data.
+   * Edits and manual syncs still push as usual.
+   */
+  private scheduleAutomaticSync = () => {
+    if (Date.now() < this.syncBackoffUntil) {
+      // A scheduled full sync (an edit's debounce or a rate-limit retry) pulls
+      // too, so only start a pull-only sync when none is waiting.
+      if (
+        this.hasToken &&
+        this.isBrowserOnline &&
+        !this.isSyncing &&
+        !this.pullOnlySyncInFlight &&
+        !this.autoSyncTimer &&
+        !this.retrySyncTimer
+      ) {
+        this.pullOnlySyncInFlight = true;
+        void this.syncNow({ pullOnly: true }).finally(() => {
+          this.pullOnlySyncInFlight = false;
+        });
+      }
+      return;
+    }
+    this.scheduleSync(0);
   };
 
   handleTitleKeydown = (event: KeyboardEvent) => {
@@ -1019,8 +1073,8 @@ export class NotesPageController
     await libraryActions.deleteNotePermanentlyFromRow(this, note);
   };
 
-  syncNow = async () => {
-    await syncActions.syncNow(this);
+  syncNow = async (options: { pullOnly?: boolean } = {}) => {
+    await syncActions.syncNow(this, options);
     if (this.settingsOpen && this.settingsSection === 'sync') {
       await this.refreshRepairDiagnostics();
     }
@@ -1581,6 +1635,10 @@ export class NotesPageController
     this.loginOpen = openLogin;
     this.accountMenuOpen = false;
     this.syncQueued = false;
+    this.unsyncableCount = 0;
+    this.lastSyncRejection = '';
+    this.syncRejectionCount = 0;
+    this.syncBackoffUntil = 0;
     this.syncMessage = syncMessage;
     if (this.autoSyncTimer) {
       clearTimeout(this.autoSyncTimer);
@@ -1685,11 +1743,11 @@ export class NotesPageController
   };
 
   scheduleSync = (delayMs = AUTO_SYNC_DELAY_MS) => {
-    syncActions.scheduleSync(this, delayMs);
+    syncActions.scheduleSync(this, delayMs, AUTO_SYNC_MAX_WAIT_MS);
   };
 
-  scheduleSyncRetry = () => {
-    syncActions.scheduleSyncRetry(this, SYNC_RETRY_DELAY_MS);
+  scheduleSyncRetry = (delayMs = SYNC_RETRY_DELAY_MS) => {
+    syncActions.scheduleSyncRetry(this, delayMs);
   };
 
   updateSyncProgress = (progress: SyncProgress) => {
@@ -1706,8 +1764,11 @@ export class NotesPageController
     syncActions.expireSession(this, message);
   };
 
-  handleSyncError = async (error: unknown) => {
-    await syncActions.handleSyncError(this, error);
+  handleSyncError = async (
+    error: unknown,
+    options: { pullOnly?: boolean } = {}
+  ) => {
+    await syncActions.handleSyncError(this, error, options);
   };
 }
 

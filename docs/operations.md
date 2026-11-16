@@ -92,8 +92,13 @@ estimated shared storage budget before writing remote rows. The estimate uses
 `NOTES_RECORD_LIMIT_NOTE_BYTES`, and `NOTES_RECORD_LIMIT_NOTEBOOK_BYTES`, then
 divides the usable budget by the current number of accounts. Pushes must fit
 the active record-count estimate, projected active row bytes, device cap, and
-projected auxiliary storage for snapshots/change rows. The final check runs
-inside the write transaction. This is a guardrail for free-plan storage, not a precise billing
+projected auxiliary storage for snapshots/change rows. When only the total
+budget is exceeded, the oldest edit-history snapshots for that account are
+deleted first to make room; conflict and cleanup snapshots are kept. In local
+SQLite plus Turso mirror mode the estimate is computed from the local
+database; the Turso copy keeps its own snapshot history, bounded by the same
+per-record thinning and 365-day retention. The final check runs inside the write
+transaction. This is a guardrail for free-plan storage, not a precise billing
 meter; Turso row-read and row-write quotas still depend on query patterns and
 monthly activity.
 

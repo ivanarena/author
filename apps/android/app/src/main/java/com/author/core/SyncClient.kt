@@ -144,21 +144,35 @@ class SyncClient(private val baseUrlProvider: () -> String) {
         .put("device", deviceToJson(device))
         .put(
           "notes",
-          JSONArray(
-            notes.map { (note, baseVersion) ->
-              JSONObject().put("record", noteToJson(note)).put("baseVersion", baseVersion)
-            }
-          ),
+          JSONArray(notes.map { (note, baseVersion) -> notePushChangeJson(note, baseVersion) }),
         )
         .put(
           "notebooks",
           JSONArray(
             notebooks.map { (notebook, baseVersion) ->
-              JSONObject().put("record", notebookToJson(notebook)).put("baseVersion", baseVersion)
+              notebookPushChangeJson(notebook, baseVersion)
             }
           ),
         )
     return parsePushResponse(requestJson("/api/sync/push", "POST", token = token, body = body))
+  }
+
+  companion object {
+    fun notePushChangeJson(note: LocalNote, baseVersion: Int): JSONObject =
+      JSONObject().put("record", noteToJson(note)).put("baseVersion", baseVersion)
+
+    fun notebookPushChangeJson(notebook: LocalNotebook, baseVersion: Int): JSONObject =
+      JSONObject().put("record", notebookToJson(notebook)).put("baseVersion", baseVersion)
+
+    /** Serialized UTF-8 size of a push request that carries no changes. */
+    fun emptyPushRequestBytes(device: Device): Int =
+      utf8ByteLength(
+        JSONObject()
+          .put("device", deviceToJson(device))
+          .put("notes", JSONArray())
+          .put("notebooks", JSONArray())
+          .toString()
+      )
   }
 
   fun pullSyncChanges(

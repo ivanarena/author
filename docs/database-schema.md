@@ -45,7 +45,7 @@ the active browser session.
 
 ## Server SQLite/libSQL
 
-Server schema migrations are tracked through version 25 in
+Server schema migrations are tracked through version 26 in
 `apps/web/src/lib/server/db.ts`.
 
 Tables:
@@ -70,8 +70,24 @@ Tables:
 
 `note_versions` and `notebook_versions` keep snapshots for accepted pushes,
 conflicts, and cleanup. This gives v1 a recovery path without building a full
-audit UI. Snapshots older than 365 days are pruned by cleanup so long-lived
-sync accounts do not accumulate unbounded version rows.
+audit UI. Edit history is bounded so frequent syncing of long notes does not
+store a full copy per push:
+
+- `push` snapshots are coalesced: a record gets a new one only when its newest
+  history snapshot is more than 10 minutes old. The live row always holds the
+  newest accepted state.
+- `handoff` snapshots keep the last state written by another device right
+  before a push from a different device overwrites it.
+- `push` history older than 24 hours keeps only the newest snapshot per UTC
+  day; `handoff` snapshots are not thinned by day. At most 100 `push`/`handoff`
+  snapshots are kept per record.
+- `conflict` snapshots keep both sides of a conflict and skip exact
+  duplicates, so retried conflicting pushes do not store new copies.
+- `cleanup` snapshots keep the final state of permanently deleted records.
+
+Snapshots older than 365 days are pruned by cleanup. When an account reaches
+its storage estimate, the oldest `push`/`handoff` snapshots are dropped first so
+history never blocks live edits.
 
 Notes store `title` and `body` as structurally validated `enc:v4` encrypted text envelopes. Notebooks store `name` as the same envelope format. `title_hash`, `body_hash`, and `name_hash` store stable keyed HMAC hashes for sync comparison and duplicate notebook checks while encrypted text uses random IVs and field-specific authenticated data. Sync-capable accounts reject plaintext, malformed envelopes, missing current hashes, and unknown future `enc:vN` namespaces instead of rewriting them. Legacy/bootstrap tooling remains separate from the authenticated sync endpoint.
 Markdown is not parsed or rendered.
@@ -112,13 +128,17 @@ password login for an account and presented a local device trust secret. The
 server stores only a hash of that trust secret. Accounts with 2FA enabled can
 later issue a new session from that device with username plus TOTP code while
 the same local trust secret and encryption key material remain on the device.
+Removing a trusted device also deletes that device's sessions, except for the
+device making the request.
 TOTP seeds are stored in the users table as server-secret-encrypted `srvenc:v1`
 envelopes. Keep `NOTES_SERVER_SECRET` stable across deployments and restores;
 production deployments must set it explicitly.
 
 `auth_rate_limits` stores temporary hashed login/signup throttle keys so rate
 limits survive process restarts and multi-instance Worker execution without
-persisting raw IP addresses or usernames.
+persisting raw IP addresses or usernames. It also stores a hashed marker for
+each TOTP time step used to sign in, until that step leaves the accepted
+window, so a sign-in code cannot be replayed.
 
 `auth_challenges` stores short-lived password proof challenge state. Challenges
 are single-use and deleted during proof verification.

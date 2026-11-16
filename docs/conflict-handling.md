@@ -42,4 +42,8 @@ local copy.
 
 For duplicate notebook-name conflicts, the client does not resubmit the same rejected name. Keeping the existing remote notebook removes the local duplicate and remaps local note assignments to the existing notebook. Keeping the local notebook creates a renamed pending copy and remaps local note assignments to that copy.
 
+When many large notes conflict in one push, the server may report only some of
+them and leave the rest out of the response. Those records stay pending and are
+reported by the next sync, so no conflict is lost.
+
 When a push conflict's remote version came from the same local device, the client treats it as an echo of an earlier accepted write. It advances the local base version and leaves the newer local edit pending for the next push instead of showing a conflict prompt.

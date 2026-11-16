@@ -374,7 +374,8 @@ async function saveEditorNow(
   if (savedNoteId) {
     await clearEditorRecoveryIfMatches(savedNoteId, titleToSave, bodyToSave);
   }
-  controller.scheduleSync?.(0);
+  // Debounced: syncing after every pause would resend the whole note.
+  controller.scheduleSync?.();
 }
 
 function scheduleNoteSave(controller: NotesEditorActionController): void {

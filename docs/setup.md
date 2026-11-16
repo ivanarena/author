@@ -83,7 +83,7 @@ The code is bound to the normalized email, signed with `NOTES_SERVER_SECRET`, ex
 
 `NOTES_AUTH_TOKEN` is no longer used by default. If an older client still depends on the old static bearer token, set `NOTES_LEGACY_AUTH_TOKEN_ENABLED=true` temporarily and rotate away from it.
 
-Leave `NOTES_TRUST_PROXY_HEADERS=false` unless your reverse proxy strips incoming `X-Forwarded-For` / `X-Real-IP` headers and sets trusted ones itself. It affects login throttling and secure-request detection behind that proxy. Cloudflare Worker deploys set `NOTES_TRUST_CLOUDFLARE_HEADERS=true` in `wrangler.jsonc` so auth throttles can use Cloudflare's `CF-Connecting-IP`; keep it false for direct self-hosted Node unless Cloudflare is the trusted edge.
+Leave `NOTES_TRUST_PROXY_HEADERS=false` unless the app is reachable only through a reverse proxy that appends or sets `X-Forwarded-For`; see [TLS Reverse Proxy](#tls-reverse-proxy). It affects login throttling and secure-request detection behind that proxy. Cloudflare Worker deploys set `NOTES_TRUST_CLOUDFLARE_HEADERS=true` in `wrangler.jsonc` so auth throttles can use Cloudflare's `CF-Connecting-IP`; keep it false for direct self-hosted Node unless Cloudflare is the trusted edge.
 
 In Node/self-hosted runs, when Turso variables are present, the server keeps local SQLite active and mirrors local/remote records in both directions before reads and after writes. Set `NOTES_REMOTE_SYNC_ENABLED=false` to force local-only behavior temporarily.
 
@@ -475,7 +475,7 @@ server {
 }
 ```
 
-Set `NOTES_TRUST_PROXY_HEADERS=true` only when the proxy strips untrusted incoming `X-Forwarded-*` / `X-Real-IP` headers and sets its own. This affects login/signup throttling and HSTS detection behind a proxy. Set `NOTES_TRUST_CLOUDFLARE_HEADERS=true` only when Cloudflare is the trusted edge; the checked-in Worker config enables it for Cloudflare deploys.
+Set `NOTES_TRUST_PROXY_HEADERS=true` when the app is reachable only through a proxy you control that appends or sets `X-Forwarded-For`, as both examples above do. author uses the last `X-Forwarded-For` entry (the address the proxy saw) and the last `X-Forwarded-Proto`/`X-Forwarded-Host` entry, so earlier, client-supplied entries are ignored. With several proxies in a chain, make the outermost one overwrite these headers. Leave the setting `false` when clients can reach the app port directly; author then throttles by the connection's peer address. This affects login/signup throttling and HSTS detection behind a proxy. Set `NOTES_TRUST_CLOUDFLARE_HEADERS=true` only when Cloudflare is the trusted edge; the checked-in Worker config enables it for Cloudflare deploys.
 
 ## Health and Metrics
 

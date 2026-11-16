@@ -361,6 +361,26 @@ export async function run(
   await operation();
 }
 
+/** Runs a write statement and returns the number of rows it changed. */
+export async function runCounted(
+  db: NotesExecutor,
+  sql: string,
+  args: SqlArgs = []
+): Promise<number> {
+  let changed = 0;
+  const operation = async () => {
+    const result = await retryDatabaseBusy(() => db.execute({ sql, args }));
+    changed = Number(result.rowsAffected ?? 0);
+  };
+  const key = databaseWriteKeys.get(db as NotesDb);
+  if (key) {
+    await serializeDatabaseWrite(db as NotesDb, operation);
+  } else {
+    await operation();
+  }
+  return changed;
+}
+
 export async function all(
   db: NotesExecutor,
   sql: string,
@@ -1417,6 +1437,21 @@ export const SERVER_MIGRATIONS: ServerMigration[] = [
       if (!(await hasColumn(db, 'users', 'profile_image'))) {
         await run(db, 'ALTER TABLE users ADD COLUMN profile_image TEXT');
       }
+    }
+  },
+  {
+    version: 26,
+    name: 'version-snapshot-record-indexes',
+    rollback:
+      'Restore from the pre-upgrade backup or drop note_versions_owner_record_idx and notebook_versions_owner_record_idx.',
+    up: async (db) => {
+      await exec(
+        db,
+        `CREATE INDEX IF NOT EXISTS note_versions_owner_record_idx
+           ON note_versions(owner_username, note_id, reason, saved_at);
+         CREATE INDEX IF NOT EXISTS notebook_versions_owner_record_idx
+           ON notebook_versions(owner_username, notebook_id, reason, saved_at);`
+      );
     }
   }
 ];

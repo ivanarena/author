@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHmac } from 'node:crypto';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuthProofPurpose } from '@author/api-types';
 import {
   fixtureDevice,
@@ -10,13 +10,15 @@ import {
   fixtureNotebook
 } from '@author/test-fixtures';
 import {
+  createAuthSession,
   createSignupInvitation,
   setUserPassword,
+  trustAuthDevice,
   updateUserProfile
 } from './auth';
 import { get, openConfiguredDatabase, openDatabase } from './db';
 import { api, resetHonoStateForTests } from './hono';
-import { getNote, pushChanges, setSyncMeta } from './repository';
+import { getNote, pushChanges, setSyncMeta, upsertDevice } from './repository';
 import {
   authProofFromPassword,
   passwordVerifierFromPassword,
@@ -62,6 +64,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  vi.useRealTimers();
   await resetHonoStateForTests();
   rmSync(tempDir, { recursive: true, force: true });
   delete process.env.NOTES_DB_PROVIDER;
@@ -278,6 +281,15 @@ function base32Decode(value: string): Buffer {
     }
   }
   return Buffer.from(bytes);
+}
+
+/**
+ * Freezes Date and moves it to the next TOTP step. Each accepted TOTP code is
+ * single-use, so tests that sign in repeatedly need a fresh step per code.
+ */
+function advanceTotpStep(): void {
+  if (!vi.isFakeTimers()) vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(Date.now() + 30_000);
 }
 
 function totpCode(secret: string, now = Date.now()): string {
@@ -1559,6 +1571,7 @@ describe('Hono API', () => {
     );
     expect(enable.status).toBe(200);
 
+    advanceTotpStep();
     const trustedBeforeReset = await api.fetch(
       new Request('http://localhost/api/auth/login', {
         method: 'POST',
@@ -1583,6 +1596,7 @@ describe('Hono API', () => {
       remote.close();
     }
 
+    advanceTotpStep();
     const trustedAfterReset = await api.fetch(
       new Request('http://localhost/api/auth/login', {
         method: 'POST',
@@ -2084,6 +2098,7 @@ describe('Hono API', () => {
     const withoutCode = await loginResponse('owner', 'test-password-2026');
     expect(withoutCode.status).toBe(401);
 
+    // The code used to enable 2FA still signs in once; setup does not burn it.
     const trustedDeviceCode = await api.fetch(
       new Request('http://localhost/api/auth/login', {
         method: 'POST',
@@ -2124,12 +2139,22 @@ describe('Hono API', () => {
     );
     expect(unknownDeviceCode.status).toBe(401);
 
+    advanceTotpStep();
+    const freshCode = totpCode(setupBody.secret);
     const withCode = await loginResponse(
       'owner',
       'test-password-2026',
-      totpCode(setupBody.secret)
+      freshCode
     );
     expect(withCode.status).toBe(200);
+
+    // A TOTP code is single-use while it is still inside the accepted window.
+    const replayed = await loginResponse(
+      'owner',
+      'test-password-2026',
+      freshCode
+    );
+    expect(replayed.status).toBe(401);
   });
 
   it('does not accept legacy static tokens unless explicitly enabled', async () => {
@@ -2753,5 +2778,160 @@ describe('Hono API', () => {
     await expect(push.json()).resolves.toMatchObject({
       error: 'Invalid push payload'
     });
+  });
+});
+
+describe('Hono API hardening', () => {
+  async function validateStatus(token: string): Promise<number> {
+    const response = await api.fetch(
+      new Request('http://localhost/api/auth/validate', {
+        headers: { authorization: `Bearer ${token}` }
+      })
+    );
+    return response.status;
+  }
+
+  it('signs a device out when its trusted sign-in is removed, except this device', async () => {
+    const remotePath = join(tempDir, 'revoke-signs-out-remote.sqlite');
+    await seedRemoteOwner(remotePath);
+    const token = await loginToken();
+
+    const phoneId = 'owner-phone';
+    const phoneDevice = { id: phoneId, name: 'Owner phone' };
+    const phoneSecret = 'phone-device-trust-secret-0123456789';
+    const db = await openDatabase();
+    let phoneToken: string;
+    try {
+      phoneToken = (
+        await createAuthSession(
+          db,
+          {
+            username: 'owner',
+            email: null,
+            displayName: null,
+            profileImage: null,
+            twoFactorEnabled: false
+          },
+          phoneId
+        )
+      ).token;
+      await upsertDevice(db, phoneDevice, undefined, 'owner');
+      await trustAuthDevice(db, 'owner', phoneId, phoneSecret);
+    } finally {
+      db.close();
+    }
+    const remote = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${remotePath}`, authToken: 'test-token' }
+    });
+    try {
+      await upsertDevice(remote, phoneDevice, undefined, 'owner');
+      await trustAuthDevice(remote, 'owner', phoneId, phoneSecret);
+    } finally {
+      remote.close();
+    }
+    expect(await validateStatus(phoneToken)).toBe(200);
+
+    const revokePhone = await api.fetch(
+      new Request(`http://localhost/api/account/trusted-devices/${phoneId}`, {
+        method: 'DELETE',
+        headers: { authorization: `Bearer ${token}` }
+      })
+    );
+    expect(revokePhone.status).toBe(200);
+    expect(await validateStatus(phoneToken)).toBe(401);
+    expect(await validateStatus(token)).toBe(200);
+
+    const revokeSelf = await api.fetch(
+      new Request(
+        `http://localhost/api/account/trusted-devices/${fixtureDevice.id}`,
+        {
+          method: 'DELETE',
+          headers: { authorization: `Bearer ${token}` }
+        }
+      )
+    );
+    expect(revokeSelf.status).toBe(200);
+    await expect(revokeSelf.json()).resolves.toMatchObject({
+      trustedDevices: []
+    });
+    expect(await validateStatus(token)).toBe(200);
+  });
+
+  it('refuses to create accounts with reserved usernames', async () => {
+    const remotePath = join(tempDir, 'reserved-remote.sqlite');
+    process.env.TURSO_DATABASE_URL = `file:${remotePath}`;
+    process.env.TURSO_AUTH_TOKEN = 'test-token';
+    process.env.NOTES_REMOTE_SYNC_ENABLED = 'true';
+    process.env.NOTES_SIGNUP_ALLOWED_EMAILS = 'reserved@example.com';
+
+    const signup = await api.fetch(
+      new Request('http://localhost/api/auth/signup', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(
+          await signupBody(
+            'legacy-token',
+            'reserved@example.com',
+            'reserved-user-password'
+          )
+        )
+      })
+    );
+
+    expect(signup.status).toBe(400);
+    await expect(signup.json()).resolves.toEqual({
+      error: 'This username is reserved'
+    });
+  });
+
+  it('rate-limits trash cleanup requests per account', async () => {
+    const token = await loginToken();
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const cleanup = await post('/api/cleanup-trash', {}, token);
+      expect(cleanup.status).toBe(200);
+    }
+    const limited = await post('/api/cleanup-trash', {}, token);
+    expect(limited.status).toBe(429);
+  });
+
+  it('throttles logins by the proxy-appended X-Forwarded-For entry', async () => {
+    const previous = process.env.NOTES_TRUST_PROXY_HEADERS;
+    process.env.NOTES_TRUST_PROXY_HEADERS = 'true';
+    try {
+      const failedLogin = async (forwardedFor: string) =>
+        await api.fetch(
+          new Request('http://localhost/api/auth/login', {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'x-forwarded-for': forwardedFor
+            },
+            body: JSON.stringify({
+              username: 'owner',
+              proof: {
+                challengeId: 'missing-challenge',
+                clientNonce: randomAuthNonce(),
+                proof: Buffer.alloc(32).toString('base64url')
+              },
+              device: fixtureDevice
+            })
+          })
+        );
+
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        // The first entry is client-controlled; only the last is trusted.
+        const response = await failedLogin(`10.0.0.${attempt}, 203.0.113.7`);
+        expect(response.status).toBe(401);
+      }
+      expect((await failedLogin('10.0.0.99, 203.0.113.7')).status).toBe(429);
+      expect((await failedLogin('203.0.113.7, 198.51.100.4')).status).toBe(401);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.NOTES_TRUST_PROXY_HEADERS;
+      } else {
+        process.env.NOTES_TRUST_PROXY_HEADERS = previous;
+      }
+    }
   });
 });

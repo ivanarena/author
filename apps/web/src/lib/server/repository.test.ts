@@ -943,6 +943,48 @@ describe('server repository', () => {
     }
   });
 
+  it('fills pull pages up to the byte ceiling across many large notes', async () => {
+    const db = await openMemoryDatabase();
+    try {
+      const ids = Array.from({ length: 7 }, (_, index) => `medium-${index}`);
+      await pushChanges(db, {
+        device: fixtureDevice,
+        notebooks: [],
+        notes: ids.map((id) => ({
+          record: {
+            ...fixtureNote,
+            id,
+            title: id,
+            body: 'y'.repeat(1_500_000),
+            notebookIds: [],
+            notebookId: null
+          },
+          baseVersion: 0
+        }))
+      });
+
+      let cursor = 0;
+      let hasMore = true;
+      const pageSizes: number[] = [];
+      const noteIds: string[] = [];
+      while (hasMore) {
+        const page = await pullChangesSince(db, null, cursor);
+        expect(
+          new TextEncoder().encode(JSON.stringify(page)).byteLength
+        ).toBeLessThanOrEqual(6 * 1024 * 1024);
+        pageSizes.push(page.notes.length);
+        noteIds.push(...page.notes.map((note) => note.id));
+        cursor = page.serverRevision;
+        hasMore = Boolean(page.hasMore);
+      }
+      expect(new Set(noteIds)).toEqual(new Set(ids));
+      // Four 1.5 MB notes fit under the 6 MiB ceiling; pages are not halved.
+      expect(pageSizes[0]).toBe(4);
+    } finally {
+      db.close();
+    }
+  });
+
   it('compacts superseded entity revisions without breaking a revision-zero pull', async () => {
     const db = await openMemoryDatabase();
     try {

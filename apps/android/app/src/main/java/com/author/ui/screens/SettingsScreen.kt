@@ -623,7 +623,7 @@ private fun TrustedDevicesSettings(controller: NotesController) {
     InfoTile(
       "Trusted-device sign-in",
       trustedDeviceCountLabel(controller.accountTrustedDevices.size),
-      "Removing trust stops future 2FA-code sign-in without a password. Active sessions stay signed in.",
+      "Removing trust stops future 2FA-code sign-in without a password and signs that device out. This device stays signed in.",
     )
     if (controller.accountTrustedDevices.isEmpty()) {
       InfoTile("Trusted devices", "None", "Sign in with a password to trust this device")

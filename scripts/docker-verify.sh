@@ -8,6 +8,7 @@ image_tar="$(mktemp --suffix=.tar)"
 trap 'rm -f "${image_tar}"' EXIT
 
 docker build -t "${image_ref}" .
+bash "$(dirname "${BASH_SOURCE[0]}")/docker-smoke.sh" "${image_ref}"
 docker save --output "${image_tar}" "${image_ref}"
 
 mkdir -p "${cache_dir}"

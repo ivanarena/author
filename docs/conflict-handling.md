@@ -34,6 +34,9 @@ When the local version wins, the client stores it as a new pending edit based on
 For remote-delete conflicts, the tombstone version is the current remote version.
 After the user explicitly keeps the local version, the server may accept that
 pending record over the tombstone because the client is no longer stale.
+When the local notebook wins over a remote delete, clients also queue the notes
+assigned to it again: notes pushed while the notebook was deleted were stored
+without that assignment, so the next push restores it.
 When a remote notebook tombstone wins, clients remove that notebook id from
 local note assignments and queue those note metadata changes instead of leaving
 orphaned notebook links. When both sides of a generic notebook conflict are

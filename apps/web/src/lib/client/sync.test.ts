@@ -495,7 +495,8 @@ describe('client sync orchestration', () => {
     );
 
     await expect(runSync('session-token')).resolves.toEqual({
-      pushed: 25,
+      // The mocked server answered no change, so none count as pushed.
+      pushed: 0,
       pulled: 0,
       conflicts: 0,
       unsyncable: 0
@@ -545,7 +546,8 @@ describe('client sync orchestration', () => {
     );
 
     await expect(runSync('session-token')).resolves.toEqual({
-      pushed: 4,
+      // The mocked server answered no change, so none count as pushed.
+      pushed: 0,
       pulled: 0,
       conflicts: 0,
       unsyncable: 0
@@ -908,7 +910,8 @@ describe('client sync orchestration', () => {
     );
 
     await expect(runSync('session-token')).resolves.toEqual({
-      pushed: 2,
+      // The mocked server answered no change, so none count as pushed.
+      pushed: 0,
       pulled: 0,
       conflicts: 0,
       unsyncable: 0

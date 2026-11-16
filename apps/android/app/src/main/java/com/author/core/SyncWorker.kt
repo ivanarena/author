@@ -8,9 +8,12 @@ import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class SyncWorker(appContext: Context, params: WorkerParameters) :
   CoroutineWorker(appContext, params) {
@@ -79,11 +82,38 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
     const val LOCAL_CHANGE_DELAY_SECONDS = 30L
 
     /**
+     * Enqueues an immediate background sync. If one is running and none is waiting behind it, a
+     * second one is appended so edits saved after the running sync read its pending records are
+     * still sent; otherwise the existing request is kept, so repeated calls cannot build a chain.
+     */
+    suspend fun enqueueImmediate(context: Context) {
+      val infos =
+        withContext(Dispatchers.IO) {
+          WorkManager.getInstance(context.applicationContext)
+            .getWorkInfosForUniqueWork(IMMEDIATE_UNIQUE_WORK_NAME)
+            .get()
+        }
+      val running = infos.any { it.state == WorkInfo.State.RUNNING }
+      val waiting =
+        infos.any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED }
+      enqueue(
+        context,
+        immediate = true,
+        policy =
+          if (running && !waiting) ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.KEEP,
+      )
+    }
+
+    /**
      * Enqueues a background sync. A delayed request runs once [LOCAL_CHANGE_DELAY_SECONDS] after
      * the first edit it covers; an [immediate] request, used when the app leaves the foreground,
      * runs as soon as the network allows. Both share the repository sync mutex.
      */
-    fun enqueue(context: Context, immediate: Boolean = false) {
+    fun enqueue(
+      context: Context,
+      immediate: Boolean = false,
+      policy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP,
+    ) {
       val request =
         OneTimeWorkRequestBuilder<SyncWorker>()
           .setConstraints(
@@ -96,7 +126,8 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
       WorkManager.getInstance(context.applicationContext)
         .enqueueUniqueWork(
           if (immediate) IMMEDIATE_UNIQUE_WORK_NAME else UNIQUE_WORK_NAME,
-          ExistingWorkPolicy.KEEP,
+          // A delayed request already waiting covers later edits, so it is kept.
+          policy,
           request,
         )
     }

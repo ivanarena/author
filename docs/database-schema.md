@@ -138,7 +138,9 @@ production deployments must set it explicitly.
 limits survive process restarts and multi-instance Worker execution without
 persisting raw IP addresses or usernames. It also stores a hashed marker for
 each TOTP time step used to sign in, until that step leaves the accepted
-window, so a sign-in code cannot be replayed.
+window, so a sign-in code cannot be replayed. The step is recorded only once
+the rest of the sign-in has succeeded, so a sign-in that fails for another
+reason does not use up the code.
 
 `auth_challenges` stores short-lived password proof challenge state. Challenges
 are single-use and deleted during proof verification.

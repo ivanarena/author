@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 
 private const val DEVICE_KEY = "author-device-id"
@@ -52,6 +53,7 @@ private const val LAST_PULL_CURSOR_RESET_KEY = "lastPullCursorResetAt"
 // server would accept them without those assignments.
 private val STOP_PUSH_STATUSES = setOf(400, 409, 413, 429)
 private const val PULL_BATCH_SIZE = 1000
+private const val LOCAL_ASSIGNED_NOTE_IDS_KEY = "localAssignedNoteIds"
 private val syncMutex = Mutex()
 private val VALID_SYNC_STATUSES = setOf("synced", "pending", "conflict", "deleted")
 private val THEMES =
@@ -240,8 +242,12 @@ class NotesRepository(context: Context) : AutoCloseable {
 
   suspend fun canUseTrustedDeviceLogin(): Boolean = hasUsableStoredEncryptionKeyMaterial()
 
-  fun enqueueBackgroundSync(immediate: Boolean = false) {
-    SyncWorker.enqueue(appContext, immediate)
+  fun enqueueBackgroundSync() {
+    SyncWorker.enqueue(appContext)
+  }
+
+  suspend fun enqueueImmediateBackgroundSync() {
+    SyncWorker.enqueueImmediate(appContext)
   }
 
   suspend fun getOrCreateDevice(): Device =
@@ -1179,7 +1185,10 @@ class NotesRepository(context: Context) : AutoCloseable {
         }
         val totalPushCount = pendingChanges.size - unsyncable.size
         var conflicts = 0
+        // `pushed` drives progress and counts changes sent; `answered` counts the changes the
+        // server accepted or reported as conflicts (it may defer some).
         var pushed = 0
+        val answered = mutableSetOf<String>()
         var stoppedPushError: SyncHttpException? = null
         val currentDeviceSignature = deviceSignature(device)
         if (
@@ -1225,6 +1234,9 @@ class NotesRepository(context: Context) : AutoCloseable {
             }
           db.putMeta(LAST_PUSHED_DEVICE_SIGNATURE_KEY, currentDeviceSignature)
           pushed += batchSize
+          response.accepted.forEach { answered.add("${it.entityType}:${it.id}") }
+          response.noteConflicts.forEach { answered.add("note:${it.entityId}") }
+          response.notebookConflicts.forEach { answered.add("notebook:${it.entityId}") }
           onProgress(
             SyncProgress(
               phase = SyncProgressPhase.PUSHING,
@@ -1304,7 +1316,7 @@ class NotesRepository(context: Context) : AutoCloseable {
 
         stoppedPushError?.let { throw it }
 
-        SyncRunResult(pushed, pulled, conflicts, unsyncable.size).also {
+        SyncRunResult(answered.size, pulled, conflicts, unsyncable.size).also {
           recordLastSyncPass(it)
           clearSyncErrorInternal()
           recordDebugLog(
@@ -1377,12 +1389,23 @@ class NotesRepository(context: Context) : AutoCloseable {
       } else {
         val conflict =
           decryptNotebookConflictForDisplay(notebookConflictFromJson(JSONObject(raw.conflictJson)))
+        val assignedNoteIds =
+          JSONObject(raw.conflictJson).optJSONArray(LOCAL_ASSIGNED_NOTE_IDS_KEY).toStringList()
         if (conflict.reason == "duplicate_name") {
+          // The server never accepted this notebook, so notes pushed with it lost the assignment;
+          // restore it so the remap below moves it to the kept notebook.
+          restoreRecordedNotebookAssignments(conflict.entityId, assignedNoteIds, device, now)
           resolveDuplicateNotebookNameConflict(conflict, choice, device, now)
         } else if (choice == "duplicate-both") {
           val remote = conflict.remote.record
           val local = conflict.local.record
           val copyId = newId()
+          if (remote.deletedAt != null) {
+            // Notes pushed while the notebook was deleted lost the assignment; restore it so the
+            // remap below moves it to the copy. Only for a remote delete: after a remote edit, a
+            // note without the notebook may have been moved out on purpose.
+            restoreRecordedNotebookAssignments(local.id, assignedNoteIds, device, now)
+          }
           db.putNotebook(
             crypto.encryptNotebookFields(
               remote.copy(
@@ -1426,6 +1449,13 @@ class NotesRepository(context: Context) : AutoCloseable {
           )
           if (isRemote && record.deletedAt != null) {
             removeLocalNoteNotebookReferences(record.id, device, now)
+          } else if (
+            !isRemote && record.deletedAt == null && conflict.remote.record.deletedAt != null
+          ) {
+            // The notebook comes back after a remote delete. Notes pushed while it was deleted
+            // were stored without it, so push their assignments again.
+            restoreRecordedNotebookAssignments(record.id, assignedNoteIds, device, now)
+            requeueLocalNoteNotebookReferences(record.id, device)
           }
         }
       }
@@ -2064,6 +2094,13 @@ class NotesRepository(context: Context) : AutoCloseable {
         } ?: conflict
       val stored = encryptNotebookConflictForStorage(effective)
       val createdAt = nowIso()
+      // Local only: notes assigned to the notebook now. The server drops assignments to a notebook
+      // it does not accept and a pull then removes them locally, so resolving restores them.
+      val assignedNoteIds =
+        db
+          .allNotes()
+          .filter { it.deletedAt == null && conflict.entityId in noteNotebookIds(it) }
+          .map { it.id }
       if (
         db.putConflictIfEntityUnchanged(
           "notebooks",
@@ -2073,7 +2110,9 @@ class NotesRepository(context: Context) : AutoCloseable {
           stored.id,
           stored.entityType,
           createdAt,
-          notebookConflictToJson(stored).toString(),
+          notebookConflictToJson(stored)
+            .put(LOCAL_ASSIGNED_NOTE_IDS_KEY, JSONArray(assignedNoteIds))
+            .toString(),
         )
       ) {
         return
@@ -2207,6 +2246,55 @@ class NotesRepository(context: Context) : AutoCloseable {
       .distinct()
       .filter { it.isNotBlank() }
       .forEach { removeLocalNoteNotebookReferences(it, device, updatedAt) }
+  }
+
+  /**
+   * Adds a notebook back to notes that were assigned to it when its conflict was saved but have
+   * since lost it, typically because the server dropped the assignment and a pull applied that.
+   * Notes edited locally since then are left alone.
+   */
+  private fun restoreRecordedNotebookAssignments(
+    notebookId: String,
+    noteIds: List<String>,
+    device: Device,
+    updatedAt: String,
+  ) {
+    noteIds
+      .mapNotNull { db.getNote(it) }
+      .filter { it.syncStatus == "synced" && it.deletedAt == null }
+      .forEach { note ->
+        val ids = noteNotebookIds(note)
+        if (notebookId in ids) return@forEach
+        val nextIds = (ids + notebookId).distinct()
+        db.putNote(
+          note.copy(
+            notebookIds = nextIds,
+            notebookId = primaryNotebookId(nextIds),
+            updatedAt = updatedAt,
+            deviceId = device.id,
+            version = safePendingVersion(note),
+            syncStatus = "pending",
+            lastSyncedAt = null,
+          )
+        )
+      }
+  }
+
+  private fun requeueLocalNoteNotebookReferences(notebookId: String, device: Device) {
+    db
+      .allNotes()
+      .filter { it.syncStatus == "synced" && it.deletedAt == null }
+      .filter { notebookId in noteNotebookIds(it) }
+      .forEach { note ->
+        db.putNote(
+          note.copy(
+            deviceId = device.id,
+            version = safePendingVersion(note),
+            syncStatus = "pending",
+            lastSyncedAt = null,
+          )
+        )
+      }
   }
 
   private fun removeLocalNoteNotebookReferences(
@@ -2533,10 +2621,22 @@ class NotesRepository(context: Context) : AutoCloseable {
           raw.entityId,
           raw.status,
           raw.createdAt,
-          notebookConflictToJson(stored).toString(),
+          notebookConflictJsonKeepingLocalFields(stored, raw.conflictJson),
         )
       }
     }
+  }
+
+  /** Serializes a rewritten notebook conflict, keeping local-only fields of the stored one. */
+  private fun notebookConflictJsonKeepingLocalFields(
+    conflict: SyncConflict<LocalNotebook>,
+    previousJson: String,
+  ): String {
+    val json = notebookConflictToJson(conflict)
+    runCatching { JSONObject(previousJson).optJSONArray(LOCAL_ASSIGNED_NOTE_IDS_KEY) }
+      .getOrNull()
+      ?.let { json.put(LOCAL_ASSIGNED_NOTE_IDS_KEY, it) }
+    return json.toString()
   }
 
   private fun ensureLocalConflictsEncryptedInternal(
@@ -2575,7 +2675,7 @@ class NotesRepository(context: Context) : AutoCloseable {
             raw.entityId,
             raw.status,
             raw.createdAt,
-            notebookConflictToJson(stored).toString(),
+            notebookConflictJsonKeepingLocalFields(stored, raw.conflictJson),
           )
         }
       }

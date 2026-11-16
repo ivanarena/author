@@ -733,6 +733,19 @@ export async function consumeTotpCode(
 ): Promise<boolean> {
   const counter = await matchedTotpCounter(secret, value, now);
   if (counter === null) return false;
+  return await markTotpStepUsed(db, username, counter, now);
+}
+
+/**
+ * Marks a verified sign-in TOTP time step as used. Returns false when the
+ * step was already used, so the caller must reject the sign-in.
+ */
+export async function markTotpStepUsed(
+  db: NotesExecutor,
+  username: string,
+  counter: number,
+  now = Date.now()
+): Promise<boolean> {
   const keyHash = createHash('sha256')
     .update(`author-totp-used:v1\0${username}\0${counter}`)
     .digest('hex');
@@ -1186,11 +1199,37 @@ async function verifyProofForRow(
   return base64UrlEncode(hmacSha256(verifier.serverKey, message));
 }
 
+/**
+ * Sign-in TOTP handling. By default a verified code is consumed at once. A
+ * caller with later steps that can still fail passes `deferTotpConsumption`
+ * and calls markTotpStepUsed with the reported step only once the sign-in
+ * has otherwise succeeded, so a failed sign-in does not burn the code.
+ */
+export interface SignInTotpOptions {
+  deferTotpConsumption?: (step: number) => void;
+}
+
+async function checkSignInTotp(
+  db: NotesExecutor,
+  row: UserRow,
+  totpCode: string | null | undefined,
+  options: SignInTotpOptions
+): Promise<boolean> {
+  if (!options.deferTotpConsumption) {
+    return await consumeTotpCode(db, row.username, row.totp_secret, totpCode);
+  }
+  const step = await matchedTotpCounter(row.totp_secret, totpCode, Date.now());
+  if (step === null) return false;
+  options.deferTotpConsumption(step);
+  return true;
+}
+
 export async function authenticateUserProof(
   db: NotesExecutor,
   login: string | null | undefined,
   proof: AuthProof | null | undefined,
-  totpCode?: string | null
+  totpCode?: string | null,
+  options: SignInTotpOptions = {}
 ): Promise<VerifiedAuthProof | null> {
   const challenge = await consumeAuthChallenge(db, proof, 'login');
   const requestedLogin = cleanLoginIdentifier(login);
@@ -1201,10 +1240,7 @@ export async function authenticateUserProof(
   if (!row) return null;
   const serverProof = await verifyProofForRow(row, challenge, proof!);
   if (!serverProof) return null;
-  if (
-    row.totp_secret &&
-    !(await consumeTotpCode(db, row.username, row.totp_secret, totpCode))
-  ) {
+  if (row.totp_secret && !(await checkSignInTotp(db, row, totpCode, options))) {
     return null;
   }
   return { user: rowToAuthUser(row), serverProof };
@@ -1635,7 +1671,8 @@ export async function authenticateTrustedDevice(
   username: string | null | undefined,
   deviceId: string | null | undefined,
   deviceTrustSecret: string | null | undefined,
-  totpCode?: string | null
+  totpCode?: string | null,
+  options: SignInTotpOptions = {}
 ): Promise<AuthUser | null> {
   if (typeof deviceId !== 'string' || !deviceId.trim()) return null;
   const safeDeviceId = deviceId.trim();
@@ -1650,9 +1687,7 @@ export async function authenticateTrustedDevice(
     ))
   )
     return null;
-  if (!(await consumeTotpCode(db, row.username, row.totp_secret, totpCode))) {
-    return null;
-  }
+  if (!(await checkSignInTotp(db, row, totpCode, options))) return null;
   await trustAuthDevice(db, row.username, safeDeviceId, deviceTrustSecret);
   return rowToAuthUser(row);
 }

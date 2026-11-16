@@ -33,19 +33,24 @@ async function visitPackage(path) {
   if (!resolved || visitedPackages.has(resolved)) return;
   visitedPackages.add(resolved);
 
+  const dependencyDirs = [join(resolved, 'node_modules')];
   const storeRelative = relative(store, resolved);
   if (storeRelative && !storeRelative.startsWith(`..${sep}`)) {
     const marker = `${sep}node_modules${sep}`;
     const markerIndex = storeRelative.indexOf(marker);
     if (markerIndex > 0) {
-      reachableStoreEntries.add(storeRelative.slice(0, markerIndex));
+      const entry = storeRelative.slice(0, markerIndex);
+      reachableStoreEntries.add(entry);
+      // Store entries keep a package's dependencies as siblings of the
+      // package in the entry's own node_modules directory.
+      dependencyDirs.push(join(store, entry, 'node_modules'));
     }
   }
 
-  for (const dependency of await packageEntries(
-    join(resolved, 'node_modules')
-  )) {
-    await visitPackage(dependency);
+  for (const dependencyDir of dependencyDirs) {
+    for (const dependency of await packageEntries(dependencyDir)) {
+      await visitPackage(dependency);
+    }
   }
 }
 

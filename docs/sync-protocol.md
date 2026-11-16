@@ -21,8 +21,40 @@ Each changed entity is sent as:
 }
 ```
 
-Clients send at most 20 note/notebook changes in a single push request. The server also enforces UTF-8 byte limits for every identifier, field, hash, timestamp, device label, and assignment list; binds a device to its authenticated session; caps accounts at 50 devices; rate-limits pushes; and checks active plus auxiliary snapshot/change storage inside the write transaction.
-When server-side record limits are enabled, the server estimates post-push active note/notebook counts, active bytes, devices, version snapshots, tombstones, and revision metadata for the authenticated user inside the accepting transaction. An already-over-limit account can bypass that limit only when every change is a version-matched deletion of a currently active record; stale/conflict-only or content-shrinking updates do not qualify. A limit failure returns an explicit sync error and does not
+Clients send at most 20 note/notebook changes in a single push request, and split
+pushes so each serialized request body stays within 5 MiB, the server's push body
+limit. A pending record that cannot fit in any request, or whose title, body, or
+notebook name exceeds the per-field byte limit, is not sent: it stays pending on
+the device, the rest of the workspace keeps syncing, and the client reports that
+some changes are too large to sync. Notes assigned to a notebook that is too
+large to sync are held back with it, so the server never accepts them without
+that assignment. Deletions are pushed first, in batches of their own, because
+the server accepts deletion-only pushes even when an account is over its
+storage limit, so deleting records that are current on the server frees space. If the server rejects a push batch's content (`400`, `409`, or
+`413`) or rate-limits it (`429`), the client keeps that batch and every later
+batch pending, still pulls, and then reports the error; later batches are not
+sent because their notes may reference notebooks in the rejected batch.
+Content rejections are not retried on a timer: the next attempt follows the
+next edit or manual sync. While the web client backs off (one minute, doubling
+up to 15 minutes), its interval, focus, and visibility syncs only pull, so
+remote changes still arrive without resending the rejected data. A rate limit
+(`429`) is retried quietly after a minute. Transport failures, `401`,
+and server errors stop the sync immediately.
+
+A push response may also leave a change out of both `accepted` and `conflicts`.
+The server returns at most about 8 MiB of conflict payload per response (the
+first conflict is always returned); later conflicts are deferred without being
+stored, and the client keeps those records pending so the next sync reports
+them. This keeps conflict responses under the clients' 12 MiB response limit
+when several large notes conflict at once.
+
+Clients sync about two seconds after local edits stop, at least every
+20 seconds while editing continues, when the app is hidden or loses focus, and
+on a regular interval while open. Each push uploads whole encrypted records, so
+syncing on every short typing pause would resend long notes many times. Android
+also schedules a background sync 30 seconds after an edit as a safety net, and
+an immediate one when the app leaves the foreground. The server also enforces UTF-8 byte limits for every identifier, field, hash, timestamp, device label, and assignment list; binds a device to its authenticated session; caps accounts at 50 devices; rate-limits pushes; and checks active plus auxiliary snapshot/change storage inside the write transaction.
+When server-side record limits are enabled, the server estimates post-push active note/notebook counts, active bytes, devices, version snapshots, tombstones, and revision metadata for the authenticated user inside the accepting transaction. If only the total budget is exceeded, the server first deletes the account's oldest edit-history snapshots (`push` and `handoff`) until the push fits, because history must not block live edits; conflict and cleanup snapshots are kept. An already-over-limit account can otherwise bypass that limit only when every change is a version-matched deletion of a currently active record; stale/conflict-only or content-shrinking updates do not qualify. A limit failure returns an explicit sync error and does not
 drop local pending records; clients can retry after deleting/exporting data or
 after the operator adjusts the configured budget.
 `baseVersion` is the last remote version the client successfully synced. New local entities use `0`.

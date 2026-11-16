@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PushRequest } from '@author/api-types';
+import { SYNC_LIMITS, type PushRequest } from '@author/api-types';
 import type { Note, Notebook } from '@author/schema';
 import {
   AuthError,
@@ -281,7 +281,8 @@ describe('client sync orchestration', () => {
       await expect(runSync('session-token')).resolves.toEqual({
         pushed: 0,
         pulled: 0,
-        conflicts: 0
+        conflicts: 0,
+        unsyncable: 0
       });
     } finally {
       restoreNavigator();
@@ -373,7 +374,8 @@ describe('client sync orchestration', () => {
     ).resolves.toEqual({
       pushed: 2,
       pulled: 4,
-      conflicts: 1
+      conflicts: 1,
+      unsyncable: 0
     });
 
     expect(progress).toEqual([
@@ -495,7 +497,8 @@ describe('client sync orchestration', () => {
     await expect(runSync('session-token')).resolves.toEqual({
       pushed: 25,
       pulled: 0,
-      conflicts: 0
+      conflicts: 0,
+      unsyncable: 0
     });
 
     const firstPush = JSON.parse(
@@ -508,6 +511,291 @@ describe('client sync orchestration', () => {
     expect(firstPush.notes).toHaveLength(10);
     expect(secondPush.notebooks).toHaveLength(0);
     expect(secondPush.notes).toHaveLength(5);
+  });
+
+  it('splits pushes so each request stays within the server body limit', async () => {
+    // Four ~1.4 MB notes exceed one 5 MiB push together.
+    const pendingNotes = Array.from({ length: 4 }, (_, index) => ({
+      ...note,
+      id: `large-note-${index}`,
+      body: 'x'.repeat(1_400_000),
+      lastSyncedVersion: 0,
+      lastSyncedAt: null
+    }));
+    mockPendingNotes(pendingNotes);
+    const emptyPush = () =>
+      jsonResponse({
+        accepted: [],
+        conflicts: [],
+        serverTime: '2026-05-01T10:10:00.000Z'
+      });
+    const fetchMock = mockFetch(
+      emptyPush(),
+      emptyPush(),
+      jsonResponse({
+        notes: [],
+        notebooks: [],
+        devices: [],
+        deletedNoteIds: [],
+        deletedNotebookIds: [],
+        deletedDeviceIds: [],
+        serverTime: '2026-05-01T10:11:00.000Z',
+        serverRevision: 42
+      })
+    );
+
+    await expect(runSync('session-token')).resolves.toEqual({
+      pushed: 4,
+      pulled: 0,
+      conflicts: 0,
+      unsyncable: 0
+    });
+
+    const pushBodies = fetchMock.mock.calls
+      .slice(0, 2)
+      .map((call) => String((call[1] as RequestInit).body));
+    for (const body of pushBodies) {
+      expect(new TextEncoder().encode(body).byteLength).toBeLessThanOrEqual(
+        SYNC_LIMITS.pushRequestBytes
+      );
+    }
+    expect(
+      pushBodies.map((body) => (JSON.parse(body) as PushRequest).notes.length)
+    ).toEqual([3, 1]);
+  });
+
+  it('keeps notes too large to push pending and still syncs the rest', async () => {
+    const hugeNote = {
+      ...note,
+      id: 'huge-note',
+      body: 'x'.repeat(SYNC_LIMITS.bodyBytes + 1),
+      lastSyncedVersion: 0,
+      lastSyncedAt: null
+    };
+    const smallNote = {
+      ...note,
+      id: 'small-note',
+      lastSyncedVersion: 0,
+      lastSyncedAt: null
+    };
+    mockPendingNotes([hugeNote, smallNote]);
+    const fetchMock = mockFetch(
+      jsonResponse({
+        accepted: [
+          {
+            entityType: 'note',
+            id: 'small-note',
+            version: 1,
+            updatedAt: smallNote.updatedAt
+          }
+        ],
+        conflicts: [],
+        serverTime: '2026-05-01T10:10:00.000Z'
+      }),
+      jsonResponse({
+        notes: [],
+        notebooks: [],
+        devices: [],
+        deletedNoteIds: [],
+        deletedNotebookIds: [],
+        deletedDeviceIds: [],
+        serverTime: '2026-05-01T10:11:00.000Z',
+        serverRevision: 42
+      })
+    );
+
+    await expect(runSync('session-token')).resolves.toEqual({
+      pushed: 1,
+      pulled: 0,
+      conflicts: 0,
+      unsyncable: 1
+    });
+
+    const push = JSON.parse(
+      String((fetchMock.mock.calls[0]?.[1] as RequestInit).body)
+    ) as PushRequest;
+    expect(push.notes.map((change) => change.record.id)).toEqual([
+      'small-note'
+    ]);
+    expect(markAcceptedChanges).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(localDb.notes.bulkDelete)).not.toHaveBeenCalled();
+  });
+
+  it('stops pushing after the server rejects a batch, still pulls, then reports it', async () => {
+    mockPendingNotes(
+      Array.from({ length: 25 }, (_, index) => ({
+        ...note,
+        id: `rejected-${index}`,
+        lastSyncedVersion: 0,
+        lastSyncedAt: null
+      }))
+    );
+    const fetchMock = mockFetch(
+      jsonResponse(
+        { error: 'Server storage limit estimate reached for this account.' },
+        { status: 409 }
+      ),
+      jsonResponse({
+        notes: [{ ...note, id: 'remote-note', syncStatus: 'synced' }],
+        notebooks: [],
+        devices: [],
+        deletedNoteIds: [],
+        deletedNotebookIds: [],
+        deletedDeviceIds: [],
+        serverTime: '2026-05-01T10:11:00.000Z',
+        serverRevision: 42
+      })
+    );
+
+    await expect(runSync('session-token')).rejects.toMatchObject({
+      name: 'SyncHttpError',
+      status: 409,
+      message: 'Server storage limit estimate reached for this account.'
+    });
+
+    // The second batch is not sent: its notes could reference notebooks in the
+    // rejected batch. The call after the rejected push is the pull.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain('/api/sync/pull');
+    expect(markAcceptedChanges).not.toHaveBeenCalled();
+    expect(mergeRemoteChanges).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: 'remote-note' })],
+      [],
+      '2026-05-01T10:11:00.000Z'
+    );
+    expect(localDb.syncMeta.put).toHaveBeenCalledWith({
+      key: 'lastPulledRevision',
+      value: '42'
+    });
+  });
+
+  it('holds back notes assigned to a notebook that is too large to sync', async () => {
+    const hugeNotebook = {
+      ...notebook,
+      id: 'huge-notebook',
+      name: 'x'.repeat(SYNC_LIMITS.notebookNameBytes + 1),
+      lastSyncedVersion: 0,
+      lastSyncedAt: null
+    };
+    mockPendingNotebooks([hugeNotebook]);
+    mockPendingNotes([
+      {
+        ...note,
+        id: 'in-huge-notebook',
+        notebookIds: ['huge-notebook'],
+        notebookId: 'huge-notebook',
+        lastSyncedVersion: 0,
+        lastSyncedAt: null
+      },
+      {
+        ...note,
+        id: 'unfiled-note',
+        notebookIds: [],
+        notebookId: null,
+        lastSyncedVersion: 0,
+        lastSyncedAt: null
+      }
+    ]);
+    const fetchMock = mockFetch(
+      jsonResponse({
+        accepted: [],
+        conflicts: [],
+        serverTime: '2026-05-01T10:10:00.000Z'
+      }),
+      jsonResponse({
+        notes: [],
+        notebooks: [],
+        devices: [],
+        deletedNoteIds: [],
+        deletedNotebookIds: [],
+        deletedDeviceIds: [],
+        serverTime: '2026-05-01T10:11:00.000Z',
+        serverRevision: 42
+      })
+    );
+
+    await expect(runSync('session-token')).resolves.toMatchObject({
+      unsyncable: 2
+    });
+
+    const push = JSON.parse(
+      String((fetchMock.mock.calls[0]?.[1] as RequestInit).body)
+    ) as PushRequest;
+    expect(push.notebooks).toEqual([]);
+    expect(push.notes.map((change) => change.record.id)).toEqual([
+      'unfiled-note'
+    ]);
+  });
+
+  it('keeps changes the server deferred pending', async () => {
+    mockPendingNotes([{ ...note, lastSyncedVersion: 1, lastSyncedAt: null }]);
+    mockFetch(
+      // Neither accepted nor a conflict: the server deferred this change.
+      jsonResponse({
+        accepted: [],
+        conflicts: [],
+        serverTime: '2026-05-01T10:10:00.000Z'
+      }),
+      jsonResponse({
+        notes: [],
+        notebooks: [],
+        devices: [],
+        deletedNoteIds: [],
+        deletedNotebookIds: [],
+        deletedDeviceIds: [],
+        serverTime: '2026-05-01T10:11:00.000Z',
+        serverRevision: 42
+      })
+    );
+
+    await expect(runSync('session-token')).resolves.toMatchObject({
+      conflicts: 0
+    });
+
+    expect(markAcceptedChanges).toHaveBeenCalledWith(
+      [],
+      '2026-05-01T10:10:00.000Z',
+      [expect.objectContaining({ entityType: 'note', id: note.id })]
+    );
+    expect(saveConflict).not.toHaveBeenCalled();
+  });
+
+  it('only pulls when pushing is turned off', async () => {
+    mockPendingNotes([{ ...note, lastSyncedVersion: 0, lastSyncedAt: null }]);
+    mockSyncMeta({ lastPushedDeviceSignature: 'stale-signature' });
+    const fetchMock = mockFetch(
+      jsonResponse({
+        notes: [],
+        notebooks: [],
+        devices: [],
+        deletedNoteIds: [],
+        deletedNotebookIds: [],
+        deletedDeviceIds: [],
+        serverTime: '2026-05-01T10:11:00.000Z',
+        serverRevision: 42
+      })
+    );
+
+    await expect(
+      runSync('session-token', undefined, { push: false })
+    ).resolves.toMatchObject({ pushed: 0 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/api/sync/pull');
+    expect(markAcceptedChanges).not.toHaveBeenCalled();
+  });
+
+  it('stops at once on transport and server errors', async () => {
+    mockPendingNotes([{ ...note, lastSyncedVersion: 0, lastSyncedAt: null }]);
+    const fetchMock = mockFetch(
+      jsonResponse({ error: 'Internal server error' }, { status: 500 })
+    );
+
+    await expect(runSync('session-token')).rejects.toBeInstanceOf(
+      SyncHttpError
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mergeRemoteChanges).not.toHaveBeenCalled();
   });
 
   it('absorbs same-device push conflicts as pending rebases', async () => {
@@ -563,7 +851,8 @@ describe('client sync orchestration', () => {
     await expect(runSync('session-token')).resolves.toEqual({
       pushed: 1,
       pulled: 0,
-      conflicts: 0
+      conflicts: 0,
+      unsyncable: 0
     });
 
     expect(absorbSameDevicePushConflict).toHaveBeenCalledWith(
@@ -621,7 +910,8 @@ describe('client sync orchestration', () => {
     await expect(runSync('session-token')).resolves.toEqual({
       pushed: 2,
       pulled: 0,
-      conflicts: 0
+      conflicts: 0,
+      unsyncable: 0
     });
 
     expect(localDb.notes.bulkPut).toHaveBeenCalledWith([repairedNote]);
@@ -690,7 +980,8 @@ describe('client sync orchestration', () => {
     await expect(runSync('session-token')).resolves.toEqual({
       pushed: 0,
       pulled: 0,
-      conflicts: 0
+      conflicts: 0,
+      unsyncable: 0
     });
 
     expect(localDb.notes.bulkDelete).toHaveBeenCalledWith([note.id]);
@@ -723,7 +1014,8 @@ describe('client sync orchestration', () => {
     await expect(runSync('session-token')).resolves.toEqual({
       pushed: 0,
       pulled: 0,
-      conflicts: 0
+      conflicts: 0,
+      unsyncable: 0
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -764,7 +1056,8 @@ describe('client sync orchestration', () => {
     await expect(runSync('session-token')).resolves.toEqual({
       pushed: 0,
       pulled: 0,
-      conflicts: 0
+      conflicts: 0,
+      unsyncable: 0
     });
 
     expect(fetchMock).toHaveBeenNthCalledWith(
@@ -846,7 +1139,8 @@ describe('client sync orchestration', () => {
     await expect(runSync('session-token')).resolves.toEqual({
       pushed: 0,
       pulled: 1,
-      conflicts: 0
+      conflicts: 0,
+      unsyncable: 0
     });
 
     expect(fetchMock).toHaveBeenNthCalledWith(
@@ -917,7 +1211,8 @@ describe('client sync orchestration', () => {
     await expect(runSync('session-token')).resolves.toEqual({
       pushed: 0,
       pulled: 2,
-      conflicts: 0
+      conflicts: 0,
+      unsyncable: 0
     });
 
     expect(fetchMock).toHaveBeenNthCalledWith(

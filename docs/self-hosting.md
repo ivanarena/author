@@ -107,8 +107,16 @@ author.example.com {
 }
 ```
 
-Set `NOTES_TRUST_PROXY_HEADERS=true` only when the proxy removes untrusted
-incoming forwarding headers and writes its own. Otherwise leave it `false`.
+Set `NOTES_TRUST_PROXY_HEADERS=true` when author is reachable only through a
+proxy you control that sets `X-Forwarded-For` (Caddy does by default). author
+uses the last `X-Forwarded-For` entry, which is the address the proxy saw, so
+spoofed entries a client sends earlier in the header are ignored. This assumes
+one trusted proxy: with a chain of proxies that each append (for example a CDN
+in front of nginx), make the outermost proxy overwrite the header, or use
+`NOTES_TRUST_CLOUDFLARE_HEADERS=true` when Cloudflare is the edge. Leave it
+`false` if clients can reach the app port directly. With it `false` behind a
+proxy, every request appears to come from the proxy, so login throttling is
+shared by all clients.
 Never expose Turso credentials, `NOTES_SERVER_SECRET`, metrics tokens, session
 tokens, recovery material, or Android signing keys to browser configuration.
 

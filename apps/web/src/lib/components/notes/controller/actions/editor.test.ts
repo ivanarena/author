@@ -279,7 +279,7 @@ describe('editor actions', () => {
     );
     expect(model.saveTimer).toBeNull();
     expect(localStorage.getItem(recoveryKey)).toBeNull();
-    expect(model.scheduleSync).toHaveBeenCalledWith(0);
+    expect(model.scheduleSync).toHaveBeenCalledWith();
   });
 
   it('restores unsaved draft recovery into a newly created local note', async () => {

@@ -195,16 +195,112 @@ class NoteUtilsTest {
   }
 
   @Test
-  fun syncPushBatchesRespectTotalChangeLimit() {
-    val notes = (1..25).map { "note-$it" }
-    val notebooks = (1..18).map { "notebook-$it" }
+  fun planPushBatchesRespectsTotalChangeLimit() {
+    val items = (1..43).toList()
 
-    val batches = syncPushBatches(notes, notebooks, maxChanges = 20)
+    val plan = planPushBatches(items, baseBytes = 50, maxChanges = 20, maxBytes = 1_000_000) { 10 }
 
-    assertEquals(listOf(20, 20, 3), batches.map { it.notes.size + it.notebooks.size })
-    assertEquals(25, batches.sumOf { it.notes.size })
-    assertEquals(18, batches.sumOf { it.notebooks.size })
-    assertEquals(true, batches.all { it.notes.size + it.notebooks.size <= 20 })
+    assertEquals(listOf(20, 20, 3), plan.batches.map { it.size })
+    assertEquals(items, plan.batches.flatten())
+    assertEquals(emptyList<Int>(), plan.oversized)
+  }
+
+  @Test
+  fun planPushBatchesRespectsSerializedSizeAndKeepsOrder() {
+    val sizes = listOf(400, 400, 400, 100, 700, 100)
+
+    val plan =
+      planPushBatches(sizes.indices.toList(), baseBytes = 100, maxChanges = 20, maxBytes = 1_000) {
+        sizes[it]
+      }
+
+    assertEquals(listOf(listOf(0, 1), listOf(2, 3), listOf(4, 5)), plan.batches)
+    assertEquals(true, plan.batches.all { batch -> 100 + batch.sumOf { sizes[it] + 1 } <= 1_000 })
+  }
+
+  @Test
+  fun planPushBatchesLeavesOutItemsThatCannotFit() {
+    val sizes = mapOf("small" to 100, "huge" to 5_000, "tail" to 100)
+
+    val plan =
+      planPushBatches(sizes.keys.toList(), baseBytes = 100, maxChanges = 20, maxBytes = 1_000) {
+        sizes.getValue(it)
+      }
+
+    assertEquals(listOf("huge"), plan.oversized)
+    assertEquals(listOf(listOf("small", "tail")), plan.batches)
+  }
+
+  @Test
+  fun planSyncPushChangesSendsDeletionsFirstInTheirOwnBatches() {
+    val plan =
+      planSyncPushChanges(
+        listOf(
+          notebookChange("new-notebook"),
+          PendingPushChange.NoteChange(
+            note("new-note", title = "New", notebookIds = listOf("new-notebook")),
+            1,
+          ),
+          PendingPushChange.NoteChange(
+            note("deleted-note", title = "Gone").copy(deletedAt = "2026-05-08T12:00:00Z"),
+            1,
+          ),
+          notebookChange("deleted-notebook", deletedAt = "2026-05-08T12:00:00Z"),
+        ),
+        baseBytes = 100,
+      )
+
+    assertEquals(
+      listOf(listOf("deleted-note", "deleted-notebook"), listOf("new-notebook", "new-note")),
+      plan.batches.map { batch -> batch.map { it.id } },
+    )
+    assertEquals(emptyList<PendingPushChange>(), plan.unsyncable)
+  }
+
+  @Test
+  fun planSyncPushChangesHoldsBackNotesInANotebookTooLargeToSync() {
+    val plan =
+      planSyncPushChanges(
+        listOf(
+          notebookChange("huge", name = "x".repeat(SyncLimits.NOTEBOOK_NAME_BYTES + 1)),
+          PendingPushChange.NoteChange(
+            note("in-huge", title = "In", notebookIds = listOf("huge")),
+            1,
+          ),
+          PendingPushChange.NoteChange(
+            note("deleted-in-huge", title = "Gone", notebookIds = listOf("huge"))
+              .copy(deletedAt = "2026-05-08T12:00:00Z"),
+            1,
+          ),
+          PendingPushChange.NoteChange(note("unfiled", title = "Unfiled"), 1),
+        ),
+        baseBytes = 100,
+      )
+
+    assertEquals(listOf("huge", "in-huge"), plan.unsyncable.map { it.id })
+    assertEquals(
+      listOf(listOf("deleted-in-huge"), listOf("unfiled")),
+      plan.batches.map { batch -> batch.map { it.id } },
+    )
+  }
+
+  @Test
+  fun syncFieldLimitsCountUtf8Bytes() {
+    assertEquals(false, exceedsSyncFieldLimits(note("small", title = "Small", body = "Body")))
+    assertEquals(
+      true,
+      exceedsSyncFieldLimits(note("huge", title = "", body = "x".repeat(SyncLimits.BODY_BYTES + 1))),
+    )
+    assertEquals(
+      true,
+      exceedsSyncFieldLimits(
+        note("accented", title = "", body = "è".repeat(SyncLimits.BODY_BYTES / 2 + 1))
+      ),
+    )
+    assertEquals(
+      true,
+      exceedsSyncFieldLimits(note("title", title = "x".repeat(SyncLimits.TITLE_BYTES + 1))),
+    )
   }
 
   @Test
@@ -274,6 +370,24 @@ class NoteUtilsTest {
 
     assertEquals("Ideas copy 3", uniqueNotebookCopyName("Ideas", notebooks, setOf("source")))
   }
+
+  private fun notebookChange(id: String, name: String = "Notebook", deletedAt: String? = null) =
+    PendingPushChange.NotebookChange(
+      LocalNotebook(
+        id = id,
+        name = name,
+        nameHash = null,
+        createdAt = "2026-05-01T12:00:00Z",
+        updatedAt = "2026-05-01T12:00:00Z",
+        deletedAt = deletedAt,
+        deviceId = "device",
+        version = 1,
+        syncStatus = "pending",
+        lastSyncedVersion = 0,
+        lastSyncedAt = null,
+      ),
+      1,
+    )
 
   private fun note(
     id: String,

@@ -10,8 +10,19 @@ const mocks = vi.hoisted(() => {
     }
   }
 
+  class SyncHttpError extends Error {
+    constructor(
+      readonly status: number,
+      message = `Sync failed: ${status}`
+    ) {
+      super(message);
+      this.name = 'SyncHttpError';
+    }
+  }
+
   return {
     AuthError,
+    SyncHttpError,
     clearSyncError: vi.fn(),
     getStoredSession: vi.fn(),
     hasStoredEncryptionKeyMaterial: vi.fn(),
@@ -30,6 +41,7 @@ const mocks = vi.hoisted(() => {
 
 vi.mock('$lib/client/api-client', () => ({
   AuthError: mocks.AuthError,
+  SyncHttpError: mocks.SyncHttpError,
   loadAccount: mocks.loadAccount,
   loadSyncStatus: mocks.loadSyncStatus,
   validateSession: mocks.validateSession
@@ -81,6 +93,8 @@ function controller(
     accountUsername: '',
     activeConflict: null,
     autoSyncTimer: null,
+    autoSyncWaitStartedAt: null,
+    autoSyncUrgent: false,
     hasToken: true,
     isArchiveBusy: false,
     isBrowserOnline: true,
@@ -101,6 +115,10 @@ function controller(
     syncActivityLabel: '',
     syncMessage: '',
     syncQueued: false,
+    unsyncableCount: 0,
+    lastSyncRejection: '',
+    syncRejectionCount: 0,
+    syncBackoffUntil: 0,
     clearLocalSession: vi.fn(),
     expireSession: vi.fn(),
     flushPendingSave: vi.fn(),
@@ -126,7 +144,12 @@ describe('sync actions', () => {
       expiresAt: null
     });
     mocks.hasStoredEncryptionKeyMaterial.mockReturnValue(true);
-    mocks.runSync.mockResolvedValue({ pushed: 1, pulled: 2, conflicts: 0 });
+    mocks.runSync.mockResolvedValue({
+      pushed: 1,
+      pulled: 2,
+      conflicts: 0,
+      unsyncable: 0
+    });
     mocks.clearSyncError.mockResolvedValue(undefined);
     mocks.recordLastSyncPass.mockResolvedValue(undefined);
     mocks.recordSyncError.mockResolvedValue(undefined);
@@ -196,7 +219,8 @@ describe('sync actions', () => {
     expect(model.flushPendingSave).toHaveBeenCalled();
     expect(mocks.runSync).toHaveBeenCalledWith(
       'session-token',
-      model.updateSyncProgress
+      model.updateSyncProgress,
+      {}
     );
     expect(mocks.clearSyncError).toHaveBeenCalled();
     expect(mocks.recordLastSyncPass).toHaveBeenCalledWith(
@@ -204,9 +228,35 @@ describe('sync actions', () => {
     );
     expect(model.refresh).toHaveBeenCalled();
     expect(model.refreshRemoteSyncStatus).toHaveBeenCalledWith('session-token');
-    expect(model.scheduleSync).toHaveBeenCalledWith(0);
+    expect(model.scheduleSync).toHaveBeenCalledWith();
     expect(model.isSyncing).toBe(false);
     expect(model.syncMessage).toBe('Local changes saved');
+  });
+
+  it('reports notes too large to sync once and does not loop on them', async () => {
+    mocks.runSync.mockResolvedValue({
+      pushed: 0,
+      pulled: 0,
+      conflicts: 0,
+      unsyncable: 1
+    });
+    const model = controller({ pendingSyncCount: 1 });
+
+    await syncNow(model);
+
+    expect(model.syncMessage).toBe("1 change can't sync");
+    expect(model.notify).toHaveBeenCalledWith(
+      'error',
+      'Some changes are too large to sync',
+      expect.stringContaining('Changes stay saved on this device.')
+    );
+    expect(model.unsyncableCount).toBe(1);
+    expect(model.scheduleSync).not.toHaveBeenCalled();
+
+    await syncNow(model);
+
+    expect(model.notify).toHaveBeenCalledTimes(1);
+    expect(model.scheduleSync).not.toHaveBeenCalled();
   });
 
   it('resolves active conflicts, refreshes, and immediately syncs', async () => {
@@ -303,6 +353,50 @@ describe('sync actions', () => {
     if (model.retrySyncTimer) clearTimeout(model.retrySyncTimer);
   });
 
+  it('debounces delayed syncs but bounds the total wait', () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-06-01T10:00:00.000Z'));
+      const model = controller();
+
+      scheduleSync(model, 2_000, 5_000);
+      vi.advanceTimersByTime(1_500);
+      scheduleSync(model, 2_000, 5_000);
+      vi.advanceTimersByTime(1_500);
+      expect(model.syncNow).not.toHaveBeenCalled();
+
+      scheduleSync(model, 2_000, 5_000);
+      vi.advanceTimersByTime(1_500);
+      expect(model.syncNow).not.toHaveBeenCalled();
+      scheduleSync(model, 2_000, 5_000);
+      // The wait started 4.5 s ago, so the 5 s bound wins over the debounce.
+      vi.advanceTimersByTime(499);
+      expect(model.syncNow).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(model.syncNow).toHaveBeenCalledTimes(1);
+      expect(model.autoSyncTimer).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('runs immediate syncs now and does not postpone them', () => {
+    vi.useFakeTimers();
+    try {
+      const model = controller();
+
+      scheduleSync(model, 2_000, 20_000);
+      scheduleSync(model, 0);
+      scheduleSync(model, 2_000, 20_000);
+      vi.advanceTimersByTime(0);
+
+      expect(model.syncNow).toHaveBeenCalledTimes(1);
+      expect(model.autoSyncUrgent).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not let pending-change effects bypass the retry delay', () => {
     const retryTimer = setTimeout(() => undefined, 1_000);
     const model = controller({ retrySyncTimer: retryTimer });
@@ -311,6 +405,128 @@ describe('sync actions', () => {
 
     expect(model.autoSyncTimer).toBeNull();
     clearTimeout(retryTimer);
+  });
+
+  it('reports rejected pushes once and waits for the next edit instead of a timed retry', async () => {
+    const model = controller();
+    const rejected = new mocks.SyncHttpError(
+      409,
+      'Server storage limit estimate reached for this account.'
+    );
+
+    await handleSyncError(model, rejected);
+    await handleSyncError(model, rejected);
+
+    expect(model.notify).toHaveBeenCalledTimes(1);
+    expect(model.syncMessage).toBe(
+      'Server storage limit estimate reached for this account.'
+    );
+    expect(model.scheduleSyncRetry).not.toHaveBeenCalled();
+    // Automatic syncs back off: 1 minute, then 2 minutes.
+    expect(model.syncRejectionCount).toBe(2);
+    expect(model.syncBackoffUntil - Date.now()).toBeGreaterThan(110_000);
+    expect(model.syncBackoffUntil - Date.now()).toBeLessThanOrEqual(120_000);
+  });
+
+  it('retries quietly after the push rate limit window', async () => {
+    const model = controller();
+
+    await handleSyncError(
+      model,
+      new mocks.SyncHttpError(429, 'Too many sync pushes.')
+    );
+
+    expect(model.notify).not.toHaveBeenCalled();
+    expect(model.scheduleSyncRetry).toHaveBeenCalledWith(60_000);
+  });
+
+  it('only pulls during the backoff and keeps the rejection state', async () => {
+    const backoffUntil = Date.now() + 60_000;
+    const model = controller({
+      pendingSyncCount: 3,
+      lastSyncRejection: 'Server storage limit estimate reached.',
+      syncRejectionCount: 1,
+      syncBackoffUntil: backoffUntil
+    });
+
+    await syncNow(model, { pullOnly: true });
+
+    expect(mocks.runSync).toHaveBeenCalledWith(
+      'session-token',
+      model.updateSyncProgress,
+      { push: false }
+    );
+    expect(model.syncMessage).toBe('Server storage limit estimate reached.');
+    expect(model.lastSyncRejection).toBe(
+      'Server storage limit estimate reached.'
+    );
+    expect(model.syncBackoffUntil).toBe(backoffUntil);
+    // The pending changes were deliberately not pushed; no follow-up push.
+    expect(model.scheduleSync).not.toHaveBeenCalled();
+  });
+
+  it('does not cancel a scheduled full sync when it only pulls', async () => {
+    const debounce = setTimeout(() => undefined, 2_000);
+    const retry = setTimeout(() => undefined, 12_000);
+    const model = controller({
+      autoSyncTimer: debounce,
+      retrySyncTimer: retry,
+      syncBackoffUntil: Date.now() + 60_000
+    });
+    try {
+      await syncNow(model, { pullOnly: true });
+
+      expect(model.autoSyncTimer).toBe(debounce);
+      expect(model.retrySyncTimer).toBe(retry);
+      expect(mocks.clearSyncError).not.toHaveBeenCalled();
+    } finally {
+      clearTimeout(debounce);
+      clearTimeout(retry);
+    }
+  });
+
+  it('passes pull-only failures on without a timed retry or toast', async () => {
+    const failure = new Error('Network timeout');
+    mocks.runSync.mockRejectedValueOnce(failure);
+    const model = controller();
+
+    await syncNow(model, { pullOnly: true });
+
+    expect(model.handleSyncError).toHaveBeenCalledWith(failure, {
+      pullOnly: true
+    });
+
+    await handleSyncError(model, failure, { pullOnly: true });
+    expect(model.notify).not.toHaveBeenCalled();
+    expect(model.scheduleSyncRetry).not.toHaveBeenCalled();
+  });
+
+  it('still pushes an edit queued during a pull-only sync that failed', async () => {
+    const model = controller();
+    mocks.runSync.mockImplementationOnce(async () => {
+      // An edit arrives while the pull runs.
+      model.syncQueued = true;
+      throw new Error('Network timeout');
+    });
+
+    await syncNow(model, { pullOnly: true });
+
+    expect(model.syncQueued).toBe(false);
+    expect(model.scheduleSyncRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the rejection backoff after a successful sync', async () => {
+    const model = controller({
+      lastSyncRejection: 'Rejected',
+      syncRejectionCount: 3,
+      syncBackoffUntil: Date.now() + 60_000
+    });
+
+    await syncNow(model);
+
+    expect(model.lastSyncRejection).toBe('');
+    expect(model.syncRejectionCount).toBe(0);
+    expect(model.syncBackoffUntil).toBe(0);
   });
 
   it('notifies and retries after non-auth sync failures while online', async () => {

@@ -247,6 +247,21 @@ describe('client sync store', () => {
     });
   });
 
+  it('does not touch pushed notes the server neither accepted nor reported as conflicts', async () => {
+    vi.mocked(localDb.notes.get).mockResolvedValue(baseNote);
+
+    await markAcceptedChanges([], syncedAt, [
+      {
+        entityType: 'note',
+        id: baseNote.id,
+        version: baseNote.version,
+        updatedAt: baseNote.updatedAt
+      }
+    ]);
+
+    expect(localDb.notes.put).not.toHaveBeenCalled();
+  });
+
   it('marks a note synced when the accepted server version still matches the pushed snapshot', async () => {
     vi.mocked(localDb.notes.get).mockResolvedValue(baseNote);
 

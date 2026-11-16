@@ -1,25 +1,15 @@
 import { api } from '$lib/server/hono';
+import { rememberRequestSocketAddress } from '$lib/server/client-address';
+import type { RequestHandler } from './$types';
 
-export function GET({ request, platform }) {
+const handle: RequestHandler = ({ request, platform, getClientAddress }) => {
+  rememberRequestSocketAddress(request, getClientAddress);
   return api.fetch(request, platform?.env);
-}
+};
 
-export function POST({ request, platform }) {
-  return api.fetch(request, platform?.env);
-}
-
-export function PATCH({ request, platform }) {
-  return api.fetch(request, platform?.env);
-}
-
-export function PUT({ request, platform }) {
-  return api.fetch(request, platform?.env);
-}
-
-export function DELETE({ request, platform }) {
-  return api.fetch(request, platform?.env);
-}
-
-export function OPTIONS({ request, platform }) {
-  return api.fetch(request, platform?.env);
-}
+export const GET = handle;
+export const POST = handle;
+export const PATCH = handle;
+export const PUT = handle;
+export const DELETE = handle;
+export const OPTIONS = handle;

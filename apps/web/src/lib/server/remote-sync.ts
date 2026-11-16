@@ -39,6 +39,10 @@ const MIRROR_LOCK_TTL_MS = 15 * 60_000;
 const MIRROR_LOCK_HEARTBEAT_MS = 30_000;
 
 let syncInFlight: Promise<void> | null = null;
+// Snapshot retention is measured in days, so pruning on every mirror pass only
+// rescans the snapshot tables. Prune at most every few hours per process.
+const MIRROR_SNAPSHOT_PRUNE_INTERVAL_MS = 6 * 60 * 60_000;
+let lastMirrorSnapshotPruneAt = 0;
 
 type Row = Record<string, unknown>;
 
@@ -493,24 +497,92 @@ async function applyAccountTombstone(
   });
 }
 
+async function listUsernames(db: NotesExecutor): Promise<Set<string>> {
+  const rows = (await queryAll(db, 'SELECT username FROM users')) as Row[];
+  return new Set(rows.map((row) => asString(row.username)));
+}
+
+function tombstoneIsApplied(
+  existing: AccountTombstone | undefined,
+  tombstone: AccountTombstone
+): boolean {
+  return Boolean(existing && existing.deletedAt >= tombstone.deletedAt);
+}
+
+/**
+ * Applies account deletions in both directions. A tombstone is applied to a
+ * database only when that database lacks it or still has the account row, so
+ * a mirror pass does not rewrite every deleted account each time.
+ * `forceUsernames` re-applies tombstones for owners that still have data.
+ */
 async function syncAccountTombstones(
   local: NotesDb,
-  remote: NotesDb
+  remote: NotesDb,
+  forceUsernames: ReadonlySet<string> = new Set()
 ): Promise<void> {
+  const [localTombstones, remoteTombstones, localUsers, remoteUsers] =
+    await Promise.all([
+      listAccountTombstones(local),
+      listAccountTombstones(remote),
+      listUsernames(local),
+      listUsernames(remote)
+    ]);
+  const localByUsername = new Map(
+    localTombstones.map((tombstone) => [tombstone.username, tombstone])
+  );
+  const remoteByUsername = new Map(
+    remoteTombstones.map((tombstone) => [tombstone.username, tombstone])
+  );
   const combined = new Map<string, AccountTombstone>();
-  for (const tombstone of [
-    ...(await listAccountTombstones(local)),
-    ...(await listAccountTombstones(remote))
-  ]) {
+  for (const tombstone of [...localTombstones, ...remoteTombstones]) {
     const current = combined.get(tombstone.username);
     if (!current || tombstone.deletedAt > current.deletedAt) {
       combined.set(tombstone.username, tombstone);
     }
   }
   for (const tombstone of combined.values()) {
-    await applyAccountTombstone(local, tombstone);
-    await applyAccountTombstone(remote, tombstone);
+    const forced = forceUsernames.has(tombstone.username);
+    if (
+      forced ||
+      localUsers.has(tombstone.username) ||
+      !tombstoneIsApplied(localByUsername.get(tombstone.username), tombstone)
+    ) {
+      await applyAccountTombstone(local, tombstone);
+    }
+    if (
+      forced ||
+      remoteUsers.has(tombstone.username) ||
+      !tombstoneIsApplied(remoteByUsername.get(tombstone.username), tombstone)
+    ) {
+      await applyAccountTombstone(remote, tombstone);
+    }
   }
+}
+
+/**
+ * Lists distinct owner usernames in an owner-indexed table with one index
+ * seek per owner instead of scanning every row.
+ */
+async function distinctOwnerUsernames(
+  db: NotesExecutor,
+  table: string
+): Promise<string[]> {
+  const rows = (await queryAll(
+    db,
+    `WITH RECURSIVE owners(owner_username) AS (
+       SELECT (SELECT min(owner_username) FROM ${table})
+       UNION ALL
+       SELECT (
+         SELECT min(owner_username)
+         FROM ${table}
+         WHERE owner_username > owners.owner_username
+       )
+       FROM owners
+       WHERE owners.owner_username IS NOT NULL
+     )
+     SELECT owner_username FROM owners WHERE owner_username IS NOT NULL`
+  )) as Row[];
+  return rows.map((row) => asString(row.owner_username)).filter(Boolean);
 }
 
 async function orphanedOwnerUsernames(db: NotesExecutor): Promise<string[]> {
@@ -526,14 +598,8 @@ async function orphanedOwnerUsernames(db: NotesExecutor): Promise<string[]> {
   const usernames = new Set<string>();
 
   for (const table of ownerTables) {
-    const rows = (await queryAll(
-      db,
-      `SELECT DISTINCT owner_username FROM ${table} WHERE owner_username <> ?`,
-      [LEGACY_OWNER_USERNAME]
-    )) as Row[];
-    for (const row of rows) {
-      const username = asString(row.owner_username);
-      if (username) usernames.add(username);
+    for (const username of await distinctOwnerUsernames(db, table)) {
+      if (username !== LEGACY_OWNER_USERNAME) usernames.add(username);
     }
   }
 
@@ -1067,13 +1133,27 @@ export async function syncDatabases(
   const now = new Date();
   await syncAccountTombstones(local, remote);
 
-  const [localOrphans, remoteOrphans, localUsers, remoteUsers] =
-    await Promise.all([
+  let [localOrphans, remoteOrphans] = await Promise.all([
+    orphanedOwnerUsernames(local),
+    orphanedOwnerUsernames(remote)
+  ]);
+  if (localOrphans.length || remoteOrphans.length) {
+    // Data left behind for a deleted account is removed by re-applying its
+    // tombstone; only unexplained orphans stop the mirror.
+    await syncAccountTombstones(
+      local,
+      remote,
+      new Set([...localOrphans, ...remoteOrphans])
+    );
+    [localOrphans, remoteOrphans] = await Promise.all([
       orphanedOwnerUsernames(local),
-      orphanedOwnerUsernames(remote),
-      listAuthUsers(local),
-      listAuthUsers(remote)
+      orphanedOwnerUsernames(remote)
     ]);
+  }
+  const [localUsers, remoteUsers] = await Promise.all([
+    listAuthUsers(local),
+    listAuthUsers(remote)
+  ]);
   if (localOrphans.length || remoteOrphans.length) {
     throw new Error(
       `Remote mirror found owner data without an account row: ${[
@@ -1112,8 +1192,14 @@ export async function syncDatabases(
     'mirror.local.revision',
     { copyUsers: true }
   );
-  await pruneVersionSnapshots(local, now);
-  await pruneVersionSnapshots(remote, now);
+  if (
+    now.getTime() - lastMirrorSnapshotPruneAt >=
+    MIRROR_SNAPSHOT_PRUNE_INTERVAL_MS
+  ) {
+    await pruneVersionSnapshots(local, now);
+    await pruneVersionSnapshots(remote, now);
+    lastMirrorSnapshotPruneAt = now.getTime();
+  }
 }
 
 export async function syncRemoteDatabase(local: NotesDb): Promise<void> {

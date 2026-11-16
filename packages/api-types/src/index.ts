@@ -11,7 +11,17 @@ export const SYNC_LIMITS = {
   timestampBytes: 64,
   notebookAssignments: 128,
   devicesPerAccount: 50,
-  pullResponseBytes: 6 * 1024 * 1024
+  /** Maximum note + notebook changes in one push request. */
+  pushChanges: 20,
+  /** Maximum serialized UTF-8 bytes of one push request body. */
+  pushRequestBytes: 5 * 1024 * 1024,
+  pullResponseBytes: 6 * 1024 * 1024,
+  /**
+   * Serialized conflict bytes the server returns in one push response. The
+   * first conflict is always returned; later conflicts beyond this budget are
+   * left unanswered so clients keep them pending and retry them next sync.
+   */
+  pushConflictResponseBytes: 8 * 1024 * 1024
 } as const;
 
 // A push conflict may contain both the incoming and current maximum-size note.
@@ -291,6 +301,10 @@ export interface AcceptedChange {
 
 export interface PushResponse {
   serverTime: string;
+  /**
+   * Changes the server stored. Pushed changes that appear in neither
+   * `accepted` nor `conflicts` were deferred and must stay pending locally.
+   */
   accepted: AcceptedChange[];
   conflicts: Array<SyncConflict<Note> | SyncConflict<Notebook>>;
 }

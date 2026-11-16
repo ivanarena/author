@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { shouldTrustProxyHeaders } from './config';
+import { lastForwardedValue } from './client-address';
 
 const HSTS_VALUE = 'max-age=31536000; includeSubDomains';
 const PERMISSIONS_POLICY = [
@@ -24,11 +25,9 @@ export function isSecureRequest(
   if (url.protocol === 'https:') return true;
   if (!trustProxyHeaders) return false;
   return (
-    request.headers
-      .get('x-forwarded-proto')
-      ?.split(',')[0]
-      ?.trim()
-      .toLowerCase() === 'https'
+    lastForwardedValue(
+      request.headers.get('x-forwarded-proto')
+    )?.toLowerCase() === 'https'
   );
 }
 

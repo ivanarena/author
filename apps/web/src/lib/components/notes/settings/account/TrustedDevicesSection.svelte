@@ -21,8 +21,8 @@
     <strong>Trusted devices</strong>
   </div>
   <p class="trusted-device-note">
-    Removing trust stops future 2FA-code sign-in without a password. It does not
-    log out an active session on that device.
+    Removing trust stops future 2FA-code sign-in without a password and signs
+    that device out. This device stays signed in.
   </p>
   {#if model.accountTrustedDevices.length}
     {#each model.accountTrustedDevices as device (device.deviceId)}

@@ -46,7 +46,11 @@ private const val LAST_SYNC_ERROR_MESSAGE_KEY = "lastSyncErrorMessage"
 private const val LAST_SYNC_ERROR_STACK_KEY = "lastSyncErrorStack"
 private const val LAST_PUSHED_DEVICE_SIGNATURE_KEY = "lastPushedDeviceSignature"
 private const val LAST_PULL_CURSOR_RESET_KEY = "lastPullCursorResetAt"
-private const val PUSH_BATCH_SIZE = 20
+// Push responses after which sync stops pushing but still pulls, then reports the error: the server
+// rejected the request content (400, 409, 413) or asked the client to slow down (429). Later
+// batches are not sent, because their notes may reference notebooks in the rejected batch and the
+// server would accept them without those assignments.
+private val STOP_PUSH_STATUSES = setOf(400, 409, 413, 429)
 private const val PULL_BATCH_SIZE = 1000
 private val syncMutex = Mutex()
 private val VALID_SYNC_STATUSES = setOf("synced", "pending", "conflict", "deleted")
@@ -236,8 +240,8 @@ class NotesRepository(context: Context) : AutoCloseable {
 
   suspend fun canUseTrustedDeviceLogin(): Boolean = hasUsableStoredEncryptionKeyMaterial()
 
-  fun enqueueBackgroundSync() {
-    SyncWorker.enqueue(appContext)
+  fun enqueueBackgroundSync(immediate: Boolean = false) {
+    SyncWorker.enqueue(appContext, immediate)
   }
 
   suspend fun getOrCreateDevice(): Device =
@@ -1157,15 +1161,29 @@ class NotesRepository(context: Context) : AutoCloseable {
             .map { preparePendingNotebookForPush(it, device) }
         if (preparedNotes.isNotEmpty()) db.putNotes(preparedNotes)
         if (preparedNotebooks.isNotEmpty()) db.putNotebooks(preparedNotebooks)
-        val pendingNotes = preparedNotes.map { it to it.lastSyncedVersion }.toMutableList()
-        val pendingNotebooks = preparedNotebooks.map { it to it.lastSyncedVersion }.toMutableList()
-        val totalPushCount = pendingNotes.size + pendingNotebooks.size
+        val pendingChanges =
+          preparedNotebooks.map { PendingPushChange.NotebookChange(it, it.lastSyncedVersion) } +
+            preparedNotes.map { PendingPushChange.NoteChange(it, it.lastSyncedVersion) }
+        // Deletions go first, and records too large to send (or notes assigned to such a notebook)
+        // stay pending; see planSyncPushChanges.
+        val pushPlan =
+          planSyncPushChanges(pendingChanges, baseBytes = SyncClient.emptyPushRequestBytes(device))
+        val unsyncable = pushPlan.unsyncable
+        if (unsyncable.isNotEmpty()) {
+          recordDebugLog(
+            "warn",
+            "Sync",
+            "Pending records are too large to sync",
+            unsyncable.joinToString { "${it.entityType}:${it.id}" },
+          )
+        }
+        val totalPushCount = pendingChanges.size - unsyncable.size
         var conflicts = 0
         var pushed = 0
+        var stoppedPushError: SyncHttpException? = null
         val currentDeviceSignature = deviceSignature(device)
         if (
-          pendingNotes.isEmpty() &&
-            pendingNotebooks.isEmpty() &&
+          pushPlan.batches.isEmpty() &&
             db.getMeta(LAST_PUSHED_DEVICE_SIGNATURE_KEY) != currentDeviceSignature
         ) {
           onProgress(SyncProgress(SyncProgressPhase.PUSHING, batchSize = 0))
@@ -1174,9 +1192,13 @@ class NotesRepository(context: Context) : AutoCloseable {
           onProgress(SyncProgress(SyncProgressPhase.PUSHING, batchSize = 0))
         }
 
-        for (batch in syncPushBatches(pendingNotes, pendingNotebooks, PUSH_BATCH_SIZE)) {
-          val notesBatch = batch.notes
-          val notebooksBatch = batch.notebooks
+        for (batch in pushPlan.batches) {
+          val notesBatch =
+            batch.filterIsInstance<PendingPushChange.NoteChange>().map { it.note to it.baseVersion }
+          val notebooksBatch =
+            batch.filterIsInstance<PendingPushChange.NotebookChange>().map {
+              it.notebook to it.baseVersion
+            }
           val batchSize = notesBatch.size + notebooksBatch.size
           onProgress(
             SyncProgress(
@@ -1186,7 +1208,21 @@ class NotesRepository(context: Context) : AutoCloseable {
               batchSize = batchSize,
             )
           )
-          val response = syncClient.pushSyncChanges(token, device, notesBatch, notebooksBatch)
+          val response =
+            try {
+              syncClient.pushSyncChanges(token, device, notesBatch, notebooksBatch)
+            } catch (error: SyncHttpException) {
+              if (error.status !in STOP_PUSH_STATUSES) throw error
+              // Keep this and later batches pending, but still pull remote changes.
+              stoppedPushError = error
+              recordDebugLog(
+                "warn",
+                "Sync",
+                "Server rejected a push batch",
+                "status=${error.status}, batchSize=$batchSize, message=${error.message}",
+              )
+              break
+            }
           db.putMeta(LAST_PUSHED_DEVICE_SIGNATURE_KEY, currentDeviceSignature)
           pushed += batchSize
           onProgress(
@@ -1266,7 +1302,9 @@ class NotesRepository(context: Context) : AutoCloseable {
           cursor = nextCursor
         }
 
-        SyncRunResult(pushed, pulled, conflicts).also {
+        stoppedPushError?.let { throw it }
+
+        SyncRunResult(pushed, pulled, conflicts, unsyncable.size).also {
           recordLastSyncPass(it)
           clearSyncErrorInternal()
           recordDebugLog(

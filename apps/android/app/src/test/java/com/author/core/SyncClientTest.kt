@@ -14,6 +14,49 @@ import org.junit.Test
 
 class SyncClientTest {
   @Test
+  fun pushRequestBodyFitsThePlannedPushSize() {
+    OneShotJsonServer(
+        """{ "serverTime": "2026-05-26T12:00:00.000Z", "accepted": [], "conflicts": [] }"""
+      )
+      .use { server ->
+        val client = SyncClient { server.baseUrl }
+        val device = Device("phone", "Phone / tablet")
+        val notes =
+          (1..2).map { index ->
+            LocalNote(
+              id = "note-$index",
+              title = "enc:v4:key:iv:title-$index",
+              body = "enc:v4:key:iv:" + "x".repeat(10_000),
+              titleHash = "hash:v3:title",
+              bodyHash = "hash:v3:body",
+              notebookIds = listOf("notebook-1"),
+              notebookId = "notebook-1",
+              createdAt = "2026-05-01T12:00:00Z",
+              updatedAt = "2026-05-01T12:00:00Z",
+              deletedAt = null,
+              trashedAt = null,
+              deviceId = device.id,
+              version = 2,
+              syncStatus = "pending",
+              lastSyncedVersion = 1,
+              lastSyncedAt = null,
+            ) to 1
+          }
+        val planned =
+          SyncClient.emptyPushRequestBytes(device) +
+            notes.sumOf { (note, baseVersion) ->
+              utf8ByteLength(SyncClient.notePushChangeJson(note, baseVersion).toString()) + 1
+            }
+
+        client.pushSyncChanges("token", device, notes, emptyList())
+
+        val sentBytes = utf8ByteLength(server.awaitRequest().body)
+        assertEquals(true, sentBytes <= planned)
+        assertEquals(true, planned - sentBytes <= notes.size)
+      }
+  }
+
+  @Test
   fun loginWithProofPostsEmailIdentifierAndProofPayload() {
     OneShotJsonServer(
         """

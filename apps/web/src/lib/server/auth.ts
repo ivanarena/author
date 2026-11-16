@@ -34,6 +34,7 @@ import {
   all,
   get,
   run,
+  runCounted,
   withWriteTransaction,
   type NotesDb,
   type NotesExecutor
@@ -62,6 +63,17 @@ const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,62}[a-z0-9]$|^[a-z0-9]$/;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 const textEncoder = new TextEncoder();
+
+/** A request validation error whose message is safe to show to the client. */
+export class AuthInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AuthInputError';
+  }
+}
+
+/** Server-owned owner namespace for legacy bearer-token sync data. */
+const RESERVED_USERNAMES = new Set(['legacy-token']);
 
 type UserRow = {
   username: string;
@@ -244,7 +256,7 @@ function normalizeDeviceTrustSecret(
 
 function requireDeviceTrustSecret(secret: string | null | undefined): string {
   const normalized = normalizeDeviceTrustSecret(secret);
-  if (!normalized) throw new Error('Device trust secret is required');
+  if (!normalized) throw new AuthInputError('Device trust secret is required');
   return normalized;
 }
 
@@ -289,17 +301,23 @@ export function normalizeEmail(
 function requireUsername(username: string): string {
   const normalized = normalizeUsername(username);
   if (!normalized) {
-    throw new Error(
+    throw new AuthInputError(
       'Usernames may contain lowercase letters, numbers, dots, hyphens, and underscores'
     );
   }
   return normalized;
 }
 
+function requireUnreservedUsername(username: string): void {
+  if (RESERVED_USERNAMES.has(username)) {
+    throw new AuthInputError('This username is reserved');
+  }
+}
+
 function requireEmail(email: string): string {
   const normalized = normalizeEmail(email);
   if (!normalized) {
-    throw new Error('A valid email address is required');
+    throw new AuthInputError('A valid email address is required');
   }
   return normalized;
 }
@@ -380,10 +398,10 @@ export function signupInvitationIsValid(
 
 function requirePassword(password: string): string {
   if (!password.trim()) {
-    throw new Error('Password is required');
+    throw new AuthInputError('Password is required');
   }
   if (!passwordMeetsMinimumLength(password)) {
-    throw new Error(
+    throw new AuthInputError(
       `Password must be at least ${MIN_PASSWORD_LENGTH} characters`
     );
   }
@@ -474,7 +492,9 @@ function cleanProfileImage(
   const match = PROFILE_IMAGE_PATTERN.exec(profileImage);
   const encoded = match?.[2] ?? '';
   if (!match || encoded.length % 4 !== 0) {
-    throw new Error('Profile picture must be a JPEG, PNG, or WebP image');
+    throw new AuthInputError(
+      'Profile picture must be a JPEG, PNG, or WebP image'
+    );
   }
   let bytes: Uint8Array;
   try {
@@ -482,10 +502,12 @@ function cleanProfileImage(
       character.charCodeAt(0)
     );
   } catch {
-    throw new Error('Profile picture must be a JPEG, PNG, or WebP image');
+    throw new AuthInputError(
+      'Profile picture must be a JPEG, PNG, or WebP image'
+    );
   }
   if (bytes.length <= 0 || bytes.length > PROFILE_IMAGE_MAX_BYTES) {
-    throw new Error('Profile picture must be 128 KB or smaller');
+    throw new AuthInputError('Profile picture must be 128 KB or smaller');
   }
   const mime = match[1];
   const validHeader =
@@ -517,7 +539,9 @@ function cleanProfileImage(
     dimensions[1] > 4096 ||
     dimensions[0] * dimensions[1] > 16_777_216
   ) {
-    throw new Error('Profile picture must be a JPEG, PNG, or WebP image');
+    throw new AuthInputError(
+      'Profile picture must be a JPEG, PNG, or WebP image'
+    );
   }
   return profileImage;
 }
@@ -565,7 +589,7 @@ function cleanE2eeKeyring(value: string | null | undefined): string | null {
     textEncoder.encode(trimmed).byteLength > E2EE_KEYRING_MAX_BYTES ||
     !validE2eeKeyring(trimmed)
   ) {
-    throw new Error('Invalid encrypted keyring');
+    throw new AuthInputError('Invalid encrypted keyring');
   }
   return trimmed;
 }
@@ -664,14 +688,14 @@ export function totpOtpauthUrl(user: AuthUser, secret: string): string {
   return `otpauth://totp/${label}?secret=${secret}&issuer=${issuer}&algorithm=SHA1&digits=${TOTP_DIGITS}&period=${TOTP_PERIOD_SECONDS}`;
 }
 
-export async function verifyTotpCode(
+async function matchedTotpCounter(
   secret: string | null,
   value: unknown,
-  now = Date.now()
-): Promise<boolean> {
+  now: number
+): Promise<number | null> {
   const cleanSecret = await readableTotpSecret(secret);
   const code = cleanTotpCode(value);
-  if (!cleanSecret || !code) return false;
+  if (!cleanSecret || !code) return null;
 
   const counter = Math.floor(now / 1000 / TOTP_PERIOD_SECONDS);
   for (const offset of [-1, 0, 1]) {
@@ -680,10 +704,51 @@ export async function verifyTotpCode(
       expected &&
       constantTimeEqual(textEncoder.encode(code), textEncoder.encode(expected))
     ) {
-      return true;
+      return counter + offset;
     }
   }
-  return false;
+  return null;
+}
+
+export async function verifyTotpCode(
+  secret: string | null,
+  value: unknown,
+  now = Date.now()
+): Promise<boolean> {
+  return (await matchedTotpCounter(secret, value, now)) !== null;
+}
+
+/**
+ * Verifies a sign-in TOTP code and marks its time step as used for this
+ * account, so the same code cannot be replayed while it is still inside the
+ * accepted window. The marker lives in auth_rate_limits and expires with the
+ * window.
+ */
+export async function consumeTotpCode(
+  db: NotesExecutor,
+  username: string,
+  secret: string | null,
+  value: unknown,
+  now = Date.now()
+): Promise<boolean> {
+  const counter = await matchedTotpCounter(secret, value, now);
+  if (counter === null) return false;
+  const keyHash = createHash('sha256')
+    .update(`author-totp-used:v1\0${username}\0${counter}`)
+    .digest('hex');
+  // A code for step `counter` is accepted until step `counter + 1` ends.
+  const expiresAt = (counter + 2) * TOTP_PERIOD_SECONDS * 1000;
+  const inserted = await runCounted(
+    db,
+    `INSERT INTO auth_rate_limits (key_hash, count, reset_at)
+     VALUES (?, 1, ?)
+     ON CONFLICT(key_hash) DO UPDATE SET
+       count = 1,
+       reset_at = excluded.reset_at
+     WHERE auth_rate_limits.reset_at <= ?`,
+    [keyHash, expiresAt, now]
+  );
+  return inserted > 0;
 }
 
 async function readableTotpSecret(
@@ -797,7 +862,7 @@ function requirePasswordVerifier(verifier: PasswordVerifier): PasswordVerifier {
     verifier?.algorithm !== AUTH_PROOF_ALGORITHM ||
     !authKdfParamsAreCurrent(verifier.params)
   ) {
-    throw new Error('Unsupported password verifier');
+    throw new AuthInputError('Unsupported password verifier');
   }
   const salt = decodeBase64UrlStrict(verifier.salt);
   const storedKey = decodeBase64UrlStrict(verifier.storedKey);
@@ -810,7 +875,7 @@ function requirePasswordVerifier(verifier: PasswordVerifier): PasswordVerifier {
     !serverKey ||
     serverKey.length !== PASSWORD_KEY_LENGTH
   ) {
-    throw new Error('Invalid password verifier');
+    throw new AuthInputError('Invalid password verifier');
   }
   return verifier;
 }
@@ -1136,7 +1201,10 @@ export async function authenticateUserProof(
   if (!row) return null;
   const serverProof = await verifyProofForRow(row, challenge, proof!);
   if (!serverProof) return null;
-  if (row.totp_secret && !(await verifyTotpCode(row.totp_secret, totpCode))) {
+  if (
+    row.totp_secret &&
+    !(await consumeTotpCode(db, row.username, row.totp_secret, totpCode))
+  ) {
     return null;
   }
   return { user: rowToAuthUser(row), serverProof };
@@ -1206,15 +1274,16 @@ export async function setUserPasswordVerifier(
     [normalized]
   );
   if (deletedAccount && !(await getUserRow(db, normalized))) {
-    throw new Error('Deleted usernames cannot be reused');
+    throw new AuthInputError('Deleted usernames cannot be reused');
   }
   const now = new Date().toISOString();
   const passwordHash = passwordHashFromVerifier(verifier);
   const existing = await getUserRow(db, normalized);
+  if (!existing) requireUnreservedUsername(normalized);
   const nextE2eeKeyring =
     e2eeKeyring === undefined ? undefined : cleanE2eeKeyring(e2eeKeyring);
   if (existing?.e2ee_keyring && !nextE2eeKeyring) {
-    throw new Error(
+    throw new AuthInputError(
       'Password reset for an encrypted account requires a replacement encrypted keyring. Use the E2EE recovery flow.'
     );
   }
@@ -1266,6 +1335,7 @@ export async function createUserAccount(
   e2eeKeyring?: string | null
 ): Promise<AuthUser | null> {
   const normalized = requireUsername(username);
+  requireUnreservedUsername(normalized);
   const normalizedEmail = requireEmail(email);
   if (
     (await getUserRow(db, normalized)) ||
@@ -1437,7 +1507,10 @@ export async function authenticateUser(
   if (!row) return null;
 
   if (await verifyPassword(password, row)) {
-    if (row.totp_secret && !(await verifyTotpCode(row.totp_secret, totpCode))) {
+    if (
+      row.totp_secret &&
+      !(await consumeTotpCode(db, row.username, row.totp_secret, totpCode))
+    ) {
       return null;
     }
     return rowToAuthUser(row);
@@ -1454,7 +1527,7 @@ export async function trustAuthDevice(
 ): Promise<void> {
   const normalized = requireUsername(username);
   const safeDeviceId = deviceId.trim();
-  if (!safeDeviceId) throw new Error('Device is required');
+  if (!safeDeviceId) throw new AuthInputError('Device is required');
   const safeSecret = requireDeviceTrustSecret(deviceTrustSecret);
   const secretHash = deviceTrustSecretHash(
     normalized,
@@ -1507,17 +1580,28 @@ export async function listTrustedAuthDevices(
   });
 }
 
+/**
+ * Removes trusted-device sign-in for a device. Unless `keepSessions` is set,
+ * also signs that device out by deleting its sessions.
+ */
 export async function revokeTrustedAuthDevice(
   db: NotesExecutor,
   username: string,
-  deviceId: string
+  deviceId: string,
+  { keepSessions = false }: { keepSessions?: boolean } = {}
 ): Promise<void> {
   const normalized = requireUsername(username);
   const safeDeviceId = deviceId.trim();
-  if (!safeDeviceId) throw new Error('Device is required');
+  if (!safeDeviceId) throw new AuthInputError('Device is required');
   await run(
     db,
     'DELETE FROM trusted_auth_devices WHERE username = ? AND device_id = ?',
+    [normalized, safeDeviceId]
+  );
+  if (keepSessions) return;
+  await run(
+    db,
+    'DELETE FROM auth_sessions WHERE username = ? AND device_id = ?',
     [normalized, safeDeviceId]
   );
 }
@@ -1566,7 +1650,9 @@ export async function authenticateTrustedDevice(
     ))
   )
     return null;
-  if (!(await verifyTotpCode(row.totp_secret, totpCode))) return null;
+  if (!(await consumeTotpCode(db, row.username, row.totp_secret, totpCode))) {
+    return null;
+  }
   await trustAuthDevice(db, row.username, safeDeviceId, deviceTrustSecret);
   return rowToAuthUser(row);
 }
@@ -1778,6 +1864,8 @@ export async function enableUserTotp(
   const normalized = requireUsername(username);
   const row = await verifyUserProof(db, normalized, proof, 'totp');
   const cleanSecret = cleanTotpSecret(secret);
+  // Setup and removal already require a fresh password proof, so the code is
+  // only verified here, not consumed; the user can sign in with it right away.
   if (!row || !cleanSecret || !(await verifyTotpCode(cleanSecret, totpCode))) {
     return null;
   }

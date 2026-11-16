@@ -6,7 +6,7 @@ import {
   type RuntimeEnv
 } from './config';
 import { SYNC_LIMITS } from '@author/api-types';
-import { all, get, type NotesExecutor, type SqlArgs } from './db';
+import { all, get, run, type NotesExecutor, type SqlArgs } from './db';
 
 const NOTE_BUDGET_SHARE = 0.9;
 const NOTEBOOK_BUDGET_SHARE = 1 - NOTE_BUDGET_SHARE;
@@ -471,6 +471,81 @@ function usageAllowed(
   return usages.every((usage) => usage.projected <= usage.limit);
 }
 
+const HISTORY_PRUNE_PAGE_SIZE = 500;
+
+/**
+ * Deletes the owner's oldest edit-history snapshots ('push' and 'handoff')
+ * until at least `bytesNeeded` estimated bytes are freed. Conflict and cleanup
+ * snapshots are never removed here. Returns the estimated bytes freed, using
+ * the same per-row estimate as `auxiliaryStorageBytes`.
+ */
+async function pruneOldestHistorySnapshots(
+  db: NotesExecutor,
+  ownerUsername: string,
+  bytesNeeded: number
+): Promise<number> {
+  const sources = [
+    {
+      table: 'note_versions',
+      bytesSql: `512 + length(CAST(COALESCE(title, '') AS BLOB)) +
+        length(CAST(COALESCE(body, '') AS BLOB)) +
+        length(CAST(COALESCE(notebook_ids, '') AS BLOB)) +
+        length(CAST(COALESCE(device_id, '') AS BLOB))`
+    },
+    {
+      table: 'notebook_versions',
+      bytesSql: `512 + length(CAST(COALESCE(name, '') AS BLOB)) +
+        length(CAST(COALESCE(device_id, '') AS BLOB))`
+    }
+  ] as const;
+  let freed = 0;
+  for (const source of sources) {
+    let afterSavedAt = '';
+    let afterId = 0;
+    while (freed < bytesNeeded) {
+      const rows = await all(
+        db,
+        `SELECT id, saved_at, ${source.bytesSql} AS bytes
+         FROM ${source.table}
+         WHERE owner_username = ?
+           AND reason IN ('push', 'handoff')
+           AND (saved_at > ? OR (saved_at = ? AND id > ?))
+         ORDER BY saved_at ASC, id ASC
+         LIMIT ?`,
+        [
+          ownerUsername,
+          afterSavedAt,
+          afterSavedAt,
+          afterId,
+          HISTORY_PRUNE_PAGE_SIZE
+        ]
+      );
+      if (!rows.length) break;
+      const ids: number[] = [];
+      for (const row of rows) {
+        if (freed >= bytesNeeded) break;
+        ids.push(Number(row.id));
+        const bytes = Number(row.bytes ?? 0);
+        freed += Number.isFinite(bytes) && bytes > 0 ? bytes : 0;
+        afterSavedAt = String(row.saved_at ?? '');
+        afterId = Number(row.id);
+      }
+      for (let index = 0; index < ids.length; index += 200) {
+        const chunk = ids.slice(index, index + 200);
+        await run(
+          db,
+          `DELETE FROM ${source.table}
+           WHERE owner_username = ? AND id IN (${placeholders(chunk.length)})`,
+          [ownerUsername, ...chunk]
+        );
+      }
+      if (rows.length < HISTORY_PRUNE_PAGE_SIZE) break;
+    }
+    if (freed >= bytesNeeded) break;
+  }
+  return freed;
+}
+
 export async function checkRecordLimits(
   db: NotesExecutor,
   ownerUsername: string,
@@ -550,6 +625,23 @@ export async function checkRecordLimits(
       deviceCount.projected <= SYNC_LIMITS.devicesPerAccount)
   ) {
     return null;
+  }
+
+  // Edit history is best-effort and must not block live edits. When only the
+  // total budget is exceeded, drop the oldest history snapshots to make room.
+  // This runs inside the push transaction, so a rejected push rolls it back.
+  if (
+    usageAllowed(activeUsages) &&
+    deviceCount.projected <= SYNC_LIMITS.devicesPerAccount &&
+    totalBytes.projected > limits.maxTotalBytes
+  ) {
+    const freed = await pruneOldestHistorySnapshots(
+      db,
+      ownerUsername,
+      totalBytes.projected - limits.maxTotalBytes
+    );
+    totalBytes.projected = Math.max(0, totalBytes.projected - freed);
+    if (totalBytes.projected <= limits.maxTotalBytes) return null;
   }
 
   const deviceLimitReached =

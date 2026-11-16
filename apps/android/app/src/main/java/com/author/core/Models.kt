@@ -141,7 +141,13 @@ data class StoredSession(val token: String, val user: AuthUser, val expiresAt: S
 
 data class TotpSetup(val secret: String, val otpauthUrl: String)
 
-data class SyncRunResult(val pushed: Int, val pulled: Int, val conflicts: Int)
+data class SyncRunResult(
+  val pushed: Int,
+  val pulled: Int,
+  val conflicts: Int,
+  /** Pending records too large to push; they stay pending on this device. */
+  val unsyncable: Int = 0,
+)
 
 enum class SyncProgressPhase {
   PREPARING,

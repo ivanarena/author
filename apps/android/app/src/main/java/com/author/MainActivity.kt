@@ -115,8 +115,9 @@ class MainActivity : ComponentActivity() {
 
   override fun onStop() {
     super.onStop()
-    if (::controller.isInitialized && !appLockAuthenticating) {
-      controller.lockAppIfEnabled()
+    if (::controller.isInitialized) {
+      controller.onAppBackgrounded()
+      if (!appLockAuthenticating) controller.lockAppIfEnabled()
     }
   }
 

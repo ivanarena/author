@@ -20,9 +20,10 @@ import type {
   TotpEnableRequest,
   TotpSetupResponse
 } from '@author/api-types';
-import { API_PATHS } from '@author/api-types';
+import { API_PATHS, SYNC_LIMITS } from '@author/api-types';
 import { Hono, type Context } from 'hono';
 import {
+  AuthInputError,
   type AuthSession,
   authenticateTrustedDevice,
   authenticateUserProof,
@@ -97,6 +98,7 @@ import {
   waitForRemoteSyncIdleForTests
 } from './remote-sync';
 import { isSecureRequest } from './security-headers';
+import { lastForwardedValue, requestSocketAddress } from './client-address';
 import { databaseBackupSnapshot } from './backup-scheduler';
 import {
   resetTrashCleanupStateForTests,
@@ -293,8 +295,9 @@ const MAX_SYNC_PUSHES_PER_MINUTE = 60;
 const MAX_LOGIN_ATTEMPT_KEYS = 500;
 const MAX_LOGIN_BODY_BYTES = 16 * 1024;
 const MAX_ACCOUNT_BODY_BYTES = 256 * 1024;
-const MAX_SYNC_BODY_BYTES = 5 * 1024 * 1024;
-const MAX_SYNC_CHANGES_PER_PUSH = 20;
+const MAX_SYNC_BODY_BYTES = SYNC_LIMITS.pushRequestBytes;
+const MAX_SYNC_CHANGES_PER_PUSH = SYNC_LIMITS.pushChanges;
+const MAX_CLEANUP_REQUESTS_PER_MINUTE = 6;
 const REMOTE_SYNC_RETRY_BASE_MS = 5_000;
 const REMOTE_SYNC_RETRY_MAX_MS = 5 * 60_000;
 const REMOTE_SYNC_PENDING_KEY = 'remote.sync.pending';
@@ -383,12 +386,11 @@ function requestOrigin(request: Request): string {
   const requestUrl = new URL(request.url);
   if (!shouldTrustProxyHeaders()) return requestUrl.origin;
 
-  const forwardedProto = request.headers
-    .get('x-forwarded-proto')
-    ?.split(',')[0]
-    ?.trim();
+  const forwardedProto = lastForwardedValue(
+    request.headers.get('x-forwarded-proto')
+  );
   const forwardedHost =
-    request.headers.get('x-forwarded-host')?.split(',')[0]?.trim() ??
+    lastForwardedValue(request.headers.get('x-forwarded-host')) ??
     request.headers.get('host')?.trim();
   if (forwardedProto && forwardedHost) {
     return `${forwardedProto}://${forwardedHost}`;
@@ -710,12 +712,14 @@ function requestClientKey(request: Request): string {
   if (cloudflareIp) return `cf:${cloudflareIp}`;
 
   const forwardedFor = shouldTrustProxyHeaders()
-    ? request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+    ? lastForwardedValue(request.headers.get('x-forwarded-for'))
     : null;
   const realIp = shouldTrustProxyHeaders()
     ? request.headers.get('x-real-ip')?.trim()
     : null;
-  return forwardedFor || realIp || 'local';
+  if (forwardedFor || realIp) return forwardedFor || realIp || 'local';
+  const socketAddress = requestSocketAddress(request);
+  return socketAddress ? `peer:${socketAddress}` : 'local';
 }
 
 function loginAttemptKey(
@@ -1119,6 +1123,21 @@ function deviceTrustSecretFromBody(
   return trimmed.length >= 32 ? trimmed : null;
 }
 
+/**
+ * Returns a client-safe error message. Validation errors keep their message;
+ * unexpected errors are logged and replaced with `fallback`.
+ */
+function publicErrorMessage(error: unknown, fallback: string): string {
+  if (
+    error instanceof AuthInputError ||
+    error instanceof DeviceLimitExceededError
+  ) {
+    return error.message;
+  }
+  console.error(`${fallback}:`, error instanceof Error ? error.message : error);
+  return fallback;
+}
+
 function accountUpdateError(
   error: unknown
 ): { error: string; status: 400 | 409 } | null {
@@ -1462,10 +1481,7 @@ api.post(API_PATHS.authLogin, async (c) => {
         );
       }
     } catch (error) {
-      return c.json(
-        { error: error instanceof Error ? error.message : 'Login failed' },
-        400
-      );
+      return c.json({ error: publicErrorMessage(error, 'Login failed') }, 400);
     }
     if (!user) {
       await recordFailedAuthAttempt(db, attemptKey);
@@ -1601,10 +1617,7 @@ api.post(API_PATHS.authSignup, async (c) => {
         e2eeKeyring: await getUserE2eeKeyring(db, user.username)
       } satisfies AuthLoginResponse);
     } catch (error) {
-      return c.json(
-        { error: error instanceof Error ? error.message : 'Signup failed' },
-        400
-      );
+      return c.json({ error: publicErrorMessage(error, 'Signup failed') }, 400);
     } finally {
       db.close();
     }
@@ -1661,10 +1674,7 @@ api.post(API_PATHS.authSignup, async (c) => {
     }
     user = createdUser;
   } catch (error) {
-    return c.json(
-      { error: error instanceof Error ? error.message : 'Signup failed' },
-      400
-    );
+    return c.json({ error: publicErrorMessage(error, 'Signup failed') }, 400);
   } finally {
     remote.close();
   }
@@ -1700,10 +1710,7 @@ api.post(API_PATHS.authSignup, async (c) => {
       e2eeKeyring: await getUserE2eeKeyring(db, user.username)
     } satisfies AuthLoginResponse);
   } catch (error) {
-    return c.json(
-      { error: error instanceof Error ? error.message : 'Signup failed' },
-      400
-    );
+    return c.json({ error: publicErrorMessage(error, 'Signup failed') }, 400);
   } finally {
     db.close();
   }
@@ -1841,10 +1848,7 @@ api.on(['PATCH', 'PUT'], API_PATHS.account, async (c) => {
       } catch (error) {
         return c.json(
           {
-            error:
-              error instanceof Error
-                ? error.message
-                : 'Encrypted keyring update failed'
+            error: publicErrorMessage(error, 'Encrypted keyring update failed')
           },
           400
         );
@@ -1973,10 +1977,7 @@ api.post(API_PATHS.accountPassword, async (c) => {
         } catch (error) {
           return c.json(
             {
-              error:
-                error instanceof Error
-                  ? error.message
-                  : 'Password change failed'
+              error: publicErrorMessage(error, 'Password change failed')
             },
             400
           );
@@ -2026,8 +2027,7 @@ api.post(API_PATHS.accountPassword, async (c) => {
     } catch (error) {
       return c.json(
         {
-          error:
-            error instanceof Error ? error.message : 'Password change failed'
+          error: publicErrorMessage(error, 'Password change failed')
         },
         400
       );
@@ -2296,7 +2296,9 @@ api.delete(`${API_PATHS.accountTrustedDevices}/:deviceId`, async (c) => {
     const remoteConfig = remoteMirrorConfig(c);
     if (!remoteConfig) {
       if (isTursoPrimary(c)) {
-        await revokeTrustedAuthDevice(db, session.user.username, deviceId);
+        await revokeTrustedAuthDevice(db, session.user.username, deviceId, {
+          keepSessions: deviceId === session.deviceId
+        });
         return c.json(await accountResponse(db, session));
       }
       return c.json(
@@ -2320,13 +2322,18 @@ api.delete(`${API_PATHS.accountTrustedDevices}/:deviceId`, async (c) => {
       );
     }
 
+    const keepSessions = deviceId === session.deviceId;
     const remote = await openConfiguredDatabase(remoteConfig);
     try {
-      await revokeTrustedAuthDevice(remote, session.user.username, deviceId);
+      await revokeTrustedAuthDevice(remote, session.user.username, deviceId, {
+        keepSessions
+      });
     } finally {
       remote.close();
     }
-    await revokeTrustedAuthDevice(db, session.user.username, deviceId);
+    await revokeTrustedAuthDevice(db, session.user.username, deviceId, {
+      keepSessions
+    });
     await queueRemoteSyncAfter(undefined, c.env);
     return c.json(await accountResponse(db, session));
   } finally {
@@ -2563,7 +2570,8 @@ api.post(API_PATHS.syncPush, async (c) => {
     try {
       const response = await pushChanges(db, body, syncOwner(session), {
         enforceRecordLimits: true,
-        recordLimitEnv: c.env
+        recordLimitEnv: c.env,
+        conflictResponseBytes: SYNC_LIMITS.pushConflictResponseBytes
       });
       queueRemoteSyncSoon(c.env);
       return c.json(response);
@@ -2584,9 +2592,25 @@ api.post(API_PATHS.cleanupTrash, async (c) => {
     const session = await sessionFromRequest(db, c.req.raw);
     if (!session) return unauthorized();
 
+    const cleanupRateKey = `cleanup-trash:${syncOwner(session)}`;
+    if (
+      await isRateLimited(
+        db,
+        cleanupRateKey,
+        Date.now(),
+        MAX_CLEANUP_REQUESTS_PER_MINUTE
+      )
+    ) {
+      return c.json(
+        { error: 'Too many cleanup requests. Try again shortly.' },
+        429
+      );
+    }
+    await recordFailedAuthAttempt(db, cleanupRateKey);
+
     const response = await cleanupTrash(db, new Date(), syncOwner(session));
     await pruneExpiredAuthState(db);
-    await pruneUnreferencedDevices(db);
+    await pruneUnreferencedDevices(db, syncOwner(session));
     await compactEntityChanges(db, syncOwner(session));
     queueRemoteSyncSoon(c.env);
     return c.json(response);

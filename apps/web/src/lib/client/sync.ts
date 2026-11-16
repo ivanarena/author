@@ -2,11 +2,18 @@ import type {
   AuthLoginResponse,
   AuthSignupRequest,
   PullRequest,
-  PushRequest
+  PushRequest,
+  PushResponse
 } from '@author/api-types';
 import type { Device } from '@author/schema';
-import { nextVersionAfter, safeRevisionCursor } from '@author/sync-spec';
 import {
+  jsonByteLength,
+  nextVersionAfter,
+  planSyncPushChanges,
+  safeRevisionCursor
+} from '@author/sync-spec';
+import {
+  SyncHttpError,
   loginWithDevice,
   pullSyncChanges,
   pushSyncChanges,
@@ -39,8 +46,13 @@ import {
   saveConflict
 } from './store';
 
-const PUSH_BATCH_SIZE = 20;
 const PULL_BATCH_SIZE = 1000;
+// Push responses after which the client stops pushing but still pulls, then
+// reports the error: the server rejected the request content (400, 409, 413)
+// or asked the client to slow down (429). Later batches are not sent, because
+// notes in them may reference notebooks in the rejected batch, and the server
+// would accept those notes without the missing notebook assignments.
+const STOP_PUSH_STATUSES = new Set([400, 409, 413, 429]);
 const LAST_PUSHED_DEVICE_SIGNATURE_KEY = 'lastPushedDeviceSignature';
 const SYNC_LOCK_NAME = 'author-sync';
 const SYNC_LOCK_STORAGE_KEY = 'author-sync-lock-v2';
@@ -79,6 +91,28 @@ export type SyncProgress =
     };
 
 export type SyncProgressCallback = (progress: SyncProgress) => void;
+
+export interface SyncResult {
+  pushed: number;
+  pulled: number;
+  conflicts: number;
+  /** Pending records too large to push; they stay pending on this device. */
+  unsyncable: number;
+}
+
+type PendingPushChange =
+  | {
+      entityType: 'note';
+      change: { record: LocalNote; baseVersion: number };
+    }
+  | {
+      entityType: 'notebook';
+      change: { record: LocalNotebook; baseVersion: number };
+    };
+
+function isStopPushError(error: unknown): error is SyncHttpError {
+  return error instanceof SyncHttpError && STOP_PUSH_STATUSES.has(error.status);
+}
 
 export type E2eeAuthLoginResponse = Omit<AuthLoginResponse, 'token'> & {
   token: string;
@@ -214,17 +248,27 @@ export {
   validateSession
 } from './api-client';
 
+export interface SyncOptions {
+  /**
+   * When false, pending local changes are not pushed; the sync only pulls.
+   * Used while automatic syncs back off after a rejected push.
+   */
+  push?: boolean;
+}
+
 export async function runSync(
   token: string,
-  onProgress?: SyncProgressCallback
-): Promise<{ pushed: number; pulled: number; conflicts: number }> {
-  return withSyncLock(() => runSyncUnlocked(token, onProgress));
+  onProgress?: SyncProgressCallback,
+  options: SyncOptions = {}
+): Promise<SyncResult> {
+  return withSyncLock(() => runSyncUnlocked(token, onProgress, options));
 }
 
 async function runSyncUnlocked(
   token: string,
-  onProgress?: SyncProgressCallback
-): Promise<{ pushed: number; pulled: number; conflicts: number }> {
+  onProgress?: SyncProgressCallback,
+  { push = true }: SyncOptions = {}
+): Promise<SyncResult> {
   if (!hasStoredEncryptionKeyMaterial()) {
     throw new Error('Sign in again to sync encrypted notes');
   }
@@ -287,17 +331,45 @@ async function runSyncUnlocked(
     record,
     baseVersion: record.lastSyncedVersion
   }));
-  const totalPushCount = pendingNotes.length + pendingNotebooks.length;
+  const pendingChanges: PendingPushChange[] = [
+    ...pendingNotebooks.map((change) => ({
+      entityType: 'notebook' as const,
+      change
+    })),
+    ...pendingNotes.map((change) => ({ entityType: 'note' as const, change }))
+  ];
+  // Deletions go first, and records too large to send (or notes assigned to
+  // such a notebook) stay pending; see planSyncPushChanges.
+  const pushPlan = planSyncPushChanges(
+    pendingChanges,
+    (item) => jsonByteLength(item.change),
+    { baseBytes: jsonByteLength({ device, notes: [], notebooks: [] }) }
+  );
+  const unsyncable = pushPlan.unsyncable;
+  const pushBatches = push ? pushPlan.batches : [];
+  if (unsyncable.length > 0) {
+    recordDebugLog({
+      level: 'warn',
+      source: 'Sync',
+      message: 'Pending records are too large to sync',
+      detail: {
+        records: unsyncable.map((item) => ({
+          entityType: item.entityType,
+          id: item.change.record.id
+        }))
+      }
+    });
+  }
+  const totalPushCount = pendingChanges.length - unsyncable.length;
 
   let conflicts = 0;
   let pushed = 0;
-  let noteBatchStart = 0;
-  let notebookBatchStart = 0;
+  let stoppedPushError: SyncHttpError | null = null;
   const storedDeviceSignature =
     (await localDb.syncMeta.get(LAST_PUSHED_DEVICE_SIGNATURE_KEY))?.value ?? '';
   if (
-    pendingNotes.length === 0 &&
-    pendingNotebooks.length === 0 &&
+    push &&
+    pushPlan.batches.length === 0 &&
     storedDeviceSignature !== deviceSignature(device)
   ) {
     onProgress?.({
@@ -317,26 +389,16 @@ async function runSyncUnlocked(
       batchSize: 0
     });
   }
-  while (
-    noteBatchStart < pendingNotes.length ||
-    notebookBatchStart < pendingNotebooks.length
-  ) {
-    const notebookBatchEnd = Math.min(
-      notebookBatchStart + PUSH_BATCH_SIZE,
-      pendingNotebooks.length
-    );
-    const noteSlots = PUSH_BATCH_SIZE - (notebookBatchEnd - notebookBatchStart);
-    const noteBatchEnd = Math.min(
-      noteBatchStart + noteSlots,
-      pendingNotes.length
-    );
+  for (const batch of pushBatches) {
     const pushPayload: PushRequest = {
       device,
-      notes: pendingNotes.slice(noteBatchStart, noteBatchEnd),
-      notebooks: pendingNotebooks.slice(notebookBatchStart, notebookBatchEnd)
+      notes: batch.flatMap((item) =>
+        item.entityType === 'note' ? [item.change] : []
+      ),
+      notebooks: batch.flatMap((item) =>
+        item.entityType === 'notebook' ? [item.change] : []
+      )
     };
-    noteBatchStart = noteBatchEnd;
-    notebookBatchStart = notebookBatchEnd;
     const batchSize = pushPayload.notes.length + pushPayload.notebooks.length;
     onProgress?.({
       phase: 'pushing',
@@ -345,7 +407,21 @@ async function runSyncUnlocked(
       batchSize
     });
     await assertActiveSyncLease();
-    const pushResponse = await pushSyncChanges(token, pushPayload);
+    let pushResponse: PushResponse;
+    try {
+      pushResponse = await pushSyncChanges(token, pushPayload);
+    } catch (error) {
+      if (!isStopPushError(error)) throw error;
+      // Keep this and later batches pending, but still pull remote changes.
+      stoppedPushError = error;
+      recordDebugLog({
+        level: 'warn',
+        source: 'Sync',
+        message: 'Server rejected a push batch',
+        detail: { status: error.status, message: error.message, batchSize }
+      });
+      break;
+    }
     await assertActiveSyncLease();
     await rememberPushedDevice(device);
     pushed += batchSize;
@@ -488,10 +564,13 @@ async function runSyncUnlocked(
     pullCursor = nextPullCursor;
   }
 
+  if (stoppedPushError) throw stoppedPushError;
+
   return {
     pushed,
     pulled,
-    conflicts
+    conflicts,
+    unsyncable: unsyncable.length
   };
 }
 

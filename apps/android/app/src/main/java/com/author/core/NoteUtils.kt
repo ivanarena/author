@@ -29,32 +29,152 @@ fun primaryNotebookId(ids: List<String>): String? = ids.firstOrNull()
 
 fun nextVersionAfter(remoteVersion: Int): Int = remoteVersion + 1
 
-data class SyncPushBatch<N, B>(val notes: List<N>, val notebooks: List<B>)
+/** Server sync limits; keep aligned with SYNC_LIMITS in packages/api-types. */
+object SyncLimits {
+  const val TITLE_BYTES = 512 * 1024
+  const val BODY_BYTES = 4 * 1024 * 1024
+  const val NOTEBOOK_NAME_BYTES = 16 * 1024
+  const val PUSH_CHANGES = 20
+  const val PUSH_REQUEST_BYTES = 5 * 1024 * 1024
+}
 
-fun <N, B> syncPushBatches(
-  notes: List<N>,
-  notebooks: List<B>,
-  maxChanges: Int,
-): List<SyncPushBatch<N, B>> {
+fun utf8ByteLength(value: String): Int = value.toByteArray(Charsets.UTF_8).size
+
+/** True when the server would reject a field of this note as too large. */
+fun exceedsSyncFieldLimits(note: LocalNote): Boolean =
+  utf8ByteLength(note.title) > SyncLimits.TITLE_BYTES ||
+    utf8ByteLength(note.body) > SyncLimits.BODY_BYTES
+
+/** True when the server would reject this notebook name as too large. */
+fun exceedsSyncFieldLimits(notebook: LocalNotebook): Boolean =
+  utf8ByteLength(notebook.name) > SyncLimits.NOTEBOOK_NAME_BYTES
+
+data class PushBatchPlan<T>(
+  val batches: List<List<T>>,
+  /** Items that cannot fit in any request and were left out of [batches]. */
+  val oversized: List<T>,
+)
+
+/**
+ * Splits push changes into requests bounded by change count and serialized size. [baseBytes] is the
+ * size of a request with no changes; [sizeOf] returns the serialized size of one change. Order is
+ * preserved. Mirrors planPushBatches in packages/sync-spec.
+ */
+fun <T> planPushBatches(
+  items: List<T>,
+  baseBytes: Int,
+  maxChanges: Int = SyncLimits.PUSH_CHANGES,
+  maxBytes: Int = SyncLimits.PUSH_REQUEST_BYTES,
+  sizeOf: (T) -> Int,
+): PushBatchPlan<T> {
   require(maxChanges > 0) { "maxChanges must be positive" }
+  val batches = mutableListOf<List<T>>()
+  val oversized = mutableListOf<T>()
+  var current = mutableListOf<T>()
+  var currentBytes = baseBytes.toLong()
+  for (item in items) {
+    // One extra byte per change covers the separating comma.
+    val itemBytes = sizeOf(item).toLong() + 1
+    if (baseBytes + itemBytes > maxBytes) {
+      oversized.add(item)
+      continue
+    }
+    if (
+      current.isNotEmpty() && (current.size >= maxChanges || currentBytes + itemBytes > maxBytes)
+    ) {
+      batches.add(current)
+      current = mutableListOf()
+      currentBytes = baseBytes.toLong()
+    }
+    current.add(item)
+    currentBytes += itemBytes
+  }
+  if (current.isNotEmpty()) batches.add(current)
+  return PushBatchPlan(batches, oversized)
+}
 
-  val batches = mutableListOf<SyncPushBatch<N, B>>()
-  var noteIndex = 0
-  var notebookIndex = 0
-  while (noteIndex < notes.size || notebookIndex < notebooks.size) {
-    val notebookEnd = minOf(notebookIndex + maxChanges, notebooks.size)
-    val notebookBatch = notebooks.subList(notebookIndex, notebookEnd)
-    notebookIndex = notebookEnd
+/** A pending local change ready to push, with the base version the server must match. */
+sealed class PendingPushChange {
+  abstract val entityType: String
+  abstract val id: String
+  abstract val isDeletion: Boolean
 
-    val noteSlots = maxChanges - notebookBatch.size
-    val noteEnd = minOf(noteIndex + noteSlots, notes.size)
-    val noteBatch = notes.subList(noteIndex, noteEnd)
-    noteIndex = noteEnd
+  abstract fun exceedsFieldLimits(): Boolean
 
-    batches.add(SyncPushBatch(noteBatch, notebookBatch))
+  abstract fun serializedBytes(): Int
+
+  data class NoteChange(val note: LocalNote, val baseVersion: Int) : PendingPushChange() {
+    override val entityType = "note"
+    override val id: String
+      get() = note.id
+
+    override val isDeletion: Boolean
+      get() = note.deletedAt != null
+
+    override fun exceedsFieldLimits(): Boolean = exceedsSyncFieldLimits(note)
+
+    override fun serializedBytes(): Int =
+      utf8ByteLength(SyncClient.notePushChangeJson(note, baseVersion).toString())
   }
 
-  return batches
+  data class NotebookChange(val notebook: LocalNotebook, val baseVersion: Int) :
+    PendingPushChange() {
+    override val entityType = "notebook"
+    override val id: String
+      get() = notebook.id
+
+    override val isDeletion: Boolean
+      get() = notebook.deletedAt != null
+
+    override fun exceedsFieldLimits(): Boolean = exceedsSyncFieldLimits(notebook)
+
+    override fun serializedBytes(): Int =
+      utf8ByteLength(SyncClient.notebookPushChangeJson(notebook, baseVersion).toString())
+  }
+}
+
+data class SyncPushPlan(
+  val batches: List<List<PendingPushChange>>,
+  /** Changes that cannot be pushed now; they must stay pending locally. */
+  val unsyncable: List<PendingPushChange>,
+)
+
+/**
+ * Plans the push requests for pending changes. Mirrors planSyncPushChanges in packages/sync-spec:
+ * - a record with a field the server rejects as too large cannot be pushed, and neither can a live
+ *   note assigned to such a notebook, because the server would accept it without that assignment;
+ * - deletions go first, in batches of their own, because the server accepts a deletion-only push
+ *   even when the account is over its storage limit;
+ * - other changes keep their order, so notebooks are pushed before the notes that reference them.
+ */
+fun planSyncPushChanges(
+  items: List<PendingPushChange>,
+  baseBytes: Int,
+  maxChanges: Int = SyncLimits.PUSH_CHANGES,
+  maxBytes: Int = SyncLimits.PUSH_REQUEST_BYTES,
+  sizeOf: (PendingPushChange) -> Int = { it.serializedBytes() },
+): SyncPushPlan {
+  val blockedNotebookIds =
+    items
+      .filterIsInstance<PendingPushChange.NotebookChange>()
+      .filter { it.exceedsFieldLimits() }
+      .map { it.notebook.id }
+      .toSet()
+  val cannotSync = { change: PendingPushChange ->
+    change.exceedsFieldLimits() ||
+      (change is PendingPushChange.NoteChange &&
+        !change.isDeletion &&
+        noteNotebookIds(change.note).any { it in blockedNotebookIds })
+  }
+  val syncable = items.filterNot(cannotSync)
+  val deletions =
+    planPushBatches(syncable.filter { it.isDeletion }, baseBytes, maxChanges, maxBytes, sizeOf)
+  val others =
+    planPushBatches(syncable.filterNot { it.isDeletion }, baseBytes, maxChanges, maxBytes, sizeOf)
+  return SyncPushPlan(
+    batches = deletions.batches + others.batches,
+    unsyncable = items.filter(cannotSync) + deletions.oversized + others.oversized,
+  )
 }
 
 fun safeBaseVersion(lastSyncedVersion: Int): Int =

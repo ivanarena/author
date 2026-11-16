@@ -10,8 +10,11 @@ import type {
 } from '@author/api-types';
 import { SYNC_LIMITS } from '@author/api-types';
 import {
+  MAX_HISTORY_SNAPSHOTS_PER_RECORD,
   NOTE_RETENTION_DAYS,
+  VERSION_SNAPSHOT_DENSE_HOURS,
   VERSION_SNAPSHOT_RETENTION_DAYS,
+  VERSION_SNAPSHOT_WINDOW_MINUTES,
   type Device,
   type Note,
   type Notebook
@@ -57,6 +60,14 @@ export interface PushChangesOptions {
   preserveNewRecordVersions?: boolean;
   enforceRecordLimits?: boolean;
   recordLimitEnv?: RuntimeEnv | null;
+  /**
+   * Serialized conflict bytes to return in one response. The first conflict
+   * is always returned; later conflicts that would exceed the budget are left
+   * out of both `accepted` and `conflicts`, so clients keep them pending and
+   * retry them. Leave unset when every conflict must be reported, such as for
+   * mirror replication.
+   */
+  conflictResponseBytes?: number;
 }
 
 export class DeviceLimitExceededError extends Error {
@@ -915,6 +926,59 @@ export async function pullChangesSince(
   });
 }
 
+const ESTIMATED_SMALL_RECORD_BYTES = 512;
+
+/**
+ * Estimates the serialized size of each record a pull page would load, keyed
+ * like the page's change map (`note:<id>`, `notebook:<id>`).
+ */
+async function estimatePulledRecordBytes(
+  db: NotesExecutor,
+  ownerUsername: string,
+  noteIds: string[],
+  notebookIds: string[]
+): Promise<Map<string, number>> {
+  const sizes = new Map<string, number>();
+  for (const chunk of chunks(uniqueEntityIds(noteIds), 200)) {
+    const rows = await queryAll(
+      db,
+      `SELECT id, (
+         512 + length(CAST(COALESCE(id, '') AS BLOB)) +
+         length(CAST(COALESCE(title, '') AS BLOB)) +
+         length(CAST(COALESCE(body, '') AS BLOB)) +
+         length(CAST(COALESCE(title_hash, '') AS BLOB)) +
+         length(CAST(COALESCE(body_hash, '') AS BLOB)) +
+         length(CAST(COALESCE(notebook_ids, '') AS BLOB)) +
+         length(CAST(COALESCE(device_id, '') AS BLOB))
+       ) AS bytes
+       FROM notes
+       WHERE owner_username = ? AND id IN (${placeholders(chunk.length)})`,
+      [ownerUsername, ...chunk]
+    );
+    for (const row of rows) {
+      sizes.set(`note:${asString(row.id)}`, Number(row.bytes ?? 0) || 0);
+    }
+  }
+  for (const chunk of chunks(uniqueEntityIds(notebookIds), 200)) {
+    const rows = await queryAll(
+      db,
+      `SELECT id, (
+         256 + length(CAST(COALESCE(id, '') AS BLOB)) +
+         length(CAST(COALESCE(name, '') AS BLOB)) +
+         length(CAST(COALESCE(name_hash, '') AS BLOB)) +
+         length(CAST(COALESCE(device_id, '') AS BLOB))
+       ) AS bytes
+       FROM notebooks
+       WHERE owner_username = ? AND id IN (${placeholders(chunk.length)})`,
+      [ownerUsername, ...chunk]
+    );
+    for (const row of rows) {
+      sizes.set(`notebook:${asString(row.id)}`, Number(row.bytes ?? 0) || 0);
+    }
+  }
+  return sizes;
+}
+
 export async function pullMirrorChangesSinceRevision(
   db: NotesExecutor,
   sinceRevision: number,
@@ -975,7 +1039,12 @@ export async function pullMirrorChangesSinceRevision(
 
   const latestChanges = new Map<
     string,
-    { entityType: EntityType; entityId: string; operation: EntityOperation }
+    {
+      entityType: EntityType;
+      entityId: string;
+      operation: EntityOperation;
+      revision: number;
+    }
   >();
   for (const row of rows) {
     const entityType = asString(row.entity_type) as EntityType;
@@ -989,7 +1058,8 @@ export async function pullMirrorChangesSinceRevision(
     latestChanges.set(`${entityType}:${entityId}`, {
       entityType,
       entityId,
-      operation
+      operation,
+      revision: asRevision(row.revision)
     });
   }
 
@@ -1013,6 +1083,42 @@ export async function pullMirrorChangesSinceRevision(
     if (change.entityType === 'device') deviceIds.push(change.entityId);
     if (change.entityType === 'note') noteIds.push(change.entityId);
     if (change.entityType === 'notebook') notebookIds.push(change.entityId);
+  }
+
+  // Estimate record sizes in SQL before loading full records, so a page of
+  // large notes is narrowed without first being held in memory. The page is
+  // cut after the last change that still fits; changes are in revision order.
+  if (visibleRows.length > 1) {
+    const sizes = await estimatePulledRecordBytes(
+      db,
+      ownerUsername,
+      noteIds,
+      notebookIds
+    );
+    let pageBytes = 0;
+    let lastFittingRevision: number | null = null;
+    let cutRevision: number | null = null;
+    for (const [key, change] of latestChanges) {
+      const bytes =
+        change.operation === 'delete'
+          ? 128
+          : (sizes.get(key) ?? ESTIMATED_SMALL_RECORD_BYTES);
+      if (pageBytes + bytes > SYNC_LIMITS.pullResponseBytes) {
+        cutRevision = lastFittingRevision ?? change.revision;
+        break;
+      }
+      pageBytes += bytes;
+      lastFittingRevision = change.revision;
+    }
+    if (cutRevision !== null) {
+      const fittingRows = visibleRows.filter(
+        (row) => asRevision(row.revision) <= (cutRevision as number)
+      ).length;
+      return await pullMirrorChangesSinceRevision(db, sinceRevision, {
+        ...options,
+        limit: Math.max(1, Math.min(fittingRows, visibleRows.length - 1))
+      });
+    }
   }
 
   const [devices, notes, notebooks] = await Promise.all([
@@ -1308,12 +1414,261 @@ async function putNotebooks(
   return syncedNotebooks;
 }
 
+type SnapshotTable = 'note_versions' | 'notebook_versions';
+type SnapshotIdColumn = 'note_id' | 'notebook_id';
+
+interface SnapshotCandidate {
+  id: string;
+  version: number;
+  reason: string;
+  /** Exact identity of the snapshotted record, or null when unknown. */
+  identity: string | null;
+}
+
+const HISTORY_SNAPSHOT_REASONS_SQL = "('push', 'handoff')";
+const SNAPSHOT_WINDOW_MS = VERSION_SNAPSHOT_WINDOW_MINUTES * 60_000;
+
+function noteSnapshotIdentity(note: Note): string | null {
+  if (!note.titleHash || !note.bodyHash) return null;
+  return [
+    note.id,
+    note.version,
+    note.updatedAt,
+    note.deviceId,
+    note.titleHash,
+    note.bodyHash,
+    JSON.stringify(noteNotebookIds(note)),
+    note.deletedAt ?? '',
+    note.trashedAt ?? '',
+    note.isFavorite ? 1 : 0
+  ].join('\0');
+}
+
+function noteSnapshotRowIdentity(row: Row): string | null {
+  const titleHash = asNullableString(row.title_hash);
+  const bodyHash = asNullableString(row.body_hash);
+  if (!titleHash || !bodyHash) return null;
+  return [
+    asString(row.entity_id),
+    Number(row.version),
+    asString(row.updated_at),
+    asString(row.device_id),
+    titleHash,
+    bodyHash,
+    asString(row.notebook_ids),
+    asNullableString(row.deleted_at) ?? '',
+    asNullableString(row.trashed_at) ?? '',
+    asBoolean(row.is_favorite) ? 1 : 0
+  ].join('\0');
+}
+
+function notebookSnapshotIdentity(notebook: Notebook): string | null {
+  if (!notebook.nameHash) return null;
+  return [
+    notebook.id,
+    notebook.version,
+    notebook.updatedAt,
+    notebook.deviceId,
+    notebook.nameHash,
+    notebook.deletedAt ?? ''
+  ].join('\0');
+}
+
+function notebookSnapshotRowIdentity(row: Row): string | null {
+  const nameHash = asNullableString(row.name_hash);
+  if (!nameHash) return null;
+  return [
+    asString(row.entity_id),
+    Number(row.version),
+    asString(row.updated_at),
+    asString(row.device_id),
+    nameHash,
+    asNullableString(row.deleted_at) ?? ''
+  ].join('\0');
+}
+
+/**
+ * Decides which requested snapshots are stored.
+ *
+ * - 'push' snapshots are coalesced: a record gets a new one only when its
+ *   newest history snapshot is older than the snapshot window. The live row
+ *   always holds the newest accepted state.
+ * - 'handoff' snapshots keep the last state written by another device before
+ *   it is overwritten; they skip records already stored by any snapshot.
+ * - 'conflict' snapshots keep both sides of a conflict. They are never pruned
+ *   as edit history, so they only skip exact duplicates of other conflict
+ *   snapshots; a retried conflicting push does not store new copies.
+ * - Other reasons, such as 'cleanup', are always stored.
+ */
+async function selectSnapshotsToSave(
+  db: NotesExecutor,
+  table: SnapshotTable,
+  idColumn: SnapshotIdColumn,
+  identityColumns: string,
+  rowIdentity: (row: Row) => string | null,
+  ownerUsername: string,
+  candidates: SnapshotCandidate[],
+  savedAt: string
+): Promise<boolean[]> {
+  const latestHistoryById = new Map<string, string>();
+  const storedIdentities = new Set<string>();
+  const conflictIdentities = new Set<string>();
+  const historyIds = uniqueEntityIds(
+    candidates
+      .filter((candidate) => candidate.reason === 'push')
+      .map((candidate) => candidate.id)
+  );
+  const identityCandidates = candidates.filter(
+    (candidate) =>
+      (candidate.reason === 'handoff' || candidate.reason === 'conflict') &&
+      candidate.identity
+  );
+  const identityIds = uniqueEntityIds(
+    identityCandidates.map((candidate) => candidate.id)
+  );
+  const identityVersions = [
+    ...new Set(identityCandidates.map((candidate) => candidate.version))
+  ];
+
+  for (const chunk of chunks(historyIds, 200)) {
+    const rows = (await queryAll(
+      db,
+      `SELECT ${idColumn} AS entity_id, max(saved_at) AS latest_saved_at
+       FROM ${table}
+       WHERE owner_username = ?
+         AND reason IN ${HISTORY_SNAPSHOT_REASONS_SQL}
+         AND ${idColumn} IN (${placeholders(chunk.length)})
+       GROUP BY ${idColumn}`,
+      [ownerUsername, ...chunk]
+    )) as Row[];
+    for (const row of rows) {
+      const latest = asNullableString(row.latest_saved_at);
+      if (latest) latestHistoryById.set(asString(row.entity_id), latest);
+    }
+  }
+
+  if (identityVersions.length) {
+    for (const chunk of chunks(identityIds, 200)) {
+      const rows = (await queryAll(
+        db,
+        `SELECT ${idColumn} AS entity_id, reason, ${identityColumns}
+         FROM ${table}
+         WHERE owner_username = ?
+           AND ${idColumn} IN (${placeholders(chunk.length)})
+           AND version IN (${placeholders(identityVersions.length)})`,
+        [ownerUsername, ...chunk, ...identityVersions]
+      )) as Row[];
+      for (const row of rows) {
+        const identity = rowIdentity(row);
+        if (!identity) continue;
+        storedIdentities.add(identity);
+        if (row.reason === 'conflict') conflictIdentities.add(identity);
+      }
+    }
+  }
+
+  const windowStart = new Date(
+    Date.parse(savedAt) - SNAPSHOT_WINDOW_MS
+  ).toISOString();
+  return candidates.map((candidate) => {
+    if (candidate.reason === 'push') {
+      const latest = latestHistoryById.get(candidate.id);
+      if (latest && latest >= windowStart) return false;
+      latestHistoryById.set(candidate.id, savedAt);
+      return true;
+    }
+    if (candidate.reason === 'handoff') {
+      if (candidate.identity) {
+        if (storedIdentities.has(candidate.identity)) return false;
+        storedIdentities.add(candidate.identity);
+      }
+      latestHistoryById.set(candidate.id, savedAt);
+      return true;
+    }
+    if (candidate.reason === 'conflict') {
+      if (candidate.identity) {
+        if (conflictIdentities.has(candidate.identity)) return false;
+        conflictIdentities.add(candidate.identity);
+        storedIdentities.add(candidate.identity);
+      }
+      return true;
+    }
+    return true;
+  });
+}
+
+/**
+ * Thins edit history for the given records: 'push' snapshots older than the
+ * dense period keep only the newest one per UTC day, and only the newest
+ * MAX_HISTORY_SNAPSHOTS_PER_RECORD history snapshots are kept per record.
+ * 'handoff' snapshots are not thinned by day, so the last state of each device
+ * before another device overwrote it survives until the per-record cap.
+ * Conflict and cleanup snapshots are not touched.
+ */
+async function thinHistorySnapshots(
+  db: NotesExecutor,
+  table: SnapshotTable,
+  idColumn: SnapshotIdColumn,
+  ownerUsername: string,
+  ids: string[],
+  savedAt: string
+): Promise<void> {
+  const denseSince = new Date(
+    Date.parse(savedAt) - VERSION_SNAPSHOT_DENSE_HOURS * 60 * 60_000
+  ).toISOString();
+  for (const chunk of chunks(uniqueEntityIds(ids), 200)) {
+    await runSql(
+      db,
+      `DELETE FROM ${table}
+       WHERE id IN (
+         SELECT id FROM (
+           SELECT id,
+                  reason,
+                  saved_at,
+                  row_number() OVER (
+                    PARTITION BY ${idColumn}
+                    ORDER BY saved_at DESC, id DESC
+                  ) AS position,
+                  row_number() OVER (
+                    PARTITION BY ${idColumn}, reason, substr(saved_at, 1, 10)
+                    ORDER BY saved_at DESC, id DESC
+                  ) AS day_position
+           FROM ${table}
+           WHERE owner_username = ?
+             AND reason IN ${HISTORY_SNAPSHOT_REASONS_SQL}
+             AND ${idColumn} IN (${placeholders(chunk.length)})
+         )
+         WHERE position > ?
+            OR (reason = 'push' AND saved_at < ? AND day_position > 1)
+       )`,
+      [ownerUsername, ...chunk, MAX_HISTORY_SNAPSHOTS_PER_RECORD, denseSince]
+    );
+  }
+}
+
 async function saveNoteSnapshots(
   db: NotesExecutor,
-  snapshots: Array<{ note: Note; reason: string }>,
+  requested: Array<{ note: Note; reason: string }>,
   ownerUsername = LEGACY_OWNER_USERNAME
 ): Promise<void> {
+  if (!requested.length) return;
   const savedAt = new Date().toISOString();
+  const decisions = await selectSnapshotsToSave(
+    db,
+    'note_versions',
+    'note_id',
+    'version, updated_at, device_id, title_hash, body_hash, notebook_ids, deleted_at, trashed_at, is_favorite',
+    noteSnapshotRowIdentity,
+    ownerUsername,
+    requested.map(({ note, reason }) => ({
+      id: note.id,
+      version: note.version,
+      reason,
+      identity: noteSnapshotIdentity(note)
+    })),
+    savedAt
+  );
+  const snapshots = requested.filter((_, index) => decisions[index]);
   for (const chunk of chunks(snapshots, 100)) {
     await runSql(
       db,
@@ -1342,14 +1697,41 @@ async function saveNoteSnapshots(
       ])
     );
   }
+  await thinHistorySnapshots(
+    db,
+    'note_versions',
+    'note_id',
+    ownerUsername,
+    snapshots
+      .filter(({ reason }) => reason === 'push' || reason === 'handoff')
+      .map(({ note }) => note.id),
+    savedAt
+  );
 }
 
 async function saveNotebookSnapshots(
   db: NotesExecutor,
-  snapshots: Array<{ notebook: Notebook; reason: string }>,
+  requested: Array<{ notebook: Notebook; reason: string }>,
   ownerUsername = LEGACY_OWNER_USERNAME
 ): Promise<void> {
+  if (!requested.length) return;
   const savedAt = new Date().toISOString();
+  const decisions = await selectSnapshotsToSave(
+    db,
+    'notebook_versions',
+    'notebook_id',
+    'version, updated_at, device_id, name_hash, deleted_at',
+    notebookSnapshotRowIdentity,
+    ownerUsername,
+    requested.map(({ notebook, reason }) => ({
+      id: notebook.id,
+      version: notebook.version,
+      reason,
+      identity: notebookSnapshotIdentity(notebook)
+    })),
+    savedAt
+  );
+  const snapshots = requested.filter((_, index) => decisions[index]);
   for (const chunk of chunks(snapshots, 100)) {
     await runSql(
       db,
@@ -1371,6 +1753,16 @@ async function saveNotebookSnapshots(
       ])
     );
   }
+  await thinHistorySnapshots(
+    db,
+    'notebook_versions',
+    'notebook_id',
+    ownerUsername,
+    snapshots
+      .filter(({ reason }) => reason === 'push' || reason === 'handoff')
+      .map(({ notebook }) => notebook.id),
+    savedAt
+  );
 }
 
 function accepted(
@@ -1525,8 +1917,23 @@ export async function pushChanges(
   const now = new Date().toISOString();
   const acceptedChanges: AcceptedChange[] = [];
   const conflicts: PushResponse['conflicts'] = [];
+  let conflictBytes = 0;
+  const conflictFitsResponse = (
+    conflict: SyncConflict<Note> | SyncConflict<Notebook>
+  ): boolean => {
+    const budget = options.conflictResponseBytes;
+    if (budget === undefined) return true;
+    const bytes = new TextEncoder().encode(JSON.stringify(conflict)).byteLength;
+    if (conflicts.length > 0 && conflictBytes + bytes > budget) return false;
+    conflictBytes += bytes;
+    return true;
+  };
 
   await withWriteTransaction(db, async (tx) => {
+    // A retried write transaction must not keep results from a rolled-back try.
+    acceptedChanges.length = 0;
+    conflicts.length = 0;
+    conflictBytes = 0;
     if (options.enforceRecordLimits) {
       const limitError = await checkRecordLimits(
         tx,
@@ -1577,38 +1984,38 @@ export async function pushChanges(
         )
       ) {
         const deletedRemote = deletedRemoteNotebook(change.record, tombstone);
+        const conflict = await makeConflict<Notebook>(
+          tx,
+          'notebook',
+          change.record,
+          deletedRemote,
+          request.device.name,
+          ownerUsername,
+          'deleted_remotely'
+        );
+        if (!conflictFitsResponse(conflict)) continue;
         notebookSnapshots.push(
           { notebook: change.record, reason: 'conflict' },
           { notebook: deletedRemote, reason: 'conflict' }
         );
-        conflicts.push(
-          await makeConflict<Notebook>(
-            tx,
-            'notebook',
-            change.record,
-            deletedRemote,
-            request.device.name,
-            ownerUsername,
-            'deleted_remotely'
-          )
-        );
+        conflicts.push(conflict);
         continue;
       }
       if (remote && shouldConflict(change.record, remote, change.baseVersion)) {
+        const conflict = await makeConflict<Notebook>(
+          tx,
+          'notebook',
+          change.record,
+          remote,
+          request.device.name,
+          ownerUsername
+        );
+        if (!conflictFitsResponse(conflict)) continue;
         notebookSnapshots.push(
           { notebook: change.record, reason: 'conflict' },
           { notebook: remote, reason: 'conflict' }
         );
-        conflicts.push(
-          await makeConflict<Notebook>(
-            tx,
-            'notebook',
-            change.record,
-            remote,
-            request.device.name,
-            ownerUsername
-          )
-        );
+        conflicts.push(conflict);
         continue;
       }
 
@@ -1627,21 +2034,21 @@ export async function pushChanges(
           ? null
           : duplicateCandidate;
       if (duplicate) {
+        const conflict = await makeConflict<Notebook>(
+          tx,
+          'notebook',
+          change.record,
+          duplicate,
+          request.device.name,
+          ownerUsername,
+          'duplicate_name'
+        );
+        if (!conflictFitsResponse(conflict)) continue;
         notebookSnapshots.push(
           { notebook: change.record, reason: 'conflict' },
           { notebook: duplicate, reason: 'conflict' }
         );
-        conflicts.push(
-          await makeConflict<Notebook>(
-            tx,
-            'notebook',
-            change.record,
-            duplicate,
-            request.device.name,
-            ownerUsername,
-            'duplicate_name'
-          )
-        );
+        conflicts.push(conflict);
         continue;
       }
 
@@ -1673,6 +2080,9 @@ export async function pushChanges(
       }
       if (acceptedNotebook !== remote) {
         notebooksToWrite.push(acceptedNotebook);
+        if (remote && remote.deviceId !== acceptedNotebook.deviceId) {
+          notebookSnapshots.push({ notebook: remote, reason: 'handoff' });
+        }
         notebookSnapshots.push({
           notebook: acceptedNotebook,
           reason: 'push'
@@ -1729,41 +2139,41 @@ export async function pushChanges(
         )
       ) {
         const deletedRemote = deletedRemoteNote(change.record, tombstone);
+        const conflict = await makeConflict<Note>(
+          tx,
+          'note',
+          change.record,
+          deletedRemote,
+          request.device.name,
+          ownerUsername,
+          'deleted_remotely'
+        );
+        if (!conflictFitsResponse(conflict)) continue;
         noteSnapshots.push(
           { note: change.record, reason: 'conflict' },
           { note: deletedRemote, reason: 'conflict' }
         );
-        conflicts.push(
-          await makeConflict<Note>(
-            tx,
-            'note',
-            change.record,
-            deletedRemote,
-            request.device.name,
-            ownerUsername,
-            'deleted_remotely'
-          )
-        );
+        conflicts.push(conflict);
         continue;
       }
       if (
         remote &&
         shouldConflict(syncableNote.note, remote, change.baseVersion)
       ) {
+        const conflict = await makeConflict<Note>(
+          tx,
+          'note',
+          syncableNote.note,
+          remote,
+          request.device.name,
+          ownerUsername
+        );
+        if (!conflictFitsResponse(conflict)) continue;
         noteSnapshots.push(
           { note: syncableNote.note, reason: 'conflict' },
           { note: remote, reason: 'conflict' }
         );
-        conflicts.push(
-          await makeConflict<Note>(
-            tx,
-            'note',
-            syncableNote.note,
-            remote,
-            request.device.name,
-            ownerUsername
-          )
-        );
+        conflicts.push(conflict);
         continue;
       }
 
@@ -1791,6 +2201,9 @@ export async function pushChanges(
       acceptedChanges.push(accepted('note', acceptedNote));
       if (acceptedNote !== remote) {
         notesToWrite.push(acceptedNote);
+        if (remote && remote.deviceId !== acceptedNote.deviceId) {
+          noteSnapshots.push({ note: remote, reason: 'handoff' });
+        }
         noteSnapshots.push({ note: acceptedNote, reason: 'push' });
       }
     }
@@ -1896,14 +2309,19 @@ export async function cleanupTrash(
   return { deletedNotes, deletedNotebooks, cutoff };
 }
 
-export async function pruneUnreferencedDevices(db: NotesDb): Promise<number> {
+export async function pruneUnreferencedDevices(
+  db: NotesDb,
+  ownerUsername?: string
+): Promise<number> {
   let deleted = 0;
   await withWriteTransaction(db, async (tx) => {
     const rows = (await queryAll(
       tx,
       `SELECT devices.owner_username, devices.id
        FROM devices
-       WHERE devices.id <> 'server-db-mirror'
+       WHERE devices.id <> 'server-db-mirror'${
+         ownerUsername ? '\n         AND devices.owner_username = ?' : ''
+       }
          AND NOT EXISTS (
          SELECT 1 FROM notes
          WHERE notes.owner_username = devices.owner_username
@@ -1923,7 +2341,8 @@ export async function pruneUnreferencedDevices(db: NotesDb): Promise<number> {
            SELECT 1 FROM trusted_auth_devices
            WHERE trusted_auth_devices.username = devices.owner_username
              AND trusted_auth_devices.device_id = devices.id
-         )`
+         )`,
+      ownerUsername ? [ownerUsername] : []
     )) as Row[];
     for (const row of rows) {
       await runSql(

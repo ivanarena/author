@@ -562,14 +562,13 @@ export class NotesPageController
   };
 
   handleWindowBlur = () => {
-    if (this.pendingSyncCount <= this.unsyncableCount && !this.saveTimer) {
-      return;
-    }
-    void this.flushPendingSave().then(() => this.scheduleAutomaticSync());
+    // Save now; the save schedules the usual debounced sync, so leaving the
+    // window does not add a sync of its own.
+    void this.flushPendingSave();
   };
 
   /**
-   * Syncs now for interval, focus, and visibility triggers. While a recent
+   * Syncs now for interval and visibility triggers. While a recent
    * rejected push has automatic syncs backing off, these triggers only pull,
    * so remote changes still arrive without resending the rejected data.
    * Edits and manual syncs still push as usual.

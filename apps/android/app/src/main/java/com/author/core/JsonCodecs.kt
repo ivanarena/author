@@ -228,3 +228,21 @@ fun JSONArray?.toAcceptedChanges(): List<AcceptedChange> = toObjects {
 fun JSONArray.forEachObject(block: (JSONObject) -> Unit) {
   for (index in 0 until length()) block(getJSONObject(index))
 }
+
+/**
+ * Local-only key in a stored notebook conflict: notes assigned to the notebook when the conflict
+ * was saved, so resolving can restore assignments the server dropped.
+ */
+const val LOCAL_ASSIGNED_NOTE_IDS_KEY = "localAssignedNoteIds"
+
+/** Serializes a rewritten notebook conflict, keeping local-only fields of the stored one. */
+fun notebookConflictJsonKeepingLocalFields(
+  conflict: SyncConflict<LocalNotebook>,
+  previousJson: String,
+): String {
+  val json = notebookConflictToJson(conflict)
+  runCatching { JSONObject(previousJson).optJSONArray(LOCAL_ASSIGNED_NOTE_IDS_KEY) }
+    .getOrNull()
+    ?.let { json.put(LOCAL_ASSIGNED_NOTE_IDS_KEY, it) }
+  return json.toString()
+}

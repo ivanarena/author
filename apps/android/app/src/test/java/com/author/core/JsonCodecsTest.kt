@@ -94,6 +94,33 @@ class JsonCodecsTest {
   }
 
   @Test
+  fun rewrittenNotebookConflictsKeepRecordedNoteAssignments() {
+    val conflict =
+      SyncConflict(
+        id = "conflict-1",
+        entityType = "notebook",
+        entityId = "book",
+        reason = "deleted_remotely",
+        local = ConflictVersion("local", "phone", "Phone", "t", 1, "", notebook("book", "Drafts")),
+        remote = ConflictVersion("remote", "web", "Web", "t", 2, "", notebook("book", "Drafts")),
+      )
+    val stored =
+      notebookConflictToJson(conflict)
+        .put(LOCAL_ASSIGNED_NOTE_IDS_KEY, JSONArray(listOf("note-1", "note-2")))
+        .toString()
+
+    val rewritten = JSONObject(notebookConflictJsonKeepingLocalFields(conflict, stored))
+    val withoutRecord = JSONObject(notebookConflictJsonKeepingLocalFields(conflict, "not json"))
+
+    assertEquals(
+      listOf("note-1", "note-2"),
+      rewritten.optJSONArray(LOCAL_ASSIGNED_NOTE_IDS_KEY).toStringList(),
+    )
+    assertEquals("book", notebookConflictFromJson(rewritten).entityId)
+    assertEquals(false, withoutRecord.has(LOCAL_ASSIGNED_NOTE_IDS_KEY))
+  }
+
+  @Test
   fun parsePullResponseHandlesRevisionPagingAndDeletes() {
     val json =
       JSONObject()

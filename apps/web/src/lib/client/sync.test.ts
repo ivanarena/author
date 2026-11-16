@@ -671,6 +671,117 @@ describe('client sync orchestration', () => {
     });
   });
 
+  it('keeps pushing later batches after one batch is rejected, minus notes of its notebooks', async () => {
+    const rejectedNotebooks = Array.from({ length: 20 }, (_, index) => ({
+      ...notebook,
+      id: `rejected-book-${index}`,
+      lastSyncedVersion: 0,
+      lastSyncedAt: null
+    }));
+    mockPendingNotebooks(rejectedNotebooks);
+    mockPendingNotes([
+      {
+        ...note,
+        id: 'in-rejected-book',
+        notebookIds: ['rejected-book-0'],
+        notebookId: 'rejected-book-0',
+        lastSyncedVersion: 0,
+        lastSyncedAt: null
+      },
+      {
+        ...note,
+        id: 'unfiled-note',
+        notebookIds: [],
+        notebookId: null,
+        lastSyncedVersion: 0,
+        lastSyncedAt: null
+      }
+    ]);
+    const fetchMock = mockFetch(
+      jsonResponse({ error: 'Push payload too large' }, { status: 413 }),
+      jsonResponse({
+        accepted: [
+          {
+            entityType: 'note',
+            id: 'unfiled-note',
+            version: 1,
+            updatedAt: note.updatedAt
+          }
+        ],
+        conflicts: [],
+        serverTime: '2026-05-01T10:10:00.000Z'
+      }),
+      jsonResponse({
+        notes: [],
+        notebooks: [],
+        devices: [],
+        deletedNoteIds: [],
+        deletedNotebookIds: [],
+        deletedDeviceIds: [],
+        serverTime: '2026-05-01T10:11:00.000Z',
+        serverRevision: 42
+      })
+    );
+
+    await expect(runSync('session-token')).rejects.toMatchObject({
+      status: 413
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const secondPush = JSON.parse(
+      String((fetchMock.mock.calls[1]?.[1] as RequestInit).body)
+    ) as PushRequest;
+    expect(secondPush.notes.map((change) => change.record.id)).toEqual([
+      'unfiled-note'
+    ]);
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('/api/sync/pull');
+  });
+
+  it('stops pushing after repeated rejections and reports an account limit first', async () => {
+    mockPendingNotebooks(
+      Array.from({ length: 80 }, (_, index) => ({
+        ...notebook,
+        id: `book-${index}`,
+        lastSyncedVersion: 0,
+        lastSyncedAt: null
+      }))
+    );
+    const emptyPull = () =>
+      jsonResponse({
+        notes: [],
+        notebooks: [],
+        devices: [],
+        deletedNoteIds: [],
+        deletedNotebookIds: [],
+        deletedDeviceIds: [],
+        serverTime: '2026-05-01T10:11:00.000Z',
+        serverRevision: 42
+      });
+    const rejected = () =>
+      jsonResponse({ error: 'Push payload too large' }, { status: 413 });
+    let fetchMock = mockFetch(rejected(), rejected(), rejected(), emptyPull());
+
+    await expect(runSync('session-token')).rejects.toMatchObject({
+      status: 413
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(String(fetchMock.mock.calls[3]?.[0])).toContain('/api/sync/pull');
+
+    fetchMock = mockFetch(
+      rejected(),
+      jsonResponse(
+        { error: 'Server storage limit estimate reached.' },
+        { status: 409 }
+      ),
+      emptyPull()
+    );
+    await expect(runSync('session-token')).rejects.toMatchObject({
+      status: 409,
+      message: 'Server storage limit estimate reached.'
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it('holds back notes assigned to a notebook that is too large to sync', async () => {
     const hugeNotebook = {
       ...notebook,

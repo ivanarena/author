@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LocalConflict, LocalNote, LocalNoteSnapshot } from './db';
 import {
   adoptLocalWorkspaceForAccount,
+  assignNoteToNotebook,
   assertLocalWorkspaceCanUseAccount,
   deleteNotePermanently,
   ensureLocalNotesEncrypted,
@@ -64,7 +65,9 @@ vi.mock('./db', () => ({
     conflicts: {
       count: vi.fn(),
       toArray: vi.fn(),
-      bulkPut: vi.fn()
+      bulkPut: vi.fn(),
+      put: vi.fn(),
+      where: vi.fn()
     },
     syncMeta: {
       get: vi.fn(),
@@ -201,6 +204,33 @@ beforeEach(() => {
 });
 
 describe('local workspace account adoption', () => {
+  it('forgets a recorded notebook assignment when the user removes the note from it', async () => {
+    vi.mocked(localDb.notes.get).mockResolvedValue({
+      ...note,
+      notebookIds: ['book-in-conflict', 'other-book'],
+      notebookId: 'book-in-conflict'
+    });
+    const recorded: LocalConflict = {
+      id: 'notebook-conflict',
+      entityType: 'notebook',
+      entityId: 'book-in-conflict',
+      status: 'pending',
+      createdAt: '2026-05-06T11:00:00.000Z',
+      conflict: {} as LocalConflict['conflict'],
+      assignedNoteIds: [note.id, 'other-note']
+    };
+    const anyOf = vi.fn(() => ({ toArray: vi.fn(async () => [recorded]) }));
+    vi.mocked(localDb.conflicts.where).mockReturnValue({ anyOf } as never);
+
+    await assignNoteToNotebook(note.id, 'book-in-conflict', false);
+
+    expect(anyOf).toHaveBeenCalledWith(['book-in-conflict']);
+    expect(localDb.conflicts.put).toHaveBeenCalledWith({
+      ...recorded,
+      assignedNoteIds: ['other-note']
+    });
+  });
+
   it('adopts unowned local notes without clearing the workspace', async () => {
     await adoptLocalWorkspaceForAccount({
       username: 'Owner',

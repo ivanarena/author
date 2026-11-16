@@ -25,7 +25,7 @@ RUN install_succeeded=0; \
     fi \
     && aube -F @author/web run build
 
-FROM node:24-alpine@sha256:a34ab6d7f6f4813f4d0c5469d74685604b962fbdbf5793a7bc7b4998ecb867c8 AS runtime-deps
+FROM node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 AS runtime-deps
 
 WORKDIR /app
 
@@ -57,7 +57,7 @@ RUN aube --filter-prod @author/runtime install --prod --frozen-lockfile \
       /usr/local/lib/node_modules/npm \
       /opt/yarn*
 
-FROM node:24-alpine@sha256:a34ab6d7f6f4813f4d0c5469d74685604b962fbdbf5793a7bc7b4998ecb867c8 AS runtime
+FROM node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 AS runtime
 
 LABEL org.opencontainers.image.title="author" \
   org.opencontainers.image.source="https://github.com/ivanarena/author" \

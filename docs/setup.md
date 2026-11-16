@@ -471,6 +471,8 @@ server {
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto https;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    # Sync pushes can be up to 5 MiB; nginx rejects bodies over 1 MiB by default.
+    client_max_body_size 6m;
   }
 }
 ```

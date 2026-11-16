@@ -47,13 +47,11 @@ private const val LAST_SYNC_ERROR_MESSAGE_KEY = "lastSyncErrorMessage"
 private const val LAST_SYNC_ERROR_STACK_KEY = "lastSyncErrorStack"
 private const val LAST_PUSHED_DEVICE_SIGNATURE_KEY = "lastPushedDeviceSignature"
 private const val LAST_PULL_CURSOR_RESET_KEY = "lastPullCursorResetAt"
-// Push responses after which sync stops pushing but still pulls, then reports the error: the server
-// rejected the request content (400, 409, 413) or asked the client to slow down (429). Later
-// batches are not sent, because their notes may reference notebooks in the rejected batch and the
-// server would accept them without those assignments.
-private val STOP_PUSH_STATUSES = setOf(400, 409, 413, 429)
+// Push rejections (see pushRejectionScope) keep the rejected changes pending and still let sync
+// pull, then the most relevant rejection is reported. A rejection that hits every request (for
+// example a proxy upload limit below the server's) stops pushing after a few requests.
+private const val MAX_REJECTED_PUSH_BATCHES = 3
 private const val PULL_BATCH_SIZE = 1000
-private const val LOCAL_ASSIGNED_NOTE_IDS_KEY = "localAssignedNoteIds"
 private val syncMutex = Mutex()
 private val VALID_SYNC_STATUSES = setOf("synced", "pending", "conflict", "deleted")
 private val THEMES =
@@ -466,8 +464,34 @@ class NotesRepository(context: Context) : AutoCloseable {
           syncStatus = "pending",
         )
       db.putNote(updated)
+      forgetRecordedNotebookAssignments(noteId, currentIds.filter { it !in notebookIds })
       crypto.decryptNoteFields(updated)
     }
+
+  /**
+   * A user who takes a note out of a notebook while that notebook has an open conflict means it;
+   * resolving the conflict must not put the note back.
+   */
+  private fun forgetRecordedNotebookAssignments(noteId: String, removedNotebookIds: List<String>) {
+    if (removedNotebookIds.isEmpty()) return
+    db
+      .rawConflicts("pending")
+      .filter { it.entityType == "notebook" && it.entityId in removedNotebookIds }
+      .forEach { raw ->
+        val json = runCatching { JSONObject(raw.conflictJson) }.getOrNull() ?: return@forEach
+        val ids = json.optJSONArray(LOCAL_ASSIGNED_NOTE_IDS_KEY).toStringList()
+        if (noteId !in ids) return@forEach
+        json.put(LOCAL_ASSIGNED_NOTE_IDS_KEY, JSONArray(ids.filter { it != noteId }))
+        db.putConflict(
+          raw.id,
+          raw.entityType,
+          raw.entityId,
+          raw.status,
+          raw.createdAt,
+          json.toString(),
+        )
+      }
+  }
 
   suspend fun setNoteFavorite(noteId: String, isFavorite: Boolean): LocalNote? =
     withContext(Dispatchers.IO) {
@@ -1201,7 +1225,13 @@ class NotesRepository(context: Context) : AutoCloseable {
           onProgress(SyncProgress(SyncProgressPhase.PUSHING, batchSize = 0))
         }
 
-        for (batch in pushPlan.batches) {
+        val rejectedNotebookIds = mutableSetOf<String>()
+        var rejectedBatches = 0
+        for (plannedBatch in pushPlan.batches) {
+          // Notes assigned to a notebook from a rejected batch wait for it, so the server does not
+          // accept them without that assignment.
+          val batch = withoutNotesInNotebooks(plannedBatch, rejectedNotebookIds)
+          if (batch.isEmpty()) continue
           val notesBatch =
             batch.filterIsInstance<PendingPushChange.NoteChange>().map { it.note to it.baseVersion }
           val notebooksBatch =
@@ -1221,16 +1251,28 @@ class NotesRepository(context: Context) : AutoCloseable {
             try {
               syncClient.pushSyncChanges(token, device, notesBatch, notebooksBatch)
             } catch (error: SyncHttpException) {
-              if (error.status !in STOP_PUSH_STATUSES) throw error
-              // Keep this and later batches pending, but still pull remote changes.
-              stoppedPushError = error
+              val scope = pushRejectionScope(error.status) ?: throw error
+              // Keep the batch pending. Account-wide limits stop the remaining batches and are the
+              // error worth reporting; a content rejection does not stop them unless it repeats.
+              if (stoppedPushError == null || scope == PushRejectionScope.ACCOUNT) {
+                stoppedPushError = error
+              }
+              rejectedBatches += 1
               recordDebugLog(
                 "warn",
                 "Sync",
                 "Server rejected a push batch",
                 "status=${error.status}, batchSize=$batchSize, message=${error.message}",
               )
-              break
+              if (
+                scope == PushRejectionScope.ACCOUNT || rejectedBatches >= MAX_REJECTED_PUSH_BATCHES
+              ) {
+                break
+              }
+              batch.filterIsInstance<PendingPushChange.NotebookChange>().forEach {
+                rejectedNotebookIds += it.notebook.id
+              }
+              continue
             }
           db.putMeta(LAST_PUSHED_DEVICE_SIGNATURE_KEY, currentDeviceSignature)
           pushed += batchSize
@@ -2625,18 +2667,6 @@ class NotesRepository(context: Context) : AutoCloseable {
         )
       }
     }
-  }
-
-  /** Serializes a rewritten notebook conflict, keeping local-only fields of the stored one. */
-  private fun notebookConflictJsonKeepingLocalFields(
-    conflict: SyncConflict<LocalNotebook>,
-    previousJson: String,
-  ): String {
-    val json = notebookConflictToJson(conflict)
-    runCatching { JSONObject(previousJson).optJSONArray(LOCAL_ASSIGNED_NOTE_IDS_KEY) }
-      .getOrNull()
-      ?.let { json.put(LOCAL_ASSIGNED_NOTE_IDS_KEY, it) }
-    return json.toString()
   }
 
   private fun ensureLocalConflictsEncryptedInternal(

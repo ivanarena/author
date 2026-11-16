@@ -291,3 +291,38 @@ export function planSyncPushChanges<T extends PlannedPushChange>(
     ]
   };
 }
+
+/**
+ * How a failed push affects the rest of a sync. 'batch': the server rejected
+ * this request's content (400, 413), so later batches are still sent, minus
+ * notes that reference notebooks from the rejected batch. 'account': the
+ * limit applies to the whole account (409 storage or device limit, 429 rate
+ * limit), so no further batches are sent. Null: not a push rejection; the
+ * sync stops with the error. In every case the client still pulls.
+ */
+export function pushRejectionScope(status: number): 'batch' | 'account' | null {
+  if (status === 400 || status === 413) return 'batch';
+  if (status === 409 || status === 429) return 'account';
+  return null;
+}
+
+/**
+ * Removes live notes that reference any of `notebookIds` from a planned
+ * batch. Used after a batch is rejected: the server would accept those notes
+ * without the notebook, so they stay pending until it syncs.
+ */
+export function withoutNotesInNotebooks<T extends PlannedPushChange>(
+  batch: readonly T[],
+  notebookIds: ReadonlySet<string>
+): T[] {
+  if (!notebookIds.size) return [...batch];
+  return batch.filter((item) => {
+    const record = item.change.record;
+    return !(
+      item.entityType === 'note' &&
+      'body' in record &&
+      !record.deletedAt &&
+      noteNotebookIds(record).some((id) => notebookIds.has(id))
+    );
+  });
+}

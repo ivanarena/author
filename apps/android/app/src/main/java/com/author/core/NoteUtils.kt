@@ -177,6 +177,42 @@ fun planSyncPushChanges(
   )
 }
 
+enum class PushRejectionScope {
+  BATCH,
+  ACCOUNT,
+}
+
+/**
+ * How a failed push affects the rest of a sync; mirrors pushRejectionScope in packages/sync-spec.
+ * [PushRejectionScope.BATCH]: the server rejected this request's content (400, 413), so later
+ * batches are still sent, minus notes that reference notebooks from the rejected batch.
+ * [PushRejectionScope.ACCOUNT]: an account-wide limit (409 storage or device limit, 429 rate limit)
+ * stops the remaining batches. Null: not a push rejection. In every case sync still pulls.
+ */
+fun pushRejectionScope(status: Int): PushRejectionScope? =
+  when (status) {
+    400,
+    413 -> PushRejectionScope.BATCH
+    409,
+    429 -> PushRejectionScope.ACCOUNT
+    else -> null
+  }
+
+/** Removes live notes that reference any of [notebookIds] from a planned batch. */
+fun withoutNotesInNotebooks(
+  batch: List<PendingPushChange>,
+  notebookIds: Set<String>,
+): List<PendingPushChange> =
+  if (notebookIds.isEmpty()) {
+    batch
+  } else {
+    batch.filterNot {
+      it is PendingPushChange.NoteChange &&
+        !it.isDeletion &&
+        noteNotebookIds(it.note).any { id -> id in notebookIds }
+    }
+  }
+
 fun safeBaseVersion(lastSyncedVersion: Int): Int =
   if (lastSyncedVersion >= 0) lastSyncedVersion else 0
 

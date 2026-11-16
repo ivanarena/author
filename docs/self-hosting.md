@@ -107,6 +107,10 @@ author.example.com {
 }
 ```
 
+The proxy must accept request bodies of at least 6 MiB, because a sync push can
+be up to 5 MiB. Caddy has no limit by default; nginx needs
+`client_max_body_size 6m;` (its default is 1 MiB).
+
 Set `NOTES_TRUST_PROXY_HEADERS=true` when author is reachable only through a
 proxy you control that sets `X-Forwarded-For` (Caddy does by default). author
 uses the last `X-Forwarded-For` entry, which is the address the proxy saw, so

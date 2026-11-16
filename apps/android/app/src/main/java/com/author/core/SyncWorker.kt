@@ -93,15 +93,7 @@ class SyncWorker(appContext: Context, params: WorkerParameters) :
             .getWorkInfosForUniqueWork(IMMEDIATE_UNIQUE_WORK_NAME)
             .get()
         }
-      val running = infos.any { it.state == WorkInfo.State.RUNNING }
-      val waiting =
-        infos.any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED }
-      enqueue(
-        context,
-        immediate = true,
-        policy =
-          if (running && !waiting) ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.KEEP,
-      )
+      enqueue(context, immediate = true, policy = immediateSyncPolicy(infos.map { it.state }))
     }
 
     /**
@@ -151,4 +143,14 @@ private fun Throwable.isLocalDatabaseBusy(): Boolean {
     current = current.cause
   }
   return false
+}
+
+/**
+ * Policy for an immediate sync request given the states of existing immediate work: append once
+ * behind a running sync when nothing is waiting, otherwise keep what is there.
+ */
+fun immediateSyncPolicy(states: List<WorkInfo.State>): ExistingWorkPolicy {
+  val running = states.any { it == WorkInfo.State.RUNNING }
+  val waiting = states.any { it == WorkInfo.State.ENQUEUED || it == WorkInfo.State.BLOCKED }
+  return if (running && !waiting) ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.KEEP
 }

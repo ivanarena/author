@@ -285,6 +285,40 @@ class NoteUtilsTest {
   }
 
   @Test
+  fun pushRejectionScopeSeparatesBatchAndAccountLimits() {
+    assertEquals(PushRejectionScope.BATCH, pushRejectionScope(400))
+    assertEquals(PushRejectionScope.BATCH, pushRejectionScope(413))
+    assertEquals(PushRejectionScope.ACCOUNT, pushRejectionScope(409))
+    assertEquals(PushRejectionScope.ACCOUNT, pushRejectionScope(429))
+    assertEquals(null, pushRejectionScope(401))
+    assertEquals(null, pushRejectionScope(500))
+  }
+
+  @Test
+  fun withoutNotesInNotebooksDropsLiveNotesOfRejectedNotebooks() {
+    val batch =
+      listOf(
+        notebookChange("kept-notebook"),
+        PendingPushChange.NoteChange(
+          note("in-rejected", title = "A", notebookIds = listOf("rejected")),
+          0,
+        ),
+        PendingPushChange.NoteChange(
+          note("deleted-in-rejected", title = "B", notebookIds = listOf("rejected"))
+            .copy(deletedAt = "2026-05-08T12:00:00Z"),
+          0,
+        ),
+        PendingPushChange.NoteChange(note("elsewhere", title = "C", notebookIds = listOf("x")), 0),
+      )
+
+    assertEquals(
+      listOf("kept-notebook", "deleted-in-rejected", "elsewhere"),
+      withoutNotesInNotebooks(batch, setOf("rejected")).map { it.id },
+    )
+    assertEquals(batch, withoutNotesInNotebooks(batch, emptySet()))
+  }
+
+  @Test
   fun syncFieldLimitsCountUtf8Bytes() {
     assertEquals(false, exceedsSyncFieldLimits(note("small", title = "Small", body = "Body")))
     assertEquals(

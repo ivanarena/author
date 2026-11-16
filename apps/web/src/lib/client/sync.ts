@@ -10,7 +10,9 @@ import {
   jsonByteLength,
   nextVersionAfter,
   planSyncPushChanges,
-  safeRevisionCursor
+  pushRejectionScope,
+  safeRevisionCursor,
+  withoutNotesInNotebooks
 } from '@author/sync-spec';
 import {
   SyncHttpError,
@@ -47,12 +49,12 @@ import {
 } from './store';
 
 const PULL_BATCH_SIZE = 1000;
-// Push responses after which the client stops pushing but still pulls, then
-// reports the error: the server rejected the request content (400, 409, 413)
-// or asked the client to slow down (429). Later batches are not sent, because
-// notes in them may reference notebooks in the rejected batch, and the server
-// would accept those notes without the missing notebook assignments.
-const STOP_PUSH_STATUSES = new Set([400, 409, 413, 429]);
+// Push rejections (see pushRejectionScope) keep the rejected changes pending
+// and still let the client pull, then the most relevant rejection is
+// reported. A rejection that hits every request (for example a proxy upload
+// limit below the server's) stops pushing after a few requests instead of
+// resending every batch.
+const MAX_REJECTED_PUSH_BATCHES = 3;
 const LAST_PUSHED_DEVICE_SIGNATURE_KEY = 'lastPushedDeviceSignature';
 const SYNC_LOCK_NAME = 'author-sync';
 const SYNC_LOCK_STORAGE_KEY = 'author-sync-lock-v2';
@@ -110,8 +112,10 @@ type PendingPushChange =
       change: { record: LocalNotebook; baseVersion: number };
     };
 
-function isStopPushError(error: unknown): error is SyncHttpError {
-  return error instanceof SyncHttpError && STOP_PUSH_STATUSES.has(error.status);
+function isPushRejection(error: unknown): error is SyncHttpError {
+  return (
+    error instanceof SyncHttpError && pushRejectionScope(error.status) !== null
+  );
 }
 
 export type E2eeAuthLoginResponse = Omit<AuthLoginResponse, 'token'> & {
@@ -392,7 +396,13 @@ async function runSyncUnlocked(
       batchSize: 0
     });
   }
-  for (const batch of pushBatches) {
+  const rejectedNotebookIds = new Set<string>();
+  let rejectedBatches = 0;
+  for (const plannedBatch of pushBatches) {
+    // Notes assigned to a notebook from a rejected batch wait for it, so the
+    // server does not accept them without that assignment.
+    const batch = withoutNotesInNotebooks(plannedBatch, rejectedNotebookIds);
+    if (!batch.length) continue;
     const pushPayload: PushRequest = {
       device,
       notes: batch.flatMap((item) =>
@@ -414,16 +424,28 @@ async function runSyncUnlocked(
     try {
       pushResponse = await pushSyncChanges(token, pushPayload);
     } catch (error) {
-      if (!isStopPushError(error)) throw error;
-      // Keep this and later batches pending, but still pull remote changes.
-      stoppedPushError = error;
+      if (!isPushRejection(error)) throw error;
+      // Keep the batch pending. Account-wide limits stop the remaining
+      // batches and are the error worth reporting; a rejection of this
+      // batch's content does not stop them, unless it keeps happening.
+      const scope = pushRejectionScope(error.status);
+      if (!stoppedPushError || scope === 'account') stoppedPushError = error;
+      rejectedBatches += 1;
       recordDebugLog({
         level: 'warn',
         source: 'Sync',
         message: 'Server rejected a push batch',
         detail: { status: error.status, message: error.message, batchSize }
       });
-      break;
+      if (scope === 'account' || rejectedBatches >= MAX_REJECTED_PUSH_BATCHES) {
+        break;
+      }
+      for (const item of batch) {
+        if (item.entityType === 'notebook') {
+          rejectedNotebookIds.add(item.change.record.id);
+        }
+      }
+      continue;
     }
     await assertActiveSyncLease();
     await rememberPushedDevice(device);

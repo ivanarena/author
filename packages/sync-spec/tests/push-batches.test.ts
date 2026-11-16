@@ -5,7 +5,9 @@ import {
   jsonByteLength,
   planPushBatches,
   planSyncPushChanges,
-  recordExceedsSyncFieldLimits
+  pushRejectionScope,
+  recordExceedsSyncFieldLimits,
+  withoutNotesInNotebooks
 } from '../src/index';
 
 const note: Note = {
@@ -207,5 +209,42 @@ describe('sync push planning', () => {
     );
     expect(plan.batches).toEqual([]);
     expect(ids(plan.unsyncable)).toEqual(['big']);
+  });
+});
+
+describe('push rejections', () => {
+  it('classifies which rejections stop the remaining batches', () => {
+    expect(pushRejectionScope(400)).toBe('batch');
+    expect(pushRejectionScope(413)).toBe('batch');
+    expect(pushRejectionScope(409)).toBe('account');
+    expect(pushRejectionScope(429)).toBe('account');
+    expect(pushRejectionScope(401)).toBeNull();
+    expect(pushRejectionScope(500)).toBeNull();
+  });
+
+  it('drops live notes of rejected notebooks from later batches', () => {
+    const item = (record: Note | Notebook) => ({
+      entityType: ('body' in record ? 'note' : 'notebook') as
+        | 'note'
+        | 'notebook',
+      change: { record, baseVersion: 0 }
+    });
+    const batch = [
+      item({ ...notebook, id: 'kept-notebook' }),
+      item({ ...note, id: 'in-rejected', notebookIds: ['rejected'] }),
+      item({
+        ...note,
+        id: 'deleted-in-rejected',
+        notebookIds: ['rejected'],
+        deletedAt: '2026-02-01T00:00:00.000Z'
+      }),
+      item({ ...note, id: 'elsewhere', notebookIds: ['other'] })
+    ];
+    expect(
+      withoutNotesInNotebooks(batch, new Set(['rejected'])).map(
+        (entry) => entry.change.record.id
+      )
+    ).toEqual(['kept-notebook', 'deleted-in-rejected', 'elsewhere']);
+    expect(withoutNotesInNotebooks(batch, new Set())).toHaveLength(4);
   });
 });

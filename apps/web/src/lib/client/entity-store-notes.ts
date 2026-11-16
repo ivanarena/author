@@ -101,7 +101,39 @@ export async function assignNoteToNotebook(
   };
 
   await localDb.notes.put(updated);
+  await forgetRecordedNotebookAssignments(
+    noteId,
+    currentIds.filter((id) => !notebookIds.includes(id))
+  );
   return decryptNoteFields(updated);
+}
+
+/**
+ * A user who takes a note out of a notebook while that notebook has an open
+ * conflict means it; resolving the conflict must not put the note back.
+ */
+async function forgetRecordedNotebookAssignments(
+  noteId: string,
+  removedNotebookIds: string[]
+): Promise<void> {
+  if (!removedNotebookIds.length) return;
+  const conflicts = await localDb.conflicts
+    .where('entityId')
+    .anyOf(removedNotebookIds)
+    .toArray();
+  for (const conflict of conflicts) {
+    if (
+      conflict.entityType !== 'notebook' ||
+      conflict.status !== 'pending' ||
+      !conflict.assignedNoteIds?.includes(noteId)
+    ) {
+      continue;
+    }
+    await localDb.conflicts.put({
+      ...conflict,
+      assignedNoteIds: conflict.assignedNoteIds.filter((id) => id !== noteId)
+    });
+  }
 }
 
 export async function setNoteFavorite(

@@ -30,13 +30,20 @@ some changes are too large to sync. Notes assigned to a notebook that is too
 large to sync are held back with it, so the server never accepts them without
 that assignment. Deletions are pushed first, in batches of their own, because
 the server accepts deletion-only pushes even when an account is over its
-storage limit, so deleting records that are current on the server frees space. If the server rejects a push batch's content (`400`, `409`, or
-`413`) or rate-limits it (`429`), the client keeps that batch and every later
-batch pending, still pulls, and then reports the error; later batches are not
-sent because their notes may reference notebooks in the rejected batch.
+storage limit, so deleting records that are current on the server frees space.
+
+A rejected push batch stays pending, the client still pulls, and the rejection
+is reported at the end of the sync (an account-wide limit takes precedence
+over a content rejection). When the server rejects the batch's content (`400`,
+`413`), later batches are still sent, except notes assigned to a notebook from
+the rejected batch, which wait so the server never stores them without that
+assignment; after three rejected batches in one sync the client stops pushing,
+because the cause is probably not the content (for example a proxy upload
+limit). When the limit is account-wide (`409` storage or device limit, `429`
+rate limit), no further batches are sent.
 Content rejections are not retried on a timer: the next attempt follows the
 next edit or manual sync. While the web client backs off (one minute, doubling
-up to 15 minutes), its interval, focus, and visibility syncs only pull, so
+up to 15 minutes), its interval and visibility syncs only pull, so
 remote changes still arrive without resending the rejected data. A rate limit
 (`429`) is retried quietly after a minute. Transport failures, `401`,
 and server errors stop the sync immediately.
@@ -49,8 +56,9 @@ them. This keeps conflict responses under the clients' 12 MiB response limit
 when several large notes conflict at once.
 
 Clients sync about two seconds after local edits stop, at least every
-20 seconds while editing continues, when the app is hidden or loses focus, and
-on a regular interval while open. Each push uploads whole encrypted records, so
+20 seconds while editing continues, when the app is hidden, and on a regular
+interval while open. Leaving the window saves pending edits, which then sync
+on the same delay. Each push uploads whole encrypted records, so
 syncing on every short typing pause would resend long notes many times. Android
 also schedules a background sync 30 seconds after an edit as a safety net, and
 an immediate one when the app leaves the foreground. The server also enforces UTF-8 byte limits for every identifier, field, hash, timestamp, device label, and assignment list; binds a device to its authenticated session; caps accounts at 50 devices; rate-limits pushes; and checks active plus auxiliary snapshot/change storage inside the write transaction.

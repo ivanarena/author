@@ -371,7 +371,7 @@ export async function saveConflict(
     const storedConflict = await encryptConflictForStorage(currentConflict);
     const saved = await localDb.transaction(
       'rw',
-      [localDb.notebooks, localDb.conflicts],
+      [localDb.notebooks, localDb.notes, localDb.conflicts],
       async () => {
         const latest = await localDb.notebooks.get(conflict.entityId);
         if (
@@ -391,13 +391,21 @@ export async function saveConflict(
         ) {
           return false;
         }
+        const assignedNoteIds = (await localDb.notes.toArray())
+          .filter(
+            (note) =>
+              !note.deletedAt &&
+              noteNotebookIds(note).includes(conflict.entityId)
+          )
+          .map((note) => note.id);
         await localDb.conflicts.put({
           id: conflict.id,
           entityType: conflict.entityType,
           entityId: conflict.entityId,
           status: 'pending',
           createdAt,
-          conflict: storedConflict
+          conflict: storedConflict,
+          assignedNoteIds
         });
         if (latest) {
           await localDb.notebooks.put({ ...latest, syncStatus: 'conflict' });
@@ -694,6 +702,14 @@ export async function resolveConflict(
     conflict.entityType === 'notebook' &&
     conflict.reason === 'duplicate_name'
   ) {
+    // The server never accepted this notebook, so notes pushed with it lost
+    // the assignment; restore it so the remap below moves it to the kept one.
+    await restoreRecordedNotebookAssignments(
+      conflict.entityId,
+      localConflict.assignedNoteIds,
+      device,
+      now
+    );
     await resolveDuplicateNotebookNameConflict(
       conflict as SyncConflict<Notebook>,
       choice,
@@ -734,6 +750,18 @@ export async function resolveConflict(
       const remote = conflict.remote.record as Notebook;
       const local = conflict.local.record as Notebook;
       const copyId = newId();
+      if (remote.deletedAt) {
+        // Notes pushed while the notebook was deleted lost the assignment;
+        // restore it so the remap below moves it to the copy. Only for a
+        // remote delete: after a remote edit, a note without the notebook may
+        // have been moved out on purpose.
+        await restoreRecordedNotebookAssignments(
+          local.id,
+          localConflict.assignedNoteIds,
+          device,
+          now
+        );
+      }
       await localDb.notebooks.put(
         await encryptNotebookFields({
           ...remote,
@@ -795,6 +823,20 @@ export async function resolveConflict(
       );
       if (isRemote && record.deletedAt) {
         await removeLocalNoteNotebookReferences(record.id, device, now);
+      } else if (
+        !isRemote &&
+        !record.deletedAt &&
+        notebookConflict.remote.record.deletedAt
+      ) {
+        // The notebook comes back after a remote delete. Notes pushed while it
+        // was deleted were stored without it, so push their assignments again.
+        await restoreRecordedNotebookAssignments(
+          record.id,
+          localConflict.assignedNoteIds,
+          device,
+          now
+        );
+        await requeueLocalNoteNotebookReferences(record.id, device);
       }
     }
   }
@@ -854,6 +896,59 @@ async function resolveDuplicateNotebookNameConflict(
   );
   await remapLocalNoteNotebookReferences(local.id, copyId, device, now);
   if (local.id !== copyId) await localDb.notebooks.delete(local.id);
+}
+
+/**
+ * Adds a notebook back to notes that were assigned to it when its conflict
+ * was saved but have since lost it, typically because the server dropped the
+ * assignment and a pull applied that. Notes edited locally since then are left
+ * alone.
+ */
+async function restoreRecordedNotebookAssignments(
+  notebookId: string,
+  noteIds: string[] | undefined,
+  device: Device,
+  updatedAt: string
+): Promise<void> {
+  if (!noteIds?.length) return;
+  const updates: LocalNote[] = [];
+  for (const note of await localDb.notes.bulkGet(noteIds)) {
+    if (!note || note.deletedAt || note.syncStatus !== 'synced') continue;
+    const notebookIds = noteNotebookIds(note);
+    if (notebookIds.includes(notebookId)) continue;
+    const nextNotebookIds = normalizedNotebookIds([...notebookIds, notebookId]);
+    updates.push({
+      ...note,
+      notebookIds: nextNotebookIds,
+      notebookId: primaryNotebookId(nextNotebookIds),
+      updatedAt,
+      deviceId: device.id,
+      version: safePendingVersion(note),
+      syncStatus: 'pending',
+      lastSyncedAt: null
+    });
+  }
+  if (updates.length) await localDb.notes.bulkPut(updates);
+}
+
+async function requeueLocalNoteNotebookReferences(
+  notebookId: string,
+  device: Device
+): Promise<void> {
+  const notes = await localDb.notes.toArray();
+  const updates: LocalNote[] = [];
+  for (const note of notes) {
+    if (note.syncStatus !== 'synced' || note.deletedAt) continue;
+    if (!noteNotebookIds(note).includes(notebookId)) continue;
+    updates.push({
+      ...note,
+      deviceId: device.id,
+      version: safePendingVersion(note),
+      syncStatus: 'pending',
+      lastSyncedAt: null
+    });
+  }
+  if (updates.length) await localDb.notes.bulkPut(updates);
 }
 
 async function removeLocalNoteNotebookReferences(

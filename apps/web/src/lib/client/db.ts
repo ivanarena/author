@@ -25,6 +25,13 @@ export interface LocalConflict {
   status: 'pending' | 'resolved';
   createdAt: string;
   conflict: SyncConflict<Note> | SyncConflict<Notebook>;
+  /**
+   * Local only, for notebook conflicts: notes assigned to the notebook when
+   * the conflict was saved. The server drops assignments to a notebook it
+   * does not accept, and a pull then removes them locally, so resolving the
+   * conflict restores them from this list.
+   */
+  assignedNoteIds?: string[];
 }
 
 export type LocalNoteSnapshotReason = 'edit' | 'trash' | 'restore';

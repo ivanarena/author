@@ -1981,7 +1981,7 @@ class NotesController(private val repository: NotesRepository, private val scope
   fun onAppBackgrounded() {
     scope.launch {
       flushPendingSave()
-      if (hasToken && pendingSyncCount > 0) repository.enqueueBackgroundSync(immediate = true)
+      if (hasToken && pendingSyncCount > 0) repository.enqueueImmediateBackgroundSync()
     }
   }
 

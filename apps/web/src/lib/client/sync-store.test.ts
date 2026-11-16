@@ -24,6 +24,7 @@ vi.mock('./db', () => ({
     transaction: vi.fn(async (_mode, _tables, operation) => operation()),
     notes: {
       get: vi.fn(),
+      bulkGet: vi.fn(),
       put: vi.fn(),
       bulkPut: vi.fn(),
       delete: vi.fn(),
@@ -804,6 +805,187 @@ describe('client sync store', () => {
         notebookId: 'other-book',
         version: 5,
         syncStatus: 'pending',
+        lastSyncedAt: null
+      })
+    ]);
+  });
+
+  it('records which notes were assigned to a notebook when its conflict is saved', async () => {
+    const conflict = deletedRemoteNotebookConflict();
+    vi.mocked(localDb.notebooks.get).mockResolvedValue(baseNotebook);
+    vi.mocked(localDb.notes.toArray).mockResolvedValue([
+      { ...baseNote, id: 'in-book', notebookIds: [baseNotebook.id] },
+      { ...baseNote, id: 'other', notebookIds: ['other-book'] },
+      {
+        ...baseNote,
+        id: 'deleted-in-book',
+        notebookIds: [baseNotebook.id],
+        deletedAt: '2026-05-02T10:00:00.000Z'
+      }
+    ]);
+
+    await saveConflict(conflict);
+
+    expect(localDb.conflicts.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'deleted-notebook-conflict',
+        assignedNoteIds: ['in-book']
+      })
+    );
+  });
+
+  it('restores assignments a pull removed when a remotely deleted notebook is kept', async () => {
+    const conflict = deletedRemoteNotebookConflict();
+    // The server dropped the assignment and the pull applied that locally.
+    const strippedNote: LocalNote = {
+      ...baseNote,
+      notebookIds: ['other-book'],
+      notebookId: 'other-book',
+      syncStatus: 'synced',
+      version: 5,
+      lastSyncedVersion: 5
+    };
+    const editedNote: LocalNote = {
+      ...baseNote,
+      id: 'edited-since',
+      notebookIds: [],
+      notebookId: null,
+      syncStatus: 'pending',
+      version: 3,
+      lastSyncedVersion: 2
+    };
+    vi.mocked(localDb.conflicts.get).mockResolvedValue({
+      ...notebookConflictRecord(conflict),
+      assignedNoteIds: [strippedNote.id, editedNote.id]
+    });
+    vi.mocked(localDb.notes.bulkGet).mockResolvedValue([
+      strippedNote,
+      editedNote
+    ]);
+    vi.mocked(localDb.notes.toArray).mockResolvedValue([]);
+
+    await resolveConflict('deleted-notebook-conflict', 'keep-local');
+
+    expect(localDb.notes.bulkPut).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: strippedNote.id,
+        notebookIds: ['other-book', baseNotebook.id],
+        version: 6,
+        syncStatus: 'pending',
+        lastSyncedVersion: 5
+      })
+    ]);
+  });
+
+  it('restores assignments before remapping a duplicate notebook name', async () => {
+    const conflict = duplicateNotebookConflict();
+    const strippedNote: LocalNote = {
+      ...baseNote,
+      notebookIds: [],
+      notebookId: null,
+      syncStatus: 'synced',
+      version: 2,
+      lastSyncedVersion: 2
+    };
+    vi.mocked(localDb.conflicts.get).mockResolvedValue({
+      ...localConflictRecord(conflict),
+      assignedNoteIds: [strippedNote.id]
+    });
+    vi.mocked(localDb.notes.bulkGet).mockResolvedValue([strippedNote]);
+    vi.mocked(localDb.notes.bulkPut).mockImplementation((async (
+      notes: LocalNote[]
+    ) => {
+      vi.mocked(localDb.notes.toArray).mockResolvedValue(notes);
+      return notes[notes.length - 1]?.id;
+    }) as never);
+
+    await resolveConflict('conflict-1', 'keep-remote');
+
+    expect(localDb.notes.bulkPut).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        id: strippedNote.id,
+        notebookIds: ['remote-book'],
+        syncStatus: 'pending'
+      })
+    ]);
+  });
+
+  it('restores assignments before copying a remotely deleted notebook', async () => {
+    const conflict = deletedRemoteNotebookConflict();
+    const strippedNote: LocalNote = {
+      ...baseNote,
+      notebookIds: [],
+      notebookId: null,
+      syncStatus: 'synced',
+      version: 5,
+      lastSyncedVersion: 5
+    };
+    vi.mocked(localDb.conflicts.get).mockResolvedValue({
+      ...notebookConflictRecord(conflict),
+      assignedNoteIds: [strippedNote.id]
+    });
+    vi.mocked(localDb.notes.bulkGet).mockResolvedValue([strippedNote]);
+    vi.mocked(localDb.notes.bulkPut).mockImplementation((async (
+      notes: LocalNote[]
+    ) => {
+      vi.mocked(localDb.notes.toArray).mockResolvedValue(notes);
+      return notes[notes.length - 1]?.id;
+    }) as never);
+
+    await resolveConflict('deleted-notebook-conflict', 'duplicate-both');
+
+    const copied = vi.mocked(localDb.notes.bulkPut).mock.lastCall?.[0] as
+      | LocalNote[]
+      | undefined;
+    expect(copied).toHaveLength(1);
+    expect(copied?.[0]?.syncStatus).toBe('pending');
+    expect(copied?.[0]?.notebookIds).toHaveLength(1);
+    expect(copied?.[0]?.notebookIds[0]).not.toBe(baseNotebook.id);
+  });
+
+  it('pushes note assignments again when a remotely deleted notebook is kept', async () => {
+    const conflict = deletedRemoteNotebookConflict();
+    const assignedNote: LocalNote = {
+      ...baseNote,
+      notebookIds: [baseNotebook.id],
+      notebookId: baseNotebook.id,
+      syncStatus: 'synced',
+      version: 4,
+      lastSyncedVersion: 4
+    };
+    const otherNote: LocalNote = {
+      ...baseNote,
+      id: 'unrelated-note',
+      notebookIds: ['other-book'],
+      notebookId: 'other-book',
+      syncStatus: 'synced',
+      version: 2,
+      lastSyncedVersion: 2
+    };
+    vi.mocked(localDb.conflicts.get).mockResolvedValue(
+      notebookConflictRecord(conflict)
+    );
+    vi.mocked(localDb.notes.toArray).mockResolvedValue([
+      assignedNote,
+      otherNote
+    ]);
+
+    await resolveConflict('deleted-notebook-conflict', 'keep-local');
+
+    expect(localDb.notebooks.put).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: baseNotebook.id,
+        deletedAt: null,
+        syncStatus: 'pending'
+      })
+    );
+    expect(localDb.notes.bulkPut).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: assignedNote.id,
+        notebookIds: [baseNotebook.id],
+        version: 5,
+        syncStatus: 'pending',
+        lastSyncedVersion: 4,
         lastSyncedAt: null
       })
     ]);

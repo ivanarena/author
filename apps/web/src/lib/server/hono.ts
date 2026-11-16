@@ -44,6 +44,7 @@ import {
   hasSignupAllowedEmails,
   isSignupEmailAllowed,
   listTrustedAuthDevices,
+  markTotpStepUsed,
   normalizeEmail,
   mirrorUserForLocalSession,
   normalizeUsername,
@@ -1365,6 +1366,15 @@ api.post(API_PATHS.authLogin, async (c) => {
 
     let remoteUser: AuthLoginResponse['user'] | null = null;
     let serverProof: string | null = null;
+    // The TOTP step is marked used only after every step that can still fail
+    // (remote device registration, local account setup), so a failed sign-in
+    // does not burn the user's code.
+    const verifiedTotp: { step: number | null } = { step: null };
+    const totpOptions = {
+      deferTotpConsumption: (step: number) => {
+        verifiedTotp.step = step;
+      }
+    };
     const remoteConfig = remoteMirrorConfig(c);
     if (remoteConfig) {
       let remote: NotesDb | null = null;
@@ -1375,7 +1385,8 @@ api.post(API_PATHS.authLogin, async (c) => {
             remote,
             body.username,
             body.proof,
-            body.totpCode
+            body.totpCode,
+            totpOptions
           );
           remoteUser = verified?.user ?? null;
           serverProof = verified?.serverProof ?? null;
@@ -1392,7 +1403,8 @@ api.post(API_PATHS.authLogin, async (c) => {
             body.username,
             body.device.id,
             deviceTrustSecret,
-            body.totpCode
+            body.totpCode,
+            totpOptions
           );
         }
         if (remoteUser) {
@@ -1402,20 +1414,15 @@ api.post(API_PATHS.authLogin, async (c) => {
             body.username,
             'login'
           );
+          // Registering the device can hit the device limit, so it runs
+          // before the TOTP step is marked. Trusting the device waits until
+          // the sign-in has fully succeeded.
           await upsertDevice(
             remote,
             body.device,
             undefined,
             remoteUser.username
           );
-          if (deviceTrustSecret) {
-            await trustAuthDevice(
-              remote,
-              remoteUser.username,
-              body.device.id,
-              deviceTrustSecret
-            );
-          }
         }
       } catch (error) {
         if (error instanceof DeviceLimitExceededError) throw error;
@@ -1460,7 +1467,8 @@ api.post(API_PATHS.authLogin, async (c) => {
           db,
           body.username,
           body.proof,
-          body.totpCode
+          body.totpCode,
+          totpOptions
         );
         user = verified?.user ?? null;
         serverProof = verified?.serverProof ?? null;
@@ -1477,7 +1485,8 @@ api.post(API_PATHS.authLogin, async (c) => {
           body.username,
           body.device.id,
           deviceTrustSecret,
-          body.totpCode
+          body.totpCode,
+          totpOptions
         );
       }
     } catch (error) {
@@ -1494,18 +1503,56 @@ api.post(API_PATHS.authLogin, async (c) => {
         remoteUser ? 503 : 401
       );
     }
+    await upsertDevice(db, body.device, undefined, user.username);
+    // Everything that can still fail has run. Mark the TOTP step used where
+    // the code was verified (the remote primary in mirror mode, so every
+    // server sharing it rejects a replay), then trust the device.
+    let remoteTarget: NotesDb | null = null;
+    if (remoteConfig && remoteUser) {
+      try {
+        remoteTarget = await openConfiguredDatabase(remoteConfig);
+      } catch (error) {
+        console.warn(
+          'Remote login failed:',
+          error instanceof Error ? error.message : error
+        );
+        return c.json({ error: 'Remote login failed' }, 503);
+      }
+    }
+    try {
+      if (
+        verifiedTotp.step !== null &&
+        !(await markTotpStepUsed(
+          remoteTarget ?? db,
+          user.username,
+          verifiedTotp.step
+        ))
+      ) {
+        await recordFailedAuthAttempt(db, attemptKey);
+        return c.json({ error: 'Invalid username or password' }, 401);
+      }
+      if (deviceTrustSecret) {
+        if (remoteTarget) {
+          await trustAuthDevice(
+            remoteTarget,
+            user.username,
+            body.device.id,
+            deviceTrustSecret
+          );
+        }
+        await trustAuthDevice(
+          db,
+          user.username,
+          body.device.id,
+          deviceTrustSecret
+        );
+      }
+    } finally {
+      remoteTarget?.close();
+    }
     await clearFailedAuthAttempts(db, attemptKey);
     await clearAuthChallengeAttempts(db, c.req.raw, body.username, 'login');
 
-    await upsertDevice(db, body.device, undefined, user.username);
-    if (deviceTrustSecret) {
-      await trustAuthDevice(
-        db,
-        user.username,
-        body.device.id,
-        deviceTrustSecret
-      );
-    }
     const session = await createAuthSession(db, user, body.device.id);
     await queueRemoteSyncAfter(undefined, c.env);
     setAuthSessionCookie(c, session);

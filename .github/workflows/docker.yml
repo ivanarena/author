@@ -99,6 +99,10 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Smoke-test the image
+        if: steps.scanned-image.outputs.reused != 'true'
+        run: scripts/docker-smoke.sh "${IMAGE_REF}"
+
       - name: Export image for scanning and publication
         if: steps.scanned-image.outputs.reused != 'true'
         run: |

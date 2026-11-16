@@ -194,6 +194,39 @@ class NotesRepositorySyncInstrumentedTest {
   }
 
   @Test
+  fun keepingARemotelyDeletedNotebookRestoresAssignmentsThePullRemoved() = runBlocking {
+    FakeSyncServer().use { server ->
+      server.start()
+      repository.setApiBaseUrl(server.baseUrl)
+
+      val notebook = requireNotNull(repository.createNotebook("Drafts"))
+      val note = repository.createBlankNote("Chapter", "Body", notebook.id)
+      server.rejectNotebookAsDeleted(notebook.id)
+
+      val conflictedRun = repository.runSync(TOKEN)
+
+      assertEquals(1, conflictedRun.conflicts)
+      // The server stored the note without the deleted notebook, and the pull applied that.
+      assertEquals(emptyList<String>(), server.remoteNote?.notebookIds)
+      val stripped = repository.loadWorkspace().notes.single { it.id == note.id }
+      assertEquals(emptyList<String>(), stripped.notebookIds)
+      assertEquals("synced", stripped.syncStatus)
+      val conflict = requireNotNull(repository.loadWorkspace().conflicts.single().notebookConflict)
+      assertEquals("deleted_remotely", conflict.reason)
+
+      repository.resolveConflict(conflict.id, "keep-local")
+
+      val restored = repository.loadWorkspace().notes.single { it.id == note.id }
+      assertEquals(listOf(notebook.id), restored.notebookIds)
+      assertEquals("pending", restored.syncStatus)
+
+      repository.runSync(TOKEN)
+      assertEquals(listOf(notebook.id), server.remoteNote?.notebookIds)
+      assertTrue(notebook.id in server.acceptedNotebookIds)
+    }
+  }
+
+  @Test
   fun runSyncKeepsStepwiseEditsPendingUntilNewestBodyReachesRemote() = runBlocking {
     FakeSyncServer().use { server ->
       server.start()
@@ -298,6 +331,8 @@ private class FakeSyncServer : Closeable {
   @Volatile private var conflictNextPush = false
   @Volatile private var pullRemoteOnce = false
   @Volatile private var queuedConflictReason = "remote_changed"
+  @Volatile private var deletedNotebookId: String? = null
+  val acceptedNotebookIds: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
   val baseUrl: String = "http://127.0.0.1:${server.localPort}"
 
@@ -327,6 +362,14 @@ private class FakeSyncServer : Closeable {
     queuedConflictReason = "deleted_remotely"
     pullRemoteOnce = true
     revision += 1
+  }
+
+  /**
+   * Answers the next push of [notebookId] with a deleted_remotely conflict and, like the real
+   * server, stores notes from that push without the notebook; the next pull returns them.
+   */
+  fun rejectNotebookAsDeleted(notebookId: String) {
+    deletedNotebookId = notebookId
   }
 
   fun awaitNotePushStarted(timeoutMillis: Long = 5_000): Boolean =
@@ -366,6 +409,53 @@ private class FakeSyncServer : Closeable {
   private fun handlePush(body: JSONObject): JSONObject {
     val accepted = JSONArray()
     val conflicts = JSONArray()
+    val rejectedNotebookIds = mutableSetOf<String>()
+    body.optJSONArray("notebooks")?.forEachObject { item ->
+      val record = notebookFromJson(item.getJSONObject("record"))
+      if (record.id == deletedNotebookId) {
+        deletedNotebookId = null
+        rejectedNotebookIds += record.id
+        val deleted =
+          record.copy(
+            deletedAt = SERVER_TIME,
+            updatedAt = SERVER_TIME,
+            deviceId = "web-device",
+            version = 1,
+            syncStatus = "synced",
+          )
+        conflicts.put(
+          notebookConflictToJson(
+            SyncConflict(
+              id = "server-conflict-${record.id}",
+              entityType = "notebook",
+              entityId = record.id,
+              reason = "deleted_remotely",
+              local =
+                ConflictVersion(
+                  "local",
+                  record.deviceId,
+                  record.deviceId,
+                  record.updatedAt,
+                  record.version,
+                  "",
+                  record,
+                ),
+              remote =
+                ConflictVersion("remote", "web-device", "web-device", SERVER_TIME, 1, "", deleted),
+            )
+          )
+        )
+        return@forEachObject
+      }
+      acceptedNotebookIds += record.id
+      accepted.put(
+        JSONObject()
+          .put("entityType", "notebook")
+          .put("id", record.id)
+          .put("version", record.version)
+          .put("updatedAt", record.updatedAt)
+      )
+    }
     val notes = body.optJSONArray("notes")
     if (notes != null && notes.length() > 0) {
       notePushStarted.countDown()
@@ -373,7 +463,11 @@ private class FakeSyncServer : Closeable {
       if (delayMillis > 0) Thread.sleep(delayMillis)
     }
     notes?.forEachObject { item ->
-      val record = noteFromJson(item.getJSONObject("record"))
+      val pushedRecord = noteFromJson(item.getJSONObject("record"))
+      val keptNotebookIds = pushedRecord.notebookIds.filterNot { it in rejectedNotebookIds }
+      val record =
+        pushedRecord.copy(notebookIds = keptNotebookIds, notebookId = keptNotebookIds.firstOrNull())
+      if (keptNotebookIds != pushedRecord.notebookIds) pullRemoteOnce = true
       val baseVersion = item.optInt("baseVersion", 0)
       val current = remoteNote
       if (conflictNextPush && current != null && baseVersion != current.version) {

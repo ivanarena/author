@@ -2858,6 +2858,175 @@ describe('Hono API hardening', () => {
     expect(await validateStatus(token)).toBe(200);
   });
 
+  it('does not burn a 2FA code when sign-in fails after the code was checked', async () => {
+    const remotePath = join(tempDir, 'totp-not-burned-remote.sqlite');
+    await seedRemoteOwner(remotePath);
+    const token = await loginToken();
+    const setup = await post('/api/account/totp/setup', {}, token);
+    const { secret } = (await setup.json()) as { secret: string };
+    const enable = await post(
+      '/api/account/totp',
+      {
+        proof: await passwordProof(token, 'test-password-2026', 'totp'),
+        secret,
+        totpCode: totpCode(secret)
+      },
+      token
+    );
+    expect(enable.status).toBe(200);
+
+    const remote = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${remotePath}`, authToken: 'test-token' }
+    });
+    try {
+      for (let index = 0; index < 49; index += 1) {
+        await upsertDevice(
+          remote,
+          { id: `filler-${index}`, name: `Filler ${index}` },
+          undefined,
+          'owner'
+        );
+      }
+    } finally {
+      remote.close();
+    }
+
+    advanceTotpStep();
+    const code = totpCode(secret);
+    const newDevice = { id: 'device-over-limit', name: 'New laptop' };
+    const signIn = async () => {
+      const challenge = await authChallenge('owner', 'login');
+      return await api.fetch(
+        new Request('http://localhost/api/auth/login', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            username: 'owner',
+            proof: (
+              await authProofFromPassword('test-password-2026', challenge)
+            ).proof,
+            totpCode: code,
+            device: newDevice
+          })
+        })
+      );
+    };
+
+    expect((await signIn()).status).toBe(409);
+
+    const cleanup = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${remotePath}`, authToken: 'test-token' }
+    });
+    try {
+      await cleanup.execute({
+        sql: 'DELETE FROM devices WHERE owner_username = ? AND id = ?',
+        args: ['owner', 'filler-0']
+      });
+    } finally {
+      cleanup.close();
+    }
+
+    // The same code still works because the failed attempt did not use it.
+    expect((await signIn()).status).toBe(200);
+    // Now it has been used and cannot be replayed.
+    expect((await signIn()).status).toBe(401);
+  });
+
+  it('does not burn a 2FA code or trust a device when a Turso-primary sign-in fails', async () => {
+    const primaryPath = join(tempDir, 'totp-primary.sqlite');
+    process.env.NOTES_DB_PROVIDER = 'turso';
+    process.env.TURSO_DATABASE_URL = `file:${primaryPath}`;
+    process.env.TURSO_AUTH_TOKEN = 'test-token';
+    const token = await loginToken();
+    const setup = await post('/api/account/totp/setup', {}, token);
+    const { secret } = (await setup.json()) as { secret: string };
+    const enable = await post(
+      '/api/account/totp',
+      {
+        proof: await passwordProof(token, 'test-password-2026', 'totp'),
+        secret,
+        totpCode: totpCode(secret)
+      },
+      token
+    );
+    expect(enable.status).toBe(200);
+
+    const primary = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${primaryPath}`, authToken: 'test-token' }
+    });
+    try {
+      for (let index = 0; index < 49; index += 1) {
+        await upsertDevice(
+          primary,
+          { id: `filler-${index}`, name: `Filler ${index}` },
+          undefined,
+          'owner'
+        );
+      }
+    } finally {
+      primary.close();
+    }
+
+    advanceTotpStep();
+    const code = totpCode(secret);
+    const signIn = async (device: { id: string; name: string }) => {
+      const challenge = await authChallenge('owner', 'login');
+      return await api.fetch(
+        new Request('http://localhost/api/auth/login', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            username: 'owner',
+            proof: (
+              await authProofFromPassword('test-password-2026', challenge)
+            ).proof,
+            totpCode: code,
+            device,
+            deviceTrustSecret: 'replay-device-trust-secret-0123456789'
+          })
+        })
+      );
+    };
+
+    expect((await signIn({ id: 'over-limit', name: 'Laptop' })).status).toBe(
+      409
+    );
+    const cleanup = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${primaryPath}`, authToken: 'test-token' }
+    });
+    try {
+      await cleanup.execute({
+        sql: 'DELETE FROM devices WHERE owner_username = ? AND id IN (?, ?)',
+        args: ['owner', 'filler-0', 'filler-1']
+      });
+    } finally {
+      cleanup.close();
+    }
+    expect((await signIn({ id: 'over-limit', name: 'Laptop' })).status).toBe(
+      200
+    );
+
+    // A replay is rejected and leaves no trusted-device record behind.
+    expect((await signIn({ id: 'replayer', name: 'Other' })).status).toBe(401);
+    const check = await openConfiguredDatabase({
+      provider: 'turso',
+      client: { url: `file:${primaryPath}`, authToken: 'test-token' }
+    });
+    try {
+      const trusted = await check.execute({
+        sql: 'SELECT count(*) AS count FROM trusted_auth_devices WHERE device_id = ?',
+        args: ['replayer']
+      });
+      expect(Number(trusted.rows[0]?.count ?? 0)).toBe(0);
+    } finally {
+      check.close();
+    }
+  });
+
   it('refuses to create accounts with reserved usernames', async () => {
     const remotePath = join(tempDir, 'reserved-remote.sqlite');
     process.env.TURSO_DATABASE_URL = `file:${remotePath}`;

@@ -363,7 +363,10 @@ async function runSyncUnlocked(
   const totalPushCount = pendingChanges.length - unsyncable.length;
 
   let conflicts = 0;
+  // `pushed` drives progress and counts changes sent; `answered` counts the
+  // changes the server accepted or reported as conflicts (it may defer some).
   let pushed = 0;
+  const answered = new Set<string>();
   let stoppedPushError: SyncHttpError | null = null;
   const storedDeviceSignature =
     (await localDb.syncMeta.get(LAST_PUSHED_DEVICE_SIGNATURE_KEY))?.value ?? '';
@@ -425,6 +428,12 @@ async function runSyncUnlocked(
     await assertActiveSyncLease();
     await rememberPushedDevice(device);
     pushed += batchSize;
+    for (const change of pushResponse.accepted) {
+      answered.add(`${change.entityType}:${change.id}`);
+    }
+    for (const conflict of pushResponse.conflicts) {
+      answered.add(`${conflict.entityType}:${conflict.entityId}`);
+    }
     onProgress?.({
       phase: 'pushing',
       pushed,
@@ -567,7 +576,7 @@ async function runSyncUnlocked(
   if (stoppedPushError) throw stoppedPushError;
 
   return {
-    pushed,
+    pushed: answered.size,
     pulled,
     conflicts,
     unsyncable: unsyncable.length

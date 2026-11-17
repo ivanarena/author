@@ -1,0 +1,201 @@
+/*
+ * Manuscript pages for print/PDF (see $lib/client/manuscript-print.ts).
+ * Sizes mirror the DOCX export: 12 pt Newsreader, header and page number at
+ * half the page margin, prose chapters dropped a third of the way down.
+ */
+
+.manuscript-print {
+  position: fixed;
+  top: 0;
+  left: -100000px;
+  visibility: hidden;
+  pointer-events: none;
+  color: #000;
+  background: #fff;
+  font-family:
+    'Newsreader Variable', Newsreader, Georgia, 'Times New Roman', serif;
+  font-size: 12pt;
+  font-weight: 400;
+  font-kerning: normal;
+  font-optical-sizing: auto;
+  line-height: 1.15;
+  text-rendering: optimizeLegibility;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.manuscript-print.ms-a4 {
+  --ms-width: 210mm;
+  --ms-height: 297mm;
+  --ms-margin: 25mm;
+  --ms-drop: 82.33mm;
+}
+
+.manuscript-print.ms-a5 {
+  --ms-width: 148mm;
+  --ms-height: 210mm;
+  --ms-margin: 20mm;
+  --ms-drop: 56.67mm;
+}
+
+.manuscript-print.ms-letter {
+  --ms-width: 215.9mm;
+  --ms-height: 279.4mm;
+  --ms-margin: 25.4mm;
+  --ms-drop: 76.2mm;
+}
+
+.ms-a4 .ms-page {
+  page: ms-a4;
+}
+
+.ms-a5 .ms-page {
+  page: ms-a5;
+}
+
+.ms-letter .ms-page {
+  page: ms-letter;
+}
+
+@page ms-a4 {
+  size: 210mm 297mm;
+  margin: 0;
+}
+
+@page ms-a5 {
+  size: 148mm 210mm;
+  margin: 0;
+}
+
+@page ms-letter {
+  size: 8.5in 11in;
+  margin: 0;
+}
+
+.ms-page {
+  position: relative;
+  width: var(--ms-width);
+  height: var(--ms-height);
+  overflow: hidden;
+  padding: var(--ms-margin);
+  background: #fff;
+  break-after: page;
+  page-break-after: always;
+}
+
+.ms-page:last-child {
+  break-after: auto;
+  page-break-after: auto;
+}
+
+.ms-content {
+  height: 100%;
+  overflow: hidden;
+}
+
+.manuscript-print h1,
+.manuscript-print h2,
+.manuscript-print p {
+  margin: 0;
+  font-size: inherit;
+  font-weight: 400;
+  line-height: inherit;
+}
+
+.ms-running-header,
+.ms-page-number {
+  position: absolute;
+  right: var(--ms-margin);
+  left: var(--ms-margin);
+  overflow: hidden;
+  font-size: 10pt;
+  line-height: 1.2;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ms-running-header {
+  top: calc(var(--ms-margin) / 2);
+}
+
+.ms-page-number {
+  bottom: calc(var(--ms-margin) / 2);
+}
+
+/* Poetry: lines kept as written; wrapped lines hang-indent. */
+.ms-line {
+  padding-left: 0.25in;
+  text-indent: -0.25in;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  tab-size: 4;
+}
+
+.ms-stanza-break {
+  height: 1.15em;
+}
+
+.manuscript-print .ms-poetry-title {
+  margin-bottom: 12pt;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* Prose: double-spaced, indented paragraphs, chapters a third down. */
+.manuscript-print.ms-prose {
+  line-height: 2;
+}
+
+.ms-paragraph {
+  overflow-wrap: break-word;
+  text-indent: 12.7mm;
+}
+
+.ms-paragraph.ms-continued {
+  text-indent: 0;
+}
+
+.ms-scene-break {
+  text-align: center;
+}
+
+.manuscript-print .ms-prose-title {
+  margin-top: var(--ms-drop);
+  margin-bottom: 2em;
+  text-align: center;
+}
+
+/* Title page. */
+.ms-word-count {
+  text-align: right;
+}
+
+.manuscript-print .ms-title {
+  margin-top: var(--ms-drop);
+  font-weight: 700;
+  text-align: center;
+}
+
+@media print {
+  html.printing-manuscript,
+  html.printing-manuscript body {
+    height: auto !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+
+  html.printing-manuscript body > :not(.manuscript-print) {
+    display: none !important;
+  }
+
+  html.printing-manuscript .manuscript-print {
+    position: static;
+    left: auto;
+    visibility: visible;
+  }
+}

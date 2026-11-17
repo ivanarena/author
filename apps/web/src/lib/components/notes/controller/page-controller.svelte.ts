@@ -49,6 +49,11 @@ import {
 import { loadConfig } from '$lib/client/api-client';
 import type { SyncProgress } from '$lib/client/sync';
 import {
+  DEFAULT_MANUSCRIPT_OPTIONS,
+  type ManuscriptOptions
+} from '$lib/client/manuscript';
+import {
+  countNotebookWords,
   countNotesByNotebook,
   countWords,
   filterNotesBySearch,
@@ -76,6 +81,7 @@ import type {
   ContextMenuModel,
   EditorPaneModel,
   ImportBanner,
+  ManuscriptExportDialogModel,
   MetadataRow,
   NavigationDockModel,
   NoteHistoryDialogModel,
@@ -95,6 +101,8 @@ import {
   getStoredEditorTextSize,
   getStoredEditorZoom,
   getStoredGroup,
+  getStoredManuscriptOptions,
+  setStoredManuscriptOptions,
   applyAppFont,
   getStoredSort,
   MAX_EDITOR_LINE_HEIGHT,
@@ -113,6 +121,7 @@ import * as archiveActions from './actions/archive';
 import type { ShareNotePayload } from './actions/archive';
 import * as editorActions from './actions/editor';
 import * as libraryActions from './actions/library';
+import * as manuscriptActions from './actions/manuscript';
 import * as syncActions from './actions/sync';
 import * as uiActions from './actions/ui';
 
@@ -125,6 +134,7 @@ export type {
   ContextMenuModel,
   EditorPaneModel,
   ImportBanner,
+  ManuscriptExportDialogModel,
   MetadataRow,
   NavigationDockModel,
   NoteHistoryDialogModel,
@@ -154,6 +164,7 @@ export class NotesPageController
     SettingsModalModel,
     SignupRecoveryModalModel,
     ContextMenuModel,
+    ManuscriptExportDialogModel,
     ConflictDialogModel,
     NotificationStackModel
 {
@@ -254,6 +265,12 @@ export class NotesPageController
   historyLoading = $state(false);
   historySnapshots = $state<LocalNoteSnapshot[]>([]);
   selectedHistorySnapshotId = $state<string | null>(null);
+  manuscriptNotebookId = $state<string | null>(null);
+  manuscriptOptions = $state<ManuscriptOptions>({
+    ...DEFAULT_MANUSCRIPT_OPTIONS,
+    header: ''
+  });
+  manuscriptBusy = $state(false);
   settingsSection = $state<SettingsSection>('account');
   settingsOpen = $state(false);
   contextMenu = $state<ContextMenuState>(null);
@@ -280,6 +297,7 @@ export class NotesPageController
   settingsModal: HTMLElement | null = null;
   loginModal: HTMLElement | null = null;
   historyModal: HTMLElement | null = null;
+  manuscriptModal: HTMLElement | null = null;
   readonly minEditorZoom = MIN_EDITOR_ZOOM;
   readonly maxEditorZoom = MAX_EDITOR_ZOOM;
   readonly minEditorTextSize = MIN_EDITOR_TEXT_SIZE;
@@ -416,6 +434,22 @@ export class NotesPageController
   appDebugLog = $derived(formatDebugLogEntries(this.appDebugLogEntries));
   contextNote = $derived(this.getContextNote(this.contextMenu));
   contextNotebook = $derived(this.getContextNotebook(this.contextMenu));
+  manuscriptNotebook = $derived(
+    this.notebooks.find(
+      (notebook) =>
+        notebook.id === this.manuscriptNotebookId && !notebook.deletedAt
+    ) ?? null
+  );
+  manuscriptNoteCount = $derived(
+    this.manuscriptNotebookId
+      ? (this.notebookCounts.get(this.manuscriptNotebookId) ?? 0)
+      : 0
+  );
+  manuscriptWordCount = $derived(
+    this.manuscriptNotebookId
+      ? countNotebookWords(this.notes, this.manuscriptNotebookId)
+      : 0
+  );
   selectedDeviceName = $derived(
     this.selectedNote ? this.deviceName(this.selectedNote.deviceId) : ''
   );
@@ -642,6 +676,7 @@ export class NotesPageController
     this.closeContextMenu();
     this.closeAccountMenu();
     this.closeNoteHistory();
+    this.closeManuscriptExport();
     this.closeSettings();
     this.closeNotebookMenus();
   };
@@ -968,6 +1003,47 @@ export class NotesPageController
   contextDeleteNotebook = (notebook: LocalNotebook) => {
     this.askDeleteNotebook(notebook);
     this.closeContextMenu();
+  };
+
+  contextExportManuscript = (notebook: LocalNotebook) => {
+    this.closeContextMenu();
+    this.manuscriptOptions = {
+      ...getStoredManuscriptOptions(),
+      header: notebook.name
+    };
+    this.manuscriptNotebookId = notebook.id;
+  };
+
+  contextNotebookMetadataRows = (notebook: LocalNotebook): MetadataRow[] => {
+    const notes = this.notebookCounts.get(notebook.id) ?? 0;
+    const words = countNotebookWords(this.notes, notebook.id);
+    return [
+      { label: 'Notes', value: `${notes} ${notes === 1 ? 'note' : 'notes'}` },
+      {
+        label: 'Words',
+        value: `${words.toLocaleString()} ${words === 1 ? 'word' : 'words'}`
+      }
+    ];
+  };
+
+  setManuscriptOption = <K extends keyof ManuscriptOptions>(
+    key: K,
+    value: ManuscriptOptions[K]
+  ) => {
+    this.manuscriptOptions = { ...this.manuscriptOptions, [key]: value };
+    setStoredManuscriptOptions(this.manuscriptOptions);
+  };
+
+  closeManuscriptExport = () => {
+    this.manuscriptNotebookId = null;
+  };
+
+  exportManuscriptDocx = async () => {
+    await manuscriptActions.exportManuscriptDocx(this);
+  };
+
+  printManuscript = async () => {
+    await manuscriptActions.printManuscript(this);
   };
 
   contextTrashNote = async (note: LocalNote) => {
@@ -1704,10 +1780,11 @@ export class NotesPageController
   private positionContextMenu = <T extends Exclude<ContextMenuState, null>>(
     menu: T
   ): T => {
-    const width = menu.type === 'notebook' ? 190 : 280;
+    const width = menu.type === 'notebook' ? 210 : 280;
+    // Notebook menu: counts, Export manuscript, Rename, Delete.
     const height =
       menu.type === 'notebook'
-        ? 84
+        ? 190
         : Math.min(400, 182 + Math.max(1, this.notebooks.length) * 40);
     return {
       ...menu,

@@ -253,14 +253,27 @@ export function createZipBytes(
   archive: MarkdownExportArchive,
   exportedAt: string
 ): Uint8Array {
+  return createStoredZipBytes(
+    archive.files.map((file) => ({
+      path: `${archive.rootName}/${file.path}`,
+      content: file.content
+    })),
+    exportedAt
+  );
+}
+
+/** Uncompressed (stored) ZIP with entries at exactly the given paths. */
+export function createStoredZipBytes(
+  files: MarkdownExportFile[],
+  exportedAt: string
+): Uint8Array {
   const fileDate = new Date(exportedAt);
   const chunks: Uint8Array[] = [];
   const centralDirectory: Uint8Array[] = [];
   let offset = 0;
 
-  for (const file of archive.files) {
-    const path = `${archive.rootName}/${file.path}`;
-    const nameBytes = encoder.encode(path);
+  for (const file of files) {
+    const nameBytes = encoder.encode(file.path);
     const contentBytes = encoder.encode(file.content);
     const checksum = crc32(contentBytes);
     const localHeader = zipLocalFileHeader(
@@ -291,7 +304,7 @@ export function createZipBytes(
   chunks.push(...centralDirectory);
   chunks.push(
     zipEndOfCentralDirectory(
-      archive.files.length,
+      files.length,
       centralDirectorySize,
       centralDirectoryOffset
     )

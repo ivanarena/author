@@ -2,6 +2,7 @@
   import {
     ArchiveRestore,
     Check,
+    FileText,
     FolderPlus,
     History,
     Pencil,
@@ -66,6 +67,24 @@
     aria-label={`${contextNotebook.name} actions`}
     oncontextmenu={(event) => event.preventDefault()}
   >
+    <div class="context-metadata" aria-label="Notebook metadata">
+      {#each model.contextNotebookMetadataRows(contextNotebook) as row}
+        <span>
+          <strong>{row.label}</strong>
+          <small>{row.value}</small>
+        </span>
+      {/each}
+    </div>
+    <button
+      role="menuitem"
+      onclick={(event) => {
+        event.stopPropagation();
+        model.contextExportManuscript(contextNotebook);
+      }}
+    >
+      <FileText size={14} strokeWidth={1.8} />
+      <span>Export manuscript</span>
+    </button>
     <button
       role="menuitem"
       onclick={(event) => {

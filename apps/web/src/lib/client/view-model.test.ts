@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { LocalNote } from './db';
 import { noteDisplayTitle, noteNotebookIds } from './note-utils';
 import {
+  countNotebookWords,
   countNotesByNotebook,
+  countWords,
   dateRangeLabel,
   filterNotesBySearch,
   filterNotesForView,
@@ -152,6 +154,39 @@ describe('client note view model', () => {
         ['', 1]
       ])
     );
+  });
+
+  it('counts only tokens that contain letters or digits', () => {
+    expect(countWords('')).toBe(0);
+    expect(countWords('   \n\t ')).toBe(0);
+    expect(countWords('One two\nthree')).toBe(3);
+    expect(countWords('Chapter 1')).toBe(2);
+    expect(countWords("don't stop — well-known, è così.")).toBe(5);
+    expect(countWords('end\n\n* * *\n\n#\n\nbegin')).toBe(2);
+  });
+
+  it('counts words of active notes in a notebook', () => {
+    const notes = [
+      note({ id: 'a', title: 'One', body: 'two three', notebookIds: ['n1'] }),
+      note({
+        id: 'b',
+        title: '',
+        body: 'four * * *',
+        notebookIds: ['n1', 'n2']
+      }),
+      note({ id: 'c', title: 'Other', body: 'words', notebookIds: ['n2'] }),
+      note({
+        id: 'd',
+        title: 'Trashed',
+        body: 'ignored',
+        notebookIds: ['n1'],
+        trashedAt: '2026-01-01T00:00:00.000Z'
+      })
+    ];
+
+    expect(countNotebookWords(notes, 'n1')).toBe(4);
+    expect(countNotebookWords(notes, 'n2')).toBe(3);
+    expect(countNotebookWords(notes, 'missing')).toBe(0);
   });
 
   it('derives stable display titles and sync indicator states', () => {

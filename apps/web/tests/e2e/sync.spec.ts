@@ -1,4 +1,5 @@
 import { createHmac, randomBytes } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import type { APIRequestContext, Locator, Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
@@ -1317,6 +1318,127 @@ test('exports selected notebooks without closing settings', async ({
     /^author-.*-md-frontmatter\.zip$/
   );
   await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+});
+
+function storedZipEntries(bytes: Buffer): Map<string, string> {
+  const entries = new Map<string, string>();
+  let offset = 0;
+  while (bytes.readUInt32LE(offset) === 0x04034b50) {
+    const size = bytes.readUInt32LE(offset + 18);
+    const nameLength = bytes.readUInt16LE(offset + 26);
+    const extraLength = bytes.readUInt16LE(offset + 28);
+    const nameStart = offset + 30;
+    const dataStart = nameStart + nameLength + extraLength;
+    entries.set(
+      bytes.toString('utf8', nameStart, nameStart + nameLength),
+      bytes.toString('utf8', dataStart, dataStart + size)
+    );
+    offset = dataStart + size;
+  }
+  return entries;
+}
+
+test('exports a notebook as a manuscript DOCX and print layout @cross-browser', async ({
+  page
+}) => {
+  await page.goto('/');
+  await hoverMenusThroughBridge(page);
+  const notebookName = `Manuscript ${Date.now()}`;
+  await page.getByRole('button', { name: 'New notebook' }).click();
+  await page.getByPlaceholder('Notebook name').fill(notebookName);
+  await page.getByRole('button', { name: 'Create notebook' }).click();
+
+  const notesPanel = page.getByRole('complementary', { name: 'Notes' });
+  const poems = [
+    { title: 'Poem 10', body: 'tenth poem\n\n  indented stanza' },
+    { title: 'Poem 2', body: 'second poem\n* * *' }
+  ];
+  for (const [index, poem] of poems.entries()) {
+    if (index > 0) {
+      await hoverMenusThroughBridge(page);
+      await notesPanel.getByRole('button', { name: 'New note' }).click();
+      await expect(page.getByLabel('Note title')).toHaveValue('');
+    }
+    await page.getByLabel('Note title').fill(poem.title);
+    await page.getByLabel('Note body').fill(poem.body);
+    await expectBrowserStoredEncryptedNote(page, poem.title, poem.body);
+  }
+  // New notes start unfiled; file the second poem from the editor menu.
+  await page.getByLabel('Note body').click({ button: 'right' });
+  await page
+    .getByRole('group', { name: 'Notebook links' })
+    .getByRole('menuitemcheckbox', { name: notebookName })
+    .click();
+  await page.keyboard.press('Escape');
+
+  await hoverMenusThroughBridge(page);
+  const notebookButton = page.getByRole('button', {
+    name: notebookName,
+    exact: true
+  });
+  await notebookButton.click({ button: 'right' });
+  const notebookMenu = page.getByRole('menu', {
+    name: `${notebookName} actions`
+  });
+  // "* * *" is not counted as words.
+  await expect(notebookMenu.getByText('10 words')).toBeVisible();
+  await notebookMenu
+    .getByRole('menuitem', { name: 'Export manuscript', exact: true })
+    .click();
+
+  const dialog = page.getByRole('dialog', { name: 'Export manuscript' });
+  await expect(dialog).toContainText('2 notes · 10 words');
+  await expect(dialog.getByLabel('Running header')).toHaveValue(notebookName);
+  await expect(dialog.getByRole('radio', { name: 'Poetry' })).toBeChecked();
+
+  const downloadPromise = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: 'Download DOCX' }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe(`${notebookName}.docx`);
+  const entries = storedZipEntries(await readFile(await download.path()));
+  const documentXml = entries.get('word/document.xml') ?? '';
+  expect(documentXml.indexOf('Poem 2')).toBeGreaterThan(-1);
+  expect(documentXml.indexOf('Poem 2')).toBeLessThan(
+    documentXml.indexOf('Poem 10')
+  );
+  expect(documentXml).toContain('  indented stanza');
+  expect(entries.get('word/header1.xml')).toContain(notebookName);
+  await expect(dialog).toHaveCount(0);
+
+  await hoverMenusThroughBridge(page);
+  await notebookButton.click({ button: 'right' });
+  await notebookMenu
+    .getByRole('menuitem', { name: 'Export manuscript', exact: true })
+    .click();
+  await dialog.getByRole('radio', { name: 'A5' }).check();
+  await dialog.getByLabel('Running header').fill('RUNNING HEAD');
+  await page.evaluate(() => {
+    window.print = () => {
+      document.documentElement.dataset.printRequested = 'true';
+    };
+  });
+  await dialog.getByRole('button', { name: 'Print or save PDF' }).click();
+  await expect(page.locator('html')).toHaveAttribute(
+    'data-print-requested',
+    'true'
+  );
+  await expect(page.locator('html')).toHaveClass(/printing-manuscript/);
+  const pages = page.locator('.manuscript-print.ms-a5 .ms-page');
+  await expect(pages).toHaveCount(2);
+  await expect(pages.first()).toContainText('Poem 2');
+  await expect(pages.first().locator('.ms-running-header')).toHaveText(
+    'RUNNING HEAD'
+  );
+  await expect(pages.nth(1).locator('.ms-page-number')).toHaveText('2');
+
+  await page.emulateMedia({ media: 'print' });
+  await expect(page.locator('.app-shell')).toBeHidden();
+  await expect(pages.first()).toBeVisible();
+  await page.emulateMedia({ media: 'screen' });
+
+  await page.evaluate(() => window.dispatchEvent(new Event('afterprint')));
+  await expect(page.locator('.manuscript-print')).toHaveCount(0);
+  await expect(page.locator('html')).not.toHaveClass(/printing-manuscript/);
 });
 
 test('keeps edits made during an online sync pending until the latest local version lands', async ({

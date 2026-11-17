@@ -9,6 +9,19 @@ import org.junit.Test
 
 class NoteUtilsTest {
   @Test
+  fun countsOnlyTokensWithLettersOrDigitsLikeTheWebClient() {
+    assertEquals(0, countWords(""))
+    assertEquals(0, countWords("   \n\t "))
+    assertEquals(3, countWords("One two\nthree"))
+    assertEquals(2, countWords("Chapter 1"))
+    assertEquals(5, countWords("don't stop — well-known, è così."))
+    assertEquals(2, countWords("end\n\n* * *\n\n#\n\nbegin"))
+    // Unicode spaces separate words; supplementary letters count.
+    assertEquals(2, countWords("one\u00A0two"))
+    assertEquals(1, countWords("\uD840\uDC00"))
+  }
+
+  @Test
   fun filterNotesForViewHandlesSystemFiltersAndNotebookIds() {
     val notes =
       listOf(

@@ -66,7 +66,11 @@
         ? document.activeElement
         : null;
     const items = () =>
-      Array.from(node.querySelectorAll<HTMLElement>('[role="menuitem"]'));
+      Array.from(
+        node.querySelectorAll<HTMLElement>(
+          '[role="menuitem"], [role="menuitemcheckbox"]'
+        )
+      );
     queueMicrotask(() => items()[0]?.focus({ preventScroll: true }));
 
     const handleKeydown = (event: KeyboardEvent) => {
@@ -162,8 +166,9 @@
     tabindex="-1"
     aria-label={`${noteDisplayTitle(contextNote)} actions`}
     oncontextmenu={(event) => event.preventDefault()}
+    use:menuFocus
   >
-    <div class="context-metadata" aria-label="Note metadata">
+    <div class="context-metadata" role="group" aria-label="Note metadata">
       {#each model.contextNoteMetadataRows(contextNote) as row}
         <span>
           <strong>{row.label}</strong>

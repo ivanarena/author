@@ -39,6 +39,10 @@ textarea::-webkit-scrollbar {
 .nav-main,
 .notebook-main {
   grid-template-columns: auto minmax(0, 1fr);
+  /* Long-press opens the notebook menu; no iOS selection callout. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .nav-row:hover,

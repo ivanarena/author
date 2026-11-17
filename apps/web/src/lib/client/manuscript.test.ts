@@ -8,6 +8,7 @@ import {
   manuscriptFileName,
   orderManuscriptNotes,
   parseManuscriptBody,
+  titleSortKey,
   type ManuscriptOptions,
   type ManuscriptSourceNote
 } from './manuscript';
@@ -68,6 +69,29 @@ describe('manuscript ordering', () => {
       'a',
       'c'
     ]);
+  });
+
+  it('orders Roman numerals by value where they are numbers', () => {
+    const titles = [
+      'Maya IX',
+      'Maya',
+      'Maya II',
+      'Maya X',
+      'Maya V',
+      'Maya IV'
+    ].map((title, index) => source(String(index), title, ''));
+    expect(
+      orderManuscriptNotes(titles, 'title').map((note) => note.title)
+    ).toEqual(['Maya', 'Maya II', 'Maya IV', 'Maya V', 'Maya IX', 'Maya X']);
+
+    expect(titleSortKey('XII')).toBe('12');
+    expect(titleSortKey('IV. Winter')).toBe('4. Winter');
+    expect(titleSortKey('IX — River')).toBe('9 — River');
+    // Words that only look like numerals stay words.
+    expect(titleSortKey('I Remember')).toBe('I Remember');
+    expect(titleSortKey('MIX Tape')).toBe('MIX Tape');
+    expect(titleSortKey('Part IIII')).toBe('Part IIII');
+    expect(titleSortKey('Civil war')).toBe('Civil war');
   });
 
   it('orders mixed timestamp formats by instant', () => {

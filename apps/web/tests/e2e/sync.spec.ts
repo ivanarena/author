@@ -1474,6 +1474,9 @@ test('exports a notebook as a manuscript DOCX and print layout @cross-browser', 
   await expect(page.locator('.app-shell')).toBeHidden();
   await expect(pages.first()).toBeVisible();
   await page.emulateMedia({ media: 'screen' });
+  // Leaving print media ends print mode even if afterprint never fires.
+  await expect(page.locator('.manuscript-print')).toHaveCount(0);
+  await expect(page.locator('html')).not.toHaveClass(/printing-manuscript/);
 
   await page.evaluate(() => window.dispatchEvent(new Event('afterprint')));
   await expect(page.locator('.manuscript-print')).toHaveCount(0);
@@ -1574,6 +1577,89 @@ test("syncs before a manuscript export so other devices' edits are included @cro
   ).toBeVisible();
   await page.context().setOffline(false);
   await page.evaluate(() => window.dispatchEvent(new Event('online')));
+});
+
+test('note menu is accessible and returns focus to the editor', async ({
+  page
+}) => {
+  await page.goto('/');
+  const title = `Menu focus ${Date.now()}`;
+  await page.getByLabel('Note title').fill(title);
+  const body = page.getByLabel('Note body');
+  await body.fill('Some text to keep the caret in');
+  await expectBrowserStoredEncryptedNote(
+    page,
+    title,
+    'Some text to keep the caret in'
+  );
+
+  await body.click({ button: 'right' });
+  const menu = page.getByRole('menu', { name: `${title} actions` });
+  await expect(menu).toBeVisible();
+  const axe = await new AxeBuilder({ page }).include('.context-menu').analyze();
+  expect(axe.violations).toEqual([]);
+  // Focus moved into the menu, so the keyboard can use it.
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Boolean(document.activeElement?.closest('[role="menu"]'))
+      )
+    )
+    .toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(body).toBeFocused();
+});
+
+test('opens the notebook menu with a touch long-press @mobile', async ({
+  page
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-chromium');
+  await page.goto('/');
+  await hoverMenusThroughBridge(page);
+  const notebookName = `Long press ${Date.now()}`;
+  await page.getByRole('button', { name: 'New notebook' }).click();
+  await page.getByPlaceholder('Notebook name').fill(notebookName);
+  await page.getByRole('button', { name: 'Create notebook' }).click();
+  await hoverMenusThroughBridge(page);
+  const notebookButton = page.getByRole('button', {
+    name: notebookName,
+    exact: true
+  });
+  await expect(notebookButton).toBeVisible();
+
+  // iOS fires no contextmenu on long-press, so the app detects it itself.
+  const press = (holdMs: number) =>
+    notebookButton.evaluate(async (element, hold) => {
+      const box = element.getBoundingClientRect();
+      const point = {
+        bubbles: true,
+        cancelable: true,
+        pointerType: 'touch',
+        clientX: box.x + 20,
+        clientY: box.y + box.height / 2
+      };
+      element.dispatchEvent(new PointerEvent('pointerdown', point));
+      await new Promise((resolve) => setTimeout(resolve, hold));
+      element.dispatchEvent(new PointerEvent('pointerup', point));
+      element.dispatchEvent(new MouseEvent('click', point));
+    }, holdMs);
+
+  const menu = page.getByRole('menu', { name: `${notebookName} actions` });
+  await press(700);
+  await expect(menu).toBeVisible();
+  await expect(
+    menu.getByRole('menuitem', { name: 'Export manuscript', exact: true })
+  ).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+
+  // A normal tap still selects the notebook without opening the menu.
+  await hoverMenusThroughBridge(page);
+  await page.getByRole('button', { name: 'All notes' }).first().click();
+  await hoverMenusThroughBridge(page);
+  await press(80);
+  await expect(menu).toHaveCount(0);
 });
 
 test('keeps edits made during an online sync pending until the latest local version lands', async ({

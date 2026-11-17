@@ -21,6 +21,7 @@ time:
   '@eslint/js@10.0.1': 2026-02-06T22:34:56.290Z
   '@fontsource-variable/dm-sans@5.3.0': 2026-07-19T03:49:56.540Z
   '@fontsource-variable/newsreader@5.3.0': 2026-07-19T03:50:51.165Z
+  '@fontsource/newsreader@5.3.0': 2026-07-19T03:42:30.121Z
   '@libsql/client@0.17.4': 2026-06-15T18:43:26.670Z
   '@lucide/svelte@1.31.0': 2026-08-09T13:40:38.634Z
   '@noble/hashes@2.3.0': 2026-08-06T06:26:47.068Z
@@ -124,6 +125,9 @@ importers:
         specifier: ^5.2.8
         version: 5.3.0
       '@fontsource-variable/newsreader':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/newsreader':
         specifier: ^5.3.0
         version: 5.3.0
       '@libsql/client':
@@ -403,6 +407,9 @@ packages:
 
   '@fontsource-variable/newsreader@5.3.0':
     resolution: {integrity: sha512-rrzYi43qMpbzwuFtf9OkWH8sxAPVPcQQQEwXpPtwaKYeJ8yVg5aLs5kawmo1f2Q1t1M38TLmEKCkGVDsYwgdFw==}
+
+  '@fontsource/newsreader@5.3.0':
+    resolution: {integrity: sha512-AFR6ZKY89GNL+9qBI2P2+66NhD5bhOj/v6fsLnFYLM4E0JnMB1yKb+Ro8cA64i1hwAWoBfTq5CHJGWH1toLDkw==}
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -2023,6 +2030,8 @@ snapshots:
   '@fontsource-variable/dm-sans@5.3.0': {}
 
   '@fontsource-variable/newsreader@5.3.0': {}
+
+  '@fontsource/newsreader@5.3.0': {}
 
   '@humanfs/core@0.19.2':
     dependencies:

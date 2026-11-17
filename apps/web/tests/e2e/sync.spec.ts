@@ -1411,7 +1411,16 @@ test('exports a notebook as a manuscript DOCX and print layout @cross-browser', 
     .getByRole('menuitem', { name: 'Export manuscript', exact: true })
     .click();
   await dialog.getByRole('radio', { name: 'A5' }).check();
-  await dialog.getByLabel('Running header').fill('RUNNING HEAD');
+  const headerInput = dialog.getByLabel('Running header');
+  await headerInput.fill('RUNNING HEAD');
+  // Selecting header text and releasing over the backdrop keeps it open.
+  const headerBox = (await headerInput.boundingBox())!;
+  const middle = headerBox.y + headerBox.height / 2;
+  await page.mouse.move(headerBox.x + headerBox.width - 8, middle);
+  await page.mouse.down();
+  await page.mouse.move(2, middle, { steps: 8 });
+  await page.mouse.up();
+  await expect(dialog).toBeVisible();
   await page.evaluate(() => {
     window.print = () => {
       document.documentElement.dataset.printRequested = 'true';
@@ -1439,6 +1448,16 @@ test('exports a notebook as a manuscript DOCX and print layout @cross-browser', 
   await page.evaluate(() => window.dispatchEvent(new Event('afterprint')));
   await expect(page.locator('.manuscript-print')).toHaveCount(0);
   await expect(page.locator('html')).not.toHaveClass(/printing-manuscript/);
+
+  // A plain click on the backdrop still closes the dialog.
+  await hoverMenusThroughBridge(page);
+  await notebookButton.click({ button: 'right' });
+  await notebookMenu
+    .getByRole('menuitem', { name: 'Export manuscript', exact: true })
+    .click();
+  await expect(dialog).toBeVisible();
+  await page.mouse.click(4, 4);
+  await expect(dialog).toHaveCount(0);
 });
 
 test('keeps edits made during an online sync pending until the latest local version lands', async ({

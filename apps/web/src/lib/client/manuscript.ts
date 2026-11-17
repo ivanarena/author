@@ -94,8 +94,16 @@ export function orderManuscriptNotes<T extends ManuscriptSourceNote>(
   notes: readonly T[],
   order: ManuscriptOrder
 ): T[] {
+  // Timestamps come from several clients and imports (fraction lengths and
+  // offsets vary), so compare instants, not strings. Unparsable dates last.
+  const time = (note: T) => {
+    const value = Date.parse(note.createdAt);
+    return Number.isNaN(value) ? Number.POSITIVE_INFINITY : value;
+  };
   const byCreated = (a: T, b: T) =>
-    a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
+    time(a) - time(b) ||
+    a.createdAt.localeCompare(b.createdAt) ||
+    a.id.localeCompare(b.id);
   const byTitle = (a: T, b: T) => {
     const aTitle = a.title.trim();
     const bTitle = b.title.trim();

@@ -5,7 +5,11 @@ import {
   type Manuscript,
   type ManuscriptOptions
 } from '$lib/client/manuscript';
-import { printManuscript as openPrintDialog } from '$lib/client/manuscript-print';
+import {
+  printManuscriptPages,
+  removeManuscriptPrint,
+  renderManuscriptPages
+} from '$lib/client/manuscript-print';
 import { loadNotebookManuscriptSource } from '$lib/client/store';
 import type { AppNotification } from '../models';
 
@@ -80,7 +84,16 @@ export async function printManuscript(
   controller: ManuscriptActionController
 ): Promise<void> {
   await runManuscriptAction(controller, async (manuscript) => {
+    // Lay out first, while the dialog shows that it is busy; long
+    // manuscripts take a moment.
+    const notebookId = controller.manuscriptNotebookId;
+    await renderManuscriptPages(manuscript);
+    // Closing the dialog while pages were prepared cancels printing.
+    if (controller.manuscriptNotebookId !== notebookId) {
+      removeManuscriptPrint();
+      return;
+    }
     controller.closeManuscriptExport();
-    await openPrintDialog(manuscript);
+    printManuscriptPages(manuscript.title);
   });
 }

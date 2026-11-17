@@ -45,7 +45,10 @@ header text) are remembered per device in `localStorage`
 
 Manuscripts use Newsreader at 12 pt (header and page number 10 pt).
 
-- **PDF** embeds the font, so it always looks as intended.
+- **PDF** embeds the font, so it always looks as intended. Printing uses the
+  static Newsreader instances (`@fontsource/newsreader`, 400 and 700), not the
+  variable font used by the app UI: Firefox prints variable fonts as outlines,
+  which leaves the PDF without selectable or searchable text.
 - **DOCX** names Newsreader and marks it as a serif in the font table. Readers
   without Newsreader installed see their word processor's serif substitute
   (Times New Roman in Word, DejaVu Serif or similar in LibreOffice).
@@ -64,11 +67,16 @@ laid out by `apps/web/src/lib/client/manuscript-print.ts` rather than CSS paged
 media, because Firefox cannot print running headers or page numbers (`@page`
 margin boxes) and the app's CSP forbids iframes and inline styles. It:
 
-1. appends hidden fixed-size page boxes to `<body>`, styled by
-   `styles/manuscript-print.css`, and waits for the Newsreader font;
-2. fills each page block by block, starting a new page on overflow; prose
-   paragraphs are split at the last fitting word (the continuation has no
-   indent), and a stanza break never opens a page;
+1. appends hidden fixed-size page boxes (`contain: strict`) to `<body>`,
+   styled by `styles/manuscript-print.css`, after loading every Newsreader
+   subset the text uses;
+2. fills each page in chunks of blocks and finds the first block that does
+   not fit with one measurement per chunk; prose paragraphs split at the last
+   fitting word (the continuation has no indent), verse lines move whole, and
+   anything taller than a page by itself splits by characters, so every page
+   receives content and layout always terminates. A stanza break never opens
+   a page. The dialog stays open ("Preparing pages…") while this runs, and
+   closing it cancels printing;
 3. marks `<html>` with `printing-manuscript`, so print media hides the app and
    shows only the pages, each on a named `@page` with zero margins;
 4. calls `window.print()`, temporarily setting `document.title` so browsers

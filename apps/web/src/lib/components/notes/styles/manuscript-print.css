@@ -12,12 +12,12 @@
   pointer-events: none;
   color: #000;
   background: #fff;
-  font-family:
-    'Newsreader Variable', Newsreader, Georgia, 'Times New Roman', serif;
+  /* Static Newsreader (see +layout.svelte); variable fonts lose their text
+     layer when Firefox prints. */
+  font-family: Newsreader, Georgia, 'Times New Roman', serif;
   font-size: 12pt;
   font-weight: 400;
   font-kerning: normal;
-  font-optical-sizing: auto;
   line-height: 1.15;
   text-rendering: optimizeLegibility;
   -webkit-print-color-adjust: exact;
@@ -77,6 +77,8 @@
   width: var(--ms-width);
   height: var(--ms-height);
   overflow: hidden;
+  /* Fixed-size boxes: measuring one page must not re-lay out the others. */
+  contain: strict;
   padding: var(--ms-margin);
   background: #fff;
   break-after: page;
@@ -130,6 +132,10 @@
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   tab-size: 4;
+}
+
+.ms-line.ms-continued {
+  text-indent: 0;
 }
 
 .ms-stanza-break {

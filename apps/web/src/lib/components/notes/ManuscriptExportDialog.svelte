@@ -199,7 +199,11 @@
           onclick={model.printManuscript}
         >
           <Printer size={15} strokeWidth={1.8} />
-          <span>Print or save PDF</span>
+          <span
+            >{model.manuscriptBusy
+              ? 'Preparing pages…'
+              : 'Print or save PDF'}</span
+          >
         </button>
         <button
           class="settings-action primary"

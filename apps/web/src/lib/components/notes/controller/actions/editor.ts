@@ -48,7 +48,10 @@ export interface NotesEditorActionController {
   pendingSyncCount: number;
   redoStack: EditorSnapshot[];
   saveTimer: ReturnType<typeof setTimeout> | null;
-  /** A debounced save whose timer already fired but has not finished. */
+  /**
+   * Settles when a debounced save whose timer already fired has written the
+   * note (or failed); it does not wait for the list refresh after it.
+   */
   saveInFlight: Promise<void> | null;
   selectedNote: LocalNote | null;
   selectedNoteIds: Set<string>;
@@ -253,10 +256,9 @@ export async function flushPendingSave(
     clearPendingSave(controller);
     await saveEditorNow(controller, noteId);
   }
-  // A save that already started must land before callers read the note
-  // back from the database (exports, sharing, sync). Its own failure is
-  // reported where it runs.
-  await controller.saveInFlight?.catch(() => undefined);
+  // A save that already started must be written before callers read the
+  // note back from the database (exports, sharing, sync).
+  await controller.saveInFlight;
 }
 
 export function openDraftNote(controller: NotesEditorActionController): void {
@@ -318,7 +320,8 @@ export function isEditorEventTarget(
 
 async function saveEditorNow(
   controller: NotesEditorActionController,
-  noteId: string | null
+  noteId: string | null,
+  onWritten?: () => void
 ): Promise<void> {
   const currentNoteId = noteId ?? controller.selectedNote?.id ?? null;
   const titleToSave = controller.titleValue;
@@ -377,6 +380,9 @@ async function saveEditorNow(
     }
   }
 
+  // The note is in the database now; the list refresh below can be slow for
+  // large libraries and nobody needs to wait for it.
+  onWritten?.();
   await controller.refresh();
   if (savedNoteId) {
     await clearEditorRecoveryIfMatches(savedNoteId, titleToSave, bodyToSave);
@@ -402,12 +408,16 @@ function scheduleNoteSave(controller: NotesEditorActionController): void {
 
   controller.saveTimer = setTimeout(async () => {
     controller.saveTimer = null;
-    const save = saveEditorNow(controller, noteId);
-    controller.saveInFlight = save;
+    let markWritten: () => void = () => undefined;
+    const written = new Promise<void>((resolve) => {
+      markWritten = resolve;
+    });
+    controller.saveInFlight = written;
     try {
-      await save;
+      await saveEditorNow(controller, noteId, markWritten);
     } finally {
-      if (controller.saveInFlight === save) controller.saveInFlight = null;
+      markWritten();
+      if (controller.saveInFlight === written) controller.saveInFlight = null;
     }
   }, 120);
 }

@@ -293,12 +293,22 @@ export function printManuscriptPages(title: string): void {
   document.title = title;
   document.documentElement.classList.add(PRINTING_CLASS);
 
+  // `afterprint` is not fired everywhere (some mobile browsers), so leaving
+  // print media also ends print mode; otherwise a later Ctrl+P of the app
+  // would print the manuscript again.
+  const printMedia =
+    typeof window.matchMedia === 'function' ? window.matchMedia('print') : null;
+  const onPrintMediaChange = (event: MediaQueryListEvent) => {
+    if (!event.matches) cleanup();
+  };
   const cleanup = () => {
     window.removeEventListener('afterprint', cleanup);
+    printMedia?.removeEventListener('change', onPrintMediaChange);
     document.title = previousTitle;
     removeManuscriptPrint();
   };
   window.addEventListener('afterprint', cleanup);
+  printMedia?.addEventListener('change', onPrintMediaChange);
   try {
     window.print();
   } catch (error) {

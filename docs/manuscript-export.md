@@ -4,8 +4,10 @@ A notebook can be exported as a submission-ready manuscript. Notes stay plain
 text: layout is applied only at export time, and nothing about notes, sync, or
 the database schema changes.
 
-Open it from a notebook's context menu (**Export manuscript**). The same menu
-shows the notebook's note and word counts. The web app ships this first;
+Open it from a notebook's context menu (**Export manuscript**): right-click,
+Shift+F10 or the menu key, or a touch long-press (also on iOS, which has no
+native context-menu gesture). The same menu shows the notebook's note and word
+counts. The web app ships this first;
 Android does not have it yet.
 
 ## Content
@@ -13,10 +15,13 @@ Android does not have it yet.
 - Every active note in the notebook becomes one section (a poem or a chapter).
   Trashed notes and notes with neither title nor text are skipped.
 - **Order:** by title, number-aware (`Chapter 2` before `Chapter 10`, untitled
-  notes last), or by creation date, oldest first.
+  notes last), or by creation date, oldest first. Title order also reads Roman
+  numerals as numbers when they are the whole title, its last word
+  (`Maya II`) or a punctuated first word (`IV. Winter`).
 - The note title is the section heading; untitled notes get no heading.
-- Word counts use the app-wide rule: a word is a whitespace-separated token
-  with at least one letter or digit, so `* * *` and dashes do not count.
+- Word counts use the app-wide rule, shared by web and Android: a word is a
+  whitespace-separated token with at least one letter or number, so `* * *`
+  and dashes do not count.
 
 ## Freshness
 
@@ -95,7 +100,7 @@ margin boxes) and the app's CSP forbids iframes and inline styles. It:
    shows only the pages, each on a named `@page` with zero margins;
 4. calls `window.print()`, temporarily setting `document.title` so browsers
    suggest the manuscript name as the PDF file name, and removes everything on
-   `afterprint`.
+   `afterprint` (or when print media ends, for browsers without it).
 
 The DOCX and PDF use the same sizes, so they paginate similarly, but each word
 processor still lays out the DOCX itself.

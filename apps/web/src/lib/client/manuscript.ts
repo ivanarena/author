@@ -85,6 +85,55 @@ const titleCollator = new Intl.Collator(undefined, {
 });
 
 const SCENE_BREAK = /^[*#~](?:\s*[*#~])*$/;
+const ROMAN_NUMERAL =
+  /^M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})$/;
+const ROMAN_VALUES: Record<string, number> = {
+  I: 1,
+  V: 5,
+  X: 10,
+  L: 50,
+  C: 100,
+  D: 500,
+  M: 1000
+};
+
+function romanValue(token: string): number | null {
+  if (!token || !ROMAN_NUMERAL.test(token)) return null;
+  let total = 0;
+  for (let index = 0; index < token.length; index += 1) {
+    const value = ROMAN_VALUES[token[index]];
+    const next = ROMAN_VALUES[token[index + 1]] ?? 0;
+    total += value < next ? -value : value;
+  }
+  return total;
+}
+
+/**
+ * Sort key that reads Roman numerals as numbers where they almost certainly
+ * are: the whole title, its last word ("Maya II"), or a first word followed
+ * by punctuation ("IV. Winter"). Display titles are never changed.
+ */
+export function titleSortKey(title: string): string {
+  const words = title.trim().split(/\s+/);
+  return words
+    .map((word, index) => {
+      const match = /^([IVXLCDM]+)([.:)\-–—]?)$/.exec(word);
+      if (!match) return word;
+      const [, numeral, punctuation] = match;
+      const isWholeTitle = words.length === 1;
+      const isLast = index === words.length - 1 && words.length > 1;
+      const isLabel =
+        index === 0 &&
+        (punctuation !== '' ||
+          words[1] === '—' ||
+          words[1] === '-' ||
+          words[1] === '–');
+      if (!isWholeTitle && !isLast && !isLabel) return word;
+      const value = romanValue(numeral);
+      return value === null ? word : `${value}${punctuation}`;
+    })
+    .join(' ');
+}
 
 /**
  * Title order is number-aware ("Chapter 2" before "Chapter 10"); untitled
@@ -108,7 +157,10 @@ export function orderManuscriptNotes<T extends ManuscriptSourceNote>(
     const aTitle = a.title.trim();
     const bTitle = b.title.trim();
     if (!aTitle !== !bTitle) return aTitle ? -1 : 1;
-    return titleCollator.compare(aTitle, bTitle);
+    return (
+      titleCollator.compare(titleSortKey(aTitle), titleSortKey(bTitle)) ||
+      titleCollator.compare(aTitle, bTitle)
+    );
   };
   return [...notes].sort((a, b) =>
     order === 'title'

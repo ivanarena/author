@@ -303,7 +303,39 @@ fun previewText(note: LocalNote): String =
 
 fun previewText(notebook: LocalNotebook): String = notebook.name.ifBlank { "Untitled notebook" }
 
-fun countWords(text: String): Int = Regex("\\S+").findAll(text.trim()).count()
+/**
+ * Counts whitespace-separated tokens that contain at least one letter or number, so scene breaks
+ * ("* * *"), dashes and stray punctuation are not words. Matches the web client's countWords.
+ */
+fun countWords(text: String): Int {
+  var count = 0
+  var tokenHasWordCharacter = false
+  var index = 0
+  while (index < text.length) {
+    val codePoint = text.codePointAt(index)
+    if (isWordSeparator(codePoint)) {
+      if (tokenHasWordCharacter) count += 1
+      tokenHasWordCharacter = false
+    } else if (isWordCharacter(codePoint)) {
+      tokenHasWordCharacter = true
+    }
+    index += Character.charCount(codePoint)
+  }
+  if (tokenHasWordCharacter) count += 1
+  return count
+}
+
+private fun isWordSeparator(codePoint: Int): Boolean =
+  Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint) || codePoint == 0xFEFF
+
+private fun isWordCharacter(codePoint: Int): Boolean =
+  Character.isLetter(codePoint) ||
+    when (Character.getType(codePoint)) {
+      Character.DECIMAL_DIGIT_NUMBER.toInt(),
+      Character.LETTER_NUMBER.toInt(),
+      Character.OTHER_NUMBER.toInt() -> true
+      else -> false
+    }
 
 fun countNotesByNotebook(items: List<LocalNote>): Map<String, Int> {
   val counts = mutableMapOf<String, Int>()

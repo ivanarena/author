@@ -11,6 +11,7 @@
     X
   } from '@lucide/svelte';
   import type { NotebookSidebarModel } from './controller/page-controller.svelte.js';
+  import { longPress } from './long-press';
 
   let { model }: { model: NotebookSidebarModel } = $props();
 </script>
@@ -186,6 +187,11 @@
             onclick={() => (model.filterId = notebook.id)}
             oncontextmenu={(event) =>
               model.openNotebookContext(event, notebook)}
+            use:longPress={(point) =>
+              model.openNotebookContext(
+                new MouseEvent('contextmenu', point),
+                notebook
+              )}
           >
             <Notebook size={15} strokeWidth={1.8} />
             <span>{notebook.name}</span>

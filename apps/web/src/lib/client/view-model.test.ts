@@ -163,6 +163,9 @@ describe('client note view model', () => {
     expect(countWords('Chapter 1')).toBe(2);
     expect(countWords("don't stop — well-known, è così.")).toBe(5);
     expect(countWords('end\n\n* * *\n\n#\n\nbegin')).toBe(2);
+    // Same cases as the Android NoteUtilsTest.
+    expect(countWords('one\u00A0two')).toBe(2);
+    expect(countWords('\uD840\uDC00')).toBe(1);
   });
 
   it('counts words of active notes in a notebook', () => {

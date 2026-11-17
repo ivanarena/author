@@ -55,6 +55,49 @@
     queueMicrotask(() => node.focus());
     return {};
   }
+
+  /**
+   * Keyboard access for a menu: focus its first item on open, move with the
+   * arrow keys, and give focus back to where it came from on close.
+   */
+  function menuFocus(node: HTMLElement) {
+    const previousFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    const items = () =>
+      Array.from(node.querySelectorAll<HTMLElement>('[role="menuitem"]'));
+    queueMicrotask(() => items()[0]?.focus({ preventScroll: true }));
+
+    const handleKeydown = (event: KeyboardEvent) => {
+      if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+      const list = items();
+      if (!list.length) return;
+      event.preventDefault();
+      const index = list.indexOf(document.activeElement as HTMLElement);
+      const next =
+        event.key === 'Home'
+          ? 0
+          : event.key === 'End'
+            ? list.length - 1
+            : (index + (event.key === 'ArrowDown' ? 1 : -1) + list.length) %
+              list.length;
+      list[next].focus();
+    };
+    node.addEventListener('keydown', handleKeydown);
+
+    return {
+      destroy() {
+        node.removeEventListener('keydown', handleKeydown);
+        const active = document.activeElement;
+        const focusWasHere =
+          !active || active === document.body || node.contains(active);
+        if (focusWasHere && previousFocus?.isConnected) {
+          previousFocus.focus({ preventScroll: true });
+        }
+      }
+    };
+  }
 </script>
 
 {#if model.contextMenu?.type === 'notebook' && model.contextNotebook}
@@ -66,8 +109,9 @@
     tabindex="-1"
     aria-label={`${contextNotebook.name} actions`}
     oncontextmenu={(event) => event.preventDefault()}
+    use:menuFocus
   >
-    <div class="context-metadata" aria-label="Notebook metadata">
+    <div class="context-metadata" role="group" aria-label="Notebook metadata">
       {#each model.contextNotebookMetadataRows(contextNotebook) as row}
         <span>
           <strong>{row.label}</strong>

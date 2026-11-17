@@ -1339,7 +1339,8 @@ function storedZipEntries(bytes: Buffer): Map<string, string> {
 }
 
 test('exports a notebook as a manuscript DOCX and print layout @cross-browser', async ({
-  page
+  page,
+  browserName
 }) => {
   await page.goto('/');
   await hoverMenusThroughBridge(page);
@@ -1382,6 +1383,35 @@ test('exports a notebook as a manuscript DOCX and print layout @cross-browser', 
   });
   // "* * *" is not counted as words.
   await expect(notebookMenu.getByText('10 words')).toBeVisible();
+  const menuAxe = await new AxeBuilder({ page })
+    .include('.context-menu')
+    .analyze();
+  expect(menuAxe.violations).toEqual([]);
+
+  // Keyboard: the menu takes focus, arrows move, Escape returns focus.
+  // (Playwright's Firefox does not fire contextmenu for Shift+F10.)
+  await page.keyboard.press('Escape');
+  await expect(notebookMenu).toHaveCount(0);
+  if (browserName === 'chromium') {
+    await hoverMenusThroughBridge(page);
+    await notebookButton.focus();
+    await page.keyboard.press('Shift+F10');
+    await expect(
+      notebookMenu.getByRole('menuitem', {
+        name: 'Export manuscript',
+        exact: true
+      })
+    ).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(
+      notebookMenu.getByRole('menuitem', { name: 'Rename' })
+    ).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(notebookMenu).toHaveCount(0);
+    await expect(notebookButton).toBeFocused();
+  }
+  await hoverMenusThroughBridge(page);
+  await notebookButton.click({ button: 'right' });
   await notebookMenu
     .getByRole('menuitem', { name: 'Export manuscript', exact: true })
     .click();

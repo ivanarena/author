@@ -15,6 +15,7 @@ import type { AppNotification } from '../models';
 
 export interface ManuscriptActionController {
   manuscriptNotebookId: string | null;
+  manuscriptSession: number;
   manuscriptOptions: ManuscriptOptions;
   manuscriptBusy: boolean;
   isArchiveBusy: boolean;
@@ -47,14 +48,24 @@ async function compileManuscript(
   return manuscript;
 }
 
+/**
+ * Runs an export unless the dialog is closed (or reopened) before it is
+ * ready: `stillOpen` turns false as soon as that happens.
+ */
 async function runManuscriptAction(
   controller: ManuscriptActionController,
-  action: (manuscript: Manuscript) => Promise<void> | void
+  action: (
+    manuscript: Manuscript,
+    stillOpen: () => boolean
+  ) => Promise<void> | void
 ): Promise<void> {
   if (controller.manuscriptBusy || controller.isArchiveBusy) return;
+  const session = controller.manuscriptSession;
+  const stillOpen = () => controller.manuscriptSession === session;
   controller.manuscriptBusy = true;
   try {
-    await action(await compileManuscript(controller));
+    const manuscript = await compileManuscript(controller);
+    if (stillOpen()) await action(manuscript, stillOpen);
   } catch (error) {
     controller.notify(
       'error',
@@ -83,13 +94,11 @@ export async function exportManuscriptDocx(
 export async function printManuscript(
   controller: ManuscriptActionController
 ): Promise<void> {
-  await runManuscriptAction(controller, async (manuscript) => {
+  await runManuscriptAction(controller, async (manuscript, stillOpen) => {
     // Lay out first, while the dialog shows that it is busy; long
     // manuscripts take a moment.
-    const notebookId = controller.manuscriptNotebookId;
     await renderManuscriptPages(manuscript);
-    // Closing the dialog while pages were prepared cancels printing.
-    if (controller.manuscriptNotebookId !== notebookId) {
+    if (!stillOpen()) {
       removeManuscriptPrint();
       return;
     }

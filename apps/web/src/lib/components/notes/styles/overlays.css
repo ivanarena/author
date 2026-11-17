@@ -662,14 +662,14 @@
   overflow: hidden;
   border-radius: calc(var(--radius-md) - 2px);
   padding: 0 8px;
-  color: var(--muted);
+  color: var(--text);
   font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .manuscript-segments input:hover + span {
-  color: var(--text);
+  background: var(--hover);
 }
 
 .manuscript-segments input:checked + span {

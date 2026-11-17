@@ -271,6 +271,8 @@ export class NotesPageController
     header: ''
   });
   manuscriptBusy = $state(false);
+  /** Changes whenever the export dialog opens or closes. */
+  manuscriptSession = 0;
   settingsSection = $state<SettingsSection>('account');
   settingsOpen = $state(false);
   contextMenu = $state<ContextMenuState>(null);
@@ -1011,6 +1013,7 @@ export class NotesPageController
       ...getStoredManuscriptOptions(),
       header: notebook.name
     };
+    this.manuscriptSession += 1;
     this.manuscriptNotebookId = notebook.id;
   };
 
@@ -1035,6 +1038,8 @@ export class NotesPageController
   };
 
   closeManuscriptExport = () => {
+    if (this.manuscriptNotebookId === null) return;
+    this.manuscriptSession += 1;
     this.manuscriptNotebookId = null;
   };
 

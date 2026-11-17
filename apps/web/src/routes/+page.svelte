@@ -3,6 +3,7 @@
   import ContextMenu from '$lib/components/notes/ContextMenu.svelte';
   import EditorPane from '$lib/components/notes/EditorPane.svelte';
   import LoginModal from '$lib/components/notes/LoginModal.svelte';
+  import ManuscriptExportDialog from '$lib/components/notes/ManuscriptExportDialog.svelte';
   import NavigationDock from '$lib/components/notes/NavigationDock.svelte';
   import NoteHistoryDialog from '$lib/components/notes/NoteHistoryDialog.svelte';
   import NotificationStack from '$lib/components/notes/NotificationStack.svelte';
@@ -44,5 +45,6 @@
 
 <ContextMenu model={controller} />
 <NoteHistoryDialog model={controller} />
+<ManuscriptExportDialog model={controller} />
 <ConflictDialog model={controller} />
 <NotificationStack model={controller} />

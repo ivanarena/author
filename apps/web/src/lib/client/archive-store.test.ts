@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LocalNote, LocalNotebook } from './db';
 import {
   exportNotesMarkdownZip,
-  importNotesMarkdownFiles
+  importNotesMarkdownFiles,
+  loadNotebookManuscriptSource
 } from './archive-store';
 import { localDb } from './db';
 
@@ -14,6 +15,7 @@ vi.mock('./db', () => ({
     },
     notebooks: {
       toArray: vi.fn(),
+      get: vi.fn(),
       bulkPut: vi.fn()
     },
     transaction: vi.fn(async (_mode, _tables, operation) => operation())
@@ -197,5 +199,43 @@ describe('archive store import and export', () => {
         syncStatus: 'pending'
       })
     ]);
+  });
+});
+
+describe('manuscript source', () => {
+  it('loads active notes of one notebook with the notebook name', async () => {
+    vi.mocked(localDb.notebooks.get).mockResolvedValue(notebook);
+    vi.mocked(localDb.notes.toArray).mockResolvedValue([
+      note,
+      { ...note, id: 'trashed', trashedAt: '2026-05-03T10:00:00.000Z' },
+      { ...note, id: 'deleted', deletedAt: '2026-05-03T10:00:00.000Z' },
+      { ...note, id: 'elsewhere', notebookIds: ['other'], notebookId: 'other' }
+    ]);
+
+    await expect(loadNotebookManuscriptSource('notebook-1')).resolves.toEqual({
+      title: 'Ideas',
+      notes: [
+        {
+          id: 'note-1',
+          title: 'Roadmap',
+          body: 'Launch plan',
+          createdAt: '2026-05-01T10:00:00.000Z'
+        }
+      ]
+    });
+  });
+
+  it('rejects missing or deleted notebooks', async () => {
+    vi.mocked(localDb.notebooks.get).mockResolvedValue(undefined);
+    await expect(loadNotebookManuscriptSource('missing')).rejects.toThrow(
+      'Notebook not found'
+    );
+    vi.mocked(localDb.notebooks.get).mockResolvedValue({
+      ...notebook,
+      deletedAt: '2026-05-03T10:00:00.000Z'
+    });
+    await expect(loadNotebookManuscriptSource('notebook-1')).rejects.toThrow(
+      'Notebook not found'
+    );
   });
 });

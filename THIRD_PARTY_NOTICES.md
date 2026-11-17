@@ -24,10 +24,13 @@ commit.
 - [uqr](https://github.com/unjs/uqr) — MIT
 - [DM Sans](https://github.com/googlefonts/dm-fonts) — Copyright 2014 The DM
   Sans Project Authors; [SIL Open Font License 1.1](https://github.com/googlefonts/dm-fonts/blob/main/Sans/OFL.txt)
-- [Figtree](https://github.com/erikdkennedy/figtree) — Copyright 2022 The
-  Figtree Project Authors; [SIL Open Font License 1.1](https://github.com/erikdkennedy/figtree/blob/master/OFL.txt)
+- [Newsreader](https://github.com/productiontype/Newsreader) — Copyright 2020
+  The Newsreader Project Authors; [SIL Open Font License 1.1](https://github.com/google/fonts/blob/main/ofl/newsreader/OFL.txt)
 
 ## Direct Android Dependencies
+
+- [Figtree](https://github.com/erikdkennedy/figtree) — Copyright 2022 The
+  Figtree Project Authors; [SIL Open Font License 1.1](https://github.com/erikdkennedy/figtree/blob/master/OFL.txt)
 
 - AndroidX Activity, Core, SQLite, Compose, and WorkManager —
   [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0)

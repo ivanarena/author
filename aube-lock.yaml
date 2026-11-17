@@ -20,7 +20,7 @@ time:
   '@cloudflare/workers-types@4.20260702.1': 2026-07-02T01:38:28.635Z
   '@eslint/js@10.0.1': 2026-02-06T22:34:56.290Z
   '@fontsource-variable/dm-sans@5.3.0': 2026-07-19T03:49:56.540Z
-  '@fontsource-variable/figtree@5.3.0': 2026-07-19T03:50:08.536Z
+  '@fontsource-variable/newsreader@5.3.0': 2026-07-19T03:50:51.165Z
   '@libsql/client@0.17.4': 2026-06-15T18:43:26.670Z
   '@lucide/svelte@1.31.0': 2026-08-09T13:40:38.634Z
   '@noble/hashes@2.3.0': 2026-08-06T06:26:47.068Z
@@ -123,8 +123,8 @@ importers:
       '@fontsource-variable/dm-sans':
         specifier: ^5.2.8
         version: 5.3.0
-      '@fontsource-variable/figtree':
-        specifier: ^5.2.10
+      '@fontsource-variable/newsreader':
+        specifier: ^5.3.0
         version: 5.3.0
       '@libsql/client':
         specifier: ^0.17.3
@@ -401,8 +401,8 @@ packages:
   '@fontsource-variable/dm-sans@5.3.0':
     resolution: {integrity: sha512-BpUG5bqePiDFMBM4ZtLSlPdAIOM990uB1dlXzIf4aw21yQR7BmykedLXXXMqGWsR18aMLOsbWccwJNh3ztTQaA==}
 
-  '@fontsource-variable/figtree@5.3.0':
-    resolution: {integrity: sha512-VRVodD7OiG7apQwE8/2fMjaqpY/a0qRJqL5HtYj8CKIVps+9amaFcdfKmDIf7iqYQx6iPLlArVXAfKeIZmVcNQ==}
+  '@fontsource-variable/newsreader@5.3.0':
+    resolution: {integrity: sha512-rrzYi43qMpbzwuFtf9OkWH8sxAPVPcQQQEwXpPtwaKYeJ8yVg5aLs5kawmo1f2Q1t1M38TLmEKCkGVDsYwgdFw==}
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -2022,7 +2022,7 @@ snapshots:
 
   '@fontsource-variable/dm-sans@5.3.0': {}
 
-  '@fontsource-variable/figtree@5.3.0': {}
+  '@fontsource-variable/newsreader@5.3.0': {}
 
   '@humanfs/core@0.19.2':
     dependencies:

@@ -18,6 +18,7 @@ import {
   getStoredEditorTextSize,
   getStoredEditorZoom,
   getStoredGroup,
+  getStoredManuscriptOptions,
   getStoredSort,
   nextEditorZoom,
   setStoredCompactView,
@@ -26,6 +27,7 @@ import {
   setStoredEditorTextSize,
   setStoredEditorZoom,
   setStoredGroup,
+  setStoredManuscriptOptions,
   setStoredSort,
   zoomPercent
 } from './page-preferences';
@@ -126,8 +128,12 @@ describe('page preference helpers', () => {
     storedValues.set('author-editor-font', 'fantasy');
     expect(getStoredEditorFont()).toBe('dm-sans');
 
+    storedValues.set('author-editor-font', 'newsreader');
+    expect(getStoredEditorFont()).toBe('newsreader');
+
+    // Figtree was removed; anyone who chose it falls back to the default.
     storedValues.set('author-editor-font', 'figtree');
-    expect(getStoredEditorFont()).toBe('figtree');
+    expect(getStoredEditorFont()).toBe('dm-sans');
 
     setStoredEditorFont('system-serif');
     expect(getStoredEditorFont()).toBe('system-serif');
@@ -151,5 +157,45 @@ describe('page preference helpers', () => {
     expect(clampEditorLineHeight(0.5)).toBe(MIN_EDITOR_LINE_HEIGHT);
     expect(clampEditorLineHeight(1.777)).toBe(1.78);
     expect(zoomPercent(1.234)).toBe('123%');
+  });
+
+  it('stores manuscript export options and ignores invalid values', () => {
+    const { storedValues } = installBrowserGlobals();
+
+    expect(getStoredManuscriptOptions()).toEqual({
+      preset: 'poetry',
+      order: 'title',
+      pageSize: 'a4',
+      pageNumbers: true,
+      titlePage: false
+    });
+
+    setStoredManuscriptOptions({
+      preset: 'prose',
+      order: 'created',
+      pageSize: 'letter',
+      pageNumbers: false,
+      titlePage: true
+    });
+    expect(getStoredManuscriptOptions()).toEqual({
+      preset: 'prose',
+      order: 'created',
+      pageSize: 'letter',
+      pageNumbers: false,
+      titlePage: true
+    });
+
+    storedValues.set(
+      'author-manuscript-export',
+      JSON.stringify({ preset: 'epic', pageSize: 'a3', titlePage: 'yes' })
+    );
+    expect(getStoredManuscriptOptions()).toMatchObject({
+      preset: 'poetry',
+      pageSize: 'a4',
+      titlePage: false
+    });
+
+    storedValues.set('author-manuscript-export', '{broken');
+    expect(getStoredManuscriptOptions().preset).toBe('poetry');
   });
 });

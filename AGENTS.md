@@ -5,6 +5,7 @@ author is a minimal offline-first notes app. Keep changes small, boring, and ali
 ## Core Intent
 
 - Preserve the plain-text writing experience. Do not add blocks, rich text, Markdown rendering, sharing, or collaboration unless the product direction changes explicitly.
+- Manuscript export (`docs/manuscript-export.md`) applies layout only when exporting; it must not introduce markup or formatting into notes.
 - Local writes come first. Network activity must never block typing, notebook changes, import/export, or trash actions.
 - Treat sync and encryption as user-data safety code. Prefer explicit conflicts over silent overwrites.
 - Keep web, server, shared packages, and Android behavior aligned when changing shared contracts.
@@ -86,5 +87,6 @@ Update docs when changing:
 
 - sync behavior: `docs/sync-protocol.md` or `docs/conflict-handling.md`
 - persistence schema: `docs/database-schema.md`
+- manuscript layout or formats: `docs/manuscript-export.md`
 - deployment, auth, or runtime config: `docs/setup.md` or `docs/operations.md`
 - package-manager workflow: `docs/package-manager.md`

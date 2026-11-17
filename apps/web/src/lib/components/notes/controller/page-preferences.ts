@@ -1,3 +1,7 @@
+import {
+  DEFAULT_MANUSCRIPT_OPTIONS,
+  type ManuscriptOptions
+} from '$lib/client/manuscript';
 import type { NoteGroupBy, NoteSort } from '$lib/client/view-model';
 
 const SORT_KEY = 'author-sort';
@@ -7,6 +11,7 @@ const EDITOR_ZOOM_KEY = 'author-editor-zoom';
 const EDITOR_FONT_KEY = 'author-editor-font';
 const EDITOR_TEXT_SIZE_KEY = 'author-editor-text-size';
 const EDITOR_LINE_HEIGHT_KEY = 'author-editor-line-height';
+const MANUSCRIPT_EXPORT_KEY = 'author-manuscript-export';
 
 export const MIN_EDITOR_ZOOM = 0.8;
 export const MAX_EDITOR_ZOOM = 1.4;
@@ -18,7 +23,7 @@ export const MAX_EDITOR_LINE_HEIGHT = 2.1;
 
 export type EditorFont =
   | 'dm-sans'
-  | 'figtree'
+  | 'newsreader'
   | 'system-sans'
   | 'system-serif'
   | 'mono';
@@ -36,9 +41,9 @@ export const EDITOR_FONT_OPTIONS: EditorFontOption[] = [
     css: '"DM Sans Variable", "DM Sans", ui-sans-serif, system-ui, sans-serif'
   },
   {
-    value: 'figtree',
-    label: 'Figtree',
-    css: '"Figtree Variable", Figtree, ui-sans-serif, system-ui, sans-serif'
+    value: 'newsreader',
+    label: 'Newsreader',
+    css: '"Newsreader Variable", Newsreader, ui-serif, Georgia, serif'
   },
   {
     value: 'system-sans',
@@ -175,4 +180,52 @@ export function clampEditorLineHeight(value: number): number {
 
 export function zoomPercent(zoom: number): string {
   return `${Math.round(zoom * 100)}%`;
+}
+
+export type StoredManuscriptOptions = Omit<ManuscriptOptions, 'header'>;
+
+/** Last-used export layout on this device; the header follows the notebook. */
+export function getStoredManuscriptOptions(): StoredManuscriptOptions {
+  const defaults = { ...DEFAULT_MANUSCRIPT_OPTIONS };
+  let stored: Partial<Record<keyof StoredManuscriptOptions, unknown>>;
+  try {
+    stored = JSON.parse(localStorage.getItem(MANUSCRIPT_EXPORT_KEY) ?? '{}');
+  } catch {
+    return defaults;
+  }
+  if (!stored || typeof stored !== 'object') return defaults;
+  return {
+    preset:
+      stored.preset === 'poetry' || stored.preset === 'prose'
+        ? stored.preset
+        : defaults.preset,
+    order:
+      stored.order === 'title' || stored.order === 'created'
+        ? stored.order
+        : defaults.order,
+    pageSize:
+      stored.pageSize === 'a4' ||
+      stored.pageSize === 'a5' ||
+      stored.pageSize === 'letter'
+        ? stored.pageSize
+        : defaults.pageSize,
+    pageNumbers:
+      typeof stored.pageNumbers === 'boolean'
+        ? stored.pageNumbers
+        : defaults.pageNumbers,
+    titlePage:
+      typeof stored.titlePage === 'boolean'
+        ? stored.titlePage
+        : defaults.titlePage
+  };
+}
+
+export function setStoredManuscriptOptions(
+  options: StoredManuscriptOptions
+): void {
+  const { preset, order, pageSize, pageNumbers, titlePage } = options;
+  localStorage.setItem(
+    MANUSCRIPT_EXPORT_KEY,
+    JSON.stringify({ preset, order, pageSize, pageNumbers, titlePage })
+  );
 }

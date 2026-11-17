@@ -198,9 +198,29 @@ export function relativeAge(iso: string, now = new Date()): string {
   return `${yearsAgo}y ago`;
 }
 
+const WORD_CHARACTER = /[\p{L}\p{N}]/u;
+
+// A word is a whitespace-separated token with at least one letter or digit,
+// so scene breaks (`* * *`), dashes and stray punctuation are not counted.
 export function countWords(text: string): number {
-  const matches = text.trim().match(/\S+/g);
-  return matches?.length ?? 0;
+  let count = 0;
+  for (const token of text.split(/\s+/)) {
+    if (WORD_CHARACTER.test(token)) count += 1;
+  }
+  return count;
+}
+
+export function countNotebookWords(
+  items: LocalNote[],
+  notebookId: string
+): number {
+  let count = 0;
+  for (const note of items) {
+    if (note.deletedAt || note.trashedAt) continue;
+    if (!noteNotebookIds(note).includes(notebookId)) continue;
+    count += countWords(`${note.title} ${note.body}`);
+  }
+  return count;
 }
 
 export function notePreview(note: LocalNote): string {

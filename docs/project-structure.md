@@ -24,6 +24,7 @@ The primary code paths are:
 
 - Web UI: `apps/web/src/routes/+page.svelte` plus `apps/web/src/lib/components/notes`.
 - Browser storage and encryption: `apps/web/src/lib/client/db.ts`, `entity-store.ts`, `sync.ts`, and `encryption.ts`.
+- Manuscript export (DOCX and print/PDF): `apps/web/src/lib/client/manuscript.ts` and `manuscript-print.ts`; see [manuscript export](manuscript-export.md).
 - Server storage, auth, sync, and cleanup: `apps/web/src/lib/server/db.ts`, `auth.ts`, `repository.ts`, `hono.ts`, `remote-sync.ts`, `cleanup-scheduler.ts`, and `backup-scheduler.ts`.
 - Android storage, crypto, sync, and UI: `apps/android/app/src/main/java/com/author/core` and `apps/android/app/src/main/java/com/author/ui`.
 - Shared contracts: `packages/schema`, `packages/api-types`, and `packages/sync-spec`.

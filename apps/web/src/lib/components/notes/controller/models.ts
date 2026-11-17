@@ -7,6 +7,7 @@ import type {
 } from '$lib/client/db';
 import type { EncryptionKeyMaterialStorageMode } from '$lib/client/encryption';
 import type { ResolvedTheme, StoredTheme } from '$lib/client/local-state';
+import type { ManuscriptOptions } from '$lib/client/manuscript';
 import type {
   NoteGroup,
   NoteGroupBy,
@@ -400,6 +401,8 @@ export interface ContextMenuModel {
   notebooks: LocalNotebook[];
   contextRenameNotebook: NotebookCallback;
   contextDeleteNotebook: NotebookCallback;
+  contextExportManuscript: NotebookCallback;
+  contextNotebookMetadataRows: (notebook: LocalNotebook) => MetadataRow[];
   contextTrashNote: NoteCallback;
   contextShareNote: NoteCallback;
   contextRestoreNote: NoteCallback;
@@ -411,6 +414,23 @@ export interface ContextMenuModel {
     note: LocalNote,
     name: string
   ) => Promise<string | null>;
+}
+
+export interface ManuscriptExportDialogModel {
+  manuscriptModal: HTMLElement | null;
+  manuscriptNotebook: LocalNotebook | null;
+  manuscriptNoteCount: number;
+  manuscriptWordCount: number;
+  manuscriptOptions: ManuscriptOptions;
+  manuscriptBusy: boolean;
+  isArchiveBusy: boolean;
+  setManuscriptOption: <K extends keyof ManuscriptOptions>(
+    key: K,
+    value: ManuscriptOptions[K]
+  ) => void;
+  closeManuscriptExport: () => void;
+  exportManuscriptDocx: () => void | Promise<void>;
+  printManuscript: () => void | Promise<void>;
 }
 
 export interface ConflictDialogModel {

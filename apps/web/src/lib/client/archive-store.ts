@@ -18,6 +18,7 @@ import {
   primaryNotebookId
 } from './note-utils';
 import { getOrCreateDevice, newId, nowIso } from './local-state';
+import type { ManuscriptSourceNote } from './manuscript';
 
 export interface ImportNotesResult {
   importedNotes: number;
@@ -93,6 +94,42 @@ export async function exportNotesMarkdownZip(
     blob: createZipBlob(archive, exportedAt),
     fileName: `${archive.rootName}.zip`,
     noteCount: archive.files.length
+  };
+}
+
+/** Decrypted notes of one notebook, ready for a manuscript export. */
+export async function loadNotebookManuscriptSource(
+  notebookId: string
+): Promise<{
+  title: string;
+  notes: ManuscriptSourceNote[];
+}> {
+  const [noteRows, notebook] = await Promise.all([
+    localDb.notes.toArray(),
+    localDb.notebooks.get(notebookId)
+  ]);
+  if (!notebook || notebook.deletedAt) throw new Error('Notebook not found');
+  const [decryptedNotebook, decryptedNotes] = await Promise.all([
+    decryptNotebookFields(notebook),
+    Promise.all(
+      noteRows
+        .filter(
+          (note) =>
+            !note.deletedAt &&
+            !note.trashedAt &&
+            noteNotebookIds(note).includes(notebookId)
+        )
+        .map((note) => decryptNoteFields(note))
+    )
+  ]);
+  return {
+    title: decryptedNotebook.name,
+    notes: decryptedNotes.map(({ id, title, body, createdAt }) => ({
+      id,
+      title,
+      body,
+      createdAt
+    }))
   };
 }
 

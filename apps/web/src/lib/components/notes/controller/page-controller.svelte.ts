@@ -122,6 +122,7 @@ import type { ShareNotePayload } from './actions/archive';
 import * as editorActions from './actions/editor';
 import * as libraryActions from './actions/library';
 import * as manuscriptActions from './actions/manuscript';
+import type { ExportSyncResult, ManuscriptStage } from './actions/manuscript';
 import * as syncActions from './actions/sync';
 import * as uiActions from './actions/ui';
 
@@ -152,6 +153,8 @@ export type {
 // AUTO_SYNC_MAX_WAIT_MS while editing continues. Every push uploads whole
 // encrypted notes, so syncing on each pause would resend long manuscripts.
 const AUTO_SYNC_DELAY_MS = 2_000;
+// Exports sync first; past this, they use this device's copy.
+const EXPORT_SYNC_TIMEOUT_MS = 20_000;
 const AUTO_SYNC_MAX_WAIT_MS = 20_000;
 const SYNC_RETRY_DELAY_MS = 12_000;
 const ONLINE_SESSION_SYNC_MS = 60_000;
@@ -271,6 +274,7 @@ export class NotesPageController
     header: ''
   });
   manuscriptBusy = $state(false);
+  manuscriptStage = $state<ManuscriptStage>('idle');
   /** Changes whenever the export dialog opens or closes. */
   manuscriptSession = 0;
   settingsSection = $state<SettingsSection>('account');
@@ -309,6 +313,7 @@ export class NotesPageController
   readonly editorFontOptions = EDITOR_FONT_OPTIONS;
 
   saveTimer: ReturnType<typeof setTimeout> | null = null;
+  saveInFlight: Promise<void> | null = null;
   pendingSaveNoteId: string | null = null;
   autoSyncTimer: ReturnType<typeof setTimeout> | null = null;
   autoSyncWaitStartedAt: number | null = null;
@@ -447,6 +452,23 @@ export class NotesPageController
       ? (this.notebookCounts.get(this.manuscriptNotebookId) ?? 0)
       : 0
   );
+  /** Unresolved conflicts on this notebook or its notes. */
+  manuscriptConflictCount = $derived.by(() => {
+    const notebookId = this.manuscriptNotebookId;
+    if (!notebookId) return 0;
+    const noteIds = new Set(
+      this.notes
+        .filter((note) => noteNotebookIds(note).includes(notebookId))
+        .map((note) => note.id)
+    );
+    return this.conflicts.filter(
+      (conflict) =>
+        conflict.status === 'pending' &&
+        (conflict.entityType === 'note'
+          ? noteIds.has(conflict.entityId)
+          : conflict.entityId === notebookId)
+    ).length;
+  });
   manuscriptWordCount = $derived(
     this.manuscriptNotebookId
       ? countNotebookWords(this.notes, this.manuscriptNotebookId)
@@ -1035,6 +1057,20 @@ export class NotesPageController
   ) => {
     this.manuscriptOptions = { ...this.manuscriptOptions, [key]: value };
     setStoredManuscriptOptions(this.manuscriptOptions);
+  };
+
+  syncForExport = async (): Promise<ExportSyncResult> => {
+    if (!this.hasToken) return 'local-only';
+    if (!this.isBrowserOnline) return 'offline';
+    const deadline = Date.now() + EXPORT_SYNC_TIMEOUT_MS;
+    const wait = (ms: number) =>
+      new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+    // A sync already running may have started before the latest edits.
+    while (this.isSyncing && Date.now() < deadline) await wait(100);
+    if (this.isSyncing) return 'failed';
+    const before = this.lastSyncPass.completedAt;
+    await Promise.race([this.syncNow(), wait(deadline - Date.now())]);
+    return this.lastSyncPass.completedAt !== before ? 'synced' : 'failed';
   };
 
   closeManuscriptExport = () => {

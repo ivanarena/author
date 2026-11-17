@@ -48,6 +48,8 @@ export interface NotesEditorActionController {
   pendingSyncCount: number;
   redoStack: EditorSnapshot[];
   saveTimer: ReturnType<typeof setTimeout> | null;
+  /** A debounced save whose timer already fired but has not finished. */
+  saveInFlight: Promise<void> | null;
   selectedNote: LocalNote | null;
   selectedNoteIds: Set<string>;
   selectedNotebookMenuOpen: boolean;
@@ -246,10 +248,15 @@ export async function restoreEditorRecovery(
 export async function flushPendingSave(
   controller: NotesEditorActionController
 ): Promise<void> {
-  if (!controller.saveTimer) return;
-  const noteId = controller.pendingSaveNoteId;
-  clearPendingSave(controller);
-  await saveEditorNow(controller, noteId);
+  if (controller.saveTimer) {
+    const noteId = controller.pendingSaveNoteId;
+    clearPendingSave(controller);
+    await saveEditorNow(controller, noteId);
+  }
+  // A save that already started must land before callers read the note
+  // back from the database (exports, sharing, sync). Its own failure is
+  // reported where it runs.
+  await controller.saveInFlight?.catch(() => undefined);
 }
 
 export function openDraftNote(controller: NotesEditorActionController): void {
@@ -395,7 +402,13 @@ function scheduleNoteSave(controller: NotesEditorActionController): void {
 
   controller.saveTimer = setTimeout(async () => {
     controller.saveTimer = null;
-    await saveEditorNow(controller, noteId);
+    const save = saveEditorNow(controller, noteId);
+    controller.saveInFlight = save;
+    try {
+      await save;
+    } finally {
+      if (controller.saveInFlight === save) controller.saveInFlight = null;
+    }
   }, 120);
 }
 

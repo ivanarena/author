@@ -423,6 +423,10 @@ export interface ManuscriptExportDialogModel {
   manuscriptWordCount: number;
   manuscriptOptions: ManuscriptOptions;
   manuscriptBusy: boolean;
+  manuscriptStage: 'idle' | 'syncing' | 'preparing';
+  manuscriptConflictCount: number;
+  hasToken: boolean;
+  isBrowserOnline: boolean;
   isArchiveBusy: boolean;
   setManuscriptOption: <K extends keyof ManuscriptOptions>(
     key: K,

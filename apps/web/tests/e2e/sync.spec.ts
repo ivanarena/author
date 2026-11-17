@@ -1629,21 +1629,25 @@ test('opens the notebook menu with a touch long-press @mobile', async ({
   await expect(notebookButton).toBeVisible();
 
   // iOS fires no contextmenu on long-press, so the app detects it itself.
-  const press = (holdMs: number) =>
-    notebookButton.evaluate(async (element, hold) => {
-      const box = element.getBoundingClientRect();
-      const point = {
-        bubbles: true,
-        cancelable: true,
-        pointerType: 'touch',
-        clientX: box.x + 20,
-        clientY: box.y + box.height / 2
-      };
-      element.dispatchEvent(new PointerEvent('pointerdown', point));
-      await new Promise((resolve) => setTimeout(resolve, hold));
-      element.dispatchEvent(new PointerEvent('pointerup', point));
-      element.dispatchEvent(new MouseEvent('click', point));
-    }, holdMs);
+  const press = (holdMs: number, withClick = true) =>
+    notebookButton.evaluate(
+      async (element, { hold, click }) => {
+        const box = element.getBoundingClientRect();
+        const point = {
+          bubbles: true,
+          cancelable: true,
+          pointerType: 'touch',
+          clientX: box.x + 20,
+          clientY: box.y + box.height / 2
+        };
+        element.dispatchEvent(new PointerEvent('pointerdown', point));
+        await new Promise((resolve) => setTimeout(resolve, hold));
+        element.dispatchEvent(new PointerEvent('pointerup', point));
+        // Real long-presses usually end without a click.
+        if (click) element.dispatchEvent(new MouseEvent('click', point));
+      },
+      { hold: holdMs, click: withClick }
+    );
 
   const menu = page.getByRole('menu', { name: `${notebookName} actions` });
   await press(700);
@@ -1660,6 +1664,35 @@ test('opens the notebook menu with a touch long-press @mobile', async ({
   await hoverMenusThroughBridge(page);
   await press(80);
   await expect(menu).toHaveCount(0);
+
+  // A mouse click after a long-press that ended without a click is not
+  // swallowed.
+  await press(700, false);
+  await expect(menu).toBeVisible();
+  await page.keyboard.press('Escape');
+  await hoverMenusThroughBridge(page);
+  await page.getByRole('button', { name: 'All notes' }).first().click();
+  await hoverMenusThroughBridge(page);
+  const row = page.locator('.notebook-row').filter({ has: notebookButton });
+  await notebookButton.evaluate((element) => {
+    element.dispatchEvent(
+      new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse' })
+    );
+    element.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+  await expect(row).toHaveClass(/active/);
+
+  // An empty notebook can still be exported; it says there is nothing in it.
+  await hoverMenusThroughBridge(page);
+  await press(700);
+  await menu
+    .getByRole('menuitem', { name: 'Export manuscript', exact: true })
+    .click();
+  const dialog = page.getByRole('dialog', { name: 'Export manuscript' });
+  await dialog.getByRole('button', { name: 'Download DOCX' }).click();
+  await expect(
+    page.getByText('This notebook has no notes to export')
+  ).toBeVisible();
 });
 
 test('keeps edits made during an online sync pending until the latest local version lands', async ({

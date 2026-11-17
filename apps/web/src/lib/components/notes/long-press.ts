@@ -24,9 +24,11 @@ export function longPress(node: HTMLElement, handler: LongPressHandler) {
   };
 
   const down = (event: PointerEvent) => {
+    // Any new press (touch, mouse or pen) ends a previous long-press, so its
+    // click is never swallowed.
+    fired = false;
     if (event.pointerType !== 'touch') return;
     cancel();
-    fired = false;
     start = { x: event.clientX, y: event.clientY };
     const point = { clientX: event.clientX, clientY: event.clientY };
     timer = setTimeout(() => {

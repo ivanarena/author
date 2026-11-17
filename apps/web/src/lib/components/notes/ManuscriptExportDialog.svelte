@@ -36,6 +36,9 @@
   );
 
   const busy = $derived(model.manuscriptBusy || model.isArchiveBusy);
+  // Only a press that starts and ends on the backdrop closes the dialog, so
+  // selecting text in the header field and releasing outside keeps it open.
+  let pressStartedOnBackdrop = false;
   const presetHint = $derived(
     presets.find((preset) => preset.value === model.manuscriptOptions.preset)
       ?.hint ?? ''
@@ -50,7 +53,14 @@
   <div
     class="manuscript-layer"
     role="presentation"
-    onclick={model.closeManuscriptExport}
+    onpointerdown={(event) =>
+      (pressStartedOnBackdrop = event.target === event.currentTarget)}
+    onclick={(event) => {
+      if (pressStartedOnBackdrop && event.target === event.currentTarget) {
+        model.closeManuscriptExport();
+      }
+      pressStartedOnBackdrop = false;
+    }}
   >
     <div
       class="manuscript-modal"

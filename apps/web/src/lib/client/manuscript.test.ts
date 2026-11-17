@@ -70,6 +70,21 @@ describe('manuscript ordering', () => {
     ]);
   });
 
+  it('orders mixed timestamp formats by instant', () => {
+    const mixed = [
+      source('android', 'B', '', '2026-01-01T10:00:00Z'),
+      source('web', 'A', '', '2026-01-01T10:00:00.500Z'),
+      source('offset', 'C', '', '2026-01-01T11:30:00+02:00'),
+      source('broken', 'D', '', 'not a date')
+    ];
+    expect(orderManuscriptNotes(mixed, 'created').map((n) => n.id)).toEqual([
+      'offset',
+      'android',
+      'web',
+      'broken'
+    ]);
+  });
+
   it('orders by creation date, oldest first', () => {
     expect(orderManuscriptNotes(notes, 'created').map((n) => n.id)).toEqual([
       'c',

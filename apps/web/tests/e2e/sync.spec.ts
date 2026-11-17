@@ -1490,6 +1490,92 @@ test('exports a notebook as a manuscript DOCX and print layout @cross-browser', 
   await expect(dialog).toHaveCount(0);
 });
 
+test("syncs before a manuscript export so other devices' edits are included @cross-browser", async ({
+  page,
+  request
+}) => {
+  await page.goto('/');
+  await hoverMenusThroughBridge(page);
+  const notebookName = `Synced manuscript ${Date.now()}`;
+  await page.getByRole('button', { name: 'New notebook' }).click();
+  await page.getByPlaceholder('Notebook name').fill(notebookName);
+  await page.getByRole('button', { name: 'Create notebook' }).click();
+  const title = `Shared poem ${Date.now()}`;
+  await page.getByLabel('Note title').fill(title);
+  await page.getByLabel('Note body').fill('Version written in the browser');
+  await expectBrowserStoredEncryptedNote(
+    page,
+    title,
+    'Version written in the browser'
+  );
+
+  // Wait until the browser has pushed the note, then edit it on "the phone".
+  let remote: RemoteNote | undefined;
+  await expect
+    .poll(async () => {
+      remote = (await pullRemoteNotes(request)).find(
+        (note) => note.title === title
+      );
+      return remote?.body;
+    })
+    .toBe('Version written in the browser');
+  await pushRemoteNote(
+    request,
+    {
+      ...remote!,
+      body: 'Edited on the phone',
+      deviceId: 'e2e-phone-device',
+      updatedAt: new Date(Date.now() + 1000).toISOString(),
+      syncStatus: 'pending'
+    },
+    remote!.version,
+    { id: 'e2e-phone-device', name: 'E2E Phone' }
+  );
+
+  // Export right away: the periodic sync has not pulled the edit yet.
+  const notebookButton = page.getByRole('button', {
+    name: notebookName,
+    exact: true
+  });
+  const dialog = page.getByRole('dialog', { name: 'Export manuscript' });
+  const openExport = async () => {
+    await hoverMenusThroughBridge(page);
+    await notebookButton.click({ button: 'right' });
+    await page
+      .getByRole('menuitem', { name: 'Export manuscript', exact: true })
+      .click();
+    await expect(dialog).toBeVisible();
+  };
+  await openExport();
+  const downloadPromise = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: 'Download DOCX' }).click();
+  const entries = storedZipEntries(
+    await readFile(await (await downloadPromise).path())
+  );
+  expect(entries.get('word/document.xml')).toContain('Edited on the phone');
+  await expect(
+    page.getByText(`${notebookName}.docx`, { exact: true })
+  ).toBeVisible();
+
+  // Offline: the dialog warns and the export says what it used.
+  await page.context().setOffline(true);
+  await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+  await openExport();
+  await expect(dialog.getByRole('status').first()).toContainText(
+    "You're offline"
+  );
+  const offlineDownload = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: 'Download DOCX' }).click();
+  await offlineDownload;
+  await expect(
+    page.getByText(
+      `${notebookName}.docx. Offline, so this device's copy was exported.`
+    )
+  ).toBeVisible();
+  await page.context().setOffline(false);
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+});
+
 test('keeps edits made during an online sync pending until the latest local version lands', async ({
   page,
   request

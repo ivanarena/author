@@ -43,6 +43,20 @@
     presets.find((preset) => preset.value === model.manuscriptOptions.preset)
       ?.hint ?? ''
   );
+  const status = $derived(
+    model.manuscriptStage === 'syncing'
+      ? 'Syncing with your other devices…'
+      : model.manuscriptStage === 'preparing'
+        ? 'Preparing the manuscript…'
+        : 'For a PDF, choose “Save to PDF” in the print dialog.'
+  );
+  const warning = $derived(
+    model.manuscriptConflictCount > 0
+      ? `${model.manuscriptConflictCount} unresolved sync ${model.manuscriptConflictCount === 1 ? 'conflict' : 'conflicts'} in this notebook. Resolve ${model.manuscriptConflictCount === 1 ? 'it' : 'them'} first, or the export uses this device's version.`
+      : model.hasToken && !model.isBrowserOnline
+        ? "You're offline: the export uses this device's copy, without changes from your other devices."
+        : ''
+  );
   const summary = $derived(
     `${model.manuscriptNoteCount} ${model.manuscriptNoteCount === 1 ? 'note' : 'notes'} · ${model.manuscriptWordCount.toLocaleString()} ${model.manuscriptWordCount === 1 ? 'word' : 'words'}`
   );
@@ -200,8 +214,12 @@
         </div>
       </div>
 
+      {#if warning}
+        <p class="manuscript-warning" role="status">{warning}</p>
+      {/if}
+
       <footer class="manuscript-actions">
-        <small>For a PDF, choose “Save to PDF” in the print dialog.</small>
+        <small role="status" aria-live="polite">{status}</small>
         <button
           class="settings-action"
           type="button"
@@ -209,11 +227,7 @@
           onclick={model.printManuscript}
         >
           <Printer size={15} strokeWidth={1.8} />
-          <span
-            >{model.manuscriptBusy
-              ? 'Preparing pages…'
-              : 'Print or save PDF'}</span
-          >
+          <span>Print or save PDF</span>
         </button>
         <button
           class="settings-action primary"

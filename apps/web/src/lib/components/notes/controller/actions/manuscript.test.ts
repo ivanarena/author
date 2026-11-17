@@ -29,7 +29,9 @@ function controller(
     manuscriptSession: 1,
     manuscriptOptions: { ...DEFAULT_MANUSCRIPT_OPTIONS, header: 'Poems' },
     manuscriptBusy: false,
+    manuscriptStage: 'idle',
     isArchiveBusy: false,
+    syncForExport: vi.fn(async () => 'synced' as const),
     closeManuscriptExport: vi.fn(() => {
       state.manuscriptSession += 1;
       state.manuscriptNotebookId = null;
@@ -59,6 +61,69 @@ beforeEach(() => {
 });
 
 describe('manuscript export actions', () => {
+  it('syncs before reading the notebook', async () => {
+    const order: string[] = [];
+    const state = controller({
+      syncForExport: vi.fn(async () => {
+        order.push(`sync:${state.manuscriptStage}`);
+        return 'synced' as const;
+      })
+    });
+    mocks.loadNotebookManuscriptSource.mockImplementationOnce(async () => {
+      order.push(`load:${state.manuscriptStage}`);
+      return {
+        title: 'Poems',
+        notes: [{ id: 'a', title: 'One', body: 'x', createdAt: '2026-01-01' }]
+      };
+    });
+    await exportManuscriptDocx(state);
+
+    expect(order).toEqual(['sync:syncing', 'load:preparing']);
+    expect(state.manuscriptStage).toBe('idle');
+    expect(state.notify).toHaveBeenCalledWith(
+      'success',
+      'Manuscript exported',
+      'Poems.docx'
+    );
+  });
+
+  it("says when the export used this device's copy", async () => {
+    const offline = controller({
+      syncForExport: vi.fn(async () => 'offline' as const)
+    });
+    await exportManuscriptDocx(offline);
+    expect(offline.notify).toHaveBeenCalledWith(
+      'success',
+      'Manuscript exported',
+      "Poems.docx. Offline, so this device's copy was exported."
+    );
+
+    const failed = controller({
+      syncForExport: vi.fn(async () => 'failed' as const)
+    });
+    await printManuscript(failed);
+    expect(failed.notify).toHaveBeenCalledWith(
+      'info',
+      "Printing this device's copy",
+      "Sync didn't finish, so this device's copy was exported."
+    );
+    expect(mocks.printManuscriptPages).toHaveBeenCalled();
+  });
+
+  it('stops when the dialog closes during the sync', async () => {
+    const state = controller();
+    state.syncForExport = vi.fn(async () => {
+      state.manuscriptSession += 1;
+      return 'synced' as const;
+    });
+    await printManuscript(state);
+
+    expect(mocks.loadNotebookManuscriptSource).not.toHaveBeenCalled();
+    expect(mocks.renderManuscriptPages).not.toHaveBeenCalled();
+    expect(state.manuscriptBusy).toBe(false);
+    expect(state.manuscriptStage).toBe('idle');
+  });
+
   it('saves pending edits, downloads the DOCX and closes the dialog', async () => {
     const state = controller();
     await exportManuscriptDocx(state);

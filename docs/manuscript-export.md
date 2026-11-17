@@ -18,6 +18,20 @@ Android does not have it yet.
 - Word counts use the app-wide rule: a word is a whitespace-separated token
   with at least one letter or digit, so `* * *` and dashes do not count.
 
+## Freshness
+
+Exports read the local database, so they first make sure it is current:
+
+- Edits still being saved from the editor are waited for, including a save
+  whose debounce already fired.
+- When signed in and online, the export runs a normal sync first (push, then
+  pull), waiting for a sync that is already running, so changes made on other
+  devices are included. After 20 seconds, or if sync fails, it continues with
+  this device's copy.
+- Offline or after a failed sync, the dialog and the result notification say
+  that this device's copy was exported. Unresolved sync conflicts in the
+  notebook are shown as a warning; the export uses this device's version.
+
 ## Presets
 
 |              | Poetry                                                               | Prose                                                                        |

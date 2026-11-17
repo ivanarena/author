@@ -13,12 +13,19 @@ import {
 import { loadNotebookManuscriptSource } from '$lib/client/store';
 import type { AppNotification } from '../models';
 
+/** How the export's data relates to other devices. */
+export type ExportSyncResult = 'local-only' | 'synced' | 'offline' | 'failed';
+export type ManuscriptStage = 'idle' | 'syncing' | 'preparing';
+
 export interface ManuscriptActionController {
   manuscriptNotebookId: string | null;
   manuscriptSession: number;
   manuscriptOptions: ManuscriptOptions;
   manuscriptBusy: boolean;
+  manuscriptStage: ManuscriptStage;
   isArchiveBusy: boolean;
+  /** Push and pull before exporting when signed in and online. */
+  syncForExport: () => Promise<ExportSyncResult>;
   closeManuscriptExport: () => void;
   downloadBlob: (blob: Blob, fileName: string) => void;
   flushPendingSave: () => Promise<void>;
@@ -48,24 +55,41 @@ async function compileManuscript(
   return manuscript;
 }
 
+/** Why the export may not include other devices' latest changes. */
+export function exportSyncNotice(result: ExportSyncResult): string {
+  if (result === 'offline') {
+    return "Offline, so this device's copy was exported.";
+  }
+  if (result === 'failed') {
+    return "Sync didn't finish, so this device's copy was exported.";
+  }
+  return '';
+}
+
 /**
- * Runs an export unless the dialog is closed (or reopened) before it is
- * ready: `stillOpen` turns false as soon as that happens.
+ * Syncs, then runs an export unless the dialog is closed (or reopened)
+ * before it is ready: `stillOpen` turns false as soon as that happens.
  */
 async function runManuscriptAction(
   controller: ManuscriptActionController,
   action: (
     manuscript: Manuscript,
-    stillOpen: () => boolean
+    stillOpen: () => boolean,
+    syncResult: ExportSyncResult
   ) => Promise<void> | void
 ): Promise<void> {
   if (controller.manuscriptBusy || controller.isArchiveBusy) return;
   const session = controller.manuscriptSession;
   const stillOpen = () => controller.manuscriptSession === session;
   controller.manuscriptBusy = true;
+  controller.manuscriptStage = 'syncing';
   try {
+    // Pick up edits from other devices (and send this device's) first.
+    const syncResult = await controller.syncForExport();
+    if (!stillOpen()) return;
+    controller.manuscriptStage = 'preparing';
     const manuscript = await compileManuscript(controller);
-    if (stillOpen()) await action(manuscript, stillOpen);
+    if (stillOpen()) await action(manuscript, stillOpen, syncResult);
   } catch (error) {
     controller.notify(
       'error',
@@ -74,35 +98,47 @@ async function runManuscriptAction(
     );
   } finally {
     controller.manuscriptBusy = false;
+    controller.manuscriptStage = 'idle';
   }
 }
 
 export async function exportManuscriptDocx(
   controller: ManuscriptActionController
 ): Promise<void> {
-  await runManuscriptAction(controller, (manuscript) => {
+  await runManuscriptAction(controller, (manuscript, _stillOpen, synced) => {
     const fileName = manuscriptFileName(manuscript.title, 'docx');
     controller.downloadBlob(
       buildManuscriptDocx(manuscript, new Date().toISOString()),
       fileName
     );
     controller.closeManuscriptExport();
-    controller.notify('success', 'Manuscript exported', fileName);
+    const notice = exportSyncNotice(synced);
+    controller.notify(
+      'success',
+      'Manuscript exported',
+      notice ? `${fileName}. ${notice}` : fileName
+    );
   });
 }
 
 export async function printManuscript(
   controller: ManuscriptActionController
 ): Promise<void> {
-  await runManuscriptAction(controller, async (manuscript, stillOpen) => {
-    // Lay out first, while the dialog shows that it is busy; long
-    // manuscripts take a moment.
-    await renderManuscriptPages(manuscript);
-    if (!stillOpen()) {
-      removeManuscriptPrint();
-      return;
+  await runManuscriptAction(
+    controller,
+    async (manuscript, stillOpen, synced) => {
+      // Lay out first, while the dialog shows that it is busy; long
+      // manuscripts take a moment.
+      await renderManuscriptPages(manuscript);
+      if (!stillOpen()) {
+        removeManuscriptPrint();
+        return;
+      }
+      controller.closeManuscriptExport();
+      const notice = exportSyncNotice(synced);
+      if (notice)
+        controller.notify('info', "Printing this device's copy", notice);
+      printManuscriptPages(manuscript.title);
     }
-    controller.closeManuscriptExport();
-    printManuscriptPages(manuscript.title);
-  });
+  );
 }

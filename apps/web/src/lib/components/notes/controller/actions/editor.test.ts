@@ -140,6 +140,7 @@ function controller(
     pendingSyncCount: 0,
     redoStack: [],
     saveTimer: null,
+    saveInFlight: null,
     selectedNote: null,
     selectedNoteIds: new Set<string>(),
     selectedNotebookMenuOpen: false,
@@ -280,6 +281,41 @@ describe('editor actions', () => {
     expect(model.saveTimer).toBeNull();
     expect(localStorage.getItem(recoveryKey)).toBeNull();
     expect(model.scheduleSync).toHaveBeenCalledWith();
+  });
+
+  it('waits for a debounced save that already started before flushing returns', async () => {
+    const selected = note();
+    const model = controller({
+      selectedNote: selected,
+      titleValue: selected.title,
+      bodyValue: selected.body,
+      lastHistorySnapshot: { title: selected.title, body: selected.body }
+    });
+    let finishSave: () => void = () => undefined;
+    mocks.updateNoteContent.mockImplementationOnce(
+      (id: string, title: string, body: string) =>
+        new Promise((resolve) => {
+          finishSave = () => resolve(note({ id, title, body }));
+        })
+    );
+
+    handleEditorInput(model, inputEvent('Typed just before export'), 'body');
+    // The debounce fires and the save starts writing, but has not finished.
+    await vi.waitFor(() => expect(mocks.updateNoteContent).toHaveBeenCalled());
+    expect(model.saveTimer).toBeNull();
+    expect(model.saveInFlight).not.toBeNull();
+
+    let flushed = false;
+    const flush = flushPendingSave(model).then(() => {
+      flushed = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(flushed).toBe(false);
+
+    finishSave();
+    await flush;
+    expect(flushed).toBe(true);
+    await vi.waitFor(() => expect(model.saveInFlight).toBeNull());
   });
 
   it('restores unsaved draft recovery into a newly created local note', async () => {

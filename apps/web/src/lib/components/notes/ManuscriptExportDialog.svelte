@@ -223,7 +223,7 @@
         <button
           class="settings-action"
           type="button"
-          disabled={busy || model.manuscriptNoteCount === 0}
+          disabled={busy}
           onclick={model.printManuscript}
         >
           <Printer size={15} strokeWidth={1.8} />
@@ -232,7 +232,7 @@
         <button
           class="settings-action primary"
           type="button"
-          disabled={busy || model.manuscriptNoteCount === 0}
+          disabled={busy}
           onclick={model.exportManuscriptDocx}
         >
           <FileDown size={15} strokeWidth={1.8} />

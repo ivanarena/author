@@ -318,6 +318,40 @@ describe('editor actions', () => {
     await vi.waitFor(() => expect(model.saveInFlight).toBeNull());
   });
 
+  it('does not make a flush wait for the list refresh after a save', async () => {
+    const selected = note();
+    let finishRefresh: () => void = () => undefined;
+    const model = controller({
+      selectedNote: selected,
+      titleValue: selected.title,
+      bodyValue: selected.body,
+      lastHistorySnapshot: { title: selected.title, body: selected.body },
+      refresh: vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            finishRefresh = resolve;
+          })
+      )
+    });
+
+    handleEditorInput(model, inputEvent('Switching notes right away'), 'body');
+    await vi.waitFor(() => expect(model.refresh).toHaveBeenCalled());
+
+    // The note is written; only the (slow) refresh is still running.
+    const outcome = await Promise.race([
+      flushPendingSave(model).then(() => 'flushed'),
+      new Promise((resolve) => setTimeout(() => resolve('waiting'), 200))
+    ]);
+    expect(outcome).toBe('flushed');
+    expect(mocks.updateNoteContent).toHaveBeenCalledWith(
+      selected.id,
+      selected.title,
+      'Switching notes right away'
+    );
+    finishRefresh();
+    await vi.waitFor(() => expect(model.saveInFlight).toBeNull());
+  });
+
   it('restores unsaved draft recovery into a newly created local note', async () => {
     const created = note({
       id: 'created-note',

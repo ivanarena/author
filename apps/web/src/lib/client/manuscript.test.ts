@@ -162,6 +162,10 @@ describe('manuscript parsing', () => {
     expect(manuscriptFileName('Poems\u0085draft', 'docx')).toBe(
       'Poems draft.docx'
     );
+    // Truncation keeps whole characters (same case as Android).
+    expect(manuscriptFileName(`${'a'.repeat(119)}😀b`, 'docx')).toBe(
+      `${'a'.repeat(119)}😀.docx`
+    );
   });
 
   it('builds sections, skips empty notes and counts words', () => {

@@ -1,7 +1,6 @@
 package com.author.ui.app
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,6 +9,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -40,6 +40,7 @@ import com.author.ui.common.ModalActionButton
 import com.author.ui.common.appDividerColor
 import com.author.ui.common.formatCount
 import com.author.ui.common.rowColor
+import com.author.ui.state.ManuscriptAction
 import com.author.ui.state.ManuscriptStage
 import com.author.ui.state.NotesController
 import com.author.ui.theme.AppShape
@@ -153,7 +154,7 @@ internal fun ManuscriptExportDialog(
         "Print or save PDF",
         modifier = Modifier.weight(1f),
         enabled = !busy,
-        loading = controller.manuscriptStage != ManuscriptStage.IDLE,
+        loading = controller.manuscriptAction == ManuscriptAction.PRINT,
       ) {
         controller.printManuscript(context)
       }
@@ -162,6 +163,7 @@ internal fun ManuscriptExportDialog(
         modifier = Modifier.weight(1f),
         primary = true,
         enabled = !busy,
+        loading = controller.manuscriptAction == ManuscriptAction.DOCX,
       ) {
         onSaveDocx()
       }
@@ -255,11 +257,14 @@ private fun Toggle(
     shape = RectangleShape,
     border = BorderStroke(1.dp, appDividerColor().copy(alpha = 0.72f)),
   ) {
+    // The row is the checkbox (one labelled control); the box inside only draws the state.
     Row(
-      Modifier.fillMaxWidth().clickable { onChange(!checked) }.padding(end = 10.dp),
+      Modifier.fillMaxWidth()
+        .toggleable(value = checked, role = Role.Checkbox, onValueChange = onChange)
+        .padding(end = 10.dp),
       verticalAlignment = Alignment.CenterVertically,
     ) {
-      AppCheckbox(checked = checked, onCheckedChange = onChange)
+      AppCheckbox(checked = checked, onCheckedChange = null)
       Text(
         label,
         color = MaterialTheme.colorScheme.onSurface,

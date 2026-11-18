@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
@@ -31,6 +32,7 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -303,17 +305,19 @@ private fun RecoveryConfirmRow(controller: NotesController) {
     shape = RectangleShape,
     border = BorderStroke(1.dp, appDividerColor().copy(alpha = 0.72f)),
   ) {
+    // The row is the checkbox (one labelled control); the box inside only draws the state.
     Row(
       Modifier.fillMaxWidth()
-        .clickable { controller.signupRecoverySaved = !controller.signupRecoverySaved }
+        .toggleable(
+          value = controller.signupRecoverySaved,
+          role = Role.Checkbox,
+          onValueChange = { controller.signupRecoverySaved = it },
+        )
         .padding(horizontal = 10.dp, vertical = 10.dp),
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-      AppCheckbox(
-        checked = controller.signupRecoverySaved,
-        onCheckedChange = { controller.signupRecoverySaved = it },
-      )
+      AppCheckbox(checked = controller.signupRecoverySaved, onCheckedChange = null)
       Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(
           "I saved the recovery key and kit",

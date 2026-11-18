@@ -295,11 +295,15 @@ fun manuscriptFileName(title: String, extension: String): String {
           .replace(Regex("[\\\\/:*?\"<>|\\p{Cc}]+"), " ")
       )
       .trim()
-      .take(120)
+      .takeCodePoints(120)
       .trimStart('.')
       .ifEmpty { "manuscript" }
   return "$base.$extension"
 }
+
+/** At most `count` characters, never splitting a surrogate pair (emoji). */
+private fun String.takeCodePoints(count: Int): String =
+  if (codePointCount(0, length) <= count) this else substring(0, offsetByCodePoints(0, count))
 
 /** Distance from the top of the text area to a prose chapter heading. */
 fun chapterDropMm(size: ManuscriptPageSize): Double = (size.heightMm - size.marginMm * 2) / 3

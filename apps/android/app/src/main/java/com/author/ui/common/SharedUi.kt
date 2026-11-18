@@ -555,9 +555,13 @@ internal fun textFieldColors() =
   )
 
 @Composable
+/**
+ * Pass `onCheckedChange = null` when a parent row is the toggleable control (as Material's Checkbox
+ * does), so the row is one labelled checkbox for accessibility services.
+ */
 internal fun AppCheckbox(
   checked: Boolean,
-  onCheckedChange: (Boolean) -> Unit,
+  onCheckedChange: ((Boolean) -> Unit)?,
   modifier: Modifier = Modifier,
   enabled: Boolean = true,
 ) {
@@ -574,11 +578,15 @@ internal fun AppCheckbox(
     modifier =
       modifier
         .size(48.dp)
-        .toggleable(
-          value = checked,
-          enabled = enabled,
-          role = Role.Checkbox,
-          onValueChange = onCheckedChange,
+        .then(
+          if (onCheckedChange == null) Modifier
+          else
+            Modifier.toggleable(
+              value = checked,
+              enabled = enabled,
+              role = Role.Checkbox,
+              onValueChange = onCheckedChange,
+            )
         ),
     contentAlignment = Alignment.Center,
   ) {

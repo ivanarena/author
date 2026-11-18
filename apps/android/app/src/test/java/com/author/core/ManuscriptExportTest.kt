@@ -129,6 +129,11 @@ class ManuscriptExportTest {
     )
     // C1 control characters are stripped from file names too.
     assertEquals("Poems draft.docx", manuscriptFileName("Poems\u0085draft", "docx"))
+    // Truncation keeps whole characters (same case as the web).
+    assertEquals(
+      "${"a".repeat(119)}\uD83D\uDE00.docx",
+      manuscriptFileName("${"a".repeat(119)}\uD83D\uDE00b", "docx"),
+    )
   }
 
   @Test

@@ -237,14 +237,15 @@ export function approximateWordCount(words: number): string {
 }
 
 export function manuscriptFileName(title: string, extension: string): string {
+  const cleaned = title
+    .normalize('NFKC')
+    .replace(/[\\/:*?"<>|\p{Cc}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  // At most 120 characters, never splitting a surrogate pair (emoji).
   const base =
-    title
-      .normalize('NFKC')
-      .replace(/[\\/:*?"<>|\p{Cc}]+/gu, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 120)
-      .replace(/^\.+/, '') || 'manuscript';
+    Array.from(cleaned).slice(0, 120).join('').replace(/^\.+/, '') ||
+    'manuscript';
   return `${base}.${extension}`;
 }
 

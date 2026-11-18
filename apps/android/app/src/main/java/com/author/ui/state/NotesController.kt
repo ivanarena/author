@@ -2274,6 +2274,10 @@ class NotesController(private val repository: NotesRepository, private val scope
   var manuscriptStage by mutableStateOf(ManuscriptStage.IDLE)
     private set
 
+  /** The export the user started (for its button's progress indicator). */
+  var manuscriptAction by mutableStateOf<ManuscriptAction?>(null)
+    private set
+
   val manuscriptBusy: Boolean
     get() = manuscriptStage != ManuscriptStage.IDLE
 
@@ -2348,13 +2352,15 @@ class NotesController(private val repository: NotesRepository, private val scope
   }
 
   private fun runManuscriptAction(
-    action: suspend (Manuscript, stillOpen: () -> Boolean, synced: ExportSyncResult) -> Unit
+    kind: ManuscriptAction,
+    action: suspend (Manuscript, stillOpen: () -> Boolean, synced: ExportSyncResult) -> Unit,
   ) {
     if (manuscriptBusy || isArchiveBusy) return
     val notebookId = manuscriptNotebookId ?: return
     val session = manuscriptSession
     val stillOpen = { manuscriptSession == session }
     scope.launch {
+      manuscriptAction = kind
       manuscriptStage = ManuscriptStage.SYNCING
       try {
         val synced = syncForExport()
@@ -2368,6 +2374,7 @@ class NotesController(private val repository: NotesRepository, private val scope
         notify("error", "Manuscript export failed", error.message ?: "Could not export manuscript")
       } finally {
         manuscriptStage = ManuscriptStage.IDLE
+        manuscriptAction = null
       }
     }
   }
@@ -2375,7 +2382,7 @@ class NotesController(private val repository: NotesRepository, private val scope
   /** Syncs and compiles, then asks the UI to pick where to save the DOCX. */
   fun prepareManuscriptDocx(onReady: (String) -> Unit) {
     val notebookId = manuscriptNotebookId ?: return
-    runManuscriptAction { manuscript, _, synced ->
+    runManuscriptAction(ManuscriptAction.DOCX) { manuscript, _, synced ->
       preparedManuscriptDocx = PreparedManuscriptDocx(manuscript, synced)
       repository.setPendingManuscriptDocx(notebookId, manuscriptOptions)
       onReady(manuscriptFileName(manuscript.title, "docx"))
@@ -2425,7 +2432,7 @@ class NotesController(private val repository: NotesRepository, private val scope
 
   /** Syncs, lays out the pages and opens the system print dialog (which can save a PDF). */
   fun printManuscript(context: Context) {
-    runManuscriptAction { manuscript, stillOpen, synced ->
+    runManuscriptAction(ManuscriptAction.PRINT) { manuscript, stillOpen, synced ->
       val rendered =
         withContext(Dispatchers.Default) { ManuscriptPdfRenderer(context).render(manuscript) }
       if (!stillOpen()) return@runManuscriptAction
@@ -2435,6 +2442,11 @@ class NotesController(private val repository: NotesRepository, private val scope
       printRenderedManuscript(context, rendered, manuscript.options.pageSize)
     }
   }
+}
+
+enum class ManuscriptAction {
+  PRINT,
+  DOCX,
 }
 
 enum class ManuscriptStage {

@@ -1066,7 +1066,8 @@ class NotesAppInstrumentedTest {
 
     compose.onNodeWithText("Export manuscript").assertIsDisplayed()
     compose.onNodeWithText("Poems · 2 notes · 8 words").assertIsDisplayed()
-    compose.onNodeWithText("Save DOCX").performClick()
+    // The dialog scrolls on small screens (CI's emulator); reach the button first.
+    compose.onNodeWithText("Save DOCX").performScrollTo().performClick()
     compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) { requestedFile.get() != null }
     assertTrue(requestedFile.get() == "Poems.docx")
 

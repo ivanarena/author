@@ -64,7 +64,7 @@ private fun variableFontFamily(resId: Int): FontFamily =
   )
 
 internal val DmSansFontFamily = variableFontFamily(R.font.dm_sans_variable)
-internal val FigtreeFontFamily = variableFontFamily(R.font.figtree_variable)
+internal val NewsreaderFontFamily = variableFontFamily(R.font.newsreader_variable)
 internal val AppFontFamily = DmSansFontFamily
 
 internal val LocalAppFontFamily = staticCompositionLocalOf { AppFontFamily }
@@ -74,7 +74,7 @@ internal data class FontChoice(val value: String, val label: String)
 internal val FontChoices =
   listOf(
     FontChoice("dm-sans", "DM Sans"),
-    FontChoice("figtree", "Figtree"),
+    FontChoice("newsreader", "Newsreader"),
     FontChoice("system-sans", "System Sans"),
     FontChoice("system-serif", "System Serif"),
     FontChoice("mono", "Mono"),
@@ -171,8 +171,7 @@ private fun typography(fontFamily: FontFamily) =
 private fun fontFamily(font: String): FontFamily =
   when (font) {
     "dm-sans" -> DmSansFontFamily
-    "figtree",
-    "kedebideri" -> FigtreeFontFamily
+    "newsreader" -> NewsreaderFontFamily
     "system-sans" -> FontFamily.SansSerif
     "system-serif" -> FontFamily.Serif
     "mono" -> FontFamily.Monospace

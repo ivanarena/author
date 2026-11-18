@@ -1,6 +1,7 @@
 package com.author.ui.state
 
 import android.content.ContentResolver
+import android.content.Context
 import android.net.Uri
 import android.os.SystemClock
 import android.provider.DocumentsContract
@@ -19,6 +20,9 @@ import com.author.core.Device
 import com.author.core.LocalConflict
 import com.author.core.LocalNote
 import com.author.core.LocalNotebook
+import com.author.core.Manuscript
+import com.author.core.ManuscriptOptions
+import com.author.core.ManuscriptPdfRenderer
 import com.author.core.MarkdownInputFile
 import com.author.core.NOTE_DATE_FILTERS
 import com.author.core.NOTE_FILTER_FAVORITES_ID
@@ -30,14 +34,21 @@ import com.author.core.SyncHttpException
 import com.author.core.SyncProgress
 import com.author.core.SyncProgressPhase
 import com.author.core.TrustedAuthDevice
+import com.author.core.buildManuscript
+import com.author.core.countWords
 import com.author.core.formatDateTime
+import com.author.core.manuscriptFileName
 import com.author.core.normalizedNotebookName
 import com.author.core.noteNotebookIds
 import com.author.core.notesForMarkdownExport
+import com.author.core.nowIso
 import com.author.core.prepareProfileImage
+import com.author.core.printRenderedManuscript
 import com.author.core.readBoundedUtf8
+import com.author.core.writeManuscriptDocx
 import com.author.ui.app.AppNotification
 import com.author.ui.theme.resolveThemeChoice
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -46,6 +57,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 
 class NotesController(private val repository: NotesRepository, private val scope: CoroutineScope) :
@@ -192,10 +204,13 @@ class NotesController(private val repository: NotesRepository, private val scope
   var importBanner by mutableStateOf("")
 
   private var saveJob: Job? = null
+  /** A debounced save whose delay has passed and is writing the note. */
+  private var saveWriting: Job? = null
   private var autoSyncJob: Job? = null
   private var retrySyncJob: Job? = null
   private var autoSyncWaitStartedAt: Long? = null
   private var syncQueued = false
+  private var completedSyncs = 0
   private var unsyncableCount = 0
   private var lastSyncRejection = ""
   private var lastSnapshot = "" to ""
@@ -1316,109 +1331,113 @@ class NotesController(private val repository: NotesRepository, private val scope
   }
 
   fun syncNow() {
-    scope.launch {
-      if (isArchiveBusy) {
-        syncQueued = true
-        syncMessage = "Sync paused during import/export"
-        return@launch
+    scope.launch { syncNowAndWait() }
+  }
+
+  /** Runs a sync now and returns when it has finished (or did not start). */
+  private suspend fun syncNowAndWait() {
+    if (isArchiveBusy) {
+      syncQueued = true
+      syncMessage = "Sync paused during import/export"
+      return
+    }
+    val token = repository.getStoredSession()?.token
+    hasToken = token != null
+    if (token == null) return
+    if (isSyncing) {
+      syncQueued = true
+      return
+    }
+    if (!repository.hasUsableStoredEncryptionKeyMaterial()) {
+      repository.recordSyncError(
+        IllegalStateException("Sign in again to sync encrypted notes"),
+        "Sync",
+      )
+      refresh()
+      expireSession("Sign in again to sync encrypted notes")
+      return
+    }
+    isSyncing = true
+    updateSyncProgress(SyncProgress(SyncProgressPhase.PREPARING))
+    var syncCompleted = false
+    try {
+      flushPendingSave()
+      val result =
+        repository.runSync(token) { progress ->
+          withContext(Dispatchers.Main) { updateSyncProgress(progress) }
+        }
+      lastSyncRejection = ""
+      val unsyncableMessage =
+        when {
+          result.unsyncable == 1 -> "1 change can't sync"
+          result.unsyncable > 1 -> "${result.unsyncable} changes can't sync"
+          else -> ""
+        }
+      syncMessage =
+        if (result.conflicts > 0) {
+          "${result.conflicts} conflicts"
+        } else {
+          unsyncableMessage.ifEmpty { "Local changes saved" }
+        }
+      if (result.unsyncable > 0 && result.unsyncable != unsyncableCount) {
+        notify("error", "Some changes are too large to sync", UNSYNCABLE_DETAIL)
       }
-      val token = repository.getStoredSession()?.token
-      hasToken = token != null
-      if (token == null) return@launch
-      if (isSyncing) {
-        syncQueued = true
-        return@launch
-      }
-      if (!repository.hasUsableStoredEncryptionKeyMaterial()) {
-        repository.recordSyncError(
-          IllegalStateException("Sign in again to sync encrypted notes"),
-          "Sync",
-        )
-        refresh()
-        expireSession("Sign in again to sync encrypted notes")
-        return@launch
-      }
-      isSyncing = true
-      updateSyncProgress(SyncProgress(SyncProgressPhase.PREPARING))
-      var syncCompleted = false
+      unsyncableCount = result.unsyncable
+      refresh()
       try {
-        flushPendingSave()
-        val result =
-          repository.runSync(token) { progress ->
-            withContext(Dispatchers.Main) { updateSyncProgress(progress) }
-          }
-        lastSyncRejection = ""
-        val unsyncableMessage =
-          when {
-            result.unsyncable == 1 -> "1 change can't sync"
-            result.unsyncable > 1 -> "${result.unsyncable} changes can't sync"
-            else -> ""
-          }
-        syncMessage =
-          if (result.conflicts > 0) {
-            "${result.conflicts} conflicts"
-          } else {
-            unsyncableMessage.ifEmpty { "Local changes saved" }
-          }
-        if (result.unsyncable > 0 && result.unsyncable != unsyncableCount) {
-          notify("error", "Some changes are too large to sync", UNSYNCABLE_DETAIL)
-        }
-        unsyncableCount = result.unsyncable
-        refresh()
-        try {
-          val remote = repository.loadSyncStatus(token)
-          remoteSyncEnabled = remote.enabled
-          remoteSyncState = remote.state
-          remoteSyncError = remote.lastError ?: ""
-          if (!remote.lastError.isNullOrBlank()) {
-            repository.recordSyncError(IllegalStateException(remote.lastError), "Remote worker")
-            refresh()
-          }
-        } catch (error: AuthException) {
-          repository.recordSyncError(error, "Remote worker status")
+        val remote = repository.loadSyncStatus(token)
+        remoteSyncEnabled = remote.enabled
+        remoteSyncState = remote.state
+        remoteSyncError = remote.lastError ?: ""
+        if (!remote.lastError.isNullOrBlank()) {
+          repository.recordSyncError(IllegalStateException(remote.lastError), "Remote worker")
           refresh()
-          expireSession(error.message ?: "Sign-in expired")
-          return@launch
-        } catch (error: Throwable) {
-          repository.recordSyncError(error, "Remote worker status")
-          refresh()
-          remoteSyncEnabled = true
-          remoteSyncState = "error"
-          remoteSyncError = error.message ?: "Could not check remote worker"
         }
-        runCatching { refreshServerConfigNow() }
-          .onFailure { serverConfigError = it.message ?: "Could not reach sync API" }
-        syncCompleted = true
       } catch (error: AuthException) {
+        repository.recordSyncError(error, "Remote worker status")
         refresh()
         expireSession(error.message ?: "Sign-in expired")
+        return
       } catch (error: Throwable) {
+        repository.recordSyncError(error, "Remote worker status")
         refresh()
-        syncMessage = error.message ?: "Sync failed"
-        if (error is SyncHttpException && error.status == 429) {
-          // Rate limited: retry quietly once the server's limit window has passed.
-          retrySyncJob?.cancel()
-          retrySyncJob =
-            scope.launch {
-              delay(RATE_LIMITED_RETRY_MS)
-              retrySyncJob = null
-              syncNow()
-            }
-        } else if (error is SyncHttpException && error.status in REJECTED_SYNC_STATUSES) {
-          if (lastSyncRejection != syncMessage) notify("error", "Sync failed", syncMessage)
-          lastSyncRejection = syncMessage
-        } else {
-          notify("error", "Sync failed", syncMessage)
-        }
-      } finally {
-        isSyncing = false
-        syncActivityLabel = ""
-        syncActivityDetail = ""
-        // Records too large to push stay pending and must not re-trigger syncs on their own.
-        val shouldSyncAgain = syncCompleted && (syncQueued || pendingSyncCount > unsyncableCount)
-        syncQueued = false
-        if (shouldSyncAgain) scheduleSyncAfterLocalChange()
+        remoteSyncEnabled = true
+        remoteSyncState = "error"
+        remoteSyncError = error.message ?: "Could not check remote worker"
       }
+      runCatching { refreshServerConfigNow() }
+        .onFailure { serverConfigError = it.message ?: "Could not reach sync API" }
+      syncCompleted = true
+      completedSyncs += 1
+    } catch (error: AuthException) {
+      refresh()
+      expireSession(error.message ?: "Sign-in expired")
+    } catch (error: Throwable) {
+      refresh()
+      syncMessage = error.message ?: "Sync failed"
+      if (error is SyncHttpException && error.status == 429) {
+        // Rate limited: retry quietly once the server's limit window has passed.
+        retrySyncJob?.cancel()
+        retrySyncJob =
+          scope.launch {
+            delay(RATE_LIMITED_RETRY_MS)
+            retrySyncJob = null
+            syncNow()
+          }
+      } else if (error is SyncHttpException && error.status in REJECTED_SYNC_STATUSES) {
+        if (lastSyncRejection != syncMessage) notify("error", "Sync failed", syncMessage)
+        lastSyncRejection = syncMessage
+      } else {
+        notify("error", "Sync failed", syncMessage)
+      }
+    } finally {
+      isSyncing = false
+      syncActivityLabel = ""
+      syncActivityDetail = ""
+      // Records too large to push stay pending and must not re-trigger syncs on their own.
+      val shouldSyncAgain = syncCompleted && (syncQueued || pendingSyncCount > unsyncableCount)
+      syncQueued = false
+      if (shouldSyncAgain) scheduleSyncAfterLocalChange()
     }
   }
 
@@ -1886,15 +1905,25 @@ class NotesController(private val repository: NotesRepository, private val scope
       scope.launch {
         delay(120)
         saveJob = null
-        saveEditorNow()
+        val self = coroutineContext[Job]
+        saveWriting = self
+        try {
+          saveEditorNow()
+        } finally {
+          if (saveWriting === self) saveWriting = null
+        }
       }
   }
 
   private suspend fun flushPendingSave() {
-    if (saveJob == null) return
-    saveJob?.cancel()
-    saveJob = null
-    saveEditorNow()
+    if (saveJob != null) {
+      saveJob?.cancel()
+      saveJob = null
+      saveEditorNow()
+    }
+    // A save that already started must land before callers read the note back from the database
+    // (exports, sync).
+    saveWriting?.takeIf { it !== coroutineContext[Job] }?.join()
   }
 
   private suspend fun saveEditorNow() {
@@ -2229,4 +2258,190 @@ class NotesController(private val repository: NotesRepository, private val scope
 
   private fun recoveryKitFileName(): String =
     "author-recovery-kit-${java.time.Instant.now().toString().take(10)}.json"
+
+  // ---------------------------------------------------------------------------
+  // Manuscript export (see docs/manuscript-export.md; mirrors the web client).
+
+  var manuscriptNotebookId by mutableStateOf<String?>(null)
+    private set
+
+  var manuscriptOptions by mutableStateOf(ManuscriptOptions())
+    private set
+
+  var manuscriptStage by mutableStateOf(ManuscriptStage.IDLE)
+    private set
+
+  val manuscriptBusy: Boolean
+    get() = manuscriptStage != ManuscriptStage.IDLE
+
+  /** Changes whenever the export dialog opens or closes; closing cancels pending work. */
+  private var manuscriptSession = 0
+  private var preparedManuscriptDocx: PreparedManuscriptDocx? = null
+
+  val manuscriptNotebook: LocalNotebook?
+    get() = notebooks.firstOrNull { it.id == manuscriptNotebookId && it.deletedAt == null }
+
+  fun notebookNoteCount(notebookId: String): Int = notes.count { notebookId in noteNotebookIds(it) }
+
+  fun notebookWordCount(notebookId: String): Int =
+    notes
+      .filter { notebookId in noteNotebookIds(it) }
+      .sumOf { countWords("${it.title} ${it.body}") }
+
+  /** Unresolved conflicts on the export notebook or its notes. */
+  val manuscriptConflictCount: Int
+    get() {
+      val notebookId = manuscriptNotebookId ?: return 0
+      val noteIds = notes.filter { notebookId in noteNotebookIds(it) }.map { it.id }.toSet()
+      return conflicts.count { conflict ->
+        conflict.status == "pending" &&
+          if (conflict.entityType == "note") conflict.entityId in noteIds
+          else conflict.entityId == notebookId
+      }
+    }
+
+  val manuscriptOffline: Boolean
+    get() = hasToken && !repository.isNetworkAvailable()
+
+  fun openManuscriptExport(notebook: LocalNotebook) {
+    manuscriptOptions = repository.getManuscriptOptions().copy(header = notebook.name)
+    manuscriptSession += 1
+    manuscriptNotebookId = notebook.id
+  }
+
+  fun closeManuscriptExport() {
+    if (manuscriptNotebookId == null) return
+    manuscriptSession += 1
+    manuscriptNotebookId = null
+    preparedManuscriptDocx = null
+  }
+
+  fun updateManuscriptOptions(options: ManuscriptOptions) {
+    manuscriptOptions = options
+    repository.setManuscriptOptions(options)
+  }
+
+  /** Pushes and pulls first so other devices' edits are included; capped, never cancelled. */
+  private suspend fun syncForExport(): ExportSyncResult {
+    if (repository.getStoredSession() == null) return ExportSyncResult.LOCAL_ONLY
+    if (!repository.isNetworkAvailable()) return ExportSyncResult.OFFLINE
+    val deadline = System.currentTimeMillis() + EXPORT_SYNC_TIMEOUT_MS
+    // A sync already running may have started before the latest edits.
+    while (isSyncing && System.currentTimeMillis() < deadline) delay(100)
+    if (isSyncing) return ExportSyncResult.FAILED
+    val before = completedSyncs
+    val job = scope.launch { syncNowAndWait() }
+    withTimeoutOrNull((deadline - System.currentTimeMillis()).coerceAtLeast(0)) { job.join() }
+    return if (completedSyncs > before) ExportSyncResult.SYNCED else ExportSyncResult.FAILED
+  }
+
+  private suspend fun compileManuscript(notebookId: String): Manuscript {
+    // The editor may still hold unsaved text from the last few hundred ms.
+    flushPendingSave()
+    val (title, sourceNotes) = repository.loadNotebookManuscriptSource(notebookId)
+    val manuscript = buildManuscript(title, sourceNotes, manuscriptOptions)
+    if (manuscript.sections.isEmpty()) error("This notebook has no notes to export")
+    return manuscript
+  }
+
+  private fun runManuscriptAction(
+    action: suspend (Manuscript, stillOpen: () -> Boolean, synced: ExportSyncResult) -> Unit
+  ) {
+    if (manuscriptBusy || isArchiveBusy) return
+    val notebookId = manuscriptNotebookId ?: return
+    val session = manuscriptSession
+    val stillOpen = { manuscriptSession == session }
+    scope.launch {
+      manuscriptStage = ManuscriptStage.SYNCING
+      try {
+        val synced = syncForExport()
+        if (!stillOpen()) return@launch
+        manuscriptStage = ManuscriptStage.PREPARING
+        val manuscript = compileManuscript(notebookId)
+        if (stillOpen()) action(manuscript, stillOpen, synced)
+      } catch (error: CancellationException) {
+        throw error
+      } catch (error: Throwable) {
+        notify("error", "Manuscript export failed", error.message ?: "Could not export manuscript")
+      } finally {
+        manuscriptStage = ManuscriptStage.IDLE
+      }
+    }
+  }
+
+  /** Syncs and compiles, then asks the UI to pick where to save the DOCX. */
+  fun prepareManuscriptDocx(onReady: (String) -> Unit) {
+    runManuscriptAction { manuscript, _, synced ->
+      preparedManuscriptDocx = PreparedManuscriptDocx(manuscript, synced)
+      onReady(manuscriptFileName(manuscript.title, "docx"))
+    }
+  }
+
+  fun completeManuscriptDocx(uri: Uri?, resolver: ContentResolver) {
+    val prepared = preparedManuscriptDocx ?: return
+    preparedManuscriptDocx = null
+    if (uri == null) return
+    scope.launch {
+      runCatching {
+          withContext(Dispatchers.IO) {
+            resolver.openOutputStream(uri)?.use {
+              writeManuscriptDocx(prepared.manuscript, nowIso(), it)
+            } ?: error("Could not open export destination")
+          }
+        }
+        .onSuccess {
+          val fileName = manuscriptFileName(prepared.manuscript.title, "docx")
+          closeManuscriptExport()
+          val notice = exportSyncNotice(prepared.synced)
+          notify(
+            "success",
+            "Manuscript exported",
+            if (notice.isEmpty()) fileName else "$fileName. $notice",
+          )
+        }
+        .onFailure {
+          notify("error", "Manuscript export failed", it.message ?: "Could not write file")
+        }
+    }
+  }
+
+  /** Syncs, lays out the pages and opens the system print dialog (which can save a PDF). */
+  fun printManuscript(context: Context) {
+    runManuscriptAction { manuscript, stillOpen, synced ->
+      val rendered =
+        withContext(Dispatchers.Default) { ManuscriptPdfRenderer(context).render(manuscript) }
+      if (!stillOpen()) return@runManuscriptAction
+      closeManuscriptExport()
+      val notice = exportSyncNotice(synced)
+      if (notice.isNotEmpty()) notify("info", "Printing this device's copy", notice)
+      printRenderedManuscript(context, rendered, manuscript.options.pageSize)
+    }
+  }
 }
+
+enum class ManuscriptStage {
+  IDLE,
+  SYNCING,
+  PREPARING,
+}
+
+/** How an export's data relates to other devices. */
+enum class ExportSyncResult {
+  LOCAL_ONLY,
+  SYNCED,
+  OFFLINE,
+  FAILED,
+}
+
+/** Why an export may not include other devices' latest changes. */
+fun exportSyncNotice(result: ExportSyncResult): String =
+  when (result) {
+    ExportSyncResult.OFFLINE -> "Offline, so this device's copy was exported."
+    ExportSyncResult.FAILED -> "Sync didn't finish, so this device's copy was exported."
+    else -> ""
+  }
+
+private class PreparedManuscriptDocx(val manuscript: Manuscript, val synced: ExportSyncResult)
+
+// Exports sync first; past this, they use this device's copy.
+private const val EXPORT_SYNC_TIMEOUT_MS = 20_000L

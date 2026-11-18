@@ -26,6 +26,7 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -1024,6 +1025,66 @@ class NotesAppInstrumentedTest {
 
   private fun savedDraft(repository: NotesRepository, title: String): LocalNote? =
     repository.loadWorkspaceSnapshot().notes.firstOrNull { it.title == title }
+
+  @Test
+  fun manuscriptExportFromNotebookMenuSavesOrderedDocx() {
+    val repository = newRepository()
+    val notebook = runBlocking { repository.createNotebook("Poems")!! }
+    runBlocking {
+      listOf("Poem 10" to "tenth poem", "Poem 2" to "second poem\n* * *").forEach { (title, body) ->
+        val note = repository.createBlankNote(title, body)
+        repository.assignNoteToNotebook(note.id, notebook.id, true)
+      }
+    }
+    val requestedFile = AtomicReference<String?>(null)
+    lateinit var controller: NotesController
+
+    compose.setContent {
+      val scope = rememberCoroutineScope()
+      controller = remember {
+        NotesController(repository, scope).also { it.currentPage = "notebooks" }
+      }
+
+      LaunchedEffect(Unit) { controller.initialize() }
+      NotesApp(
+        controller = controller,
+        onExport = {},
+        onImport = {},
+        onSaveManuscriptDocx = {
+          controller.prepareManuscriptDocx { fileName -> requestedFile.set(fileName) }
+        },
+      )
+    }
+
+    // Long-press the notebook: counts ("* * *" is not a word) and the export action.
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      compose.onAllNodesWithText("Poems").fetchSemanticsNodes().isNotEmpty()
+    }
+    compose.onNodeWithText("Poems").performTouchInput { longClick() }
+    compose.onNodeWithText("2 notes · 8 words").assertIsDisplayed()
+    compose.onNodeWithText("Export manuscript").assertIsDisplayed().performClick()
+
+    compose.onNodeWithText("Export manuscript").assertIsDisplayed()
+    compose.onNodeWithText("Poems · 2 notes · 8 words").assertIsDisplayed()
+    compose.onNodeWithText("Save DOCX").performClick()
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) { requestedFile.get() != null }
+    assertTrue(requestedFile.get() == "Poems.docx")
+
+    val output = File(context.cacheDir, "Poems.docx").apply { delete() }
+    compose.runOnIdle {
+      controller.completeManuscriptDocx(Uri.fromFile(output), context.contentResolver)
+    }
+    compose.waitUntil(timeoutMillis = SAVE_TIMEOUT_MS) {
+      output.length() > 0 && controller.manuscriptNotebookId == null
+    }
+    val document =
+      java.util.zip.ZipInputStream(output.inputStream()).use { zip ->
+        generateSequence { zip.nextEntry }
+          .first { it.name == "word/document.xml" }
+          .let { zip.readBytes().toString(Charsets.UTF_8) }
+      }
+    assertTrue(document.indexOf("Poem 2") in 0 until document.indexOf("Poem 10"))
+  }
 
   private fun newRepository(): NotesRepository =
     NotesRepository(context).also { repositories.add(it) }

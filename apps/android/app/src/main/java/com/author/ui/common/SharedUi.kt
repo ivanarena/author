@@ -59,6 +59,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.Role
@@ -831,3 +832,8 @@ internal fun SyncActivityIndicator(active: Boolean, modifier: Modifier = Modifie
     strokeWidth = 1.5.dp,
   )
 }
+
+/** Grouped number in the current locale, e.g. "1,240"; follows configuration changes. */
+@Composable
+internal fun formatCount(count: Int): String =
+  String.format(LocalConfiguration.current.locales[0], "%,d", count)

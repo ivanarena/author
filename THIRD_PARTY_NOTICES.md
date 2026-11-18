@@ -29,8 +29,9 @@ commit.
 
 ## Direct Android Dependencies
 
-- [Figtree](https://github.com/erikdkennedy/figtree) — Copyright 2022 The
-  Figtree Project Authors; [SIL Open Font License 1.1](https://github.com/erikdkennedy/figtree/blob/master/OFL.txt)
+- [DM Sans](https://github.com/googlefonts/dm-fonts) and
+  [Newsreader](https://github.com/productiontype/Newsreader) are bundled as
+  font resources under the same licenses as listed above.
 
 - AndroidX Activity, Core, SQLite, Compose, and WorkManager —
   [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0)

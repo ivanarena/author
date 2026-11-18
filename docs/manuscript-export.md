@@ -4,11 +4,14 @@ A notebook can be exported as a submission-ready manuscript. Notes stay plain
 text: layout is applied only at export time, and nothing about notes, sync, or
 the database schema changes.
 
-Open it from a notebook's context menu (**Export manuscript**): right-click,
-Shift+F10 or the menu key, or a touch long-press (also on iOS, which has no
-native context-menu gesture). The same menu shows the notebook's note and word
-counts. The web app ships this first;
-Android does not have it yet.
+On the web, open it from a notebook's context menu (**Export manuscript**):
+right-click, Shift+F10 or the menu key, or a touch long-press (also on iOS,
+which has no native context-menu gesture). On Android, long-press the notebook
+in the notebooks list. Both menus show the notebook's note and word counts.
+
+Web and Android share the rules below and produce byte-identical DOCX files for
+the same notes and options; keep `manuscript.ts` and `ManuscriptExport.kt` (and
+their test cases) in step.
 
 ## Content
 
@@ -104,3 +107,17 @@ margin boxes) and the app's CSP forbids iframes and inline styles. It:
 
 The DOCX and PDF use the same sizes, so they paginate similarly, but each word
 processor still lays out the DOCX itself.
+
+## Android
+
+- `core/ManuscriptExport.kt` holds the shared rules and the DOCX writer (a port
+  of `manuscript.ts`), saved through the system file picker.
+- `core/ManuscriptPagination.kt` fills pages using only line breaks from a
+  measurer, so it is unit-tested on the JVM with a fake measurer.
+- `core/ManuscriptPdf.kt` measures with `StaticLayout`, draws each line on a
+  `PdfDocument` page in the bundled Newsreader (weight and optical size set per
+  style; the font is embedded with a text layer), and hands the PDF to the
+  system print dialog, which can print or **Save as PDF**.
+- Exports wait for the editor's in-flight save, sync first when signed in and
+  online (20-second cap), and warn about conflicts or offline state, as on the
+  web. Layout choices are remembered per device (`author-manuscript-export`).

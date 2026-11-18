@@ -31,7 +31,9 @@ commit.
 
 - [DM Sans](https://github.com/googlefonts/dm-fonts) and
   [Newsreader](https://github.com/productiontype/Newsreader) are bundled as
-  font resources under the same licenses as listed above.
+  font resources under the same licenses as listed above. The static
+  `newsreader_pdf_*.ttf` files are instances of the Newsreader variable font
+  (a Modified Version under the OFL; Newsreader declares no Reserved Font Name).
 
 - AndroidX Activity, Core, SQLite, Compose, and WorkManager —
   [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0)

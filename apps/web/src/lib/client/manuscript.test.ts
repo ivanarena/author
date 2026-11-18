@@ -148,6 +148,22 @@ describe('manuscript parsing', () => {
     ]);
   });
 
+  it('treats Unicode spaces the same way as the Android client', () => {
+    expect(
+      parseManuscriptBody('Before.\n*\u00A0*\u00A0*\nAfter.\uFEFF', 'prose')
+    ).toEqual([
+      { kind: 'paragraph', text: 'Before.' },
+      { kind: 'scene-break' },
+      { kind: 'paragraph', text: 'After.' }
+    ]);
+    expect(parseManuscriptBody('verse\u00A0\uFEFF', 'poetry')).toEqual([
+      { kind: 'line', text: 'verse' }
+    ]);
+    expect(manuscriptFileName('Poems\u0085draft', 'docx')).toBe(
+      'Poems draft.docx'
+    );
+  });
+
   it('builds sections, skips empty notes and counts words', () => {
     const manuscript = buildManuscript(
       '  Beyond Rituals ',

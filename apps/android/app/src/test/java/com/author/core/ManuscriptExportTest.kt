@@ -113,6 +113,25 @@ class ManuscriptExportTest {
   }
 
   @Test
+  fun treatsUnicodeSpacesLikeTheWebClient() {
+    // No-break spaces between the marks still make a scene break (JavaScript's \s).
+    assertEquals(
+      listOf(
+        ManuscriptBlock.Paragraph("Before."),
+        ManuscriptBlock.SceneBreak,
+        ManuscriptBlock.Paragraph("After."),
+      ),
+      parseManuscriptBody("Before.\n*\u00A0*\u00A0*\nAfter.\uFEFF", ManuscriptPreset.PROSE),
+    )
+    assertEquals(
+      listOf(ManuscriptBlock.Line("verse")),
+      parseManuscriptBody("verse\u00A0\uFEFF", ManuscriptPreset.POETRY),
+    )
+    // C1 control characters are stripped from file names too.
+    assertEquals("Poems draft.docx", manuscriptFileName("Poems\u0085draft", "docx"))
+  }
+
+  @Test
   fun buildsSectionsSkipsEmptyNotesAndCountsWords() {
     val manuscript =
       buildManuscript(

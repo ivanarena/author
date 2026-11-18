@@ -16,6 +16,7 @@ import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Icon
@@ -240,6 +241,20 @@ private fun NotebookActionsMenuContent(
   notebook: LocalNotebook,
   onDismiss: () -> Unit,
 ) {
+  val noteCount = controller.notebookNoteCount(notebook.id)
+  val wordCount = controller.notebookWordCount(notebook.id)
+  DropdownSectionLabel(
+    "${noteCount} ${if (noteCount == 1) "note" else "notes"} · " +
+      "${formatCount(wordCount)} ${if (wordCount == 1) "word" else "words"}"
+  )
+  AppDropdownMenuItem(
+    label = "Export manuscript",
+    leadingIcon = { Icon(Icons.Outlined.Description, null, modifier = Modifier.size(18.dp)) },
+    onClick = {
+      onDismiss()
+      controller.openManuscriptExport(notebook)
+    },
+  )
   AppDropdownMenuItem(
     label = "Rename",
     leadingIcon = { Icon(Icons.Outlined.Edit, null, modifier = Modifier.size(18.dp)) },

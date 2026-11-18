@@ -37,7 +37,7 @@
 - Client-encrypted notes, notebook names, and account keyrings
 - Explicit version conflicts instead of silent remote overwrites
 - Markdown ZIP import/export
-- [Manuscript export](docs/manuscript-export.md) of a notebook as DOCX or print-ready PDF, with poetry and prose layouts (web)
+- [Manuscript export](docs/manuscript-export.md) of a notebook as DOCX or print-ready PDF, with poetry and prose layouts
 - Docker/SQLite self-hosting, optional Turso mirroring, and Cloudflare Workers support
 
 > author does not claim independently audited cryptography or protection from malicious hosted web JavaScript. Read the [security policy and threat model](SECURITY.md) before relying on it for sensitive data.

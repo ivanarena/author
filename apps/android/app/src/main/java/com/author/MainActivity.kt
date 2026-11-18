@@ -23,6 +23,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.author.core.DOCX_MIME_TYPE
 import com.author.core.NotesRepository
 import com.author.ui.app.NotesApp
 import com.author.ui.state.NotesController
@@ -38,6 +39,11 @@ class MainActivity : ComponentActivity() {
     registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri: Uri?
       ->
       controller.completeMarkdownExport(uri, contentResolver)
+    }
+
+  private val manuscriptDocxLauncher =
+    registerForActivityResult(ActivityResultContracts.CreateDocument(DOCX_MIME_TYPE)) { uri: Uri? ->
+      controller.completeManuscriptDocx(uri, contentResolver)
     }
 
   private val recoveryKitLauncher =
@@ -108,6 +114,9 @@ class MainActivity : ComponentActivity() {
           importLauncher.launch(arrayOf("text/markdown", "text/plain", "application/octet-stream"))
         },
         onPickProfileImage = { profileImageLauncher.launch("image/*") },
+        onSaveManuscriptDocx = {
+          notesController.prepareManuscriptDocx { manuscriptDocxLauncher.launch(it) }
+        },
         onUnlockApp = { requestAppUnlock() },
       )
     }

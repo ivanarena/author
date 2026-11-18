@@ -34,6 +34,7 @@ private const val GROUP_KEY = "author-note-group"
 private const val COMPACT_VIEW_KEY = "author-compact-view"
 private const val EDITOR_ZOOM_KEY = "author-editor-zoom"
 private const val EDITOR_FONT_KEY = "author-editor-font"
+private const val MANUSCRIPT_EXPORT_KEY = "author-manuscript-export"
 private const val EDITOR_TEXT_SIZE_KEY = "author-editor-text-size"
 private const val EDITOR_LINE_HEIGHT_KEY = "author-editor-line-height"
 private const val API_BASE_URL_KEY = "author-api-base-url"
@@ -67,7 +68,7 @@ private val THEMES =
     "dark-lavender",
   )
 private const val DEFAULT_EDITOR_FONT = "dm-sans"
-private val FONTS = setOf(DEFAULT_EDITOR_FONT, "figtree", "system-sans", "system-serif", "mono")
+private val FONTS = setOf(DEFAULT_EDITOR_FONT, "newsreader", "system-sans", "system-serif", "mono")
 private val GROUPS = setOf("smart", "month", "year", "none")
 
 class NotesRepository(context: Context) : AutoCloseable {
@@ -134,15 +135,47 @@ class NotesRepository(context: Context) : AutoCloseable {
 
   fun getEditorFont(): String {
     val stored = prefs.getString(EDITOR_FONT_KEY, null)
-    return when {
-      stored == "kedebideri" -> "figtree"
-      stored in FONTS -> stored ?: DEFAULT_EDITOR_FONT
-      else -> DEFAULT_EDITOR_FONT
-    }
+    // Removed fonts (Figtree and its older "kedebideri" id) fall back to the default.
+    return if (stored in FONTS) stored ?: DEFAULT_EDITOR_FONT else DEFAULT_EDITOR_FONT
   }
 
   fun setEditorFont(value: String) {
     prefs.edit { putString(EDITOR_FONT_KEY, if (value in FONTS) value else DEFAULT_EDITOR_FONT) }
+  }
+
+  fun isNetworkAvailable(): Boolean {
+    val connectivity =
+      appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+        ?: return true
+    val capabilities =
+      connectivity.getNetworkCapabilities(connectivity.activeNetwork) ?: return false
+    return capabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+  }
+
+  /** Last-used export layout on this device; the header follows the notebook. */
+  fun getManuscriptOptions(): ManuscriptOptions {
+    val defaults = ManuscriptOptions()
+    val stored =
+      runCatching { JSONObject(prefs.getString(MANUSCRIPT_EXPORT_KEY, null) ?: "{}") }.getOrNull()
+        ?: return defaults
+    return ManuscriptOptions(
+      preset = ManuscriptPreset.fromId(stored.optString("preset")) ?: defaults.preset,
+      order = ManuscriptOrder.fromId(stored.optString("order")) ?: defaults.order,
+      pageSize = ManuscriptPageSize.fromId(stored.optString("pageSize")) ?: defaults.pageSize,
+      pageNumbers = stored.optBooleanOrNull("pageNumbers") ?: defaults.pageNumbers,
+      titlePage = stored.optBooleanOrNull("titlePage") ?: defaults.titlePage,
+    )
+  }
+
+  fun setManuscriptOptions(options: ManuscriptOptions) {
+    val json =
+      JSONObject()
+        .put("preset", options.preset.id)
+        .put("order", options.order.id)
+        .put("pageSize", options.pageSize.id)
+        .put("pageNumbers", options.pageNumbers)
+        .put("titlePage", options.titlePage)
+    prefs.edit { putString(MANUSCRIPT_EXPORT_KEY, json.toString()) }
   }
 
   fun getEditorTextSize(): Float = prefs.getFloat(EDITOR_TEXT_SIZE_KEY, 16f).coerceIn(14f, 22f)
@@ -1527,6 +1560,26 @@ class NotesRepository(context: Context) : AutoCloseable {
       writeMarkdownZip(notes, notebooks, output)
     }
 
+  /** Decrypted notes of one notebook and its name, for a manuscript export. */
+  suspend fun loadNotebookManuscriptSource(
+    notebookId: String
+  ): Pair<String, List<ManuscriptSourceNote>> =
+    withContext(Dispatchers.IO) {
+      withOpenDatabase {
+        val notebook =
+          db.getNotebook(notebookId)?.takeIf { it.deletedAt == null } ?: error("Notebook not found")
+        val notes =
+          db
+            .allNotes()
+            .filter {
+              it.deletedAt == null && it.trashedAt == null && notebookId in noteNotebookIds(it)
+            }
+            .map { crypto.decryptNoteFields(it) }
+            .map { ManuscriptSourceNote(it.id, it.title, it.body, it.createdAt) }
+        crypto.decryptNotebookFields(notebook).name to notes
+      }
+    }
+
   suspend fun importMarkdownFiles(files: List<MarkdownInputFile>): ImportNotesResult =
     withContext(Dispatchers.IO) { importMarkdownFilesInternal(files) }
 
@@ -2856,3 +2909,6 @@ internal fun requireStoredSessionUsernameForSensitiveOperation(
   require(username.isNotEmpty()) { "Sign in again before $operation" }
   return username
 }
+
+private fun JSONObject.optBooleanOrNull(key: String): Boolean? =
+  if (opt(key) is Boolean) getBoolean(key) else null

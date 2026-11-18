@@ -40,9 +40,18 @@ internal fun NotesApp(
   onImport: () -> Unit,
   onPickProfileImage: () -> Unit = {},
   onUnlockApp: () -> Unit = {},
+  onSaveManuscriptDocx: () -> Unit = {},
 ) {
   AppTheme(theme = controller.theme, font = controller.editorFont) {
-    AppScaffold(controller, onExport, onSaveRecoveryKit, onImport, onPickProfileImage, onUnlockApp)
+    AppScaffold(
+      controller,
+      onExport,
+      onSaveRecoveryKit,
+      onImport,
+      onPickProfileImage,
+      onUnlockApp,
+      onSaveManuscriptDocx,
+    )
   }
 }
 
@@ -54,6 +63,7 @@ private fun AppScaffold(
   onImport: () -> Unit,
   onPickProfileImage: () -> Unit,
   onUnlockApp: () -> Unit,
+  onSaveManuscriptDocx: () -> Unit,
 ) {
   BackHandler(enabled = !controller.appLocked && controller.canHandleBack) {
     controller.handleBack()
@@ -65,7 +75,15 @@ private fun AppScaffold(
     floatingActionButton = { if (!controller.appLocked) PageFloatingAction(controller) },
   ) { innerPadding ->
     Box(Modifier.fillMaxSize().padding(innerPadding)) {
-      AppPage(controller, onExport, onSaveRecoveryKit, onImport, onPickProfileImage, onUnlockApp)
+      AppPage(
+        controller,
+        onExport,
+        onSaveRecoveryKit,
+        onImport,
+        onPickProfileImage,
+        onUnlockApp,
+        onSaveManuscriptDocx,
+      )
     }
   }
 }
@@ -78,6 +96,7 @@ private fun AppPage(
   onImport: () -> Unit,
   onPickProfileImage: () -> Unit,
   onUnlockApp: () -> Unit,
+  onSaveManuscriptDocx: () -> Unit,
 ) {
   Box(Modifier.fillMaxSize()) {
     if (controller.appLocked) {
@@ -100,6 +119,9 @@ private fun AppPage(
       if (controller.newNotebookOpen) NewNotebookDialog(controller)
       if (controller.signupRecoveryOpen) SignupRecoveryDialog(controller, onSaveRecoveryKit)
       controller.conflicts.firstOrNull()?.let { ConflictDialog(controller, it) }
+      controller.manuscriptNotebook?.let {
+        ManuscriptExportDialog(controller, it, onSaveManuscriptDocx)
+      }
       NotificationStack(controller)
     }
   }

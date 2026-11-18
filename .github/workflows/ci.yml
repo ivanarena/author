@@ -125,11 +125,12 @@ jobs:
         if: needs.reviewed-source.outputs.reusable != 'true'
         run: npx -y "@endevco/aube@${AUBE_VERSION}" run deps:check
 
+      # `deps:audit` ignores only the accepted advisories listed in SECURITY.md
+      # (currently GHSA-fc5q-39xc-vjpf / npm 1247710: unpatched picomatch, build
+      # tooling only).
       - name: Dependency audit
         if: needs.reviewed-source.outputs.reusable != 'true'
-        run: |
-          npx -y "@endevco/aube@${AUBE_VERSION}" audit --prod
-          npx -y "@endevco/aube@${AUBE_VERSION}" audit --audit-level high
+        run: npx -y "@endevco/aube@${AUBE_VERSION}" run deps:audit
 
       - name: Deprecation check
         if: needs.reviewed-source.outputs.reusable != 'true'

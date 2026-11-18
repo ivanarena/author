@@ -84,5 +84,14 @@ Supported surface:
 - Keep exactly one self-hosted Node process pointed at a local SQLite file.
 - Review CodeQL, OpenSSF Scorecard, dependency audit, deprecation, and Trivy
   findings before releases.
+- Keep accepted dependency advisories few, specific, and temporary. The
+  `deps:audit` script (used by CI and `release:verify`) ignores only these:
+  - [GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf)
+    (npm advisory 1247710, the ID the audit matches), picomatch ReDoS through extglob patterns, accepted 2026-11-18. No patched
+    release exists (all versions through 4.0.7 are affected). picomatch is
+    only reached through build and test tooling (Vite, Vitest, tinyglobby)
+    with developer-controlled glob patterns; it is not part of the production
+    runtime or the Docker image. Remove the ignore and upgrade once a patched
+    picomatch version is released.
 - Keep GitHub Actions pinned to full commit SHAs; Renovate tracks the readable
   version comments.

@@ -94,6 +94,30 @@ describe('manuscript ordering', () => {
     expect(titleSortKey('Civil war')).toBe('Civil war');
   });
 
+  it('orders titles the same way in every language (as on Android)', () => {
+    // Same expectation as the Android ManuscriptOrderingInstrumentedTest.
+    const titles = [
+      'Zebra',
+      'Ängel',
+      'Apple',
+      'Øre',
+      'Oak',
+      'chapter 10',
+      'Chapter 2'
+    ].map((title, index) => source(String(index), title, ''));
+    expect(
+      orderManuscriptNotes(titles, 'title').map((note) => note.title)
+    ).toEqual([
+      'Ängel',
+      'Apple',
+      'Chapter 2',
+      'chapter 10',
+      'Oak',
+      'Øre',
+      'Zebra'
+    ]);
+  });
+
   it('orders mixed timestamp formats by instant', () => {
     const mixed = [
       source('android', 'B', '', '2026-01-01T10:00:00Z'),

@@ -79,7 +79,9 @@ export interface Manuscript {
   wordCount: number;
 }
 
-const titleCollator = new Intl.Collator(undefined, {
+// Fixed English (CLDR root) rules, not the browser's language: the same notebook must come out
+// in the same order on every device and on Android (Collator for Locale.ROOT).
+const titleCollator = new Intl.Collator('en', {
   numeric: true,
   sensitivity: 'base'
 });

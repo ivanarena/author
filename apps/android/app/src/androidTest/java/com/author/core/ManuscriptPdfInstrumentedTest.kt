@@ -101,6 +101,39 @@ class ManuscriptPdfInstrumentedTest {
   }
 
   @Test
+  fun rendersANovelCompactly() {
+    val chapters =
+      (1..30).map { number ->
+        ManuscriptSourceNote(
+          "n$number",
+          "Chapter $number",
+          (0 until 40).joinToString("\n") {
+            if (it % 13 == 12) "* * *" else sentence.repeat(2 + it % 3)
+          },
+          "2026-01-01T00:00:00Z",
+        )
+      }
+    val manuscript =
+      buildManuscript(
+        "Novel",
+        chapters,
+        ManuscriptOptions(preset = ManuscriptPreset.PROSE, header = "Novel", titlePage = true),
+      )
+    val started = System.nanoTime()
+    val (rendered, file) = render("novel", manuscript)
+    val millis = (System.nanoTime() - started) / 1_000_000
+    android.util.Log.i(
+      "ManuscriptPdfTest",
+      "novel: ${manuscript.wordCount} words, ${rendered.pageCount} pages, " +
+        "${rendered.pdf.size} bytes, $millis ms",
+    )
+    assertTrue(rendered.pageCount > 150)
+    // Static fonts embed once: the file stays small enough for submission portals.
+    assertTrue("${rendered.pdf.size} bytes", rendered.pdf.size < 3_000_000)
+    assertReadablePages(rendered, file, 595 to 842)
+  }
+
+  @Test
   fun rendersTextTallerThanAPage() {
     val manuscript =
       buildManuscript(

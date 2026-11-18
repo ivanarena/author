@@ -33,17 +33,21 @@ class RenderedManuscript(val fileName: String, val pdf: ByteArray, val pageCount
  * (embedded in the file). Pagination lives in ManuscriptPagination.kt.
  */
 class ManuscriptPdfRenderer(context: Context) {
-  private val typeface: Typeface =
-    runCatching { ResourcesCompat.getFont(context, R.font.newsreader_variable) }.getOrNull()
-      ?: Typeface.SERIF
+  // Static instances of Newsreader (12 pt optical size). The PDF backend can only embed variable
+  // fonts as Type 3 outlines, repeated across many subsets: ~120 KB per page instead of one
+  // compact embedded font for the whole document.
+  private val regular: Typeface = loadFont(context, R.font.newsreader_pdf_regular, Typeface.NORMAL)
+  private val bold: Typeface = loadFont(context, R.font.newsreader_pdf_bold, Typeface.BOLD)
+
+  private fun loadFont(context: Context, resId: Int, fallbackStyle: Int): Typeface =
+    runCatching { ResourcesCompat.getFont(context, resId) }.getOrNull()
+      ?: Typeface.create(Typeface.SERIF, fallbackStyle)
 
   private fun paint(size: Float, bold: Boolean = false): TextPaint =
     TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
-      typeface = this@ManuscriptPdfRenderer.typeface
+      typeface = if (bold) this@ManuscriptPdfRenderer.bold else regular
       textSize = size
       color = Color.BLACK
-      // Variable font: weight for titles, optical size matched to the text size.
-      setFontVariationSettings("'wght' ${if (bold) 700 else 400}, 'opsz' ${size.roundToInt()}")
     }
 
   private fun isBold(style: ManuscriptTextStyle) =

@@ -1818,12 +1818,14 @@ class NotesController(private val repository: NotesRepository, private val scope
     onReady(recoveryKitFileName())
   }
 
+  // Files are opened with "wt": plain "w" does not truncate on many document providers, so
+  // saving over a larger existing file would leave its old tail behind (corrupt ZIP/JSON).
   fun completeSignupRecoveryKitSave(uri: Uri?, resolver: ContentResolver) {
     val bytes = preparedSignupRecoveryKit ?: return
     preparedSignupRecoveryKit = null
     if (uri == null) return
     scope.launch {
-      runCatching { resolver.openOutputStream(uri)?.use { it.write(bytes) } }
+      runCatching { resolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } }
         .onSuccess {
           signupRecoveryMessage = "Recovery kit saved"
           notify("success", "Recovery kit saved")
@@ -1844,8 +1846,9 @@ class NotesController(private val repository: NotesRepository, private val scope
     scope.launch {
       isArchiveBusy = true
       runCatching {
-          resolver.openOutputStream(uri)?.use { repository.exportMarkdownZipTo(it, notebookIds) }
-            ?: error("Could not open export destination")
+          resolver.openOutputStream(uri, "wt")?.use {
+            repository.exportMarkdownZipTo(it, notebookIds)
+          } ?: error("Could not open export destination")
         }
         .onSuccess { notify("success", "Export complete", "Markdown ZIP saved.") }
         .onFailure { notify("error", "Export failed", it.message ?: "Could not write file") }
@@ -2371,36 +2374,51 @@ class NotesController(private val repository: NotesRepository, private val scope
 
   /** Syncs and compiles, then asks the UI to pick where to save the DOCX. */
   fun prepareManuscriptDocx(onReady: (String) -> Unit) {
+    val notebookId = manuscriptNotebookId ?: return
     runManuscriptAction { manuscript, _, synced ->
       preparedManuscriptDocx = PreparedManuscriptDocx(manuscript, synced)
+      repository.setPendingManuscriptDocx(notebookId, manuscriptOptions)
       onReady(manuscriptFileName(manuscript.title, "docx"))
     }
   }
 
   fun completeManuscriptDocx(uri: Uri?, resolver: ContentResolver) {
-    val prepared = preparedManuscriptDocx ?: return
+    val prepared = preparedManuscriptDocx
     preparedManuscriptDocx = null
-    if (uri == null) return
+    val pending = repository.takePendingManuscriptDocx()
+    if (uri == null || (prepared == null && pending == null)) return
     scope.launch {
       runCatching {
+          // After the activity was recreated while the picker was open, rebuild the manuscript
+          // from the stored request (from this device's copy).
+          val manuscript =
+            prepared?.manuscript
+              ?: pending!!.let { (notebookId, options) ->
+                val (title, sourceNotes) = repository.loadNotebookManuscriptSource(notebookId)
+                buildManuscript(title, sourceNotes, options)
+              }
+          if (manuscript.sections.isEmpty()) error("This notebook has no notes to export")
           withContext(Dispatchers.IO) {
-            resolver.openOutputStream(uri)?.use {
-              writeManuscriptDocx(prepared.manuscript, nowIso(), it)
+            resolver.openOutputStream(uri, "wt")?.use {
+              writeManuscriptDocx(manuscript, nowIso(), it)
             } ?: error("Could not open export destination")
           }
+          manuscript
         }
-        .onSuccess {
-          val fileName = manuscriptFileName(prepared.manuscript.title, "docx")
+        .onSuccess { manuscript ->
+          val fileName = manuscriptFileName(manuscript.title, "docx")
           closeManuscriptExport()
-          val notice = exportSyncNotice(prepared.synced)
+          val notice = prepared?.let { exportSyncNotice(it.synced) }.orEmpty()
           notify(
             "success",
             "Manuscript exported",
             if (notice.isEmpty()) fileName else "$fileName. $notice",
           )
         }
-        .onFailure {
-          notify("error", "Manuscript export failed", it.message ?: "Could not write file")
+        .onFailure { error ->
+          // Do not leave the empty file the picker created behind.
+          runCatching { DocumentsContract.deleteDocument(resolver, uri) }
+          notify("error", "Manuscript export failed", error.message ?: "Could not write file")
         }
     }
   }

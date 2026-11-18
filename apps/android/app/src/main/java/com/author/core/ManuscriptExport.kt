@@ -95,14 +95,17 @@ data class Manuscript(
   val wordCount: Int,
 )
 
-private val SCENE_BREAK = Regex("^[*#~](?:\\s*[*#~])*$")
+// Matched after collapseSpaces, so any Unicode space between the marks counts.
+private val SCENE_BREAK = Regex("^[*#~](?: ?[*#~])*$")
 private val ROMAN_NUMERAL = Regex("^M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})$")
 private val ROMAN_WORD = Regex("^([IVXLCDM]+)([.:)\\-–—]?)$")
 private val ROMAN_VALUES =
   mapOf('I' to 1, 'V' to 5, 'X' to 10, 'L' to 50, 'C' to 100, 'D' to 500, 'M' to 1000)
 private val NUMBER_CHUNK = Regex("\\d+|\\D+")
 
-private fun isSpace(char: Char): Boolean = char.isWhitespace() || Character.isSpaceChar(char)
+// Like JavaScript's \s, which the web client uses.
+private fun isSpace(char: Char): Boolean =
+  char.isWhitespace() || Character.isSpaceChar(char) || char == '\uFEFF'
 
 private fun collapseSpaces(text: String): String = buildString {
   var lastWasSpace = false
@@ -238,7 +241,7 @@ fun parseManuscriptBody(body: String, preset: ManuscriptPreset): List<Manuscript
   for (rawLine in lines) {
     val text = rawLine.trim(::isSpace)
     if (text.isEmpty()) continue
-    if (SCENE_BREAK.matches(text)) {
+    if (SCENE_BREAK.matches(collapseSpaces(text))) {
       if (blocks.isNotEmpty() && blocks.last() != ManuscriptBlock.SceneBreak) {
         blocks += ManuscriptBlock.SceneBreak
       }
@@ -289,7 +292,7 @@ fun manuscriptFileName(title: String, extension: String): String {
   val base =
     collapseSpaces(
         Normalizer.normalize(title, Normalizer.Form.NFKC)
-          .replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]+"), " ")
+          .replace(Regex("[\\\\/:*?\"<>|\\p{Cc}]+"), " ")
       )
       .trim()
       .take(120)

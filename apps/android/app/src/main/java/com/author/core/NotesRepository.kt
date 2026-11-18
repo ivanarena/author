@@ -35,6 +35,7 @@ private const val COMPACT_VIEW_KEY = "author-compact-view"
 private const val EDITOR_ZOOM_KEY = "author-editor-zoom"
 private const val EDITOR_FONT_KEY = "author-editor-font"
 private const val MANUSCRIPT_EXPORT_KEY = "author-manuscript-export"
+private const val PENDING_MANUSCRIPT_DOCX_KEY = "author-pending-manuscript-docx"
 private const val EDITOR_TEXT_SIZE_KEY = "author-editor-text-size"
 private const val EDITOR_LINE_HEIGHT_KEY = "author-editor-line-height"
 private const val API_BASE_URL_KEY = "author-api-base-url"
@@ -176,6 +177,44 @@ class NotesRepository(context: Context) : AutoCloseable {
         .put("pageNumbers", options.pageNumbers)
         .put("titlePage", options.titlePage)
     prefs.edit { putString(MANUSCRIPT_EXPORT_KEY, json.toString()) }
+  }
+
+  /**
+   * A DOCX export waiting for the system file picker. Stored so the file can still be written if
+   * the activity is recreated (rotation) or the process is killed while the picker is open.
+   */
+  fun setPendingManuscriptDocx(notebookId: String, options: ManuscriptOptions) {
+    val json =
+      JSONObject()
+        .put("notebookId", notebookId)
+        .put("preset", options.preset.id)
+        .put("order", options.order.id)
+        .put("pageSize", options.pageSize.id)
+        .put("header", options.header)
+        .put("pageNumbers", options.pageNumbers)
+        .put("titlePage", options.titlePage)
+    prefs.edit { putString(PENDING_MANUSCRIPT_DOCX_KEY, json.toString()) }
+  }
+
+  /** Returns and clears the pending DOCX export, if any. */
+  fun takePendingManuscriptDocx(): Pair<String, ManuscriptOptions>? {
+    val raw = prefs.getString(PENDING_MANUSCRIPT_DOCX_KEY, null) ?: return null
+    prefs.edit { remove(PENDING_MANUSCRIPT_DOCX_KEY) }
+    val stored = runCatching { JSONObject(raw) }.getOrNull() ?: return null
+    val notebookId =
+      stored.optString("notebookId").ifEmpty {
+        return null
+      }
+    val defaults = ManuscriptOptions()
+    return notebookId to
+      ManuscriptOptions(
+        preset = ManuscriptPreset.fromId(stored.optString("preset")) ?: defaults.preset,
+        order = ManuscriptOrder.fromId(stored.optString("order")) ?: defaults.order,
+        pageSize = ManuscriptPageSize.fromId(stored.optString("pageSize")) ?: defaults.pageSize,
+        header = stored.optString("header"),
+        pageNumbers = stored.optBooleanOrNull("pageNumbers") ?: defaults.pageNumbers,
+        titlePage = stored.optBooleanOrNull("titlePage") ?: defaults.titlePage,
+      )
   }
 
   fun getEditorTextSize(): Float = prefs.getFloat(EDITOR_TEXT_SIZE_KEY, 16f).coerceIn(14f, 22f)

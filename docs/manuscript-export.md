@@ -115,9 +115,19 @@ processor still lays out the DOCX itself.
 - `core/ManuscriptPagination.kt` fills pages using only line breaks from a
   measurer, so it is unit-tested on the JVM with a fake measurer.
 - `core/ManuscriptPdf.kt` measures with `StaticLayout`, draws each line on a
-  `PdfDocument` page in the bundled Newsreader (weight and optical size set per
-  style; the font is embedded with a text layer), and hands the PDF to the
-  system print dialog, which can print or **Save as PDF**.
+  `PdfDocument` page, and hands the PDF to the system print dialog, which can
+  print or **Save as PDF**. It uses static Newsreader instances
+  (`res/font/newsreader_pdf_regular.ttf` and `newsreader_pdf_bold.ttf`, wght
+  400/700 at opsz 12): the PDF backend embeds a variable font as Type 3 outlines
+  repeated across many subsets (about 120 KB per page), while a static font is
+  embedded once with a text layer (a 270-page novel is about 420 KB). Regenerate
+  them from `newsreader_variable.ttf` with
+  `fonttools varLib.instancer newsreader_variable.ttf wght=400 opsz=12`
+  (and `wght=700`), then set the name table to Newsreader Regular/Bold.
+- A DOCX export waiting for the file picker is also stored in preferences, so
+  the file is still written if the activity is recreated (for example by
+  rotation) or the process is killed while the picker is open. Files are
+  opened in `"wt"` mode so saving over a larger file truncates it.
 - Exports wait for the editor's in-flight save, sync first when signed in and
   online (20-second cap), and warn about conflicts or offline state, as on the
   web. Layout choices are remembered per device (`author-manuscript-export`).
